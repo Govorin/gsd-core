@@ -342,6 +342,12 @@ build/
 /gsd-core/bin/lib/report-parser.cjs
 /gsd-core/bin/lib/pr-branch-patterns.cjs
 /gsd-core/bin/lib/undo-commit-selection.cjs
+# mn fork modules (src/*.cts) — same ADR-457 regime as the list above.
+/gsd-core/bin/lib/verify-gates.cjs
+/gsd-core/bin/lib/files-modified-normalize.cjs
+/gsd-core/bin/lib/plan-status.cjs
+/gsd-core/bin/lib/feature-vocabulary.cjs
+/gsd-core/bin/lib/feature-view.cjs
 __pycache__/
 *.pyc
 .venv/
