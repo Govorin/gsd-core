@@ -259,7 +259,9 @@ function cmdTemplateFill(cwd: string, templateType: string | null | undefined, o
       frontmatterObj = {
         phase: phaseId,
         verified: new Date().toISOString(),
-        status: 'pending',
+        // No `status` placeholder (#5202): the vocabulary is closed (passed |
+        // gaps_found | human_needed) and readers reject anything else; an
+        // absent status is "not yet verified". A caller may still pass one.
         score: '0/0 must-haves verified',
         ...fields,
       };
