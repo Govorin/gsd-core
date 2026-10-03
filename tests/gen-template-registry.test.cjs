@@ -610,3 +610,41 @@ describe('gen-template-registry: the shipped tree', () => {
     assert.equal(report.ok, result.exitCode === 0);
   });
 });
+
+// The leading-block scanner reads each block through the one fence owner
+// (locateFrontmatterFence, ADR-5057) instead of its own `---` comparison, so it
+// inherits the owner's CRLF / BOM / trailing-space rules.
+describe('gen-template-registry: leading-block scanner', () => {
+  test('a registry block followed by artifact frontmatter yields two blocks, in order', () => {
+    const text = '---\ngsd-template:\n  kind: x\n---\n\n---\nphase: 1\n---\n# Body\n';
+    assert.deepEqual(gen.scanLeadingBlocks(text), [
+      { lines: ['gsd-template:', '  kind: x'] },
+      { lines: ['phase: 1'] },
+    ]);
+  });
+
+  test('blank lines before the first block are skipped', () => {
+    assert.deepEqual(gen.scanLeadingBlocks('\n  \n---\na: 1\n---\n'), [{ lines: ['a: 1'] }]);
+  });
+
+  test('a block shown inside a code fence is not file-level', () => {
+    const text = '```markdown\n---\nphase: {N}\n---\n```\n';
+    assert.deepEqual(gen.scanLeadingBlocks(text), []);
+  });
+
+  test('scanning stops at prose: a later `---` block is not read', () => {
+    assert.deepEqual(gen.scanLeadingBlocks('# Title\n\n---\na: 1\n---\n'), []);
+  });
+
+  test('an unterminated block yields nothing', () => {
+    assert.deepEqual(gen.scanLeadingBlocks('---\na: 1\n'), []);
+  });
+
+  test('CRLF and a closer with trailing spaces read the same as LF', () => {
+    assert.deepEqual(gen.scanLeadingBlocks('---\r\na: 1\r\n---  \r\n# Body\r\n'), [{ lines: ['a: 1'] }]);
+  });
+
+  test('an adjacent empty block yields an empty line list', () => {
+    assert.deepEqual(gen.scanLeadingBlocks('---\n---\n'), [{ lines: [] }]);
+  });
+});

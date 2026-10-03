@@ -70,6 +70,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
+const { locateFrontmatterFence } = require('../gsd-core/bin/lib/frontmatter-fence.cjs');
 
 const ROOT = path.resolve(__dirname, '..');
 const TEMPLATES_DIR = path.join(ROOT, 'gsd-core', 'templates');
@@ -211,6 +212,9 @@ function compareStrings(a, b) {
 
 // ─── Frontmatter block scanning ──────────────────────────────────────────────
 
+/** Whitespace-only lines before (or between) leading blocks. */
+const LEADING_BLANK_LINES = /^(?:[ \t]*\n)+/;
+
 /**
  * Split a markdown file into its leading FILE-LEVEL `---` blocks.
  *
@@ -224,50 +228,28 @@ function compareStrings(a, b) {
  *     ```
  *
  * A scanner that matched `---` anywhere would read that fenced content as
- * template metadata. So fenced regions are tracked and skipped, and scanning
- * stops at the first non-blank line that is neither a fence nor a block opener —
- * the blocks this generator cares about are all at the head of the file.
+ * template metadata. So each block is located by the one fence owner,
+ * `locateFrontmatterFence` (src/frontmatter-fence.cts, ADR-5057), which only
+ * opens a block at byte 0: blank lines before a block are skipped, the owner
+ * finds the block, scanning resumes after its closing fence, and it stops at the
+ * first non-blank line that does not open a block (a code fence, prose, an
+ * unterminated block) — the blocks this generator cares about are all at the
+ * head of the file.
  *
  * @param {string} text
  * @returns {Array<{ lines: string[] }>} the leading file-level blocks, in order.
  */
 function scanLeadingBlocks(text) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let rest = text.replace(/\r\n/g, '\n');
   const blocks = [];
-  let i = 0;
 
-  while (i < lines.length) {
-    const line = lines[i];
-
-    if (line.trim() === '') {
-      i++;
-      continue;
-    }
-
-    // A fence at the head of the file means the artifact frontmatter it may
-    // contain is NOT file-level. Stop: any registry block would have preceded
-    // it (shapes B and C both place the block at byte 0).
-    if (/^\s*(```|~~~)/.test(line)) break;
-
-    if (line === '---') {
-      const body = [];
-      let j = i + 1;
-      let closed = false;
-      while (j < lines.length) {
-        if (lines[j] === '---') {
-          closed = true;
-          break;
-        }
-        body.push(lines[j]);
-        j++;
-      }
-      if (!closed) break;
-      blocks.push({ lines: body });
-      i = j + 1;
-      continue;
-    }
-
-    break;
+  for (;;) {
+    rest = rest.replace(LEADING_BLANK_LINES, '');
+    const fence = locateFrontmatterFence(rest);
+    if (!fence || !fence.closed) break;
+    const body = rest.slice(fence.openEnd, fence.bodyEnd);
+    blocks.push({ lines: body === '' ? [] : body.split('\n') });
+    rest = rest.slice(fence.closingFenceEnd);
   }
 
   return blocks;
