@@ -1,6 +1,8 @@
-// allow-test-rule: source-text-is-the-product (#1190) — the reviewer agent and
-// the reference it reads ARE the shipped artifact; their wording is what a model
-// loads, so the contract below can only be asserted against that text.
+// source-text-is-the-product (CONTRIBUTING.md): the reviewer agent and the
+// reference it reads ARE the shipped artifact; their wording is what a model
+// loads, so the contract below can only be asserted against that text. No
+// allow-test-rule marker — only markdown and JSON are read, so the
+// no-source-grep rule has nothing for a marker to suppress.
 'use strict';
 
 /**

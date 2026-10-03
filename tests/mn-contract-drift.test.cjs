@@ -322,7 +322,6 @@ describe('contract-drift gate', () => {
   // ── the gate is declared, not just present on disk ────────────────────────
 
   test('the capability registers the gate against workflow.contract_drift', () => {
-    // allow-test-rule: source-text-is-the-product
     // A capability manifest IS the deployed contract — the runtime reads this
     // JSON to decide what runs. A script nothing dispatches is the exact defect
     // class this fork exists to close.

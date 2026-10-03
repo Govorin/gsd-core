@@ -1,7 +1,8 @@
-// allow-test-rule: source-text-is-the-product (#1190) — the agent definition
-// and the reference it dispatches through ARE the shipped artifact: their exact
-// wording is what a model loads, so the contract below can only be asserted
-// against that text. Nothing here greps code under test.
+// source-text-is-the-product (CONTRIBUTING.md): the agent definition and the
+// reference it dispatches through ARE the shipped artifact: their exact wording
+// is what a model loads, so the contract below can only be asserted against
+// that text. Nothing here greps code under test, so there is no `no-source-grep`
+// violation and no allow-test-rule marker to carry.
 'use strict';
 
 /**

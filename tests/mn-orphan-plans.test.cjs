@@ -198,7 +198,6 @@ describe('orphan-plans gate', () => {
   // ── the gate is dispatched, not merely present ────────────────────────────
 
   test('the capability registers the gate as opt-in at verify:pre', () => {
-    // allow-test-rule: source-text-is-the-product
     // The manifest IS the deployed contract — the runtime reads this JSON to
     // decide what runs and when.
     const manifest = JSON.parse(

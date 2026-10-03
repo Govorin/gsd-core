@@ -206,7 +206,6 @@ describe('wave-solve', () => {
   });
 
   test('the capability registers the solver at plan:post', () => {
-    // allow-test-rule: source-text-is-the-product
     // The manifest IS the deployed contract — the runtime reads this JSON.
     const manifest = JSON.parse(
       fs.readFileSync(
