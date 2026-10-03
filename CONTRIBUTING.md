@@ -1424,6 +1424,6 @@ If you find that `.claude/agents/` has drifted from `agents/` (e.g., after a bra
 
 ## Security
 
-- **Path validation** — use `validatePath()` from `security.cjs` for any user-provided paths
+- **Path validation** — contain any user-provided path with `assertWithinRoot()` (throws) or `tryWithinRoot()` (returns `null`) from `security.cjs`; both return a branded `ContainedPath`. Absolute input is refused unless the call passes `PathAcceptance.AbsoluteInsideRoot`, and is then still held inside the root. `validatePath()` is the internal primitive behind them, not a call-site API
 - **No shell injection** — use `execFileSync` (array args) over `execSync` (string interpolation)
 - **No `${{ }}` in GitHub Actions `run:` blocks** — bind to `env:` mappings first
