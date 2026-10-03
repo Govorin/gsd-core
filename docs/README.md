@@ -104,6 +104,7 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 - [Gate predicates](reference/gate-predicates.md) — canonical specification of the phase-gate predicate vocabulary
 - [Capability matrix](reference/capability-matrix.md) — generated catalogue of every capability's role, tier, extension points, hook kinds, and `engines.gsd`
 - [Exit code reference](reference/exit-codes.md) — generated catalogue of every registered process exit code, its name, meaning, and owning module, plus the reserved bands and the v1/v2 exit contract
+- [State machines](reference/state-machines.md) — generated lifecycle diagrams of the plan status, `VerificationStatus` and `PhaseStatus` vocabularies, drawn from the code constants that own them (transitions only where the code defines a table)
 - [Capability manifest](reference/capability-manifest.md) — the full `capability.json` schema and validation rules
 - [`gsd capability` command](reference/gsd-capability-command.md) — install / update / remove / list reference for third-party capabilities
 - [Workflow fragments](reference/workflow-fragments.md) — in-file `<!-- gsd:section -->` marker grammar for fragmentizing workflow markdown at emission time

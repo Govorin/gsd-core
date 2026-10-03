@@ -346,6 +346,9 @@ const { routePhaseCommand } = require('./lib/phase-command-router.cjs');
 const { routePhasesCommand } = require('./lib/phases-command-router.cjs');
 const { routeValidateCommand } = require('./lib/validate-command-router.cjs');
 const { routeRoadmapCommand } = require('./lib/roadmap-command-router.cjs');
+// Phase 5.3 (upstream-sync plan): `plan graph` — a phase's plans as mermaid,
+// built from wave/depends_on (src/plan-graph.cts over src/mermaid.cts).
+const { routePlanCommand } = require('./lib/plan-command-router.cjs');
 // #3676 (Phase 4, epic #3344): quick-batch is a first-party, always-on
 // command family (like `/gsd:quick`) — wired directly into
 // HOST_COMMAND_ROUTERS, not the opt-in capability-registry/`activationKey`
@@ -4748,6 +4751,9 @@ const HOST_COMMAND_ROUTERS = {
     // io/planning-inspect deps, so it needs no module injection — it receives
     // { args, cwd, raw, error } and ignores the rest of the dispatch context.
     'planning': routePlanningCommand,
+    // Phase 5.3: `plan graph --dir <phase> [--out] [--strict]`. The router
+    // imports its own deps and confines --dir/--out to the project root.
+    'plan': routePlanCommand,
     'assumption-delta': routeAssumptionDelta,
     'requirements': routeRequirements,
     'gap-analysis': routeGapAnalysis,
@@ -5043,7 +5049,7 @@ const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <fiel
   'context-predicates, current-timestamp, detect-custom-files, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +
   'generate-dev-preferences, generate-slug, graphify, history-digest, init, intel, ' +
-  'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, package-legitimacy, phase, phase-plan-index, phases, planning, profile-questionnaire, ' +
+  'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, package-legitimacy, phase, phase-plan-index, phases, plan, planning, profile-questionnaire, ' +
   'profile-sample, progress, project-instruction-file, prompt-budget, quick-batch, quick-tasks-append, quick-tasks-migrate, requirements, research-plan, research-store, resolve-granularity, resolve-model, restore-custom-files, roadmap, runtime-identity, scaffold, smart-entry, state, ' +
   'config-set-model-profile, dispatch-capacity, dispatch-isolation, dispatch-should-flatten, inspect-dispatch-isolation, record-dispatch-isolation, estimate-calibrate, estimate-calibration, estimate-check, resolve-agent, resolve-dispatch-type, ' +
   'resolve-execution, review-lane, select-revert-commits, skill-manifest, skills-root, stamp-codebase-map, state-snapshot, stats, summary-extract, teams-status, todo, uat, update-context, verification, websearch, windows, ' +

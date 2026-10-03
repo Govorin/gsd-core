@@ -923,6 +923,20 @@ Pass `--json` to receive the typed IR directly (useful in scripts and test asser
 
 ---
 
+## Plan Commands
+
+### `plan graph`
+
+```bash
+node gsd-tools.cjs plan graph --dir <phase-dir> [--out <file>] [--strict] [--raw]
+```
+
+Draws a phase's plans as a mermaid flowchart built from each plan's `wave` and `depends_on` — never from a model's memory. A node is a `*-PLAN.md` file, an edge is a `depends_on` entry. Defects are drawn in red rather than hidden: a dependency on a plan that is not in the directory (dashed edge to a marked node), a wave that is not strictly later than its dependency's, a `depends_on` cycle. A node's colour is what is on disk: a SUMMARY → done; otherwise the plan's `status` (`in_progress`, `blocked`, `superseded`); otherwise pending.
+
+The JSON result carries `plan_count`, `edge_count`, `defect_count`, `defects[]`, `written` and the `markdown` document; `--raw` prints the document itself (or a one-line `OK: …` summary when `--out` wrote it). Defects never fail the command unless `--strict` is given. `--dir` and `--out` must lie inside the project. No plans to draw is a failure to look (`phase_not_found`), not an empty graph.
+
+---
+
 ## Planning Snapshot Commands
 
 ### `planning inspect`
