@@ -1,7 +1,7 @@
 ---
 name: gsd-research-synthesizer
 description: Synthesizes research outputs from parallel researcher agents into SUMMARY.md. Spawned by /gsd:new-project after 4 researcher agents complete.
-tools: Read, Write, Bash, Skill
+tools: Read, Write, Bash, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: purple
 # hooks:
 #   PostToolUse:

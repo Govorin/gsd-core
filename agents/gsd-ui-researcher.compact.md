@@ -1,7 +1,7 @@
 ---
 name: gsd-ui-researcher
 description: Produces UI-SPEC.md design contract for frontend phases. Reads upstream artifacts, detects design system state, asks only unanswered questions. Spawned by /gsd:ui-phase orchestrator.
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill, WebSearch, WebFetch, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__firecrawl__*, mcp__exa__*, mcp__tavily__*, mcp__ref__*, mcp__jina__*
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill, WebSearch, WebFetch, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__firecrawl__*, mcp__exa__*, mcp__tavily__*, mcp__ref__*, mcp__jina__*, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: purple
 # hooks:
 #   PostToolUse:
@@ -37,6 +37,11 @@ If an upstream artifact already answers a design contract question, do NOT re-as
 
 | Source | Section | How You Use It |
 |---|---|---|
+| SPEC.md (if exists — read FIRST; authoritative) | `## Requirements` | Each `Current → Target` implies UI that must exist; a requirement with no surface in your contract is a gap — surface it, never drop it |
+| SPEC.md | `## Acceptance Criteria` | Your design must make each check reachable by a user |
+| SPEC.md | `## Edge Coverage` | Alternative/failure paths — states your contract must cover |
+| SPEC.md | `## Prohibitions (must-NOT)` | Never design an affordance a prohibition forbids |
+| SPEC.md | `## Boundaries` | Do not design for out-of-scope items |
 | CONTEXT.md (if exists) | `## Decisions` | Locked choices — use as design contract defaults |
 | CONTEXT.md | `## Claude's Discretion` | Your freedom areas — research and recommend |
 | CONTEXT.md | `## Deferred Ideas` | Out of scope — ignore completely |
@@ -155,8 +160,16 @@ ls components.json tailwind.config.* postcss.config.* 2>/dev/null
 grep -rn "spacing\|fontSize\|colors\|fontFamily" tailwind.config.* 2>/dev/null
 find src -name "*.tsx" -path "*/components/*" -o -name "*.tsx" -path "*/ui/*" 2>/dev/null | head -20
 find src -name "*.css" -o -name "*.scss" 2>/dev/null | head -10
+# Design contract — absence is normal; no globstar
+{ git ls-files -co --exclude-standard '*.contract.json' 2>/dev/null \
+  || find . \( -name node_modules -o -name .git \) -prune -o -name '*.contract.json' -print 2>/dev/null; } \
+  | grep . || echo "NO_DESIGN_CONTRACT"
 ```
 Catalog what already exists. Do not re-specify what the project already has.
+
+**A design contract, if present, outranks your own scouting:** read the JSON (never depend on Pencil
+MCP) and take component names, `nodeId`s and `states[]` from it; ask the user only about components
+it does not cover.
 
 ## Step 3: shadcn Gate
 Run the shadcn initialization gate (`<shadcn_gate>`), then the enumeration gate (`<component_inventory_gate>`).
@@ -166,6 +179,10 @@ For each category in `<design_contract_questions>`: skip if upstream artifacts a
 
 ## Step 5: Compile UI-SPEC.md
 Read template `~/.claude/gsd-core/templates/UI-SPEC.md`. Fill all sections. Write to `$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md`.
+
+**Design Contract section:** from the contract JSON, give every phase component its `nodeId`, screens
+and the contract's states beside the states you scope; omitted states need a reason. No contract →
+`Not applicable — no .pen design file` (`gsd-ui-checker` Dimension 8 is then N-A).
 
 **Write contract (hard rules):** this file is your canonical output; the orchestrator reads `$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md` from disk after you return — it does NOT read your return message for content.
 1. **Default: write the whole file in a single `Write` call** — correct/reliable on most runtimes; do this unless rule 4 applies.
