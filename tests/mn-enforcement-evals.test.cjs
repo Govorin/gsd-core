@@ -53,6 +53,13 @@ const UAT_GATE = path.join(
   'uat-open.mjs'
 );
 
+/**
+ * Bounds one run of the UAT gate over a case fixture. Passed as `timeoutMs`:
+ * the seam ignores a `timeout` key, so this bound used to be dead and the call
+ * fell back to the seam's 60000ms default.
+ */
+const UAT_GATE_TIMEOUT_MS = 90000;
+
 const CASES = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'qa', 'enforcement-cases.json'), 'utf8')
 );
@@ -185,7 +192,7 @@ const RUNNERS = {
           `### 1. Login works\nexpected: dashboard appears\nresult: ${testCase.uat}\n`
       );
     }
-    const result = runNode([UAT_GATE, '--dir', phaseDir], { timeout: 90000 });
+    const result = runNode([UAT_GATE, '--dir', phaseDir], { timeoutMs: UAT_GATE_TIMEOUT_MS });
     assert.equal(result.outcome, OUTCOME.EXITED, `${testCase.id}: the gate must exit cleanly`);
     return result.exitCode === 0 ? 'allow' : 'block';
   },
