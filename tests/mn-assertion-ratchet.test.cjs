@@ -35,6 +35,9 @@ const SCRIPT = path.join(
   'assertion-ratchet.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 60000;
+
 const HELD = 0;
 const DROPPED = 1;
 
@@ -68,7 +71,7 @@ describe('assertion-ratchet gate', () => {
   function run(extra = []) {
     return runNode([SCRIPT, '--baseline', baseline, '--paths', 'libs', ...extra], {
       cwd: repo,
-      timeoutMs: 60000,
+      timeoutMs: RUN_TIMEOUT_MS,
     });
   }
 

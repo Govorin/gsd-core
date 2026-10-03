@@ -42,8 +42,18 @@ const PASS = 0;
 const BLOCK = 1;
 const CANNOT_CHECK = 2;
 
+/**
+ * Bounds one run of the gate over a phase fixture. Passed as `timeoutMs`: the
+ * seam ignores a `timeout` key, so these bounds used to be dead and every call
+ * fell back to the seam's 60000ms default.
+ */
+const RUN_TIMEOUT_MS = 90000;
+
+/** Bounds a run the gate refuses at argument parsing, before reading anything. */
+const ARGS_TIMEOUT_MS = 30000;
+
 function runGate(phaseDir, extra = []) {
-  const result = runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeout: 90000 });
+  const result = runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
   assert.equal(result.outcome, OUTCOME.EXITED, 'the gate must exit, not hang or die on a signal');
   return result;
 }
@@ -124,7 +134,7 @@ describe('uat-open gate', () => {
     // Each of these is "the gate could not answer", which must never read as
     // "the answer is yes" — the rule autonomous.md already applies to loop
     // gates ("a gate that could not run is not a gate that passed").
-    const noArgs = runNode([SCRIPT], { timeout: 30000 });
+    const noArgs = runNode([SCRIPT], { timeoutMs: ARGS_TIMEOUT_MS });
     assert.equal(noArgs.exitCode, CANNOT_CHECK, 'missing --dir');
 
     assert.equal(

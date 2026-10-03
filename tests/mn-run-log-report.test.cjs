@@ -31,6 +31,9 @@ const SCRIPT = path.join(
   'run-log-report.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
 const CLEAN = 0;
 const BLOCKED = 1;
 const CANNOT_LOOK = 2;
@@ -55,7 +58,7 @@ describe('run-log-report', () => {
   }
 
   function run(extra = []) {
-    return runNode([SCRIPT, '--log', logPath, ...extra], { cwd: repo, timeoutMs: 30000 });
+    return runNode([SCRIPT, '--log', logPath, ...extra], { cwd: repo, timeoutMs: RUN_TIMEOUT_MS });
   }
 
   test('exits 2 when the log does not exist', () => {

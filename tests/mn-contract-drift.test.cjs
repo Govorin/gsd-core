@@ -35,6 +35,9 @@ const SCRIPT = path.join(
   'contract-drift.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
 /** Exit codes are the gate's contract: 0 pass, 1 drift, 2 could-not-look. */
 const PASS = 0;
 const DRIFT = 1;
@@ -66,7 +69,7 @@ describe('contract-drift gate', () => {
   }
 
   function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, '--root', srcDir, ...extra], { timeoutMs: 30000 });
+    return runNode([SCRIPT, '--dir', phaseDir, '--root', srcDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
   }
 
   const CONTRACT_FIND_BY_ID = [
@@ -295,13 +298,13 @@ describe('contract-drift gate', () => {
   test('exits 2 when the phase directory does not exist', () => {
     const r = runNode(
       [SCRIPT, '--dir', path.join(tmp, 'no-such-phase'), '--root', srcDir],
-      { timeoutMs: 30000 },
+      { timeoutMs: RUN_TIMEOUT_MS },
     );
     assert.equal(r.exitCode, CANNOT_LOOK, '"could not look" must be distinct from "found nothing"');
   });
 
   test('exits 2 when --dir is omitted', () => {
-    const r = runNode([SCRIPT, '--root', srcDir], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT, '--root', srcDir], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK);
   });
 
@@ -312,7 +315,7 @@ describe('contract-drift gate', () => {
     const empty = path.join(tmp, 'empty');
     fs.mkdirSync(empty, { recursive: true });
 
-    const r = runNode([SCRIPT, '--dir', phaseDir, '--root', empty], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT, '--dir', phaseDir, '--root', empty], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK, `an unverifiable run must not report success: ${r.stdout}`);
   });
 

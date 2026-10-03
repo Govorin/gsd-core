@@ -43,6 +43,20 @@ const ALL_KILLED = 0;
 const SURVIVED = 1;
 const CANNOT_CHECK = 2;
 
+/*
+ * Passed as `timeoutMs`: the seam ignores a `timeout` key, so these bounds used
+ * to be dead and every call fell back to the seam's 60000ms default.
+ */
+
+/** Bounds a full spot-check: the test command runs once clean and once per mutant. */
+const MUTATION_RUN_TIMEOUT_MS = 120000;
+
+/** Bounds a run that refuses after at most one attempt at the test command. */
+const REFUSAL_TIMEOUT_MS = 60000;
+
+/** Bounds a run refused at argument parsing, before any command runs. */
+const ARGS_TIMEOUT_MS = 30000;
+
 describe('mutation spot-check', () => {
   let root;
   let phaseDir;
@@ -82,7 +96,7 @@ describe('mutation spot-check', () => {
   const runCheck = (extra = []) =>
     runNode(
       [SCRIPT, '--dir', phaseDir, '--command', `node "${path.join(root, 'check.js')}"`, ...extra],
-      { timeout: 120000 }
+      { timeoutMs: MUTATION_RUN_TIMEOUT_MS }
     );
 
   beforeEach(() => {
@@ -143,7 +157,7 @@ describe('mutation spot-check', () => {
     write(REAL_TEST);
     const result = runNode(
       [SCRIPT, '--dir', phaseDir, '--command', 'this-command-does-not-exist-xyz'],
-      { timeout: 60000 }
+      { timeoutMs: REFUSAL_TIMEOUT_MS }
     );
     assert.equal(result.exitCode, CANNOT_CHECK);
   });
@@ -189,7 +203,7 @@ describe('mutation spot-check', () => {
         workflow: { mutation_test_command: `node "${path.join(root, 'check.js')}"` },
       })
     );
-    const result = runNode([SCRIPT, '--dir', phaseDir], { timeout: 120000 });
+    const result = runNode([SCRIPT, '--dir', phaseDir], { timeoutMs: MUTATION_RUN_TIMEOUT_MS });
     assert.equal(result.exitCode, ALL_KILLED, result.stderr);
   });
 
@@ -198,17 +212,17 @@ describe('mutation spot-check', () => {
     // code failure — the confusion that gets a gate switched off.
     write(REAL_TEST);
     fs.writeFileSync(path.join(root, '.planning', 'config.json'), JSON.stringify({ workflow: {} }));
-    const result = runNode([SCRIPT, '--dir', phaseDir], { timeout: 60000 });
+    const result = runNode([SCRIPT, '--dir', phaseDir], { timeoutMs: REFUSAL_TIMEOUT_MS });
     assert.equal(result.exitCode, CANNOT_CHECK);
     assert.ok(result.stderr.includes('no test command'));
   });
 
   test('refuses unusable arguments rather than passing', () => {
-    const noArgs = runNode([SCRIPT], { timeout: 30000 });
+    const noArgs = runNode([SCRIPT], { timeoutMs: ARGS_TIMEOUT_MS });
     assert.equal(noArgs.exitCode, CANNOT_CHECK);
     const noPhase = runNode(
       [SCRIPT, '--dir', path.join(root, 'nope'), '--command', 'true'],
-      { timeout: 30000 }
+      { timeoutMs: ARGS_TIMEOUT_MS }
     );
     assert.equal(noPhase.exitCode, CANNOT_CHECK);
   });

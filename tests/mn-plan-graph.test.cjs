@@ -26,8 +26,13 @@ const os = require('node:os');
 const path = require('node:path');
 const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
 const { cleanup } = require('./helpers.cjs');
+const { extractFencedBlock } = require('../gsd-core/bin/lib/markdown-sectionizer.cjs');
+const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
 const SCRIPT = path.join(__dirname, '..', 'capabilities', 'mn-verify-gate', 'scripts', 'plan-graph.mjs');
+
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
 
 const OK = 0;
 const DEFECTS_STRICT = 1;
@@ -35,14 +40,14 @@ const CANNOT_LOOK = 2;
 
 /** Parse the mermaid block into { subgraphs, nodes, edges, red }. */
 function parseGraph(stdout) {
-  const block = stdout.match(/```mermaid\n([\s\S]*?)\n```/);
-  assert.ok(block, `no mermaid block in output:\n${stdout}`);
+  const block = extractFencedBlock(stdout, 'mermaid');
+  assert.ok(block !== null, `no mermaid block in output:\n${stdout}`);
   const nodes = new Map();
   const edges = [];
   const red = [];
   const subgraphs = [];
   let current = null;
-  for (const line of block[1].split('\n')) {
+  for (const line of splitLines(block)) {
     let m;
     if ((m = line.match(/^\s+subgraph \w+\["(.*)"\]$/))) {
       current = m[1];
@@ -81,7 +86,7 @@ describe('plan-graph', () => {
     fs.writeFileSync(path.join(dir, `${id}-SUMMARY.md`), '---\nphase: 01\n---\n\n# done\n');
   }
   function run(extra = []) {
-    return runNode([SCRIPT, '--dir', dir, ...extra], { timeoutMs: 30000 });
+    return runNode([SCRIPT, '--dir', dir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
   }
   const graph = (r) => parseGraph(r.stdout);
   const edgePairs = (g) => g.edges.map((e) => `${e.from}>${e.to}${e.dashed ? '?' : ''}`);
@@ -274,11 +279,11 @@ describe('plan-graph', () => {
   });
 
   test('exits 2 for a missing directory and for a missing --dir argument', () => {
-    const gone = runNode([SCRIPT, '--dir', path.join(dir, 'nope')], { timeoutMs: 30000 });
+    const gone = runNode([SCRIPT, '--dir', path.join(dir, 'nope')], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(gone.exitCode, CANNOT_LOOK);
     assert.match(gone.stderr, /not found/);
 
-    const bare = runNode([SCRIPT], { timeoutMs: 30000 });
+    const bare = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(bare.exitCode, CANNOT_LOOK);
     assert.match(bare.stderr, /usage/);
   });

@@ -31,6 +31,16 @@ const SCRIPT = path.join(
   'clean-state.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
+/**
+ * Bounds one git call building the fixture (add, commit, worktree add). Kept
+ * at its original value rather than moved onto the shared GIT_TIMEOUT_MS
+ * (15000) or GIT_FIXTURE_TIMEOUT_MS (60000): naming, not tuning.
+ */
+const FIXTURE_GIT_TIMEOUT_MS = 30000;
+
 const CLEAN = 0;
 const UNCLEAN = 1;
 const CANNOT_LOOK = 2;
@@ -56,14 +66,14 @@ describe('clean-state gate', () => {
   });
 
   function git(args, cwd = project) {
-    const r = runGit(args, { cwd, timeoutMs: 30000 });
+    const r = runGit(args, { cwd, timeoutMs: FIXTURE_GIT_TIMEOUT_MS });
     assert.equal(r.outcome, OUTCOME.EXITED, `git ${args.join(' ')} did not exit: ${r.stderr}`);
     assert.equal(r.exitCode, 0, `git ${args.join(' ')} failed: ${r.stderr}`);
     return r.stdout.trim();
   }
 
   function run(dir = phaseDir) {
-    return runNode([SCRIPT, '--dir', dir], { timeoutMs: 30000 });
+    return runNode([SCRIPT, '--dir', dir], { timeoutMs: RUN_TIMEOUT_MS });
   }
 
   function commitAll(message) {
@@ -149,7 +159,8 @@ describe('clean-state gate', () => {
   test('finds the operation marker inside a linked worktree, where .git is a file', () => {
     const linked = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-clean-state-wt-'));
     extra.push(linked);
-    fs.rmSync(linked, { recursive: true });
+    // Only the unique name is wanted: `git worktree add` creates the directory itself.
+    cleanup(linked);
     git(['worktree', 'add', '-q', '-b', 'linked-branch', linked]);
     const marker = git(['rev-parse', '--git-path', 'CHERRY_PICK_HEAD'], linked);
     const head = git(['rev-parse', 'HEAD'], linked);
@@ -225,7 +236,7 @@ describe('clean-state gate', () => {
   });
 
   test('exits 2 for a missing --dir argument', () => {
-    const r = runNode([SCRIPT], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK);
     assert.match(r.stderr, /usage/);
   });

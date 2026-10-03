@@ -38,6 +38,9 @@ const SCRIPT = path.join(
   'worktree-gc.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 60000;
+
 describe('worktree-gc', () => {
   let repo;
 
@@ -50,7 +53,7 @@ describe('worktree-gc', () => {
   });
 
   function run(extra = []) {
-    return runNode([SCRIPT, ...extra], { cwd: repo, timeoutMs: 60000 });
+    return runNode([SCRIPT, ...extra], { cwd: repo, timeoutMs: RUN_TIMEOUT_MS });
   }
 
   /**
