@@ -768,6 +768,8 @@ ${CONTEXT_WINDOW >= 500000 ? `
 - SUMMARY.md files from the 3 most recent completed phases (what was built — reuse patterns, avoid duplication)
 - LEARNINGS.md files from the 3 most recent completed phases (structured decisions, patterns, lessons, surprises — skip silently if a phase has no LEARNINGS.md; prefix each block with \`[from Phase N LEARNINGS]\` for source attribution; if total size exceeds 15% of context budget, drop oldest first)
 - CONTEXT.md, SUMMARY.md, and LEARNINGS.md from any phases listed in the current phase's "Depends on:" field in ROADMAP.md (regardless of recency — explicit dependencies always load, deduplicated against the 3 most recent)
+- `.planning/LEARNINGS-DIGEST.md` if it exists — the accumulated distillation, always loaded regardless of recency
+- `<repo-root>/.planning/CROSS-DOMAIN.md` if this project's `.planning/` is nested inside a larger repository — what sibling projects learned about ground they share (build system, shared libraries, tree-wide conventions)
 - Skip all other prior phases to stay within context budget
 ` : ''}
 </required_reading>
@@ -1096,7 +1098,7 @@ Agent(
 ## 11. Handle Checker Return
 
 - **`marker_received` + `## VERIFICATION PASSED`:** Display confirmation, proceed to step 13.
-- **`marker_received` + `## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 12.
+- **`marker_received` + `## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 11b (refutation, when enabled) and then step 12.
 - **`stalled`:** Automatically surface 11a's recovery choice (Accept verification / Retry checker / Stop) — no manual interrupt needed.
 - **Empty / truncated / no recognized marker:** → Filesystem fallback (step 11a).
 
@@ -1111,6 +1113,10 @@ DISK_PLANS=$(gsd_run query find-phase "${PHASE_NUMBER}" | jq -r '.plan_count_all
 ```
 
 If `DISK_PLANS` is greater than 0 (plans exist on disk; a known Windows stdio hang pattern), offer: 1) Accept verification (treat as `## VERIFICATION PASSED`, continue to step 13), 2) Retry checker (return to step 10), 3) Stop. If it is 0, something is seriously wrong — display error and stop. Full banner text: `gsd-core/workflows/plan-phase/detail/elaboration.md` § 11a.
+
+## 11b. Refute Findings (conditional)
+
+**Runs when:** the checker returned `## ISSUES FOUND` **and** `PLAN_PRE_HOOKS_JSON` has an active hook with `when == "workflow.refute_findings"`; otherwise go to step 12. An adversarial pass by something that is not the reviewer: each finding must survive an attempt to disprove it and is dropped only with evidence (a file, a line, a command's output). Read and execute `gsd-core/references/finding-refutation.md` — dispatch prompt and routing rules.
 
 ## 12. Revision Loop (Max 3 Iterations)
 

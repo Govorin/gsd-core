@@ -24,6 +24,12 @@ interface VerifyModule {
   cmdVerifySchemaDrift(cwd: string, phase: string | undefined, skip: boolean, raw: boolean): void;
   cmdVerifyCodebaseDrift(cwd: string, raw: boolean): void;
   cmdVerifyContextDrift(cwd: string, phase: string | undefined, raw: boolean): void;
+  cmdVerifyGates(
+    cwd: string,
+    phaseDir: string | undefined,
+    raw: boolean,
+    options?: { strict?: boolean; phase?: string }
+  ): void;
 }
 
 interface RouteVerifyCommandOptions {
@@ -35,6 +41,39 @@ interface RouteVerifyCommandOptions {
 }
 
 // ─── Implementation ───────────────────────────────────────────────────────────
+
+/**
+ * `verify gates` arguments. Two caller shapes reach this route:
+ *   - by hand:            verify gates <phase-dir> [--strict]
+ *   - the step dispatcher: verify gates --phase <N> --raw
+ *     (references/loop-hook-dispatch.md § step appends `--phase "${PHASE_NUMBER}"`;
+ *     `--raw` is stripped by gsd-tools before routing).
+ * The value after `--phase` is consumed by the flag, so it is never mistaken
+ * for the positional phase directory — taking the first non-flag argument
+ * would read `3` as a path and refuse with phase_dir_not_found.
+ */
+function parseVerifyGatesArgs(rest: string[]): { phaseDir: string | undefined; phase: string | undefined; strict: boolean } {
+  let phaseDir: string | undefined;
+  let phase: string | undefined;
+  let strict = false;
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
+    if (arg === '--strict') {
+      strict = true;
+    } else if (arg === '--phase') {
+      const value = rest[i + 1];
+      if (value !== undefined && !value.startsWith('-')) {
+        phase = value;
+        i++;
+      }
+    } else if (arg.startsWith('--phase=')) {
+      phase = arg.slice('--phase='.length) || undefined;
+    } else if (!arg.startsWith('-') && phaseDir === undefined) {
+      phaseDir = arg;
+    }
+  }
+  return { phaseDir, phase, strict };
+}
 
 function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyCommandOptions): void {
   routeCjsCommandFamily({
@@ -61,10 +100,15 @@ function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyComman
       // recursive dispatch would re-enter this router path.
       'codebase-drift': () => verify.cmdVerifyCodebaseDrift(cwd, raw),
       'context-drift': () => verify.cmdVerifyContextDrift(cwd, args[2], raw),
+      gates: () => {
+        const { phaseDir, phase, strict } = parseVerifyGatesArgs(args.slice(2));
+        verify.cmdVerifyGates(cwd, phaseDir, raw, { strict, phase });
+      },
     },
   });
 }
 
 export = {
   routeVerifyCommand,
+  parseVerifyGatesArgs,
 };

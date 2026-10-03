@@ -333,6 +333,81 @@ describe('verify gates — CLI contract', () => {
   });
 });
 
+/**
+ * The form the shared step dispatcher calls (references/loop-hook-dispatch.md
+ * § step): `gsd_run verify gates --phase "${PHASE_NUMBER}" --raw`. It hands over
+ * a phase NUMBER. Reading `3` as a directory refused with phase_dir_not_found
+ * on every dispatch — and the step's onError:skip swallowed it, so the gate on
+ * gates.all_passed read nothing.
+ */
+describe('verify gates — called with --phase, as the step dispatcher calls it', () => {
+  let dir;
+  beforeEach(() => {
+    dir = createTempDir();
+  });
+  afterEach(() => {
+    cleanup(dir);
+  });
+
+  function runPhaseCli(args) {
+    const result = runNode([TOOLS, 'verify', 'gates', ...args, '--raw', '--cwd', dir], { cwd: dir });
+    let payload = null;
+    try {
+      payload = JSON.parse(result.stdout);
+    } catch {
+      /* surfaced by the assertions */
+    }
+    return { ...result, payload };
+  }
+
+  for (const form of [['--phase', '3'], ['--phase', '03'], ['--phase=3']]) {
+    test(`${form.join(' ')} resolves the phase directory and records there`, () => {
+      const phaseDir = makeProject(dir, { tests: 'echo "# pass 12" && echo "# fail 0"' });
+      const result = runPhaseCli(form);
+      assert.equal(result.outcome, OUTCOME.EXITED);
+      assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+      assert.equal(result.payload.verificationPath, path.join(phaseDir, '03-VERIFICATION.md'));
+      const fm = extractFrontmatter(fs.readFileSync(path.join(phaseDir, '03-VERIFICATION.md'), 'utf8'));
+      assert.equal(fm.gates.all_passed, 'true');
+    });
+  }
+
+  test('--strict still propagates a red check through the --phase form', () => {
+    makeProject(dir, { tests: 'exit 1' });
+    assert.equal(runPhaseCli(['--phase', '3', '--strict']).exitCode, 1);
+  });
+
+  test('an unknown phase number refuses and writes nothing', () => {
+    const phaseDir = makeProject(dir, { tests: 'true' });
+    const result = runPhaseCli(['--phase', '9']);
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.payload.reason, 'phase_not_found');
+    assert.equal(fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')), false);
+  });
+
+  test('a phase number shared by two directories refuses rather than picking one', () => {
+    const phaseDir = makeProject(dir, { tests: 'true' });
+    fs.mkdirSync(path.join(dir, '.planning', 'phases', '03-other'), { recursive: true });
+    const result = runPhaseCli(['--phase', '3']);
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.payload.reason, 'phase_not_found');
+    assert.equal(fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')), false);
+  });
+
+  test('a directory and --phase together refuse — two answers to one question', () => {
+    const phaseDir = makeProject(dir, { tests: 'true' });
+    const result = runPhaseCli([phaseDir, '--phase', '3']);
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.payload.reason, 'conflicting_phase_args');
+  });
+
+  test('a dangling --phase is a missing argument, not a phase called "--raw"', () => {
+    makeProject(dir, { tests: 'true' });
+    const result = runNode([TOOLS, 'verify', 'gates', '--phase', '--cwd', dir], { cwd: dir });
+    assert.equal(result.exitCode, 2);
+  });
+});
+
 describe('verify gates — the round trip a gate actually makes', () => {
   let dir;
   let phaseDir;

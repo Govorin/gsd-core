@@ -46,6 +46,9 @@ import { spawnSync } from 'child_process';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import frontmatterModule = require('./frontmatter.cjs');
 const { extractFrontmatter, spliceFrontmatter } = frontmatterModule;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
+import phaseLocator = require('./phase-locator.cjs');
+const { findPhaseInternal } = phaseLocator;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -175,7 +178,11 @@ function defaultRunner(command: string, cwd: string, timeoutMs: number) {
   // ("nx affected -t test"), not an argv array. It comes from the project's
   // own .planning/config.json — the same trust boundary as every other
   // command GSD runs from that file — and is never model-authored here.
-  const res = spawnSync(command, {
+  // The empty argv is deliberate: it is the (command, args, options) overload,
+  // so the options object — and its timeout — sits where
+  // local/require-subprocess-timeout looks for it. Passing args with
+  // shell:true is deprecated (DEP0190); an empty array passes none.
+  const res = spawnSync(command, [], {
     cwd,
     shell: true,
     encoding: 'utf8',
@@ -401,10 +408,18 @@ interface CmdOptions {
   clock?: { now(): number };
   /** Injected for tests so the recorded timestamp is deterministic. */
   timestamp?: string;
+  /**
+   * A phase NUMBER (`--phase 3`), resolved to its directory the way
+   * `find-phase` resolves it. This is the form the shared loop-hook dispatcher
+   * calls a command step with (`gsd_run <ref.command> --phase N --raw`, see
+   * references/loop-hook-dispatch.md § step) — it never passes a path.
+   */
+  phase?: string;
 }
 
 /**
  * `gsd_run verify gates <phase-dir> [--strict]`
+ * `gsd_run verify gates --phase <N> [--strict]`   (the dispatcher's form)
  *
  * Exit codes:
  *   0  the results were recorded (whatever they say)
@@ -428,12 +443,41 @@ function cmdVerifyGates(
     process.exitCode = exitCode;
   };
 
-  if (!phaseDirArg) {
-    emit({ ok: false, reason: 'missing_phase_dir', message: 'Usage: verify gates <phase-dir> [--strict]' }, 2);
+  const usage = 'Usage: verify gates <phase-dir> | --phase <N> [--strict]';
+  if (phaseDirArg && options.phase) {
+    // Two answers to "which phase" is a caller bug; picking one silently would
+    // record a run into a directory the other half of the caller never meant.
+    emit({ ok: false, reason: 'conflicting_phase_args', message: usage }, 2);
+    return;
+  }
+  if (!phaseDirArg && !options.phase) {
+    emit({ ok: false, reason: 'missing_phase_dir', message: usage }, 2);
     return;
   }
 
-  const phaseDir = path.resolve(cwd, phaseDirArg);
+  let phaseDir: string;
+  if (options.phase) {
+    // The dispatcher hands over a number, never a path. Resolving it here —
+    // rather than path.resolve(cwd, '3') — is the difference between recording
+    // the run and refusing with phase_dir_not_found on every dispatch, which
+    // an onError:skip step would swallow without a trace.
+    const found = findPhaseInternal(cwd, options.phase);
+    if (!found || !found.found || !found.directory) {
+      emit(
+        {
+          ok: false,
+          reason: 'phase_not_found',
+          phase: options.phase,
+          ...(found?.ambiguous_matches?.length ? { ambiguous_matches: found.ambiguous_matches } : {}),
+        },
+        2
+      );
+      return;
+    }
+    phaseDir = path.resolve(cwd, found.directory);
+  } else {
+    phaseDir = path.resolve(cwd, phaseDirArg as string);
+  }
   if (!fs.existsSync(phaseDir)) {
     emit({ ok: false, reason: 'phase_dir_not_found', phaseDir }, 2);
     return;

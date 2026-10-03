@@ -3,7 +3,7 @@
 
 The split into plans *is* a boundary decision. When you assign `book.service.ts` to plan 02 and `book-repository.port.ts` to plan 01, you have already decided which layer owns which behaviour, which project each file lands in, and what has to pass between them. Nothing downstream records that you decided it. `PATTERNS.md` answers a neighbouring question — "what existing file should this one resemble" — with a role vocabulary of controller/service/model/middleware/utility. That vocabulary is three-layer MVC. It cannot express a repository where `ports` and `rules` are separate layers with separate import permissions, so in that repository it answers about form and stays silent about boundary.
 
-Record the design in `{phase}-DESIGN.md` (template: `~/.claude/gsd-core/templates/DESIGN.md`). Four things earn their place; the rest are conditional.
+Record the design in `{phase}-DESIGN.md` (template: `gsd-core/templates/DESIGN.md`). Four things earn their place; the rest are conditional.
 
 **1. Where each new artifact lives, and why not the layer next door.**
 
