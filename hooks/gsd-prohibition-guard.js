@@ -57,6 +57,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
 
 /** Modes, in the order of increasing strictness. */
 const MODE_OFF = 'off';
@@ -132,6 +133,26 @@ function readMode(planningRoot) {
 }
 
 /**
+ * The YAML body of a document's frontmatter, or null when it has no closed block.
+ * The fence is located by the repo's single owner (src/frontmatter-fence.cts →
+ * gsd-core/bin/lib/frontmatter-fence.cjs), reached through the self-healing build
+ * seam like every compiled-lib require under hooks/. If the owner cannot be
+ * loaded the hook reads no frontmatter — the same inert outcome as a plan that
+ * has none — and never blocks over its own plumbing.
+ */
+function frontmatterBody(text) {
+  try {
+    const { ensureRuntimeBuild } = require('../gsd-core/bin/ensure-runtime-build.cjs');
+    ensureRuntimeBuild();
+    const { locateFrontmatterFence } = require('../gsd-core/bin/lib/frontmatter-fence.cjs');
+    const fence = locateFrontmatterFence(text);
+    return fence && fence.closed ? text.slice(fence.openEnd, fence.bodyEnd) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract `files_modified` from a plan's frontmatter.
  *
  * Both YAML forms the planner actually emits are read: the block list
@@ -142,9 +163,8 @@ function readMode(planningRoot) {
  * capabilities/mn-verify-gate/scripts/blast-radius.mjs `declaredFiles`.
  */
 function declaredFiles(text) {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fm) return [];
-  const body = fm[1];
+  const body = frontmatterBody(text);
+  if (body === null) return [];
   const lines = body.split(/\r?\n/);
   const start = lines.findIndex((l) => /^files_modified:\s*$/.test(l));
   if (start === -1) {
@@ -174,9 +194,9 @@ function declaredFiles(text) {
 
 /** `status:` from a plan's frontmatter, or null when the field is absent. */
 function planStatus(text) {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fm) return null;
-  const m = /^status:\s*(.+?)\s*$/m.exec(fm[1]);
+  const body = frontmatterBody(text);
+  if (body === null) return null;
+  const m = /^status:\s*(.+?)\s*$/m.exec(body);
   return m ? m[1].replace(/^['"]|['"]$/g, '').trim() : null;
 }
 
@@ -315,7 +335,7 @@ function matchesDeclaration(target, entry) {
     // `?` must fall through to the glob branch — it is a wildcard, and treating
     // a pattern that carries one as a literal directory prefix would silently
     // match nothing.
-    return target.startsWith(`${clean}/`);
+    return target.startsWith(`${clean}/`); // allow-handrolled-containment: matches a repo-relative path against a files_modified declaration (selection), not a filesystem boundary
   }
 
   // Glob: a double star spans separators, a single star and ? do not.
@@ -329,7 +349,7 @@ function matchesDeclaration(target, entry) {
   if (trailing) {
     const prefix = trailing[1];
     if (!prefix) return true; // a bare double star declares the whole tree
-    if (!prefix.includes('*')) return target === prefix || target.startsWith(prefix + '/');
+    if (!prefix.includes('*')) return target === prefix || target.startsWith(prefix + '/'); // allow-handrolled-containment: matches a repo-relative path against a files_modified declaration (selection), not a filesystem boundary
   }
 
   // A NUL byte stands in for the separator-crossing double star: it cannot
@@ -461,10 +481,23 @@ function evaluateWrite(data, { cwd: cwdOverride } = {}) {
   };
 }
 
+/**
+ * The ask path exits 0, where stderr is deny-only for terminateNow; the reason
+ * still goes to fd 2 as it always has, so the transcript shows why the user was
+ * asked. Best-effort: a failed write never changes the outcome.
+ */
+function emitAskReason(reason) {
+  try {
+    if (typeof reason === 'string' && reason) fs.writeSync(2, reason);
+  } catch {
+    /* the decision stands regardless */
+  }
+}
+
 /* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
 function main() {
   let input = '';
-  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  const stdinTimeout = setTimeout(() => allow(undefined), 3000);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     input += chunk;
@@ -476,9 +509,9 @@ function main() {
       decision = evaluateWrite(JSON.parse(input));
     } catch {
       // Silent fail — a malformed payload must never block a valid tool call.
-      process.exit(0);
+      crash(HOOK_ON_CRASH.ALLOW, undefined);
     }
-    if (!decision || decision.action === 'allow') process.exit(0);
+    if (!decision || decision.action === 'allow') allow(undefined);
 
     // `ask` escalates to the user through the permission layer and leaves the
     // session running; `deny` blocks outright. Both carry typed fields beside
@@ -495,16 +528,11 @@ function main() {
       readError: decision.readError,
       reason: decision.reason,
     };
-    try {
-      // writeSync: piped writes are async on Windows and process.exit() does
-      // not flush them — a truncated payload is a guard that half-fired.
-      fs.writeSync(1, JSON.stringify(output));
-      // Kimi feeds stderr (not stdout) back to the model on exit 2.
-      fs.writeSync(2, decision.reason);
-    } catch {
-      /* emission failed; the decision still stands */
-    }
-    process.exit(decision.action === 'deny' ? 2 : 0);
+    // Kimi feeds stderr (not stdout) back to the model on exit 2, so a deny
+    // carries the plain reason on fd 2 beside the JSON on fd 1.
+    if (decision.action === 'deny') deny(output, decision.reason);
+    emitAskReason(decision.reason);
+    allow(output);
   });
 }
 

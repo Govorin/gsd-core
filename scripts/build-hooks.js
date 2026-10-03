@@ -67,6 +67,26 @@ const HOOKS_TO_COPY = [
   // at runtime — those ship as part of the full gsd-core/ tree, not via this
   // list.
   'gsd-agent-isolation-guard.js',
+  // mn fork — enforcement layer. Each requires nothing beyond Node built-ins and
+  // ./lib/hook-exit.js (the ADR-3889 exit seam), which ships through
+  // HOOKS_SUBDIRS_TO_COPY like every upstream guard's; no sibling hook is
+  // required, so the #606 same-dir rule holds.
+  //
+  // Prohibition guard: blocks a write outside the running plan's declared
+  // files_modified. blast-radius at verify:pre, moved to the write.
+  'gsd-prohibition-guard.js',
+  // Test tamper guard: blocks a write that removes assertions or newly skips
+  // tests. assertion-ratchet at verify:pre, moved to the write.
+  'gsd-test-tamper-guard.js',
+  // Executor exit gate: runs the project's own check command when an executor
+  // stops, and refuses the stop while it is red.
+  'gsd-exit-gate.js',
+  // Invariant pin: re-states the running plan's prohibitions, its must-haves and
+  // any open blocker after a compaction rewrites them out of context.
+  'gsd-pin-invariants.js',
+  // Worktree provisioning: a fresh worktree is a checkout, not an environment —
+  // copies tool config, links deps, refuses a base too far behind.
+  'gsd-worktree-provision.js',
   'gsd-prompt-guard.js',
   'gsd-read-guard.js',
   'gsd-read-injection-scanner.js',

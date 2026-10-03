@@ -4,7 +4,8 @@
       {
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-ensure-canonical-path.js\"", "timeout": 5 },
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-check-update.js\"" }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-check-update.js\"" },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-pin-invariants.js\"", "timeout": 5 }
         ]
       }
     ],
@@ -19,7 +20,9 @@
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-worktree-path-guard.js\"", "timeout": 120 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-worktree-path-guard.js\"", "timeout": 120 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-prohibition-guard.js\"", "timeout": 120 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-test-tamper-guard.js\"", "timeout": 120 }
         ]
       },
       {
@@ -58,7 +61,8 @@
     "SubagentStop": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-context-monitor.js\"", "timeout": 10 }
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-context-monitor.js\"", "timeout": 10 },
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-exit-gate.js\"", "timeout": 620 }
         ]
       }
     ],
@@ -73,6 +77,13 @@
       {
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-context-monitor.js\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-pin-invariants.js\"", "timeout": 5 }
         ]
       }
     ],
