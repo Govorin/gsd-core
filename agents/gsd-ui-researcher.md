@@ -1,7 +1,7 @@
 ---
 name: gsd-ui-researcher
 description: Produces UI-SPEC.md design contract for frontend phases. Reads upstream artifacts, detects design system state, asks only unanswered questions. Spawned by /gsd:ui-phase orchestrator.
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill, WebSearch, WebFetch, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__firecrawl__*, mcp__exa__*, mcp__tavily__*, mcp__ref__*, mcp__jina__*
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill, WebSearch, WebFetch, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__firecrawl__*, mcp__exa__*, mcp__tavily__*, mcp__ref__*, mcp__jina__*, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: purple
 # hooks:
 #   PostToolUse:
@@ -52,6 +52,18 @@ This ensures the design contract aligns with project-specific conventions and li
 </project_context>
 
 <upstream_input>
+**SPEC.md** (if exists) — Locked requirements from `/gsd:spec-phase`. Read this FIRST: it is the
+authoritative statement of what the phase delivers. CONTEXT.md paraphrases decisions; SPEC.md holds
+the falsifiable requirements a verifier will check against.
+
+| Section | How You Use It |
+|---------|----------------|
+| `## Requirements` | Each `Current → Target` pair implies UI that must exist. A requirement with no surface in your design contract is a gap — surface it, do not silently drop it |
+| `## Acceptance Criteria` | Concrete pass/fail checks. Your design must make each one reachable by a user |
+| `## Edge Coverage` | Alternative and failure paths — these are the states your contract has to cover |
+| `## Prohibitions (must-NOT)` | Hard constraints. Never design an affordance a prohibition forbids |
+| `## Boundaries` | In/out of scope — do not design for out-of-scope items |
+
 **CONTEXT.md** (if exists) — User decisions from `/gsd:discuss-phase`
 
 | Section | How You Use It |
@@ -82,7 +94,7 @@ Your UI-SPEC.md is consumed by:
 
 | Consumer | How They Use It |
 |----------|----------------|
-| `gsd-ui-checker` | Validates against 7 design quality dimensions |
+| `gsd-ui-checker` | Validates against 8 design quality dimensions |
 | `gsd-planner` | Uses design tokens, component inventory, and copywriting in plan tasks |
 | `gsd-executor` | References as visual source of truth during implementation |
 | `gsd-ui-auditor` | Compares implemented UI against the contract retroactively |
@@ -289,7 +301,23 @@ find src -name "*.tsx" -path "*/components/*" -o -name "*.tsx" -path "*/ui/*" 2>
 find src -name "*.css" -o -name "*.scss" 2>/dev/null | head -10
 ```
 
+```bash
+# Design contract — only some repositories have one; absence is normal
+# Shell-independent (no globstar): tracked/untracked files via git, else find
+{ git ls-files -co --exclude-standard '*.contract.json' 2>/dev/null \
+  || find . \( -name node_modules -o -name .git \) -prune -o -name '*.contract.json' -print 2>/dev/null; } \
+  | grep . || echo "NO_DESIGN_CONTRACT"
+```
+
 Catalog what already exists. Do not re-specify what the project already has.
+
+**If a design contract exists,** it is the strongest input available and outranks
+your own scouting: it holds the tokens, the component list with node ids, the states
+of each, and how many times each is used in the design. Read it (plain JSON — Pencil
+MCP is not needed and must not be depended on) and pull component names, `nodeId`s
+and `states[]` from there rather than asking the user what already exists on disk.
+
+Ask the user only about components the contract does NOT cover.
 
 ## Step 3: shadcn Gate
 
@@ -310,6 +338,12 @@ Batch questions into a single interaction where possible.
 Read template: `~/.claude/gsd-core/templates/UI-SPEC.md`
 
 Fill all sections. Write to `$PHASE_DIR/$PADDED_PHASE-UI-SPEC.md`.
+
+**Design Contract section:** fill it from the contract JSON when one exists — every
+component in the phase gets its `nodeId`, its screens, and the states the contract
+lists alongside the states you are actually scoping. States left out need a stated
+reason. When no contract exists, write `Not applicable — no .pen design file`;
+`gsd-ui-checker` skips Dimension 8 in that case and will not penalise the spec.
 
 **Write contract (hard rules — must follow):**
 

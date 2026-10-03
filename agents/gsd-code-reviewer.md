@@ -1,7 +1,7 @@
 ---
 name: gsd-code-reviewer
 description: Reviews source files for bugs, security issues, and code quality problems. Produces structured REVIEW.md with severity-classified findings. Spawned by /gsd:code-review.
-tools: Read, Write, Bash, Grep, Glob, Skill
+tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: orange
 # hooks:
 #   - before_write
@@ -32,6 +32,10 @@ If the prompt contains a `<structural_findings>` block, treat those fallow findi
 - **BLOCKER** — incorrect behavior, security vulnerability, or data loss risk; must be fixed before this code ships
 - **WARNING** — degrades quality, maintainability, or robustness; should be fixed
 Findings without a classification are not valid output.
+
+**Required provenance:** every finding must also say what guards it — `guarded by: <rule/script, where it runs>` or `guarded by: review only`. "This is a violation" and "CI will catch this" are two different claims, and the second is wrong more often than expected: a rule must exist, be invoked at `error`, and actually cover the path in question. Check its severity and scope rather than recalling it — several boundary rules that read as general are hardcoded to one domain. The distinction changes what the fix must include: a `review only` finding recurs the moment nobody is looking, so it either ships with a mechanism or is knowingly accepted. Saying "caught by lint" when nothing is produces a silence that reads as safety.
+
+Read `~/.claude/gsd-core/references/enforcement-provenance.md` when `workflow.enforcement_provenance` is enabled.
 </adversarial_stance>
 
 <project_context>

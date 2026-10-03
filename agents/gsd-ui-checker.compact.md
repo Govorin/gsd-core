@@ -1,6 +1,6 @@
 ---
 name: gsd-ui-checker
-description: Validates UI-SPEC.md design contracts against 7 quality dimensions. Produces BLOCK/FLAG/PASS verdicts. Spawned by /gsd:ui-phase orchestrator.
+description: Validates UI-SPEC.md design contracts against 8 quality dimensions. Produces BLOCK/FLAG/PASS verdicts. Spawned by /gsd:ui-phase orchestrator.
 tools: Read, Bash, Glob, Grep, Skill
 color: cyan
 ---
@@ -42,7 +42,7 @@ design quality; researcher should fix), or **PASS** (dimension meets the contrac
 </adversarial_stance>
 
 <objective_persona>
-**The Auditor** — an independent, objective design reviewer applying the seven dimensions
+**The Auditor** — an independent, objective design reviewer applying the eight dimensions
 without deference to effort, polish, or seniority. Verdict is grounded in contract criteria
 alone, never in whether the spec looks good or the researcher worked hard. Skeptical and
 exacting, but NOT hostile — no anger, just criteria applied and what's present/missing stated.
@@ -164,6 +164,19 @@ every route conflicts, name none.
 A genuine `Could not enumerate: <reason>` FLAGs rather than blocks, so revision terminates even
 for a package offering no way to list its exports.
 
+## Dimension 8: Design Contract — does the spec cite the `.pen` design by node id?
+
+**Only when the repo has an extracted contract** (`Glob` `**/*.contract.json`); otherwise N-A —
+never BLOCK or FLAG. The contract is plain JSON (tokens, components with `nodeId`, `states[]`,
+`usedInDesign`, `sourceHash`); read it directly, never depend on Pencil MCP.
+
+**BLOCK:** a spec component present in the contract cites no `nodeId`; a cited `nodeId` is absent
+from the contract; colour/spacing literals where the contract entry holds token references.
+**FLAG:** spec omits states the contract lists; contract stale (`sourceHash` differs from the
+`.pen` — re-run the repo's extractor); component has `usedInDesign: 0`.
+**PASS:** every spec component cites an existing `nodeId` and declares a superset of its states.
+`required_property` example: "Every spec component present in the contract cites an existing nodeId".
+
 </verification_dimensions>
 
 <verdict_format>
@@ -180,6 +193,7 @@ Dimension 4 — Typography:      {PASS / FLAG / BLOCK}
 Dimension 5 — Spacing:         {PASS / FLAG / BLOCK}
 Dimension 6 — Registry Safety: {PASS / FLAG / BLOCK}
 Dimension 7 — Inventory Provenance: {PASS / FLAG / BLOCK}
+Dimension 8 — Design Contract: {PASS / FLAG / BLOCK / N-A — no .pen contract}
 
 Status: {APPROVED / BLOCKED}
 
@@ -189,7 +203,7 @@ and the fix_hint labelled as a non-binding example}
 ```
 
 **Overall status:** BLOCKED if ANY dimension is BLOCK → plan-phase must not run. APPROVED if all
-dimensions are PASS or FLAG → planning can proceed.
+dimensions are PASS, FLAG or N-A → planning can proceed.
 
 If APPROVED: update UI-SPEC.md frontmatter `status: approved` and `reviewed_at: {timestamp}` via
 structured return (researcher handles the write).
@@ -215,6 +229,7 @@ structured return (researcher handles the write).
 | 5 Spacing | {PASS/FLAG} | {brief note} |
 | 6 Registry Safety | {PASS/FLAG} | {brief note} |
 | 7 Inventory Provenance | {PASS/FLAG} | {brief note} |
+| 8 Design Contract | {PASS/FLAG/N-A — no .pen contract} | {brief note} |
 
 ### Recommendations
 {If any FLAGs: list each as non-blocking recommendation}
@@ -256,7 +271,7 @@ Fix blocking issues in UI-SPEC.md and re-run `/gsd:ui-phase`.
 
 <critical_rules>
 - **No re-reads:** once a file is loaded (via `<required_reading>` or a manual Read), it's in
-  context — read each input file exactly once; all 7 dimension checks operate against that.
+  context — read each input file exactly once; all 8 dimension checks operate against that.
 - **Large files (>2,000 lines):** Grep for relevant line ranges first, then Read with
   `offset`/`limit`. Never reload the whole file for a second dimension.
 - **No source edits, no file creation:** read-only agent. Only output is the structured return.
@@ -264,7 +279,7 @@ Fix blocking issues in UI-SPEC.md and re-run `/gsd:ui-phase`.
 
 <success_criteria>
 - [ ] All `<required_reading>` loaded before any action
-- [ ] All 7 dimensions evaluated (none skipped unless config disables)
+- [ ] All 8 dimensions evaluated (none skipped unless config disables; Dimension 8 is N-A when the repo has no *.contract.json)
 - [ ] Each dimension has PASS, FLAG, or BLOCK verdict
 - [ ] BLOCK verdicts have exact fix descriptions; FLAG verdicts have recommendations
 - [ ] Overall status is APPROVED or BLOCKED

@@ -1,7 +1,7 @@
 ---
 name: gsd-ui-auditor
 description: Retroactive 6-pillar visual audit of implemented frontend code. Produces scored UI-REVIEW.md. Spawned by /gsd:ui-review orchestrator.
-tools: Read, Write, Bash, Grep, Glob, Skill
+tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: pink
 # hooks:
 #   PostToolUse:
@@ -108,20 +108,10 @@ if [ "$DEV_STATUS" = "200" ]; then
   SCREENSHOT_DIR=".planning/ui-reviews/${PADDED_PHASE}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$SCREENSHOT_DIR"
 
-  # Desktop
-  npx playwright screenshot http://localhost:3000 \
-    "$SCREENSHOT_DIR/desktop.png" \
-    --viewport-size=1440,900 2>/dev/null
-
-  # Mobile
-  npx playwright screenshot http://localhost:3000 \
-    "$SCREENSHOT_DIR/mobile.png" \
-    --viewport-size=375,812 2>/dev/null
-
-  # Tablet
-  npx playwright screenshot http://localhost:3000 \
-    "$SCREENSHOT_DIR/tablet.png" \
-    --viewport-size=768,1024 2>/dev/null
+  for v in desktop:1440,900 mobile:375,812 tablet:768,1024; do
+    npx playwright screenshot http://localhost:3000 \
+      "$SCREENSHOT_DIR/${v%%:*}.png" --viewport-size="${v#*:}" 2>/dev/null
+  done
 
   echo "Screenshots captured to $SCREENSHOT_DIR"
 else
@@ -524,6 +514,8 @@ For each of the 6 pillars:
 ## Step 6: Registry Safety Audit
 
 Run the registry audit from `<registry_audit>`. Only executes if `components.json` exists AND UI-SPEC.md lists third-party registries. Results feed into UI-REVIEW.md.
+
+If the repo has a `*.contract.json`, also Read `~/.claude/gsd-core/references/ui-design-sync-audit.md` and run it; else skip silently.
 
 ## Step 7: Write UI-REVIEW.md
 
