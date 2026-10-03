@@ -23,12 +23,15 @@ Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition")
 
 Re-read verification status:
 ```bash
-VERIFY_STATUS=$(gsd_run query verification.status "${PHASE_DIR}" --pick status 2>/dev/null || true)
+VERIFY_ERROR=""  # reset every loop iteration — a prior phase's refusal must not leak into this one
+VERIFY_STATUS=$(gsd_run query verification.status "${PHASE_DIR}" --pick status) || VERIFY_ERROR=1
 ```
+
+If `VERIFY_ERROR` is set: handle_blocker with the error printed above (#5118).
 
 If `passed` or `human_needed`: route normally.
 
-If `stale`: handle_blocker: "Stale verification for phase ${PHASE_NUM}."
+Any status other than `passed`/`human_needed`/`gaps_found`: handle_blocker with the owner's `next_action` (`--pick next_action`).
 
 If still `gaps_found` after this retry, display `Gaps persist after closure attempt.` and ask `Continue anyway` / `Stop autonomous mode`.
 

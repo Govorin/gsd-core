@@ -11,6 +11,7 @@ const path = require('node:path');
 const { runNode } = require('./helpers/process-seam.cjs');
 const { throwIfFailed } = require('./helpers/git-fixture.cjs');
 const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
+const { readWorkflowCombined } = require('./helpers.cjs');
 
 const REPO_ROOT = path.join(__dirname, '..');
 const COMMAND_PATH = path.join(REPO_ROOT, 'commands', 'gsd', 'autonomous.md');
@@ -247,7 +248,10 @@ describe('autonomous --converge flag (#711)', () => {
 
 describe('autonomous verification deferral contract', () => {
   test('workflow records explicit deferred states instead of silently advancing (#1525)', () => {
-    const workflow = read(WORKFLOW_PATH);
+    // Combined, not the parent alone: the deferral branches live in
+    // autonomous/steps/*.md under the progressive-disclosure split. Reading only
+    // the parent would report a behavioural regression for a file that moved.
+    const workflow = readWorkflowCombined(WORKFLOW_PATH);
 
     assert.match(workflow, /verification_deferred_human/);
     assert.match(workflow, /verification_deferred_gaps/);
@@ -290,25 +294,40 @@ describe('autonomous verification deferral contract', () => {
     const workflow = read(WORKFLOW_PATH);
     const passedIdx = workflow.indexOf('**If `passed`:**');
     const transitionIdx = workflow.indexOf('transition.md', passedIdx);
-    const iterateIdx = workflow.indexOf('Proceed to iterate step', passedIdx);
+    // The ORDER is the contract, not the wording. Pinning the literal string
+    // "Proceed to iterate step" made an editorial rewrite ("proceed to the
+    // iterate step") read as a behavioural regression: indexOf returned -1,
+    // and -1 is less than every real index, so the ordering assertion failed
+    // while the workflow still did exactly the right thing.
+    const iterateIdx = workflow.slice(passedIdx).search(/proceed to the iterate step|then iterate\b/i);
 
     assert.ok(transitionIdx > passedIdx, 'passed verification must invoke transition.md');
+    assert.notEqual(iterateIdx, -1, 'the passed branch must say where it goes next');
     assert.ok(
-      transitionIdx < iterateIdx,
+      transitionIdx - passedIdx < iterateIdx,
       'normal transition post-processing must run before autonomous iterates',
     );
   });
 
   test('workflow reads canonical verification status before human-needed promotion (#1522)', () => {
+    // Two different questions, so two different reads. ORDER is a property of the
+    // parent — the status read must precede the human_needed branch there. PRESENCE
+    // of the promotion action is a property of the whole workflow, and that branch
+    // now lives in autonomous/steps/human-needed.md; asserting its index against
+    // the parent alone would fail on a file that merely moved.
     const workflow = read(WORKFLOW_PATH);
+    const combined = readWorkflowCombined(WORKFLOW_PATH);
     const waitIdx = workflow.indexOf('After execute, read canonical verification');
     const humanNeededIdx = workflow.indexOf('**If `human_needed`:**', waitIdx);
-    const promoteIdx = workflow.indexOf('set VERIFICATION frontmatter `status: passed`', humanNeededIdx);
     const section = workflow.slice(waitIdx, humanNeededIdx);
 
     assert.ok(waitIdx !== -1, 'workflow must document the post-execution verification read');
     assert.ok(humanNeededIdx > waitIdx, 'human_needed branch must follow verification status read');
-    assert.ok(promoteIdx > humanNeededIdx, 'human_needed branch must contain the promotion action');
+    assert.match(
+      combined,
+      /set VERIFICATION frontmatter `status: passed`/,
+      'human_needed branch must contain the promotion action',
+    );
     // #2589: the verification read uses the native --pick flag (no jq dependency).
     // String-based check (not a regex literal) so the assertion stays robust to
     // shell metacharacters in the snippet and parses cleanly under espree.

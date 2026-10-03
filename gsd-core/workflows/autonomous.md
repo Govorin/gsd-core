@@ -40,6 +40,12 @@ if echo "$ARGUMENTS" | grep -qE '\-\-only\s+[0-9]'; then
   FROM_PHASE="$ONLY_PHASE"
 fi
 
+MAX_PHASES=$(gsd_run config-get workflow.autonomous_max_phases --raw 2>/dev/null || echo "")
+if echo "$ARGUMENTS" | grep -qE '\-\-max-phases\s+[0-9]'; then
+  MAX_PHASES=$(echo "$ARGUMENTS" | grep -oE '\-\-max-phases\s+[0-9]+' | awk '{print $2}')
+fi
+PHASES_RUN=0
+
 INTERACTIVE=""
 if echo "$ARGUMENTS" | grep -q '\-\-interactive'; then
   INTERACTIVE="true"
@@ -252,7 +258,13 @@ Phase ${PHASE_NUM}: Context exists — skipping discuss.
 
 Proceed to 3b.
 
-**If has_context is false:** Check if discuss is disabled via settings:
+**If has_context is false:** lock the requirements first (spec runs before discuss, never instead of it):
+
+<!-- gsd:section id="spec-phase" when="always" -->
+If `section_manifest` is `null` or `"spec-phase"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/spec-phase.md`. Otherwise skip — do not read the file.
+<!-- /gsd:section -->
+
+Then check if discuss is disabled via settings:
 
 ```bash
 SKIP_DISCUSS=$(gsd_run query config-get workflow.skip_discuss --raw 2>/dev/null || echo "false")
@@ -479,85 +491,23 @@ If `VERIFY_ERROR` is set, handle_blocker with the error printed above — the re
 
 **If `passed`:**
 
-Display `Phase ${PHASE_NUM} ✅ ${PHASE_NAME} — Verification passed`, run `@~/.claude/gsd-core/workflows/transition.md`, then Proceed to iterate step.
+<!-- gsd:section id="blocking-gates" when="always" -->
+If `section_manifest` is `null` or `"blocking-gates"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/blocking-gates.md`. Otherwise skip — do not read the file.
+<!-- /gsd:section -->
+
+Then display `Phase ${PHASE_NUM} ✅ ${PHASE_NAME} — Verification passed`, run `@~/.claude/gsd-core/workflows/transition.md`, and proceed to the iterate step.
 
 **Any status other than `passed`/`human_needed`/`gaps_found`:** execute-phase already ran, so a non-passed route after it is a real blocker — read `gsd_run query verification.status "${PHASE_DIR}" --pick next_action` and handle_blocker with it (#5118: branch on the owner's answer, never on a status word).
 
 **If `human_needed`:**
-
-Read `human_verification` items. In text mode (`--text` or init `text_mode=true`), replace AskUserQuestion with a plain-text numbered list. Otherwise ask whether to validate now or continue without validation. If validating now, present items, then ask `Validation result?` with `All good — continue` / `Found issues`.
-
-On "All good — continue": set VERIFICATION frontmatter `status: passed`, display `Phase ${PHASE_NUM} ✅ Human validation passed`, run `@~/.claude/gsd-core/workflows/transition.md`, then iterate.
-
-On "Found issues": Go to handle_blocker with the user's reported issues as the description.
-
-On **"Continue without validation"**: record an explicit deferred state and stop autonomous mode:
-
-```markdown
-## Deferred Verification
-
-| Phase | State | Resume |
-|-------|-------|--------|
-| ${PHASE_NUM} | verification_deferred_human | /gsd:verify-work ${PHASE_NUM} |
-```
-
-Append/update this STATE.md section, display `Phase ${PHASE_NUM} ⏭ verification_deferred_human — resume with /gsd:verify-work ${PHASE_NUM}`, then handle_blocker: "Human verification deferred for phase ${PHASE_NUM}."
+<!-- gsd:section id="human-needed" when="always" -->
+If `section_manifest` is `null` or `"human-needed"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/human-needed.md`. Otherwise skip — do not read the file.
+<!-- /gsd:section -->
 
 **If `gaps_found`:**
-
-Read gap score/items from VERIFICATION.md. Display:
-```
-⚠ Phase ${PHASE_NUM}: ${PHASE_NAME} — Gaps Found
-Score: {N}/{M} must-haves verified
-```
-
-Ask how to proceed: `Run gap closure` / `Continue without fixing` / `Stop autonomous mode`.
-
-On **"Run gap closure"**: one gap-closure attempt:
-
-```
-Skill(skill="gsd-plan-phase", args="${PHASE_NUM} --gaps")
-```
-
-Re-run `init phase-op ${PHASE_NUM}`; if `has_plans` is false, handle_blocker: "Gap closure planning for phase ${PHASE_NUM} did not produce plans."
-
-Re-execute:
-```
-Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition")
-```
-
-Re-read verification status:
-```bash
-VERIFY_ERROR=""  # reset every loop iteration — a prior phase's refusal must not leak into this one
-VERIFY_STATUS=$(gsd_run query verification.status "${PHASE_DIR}" --pick status) || VERIFY_ERROR=1
-```
-
-If `VERIFY_ERROR` is set: handle_blocker with the error printed above (#5118).
-
-If `passed` or `human_needed`: route normally.
-
-Any status other than `passed`/`human_needed`/`gaps_found`: handle_blocker with the owner's `next_action` (`--pick next_action`).
-
-If still `gaps_found` after this retry, display `Gaps persist after closure attempt.` and ask `Continue anyway` / `Stop autonomous mode`.
-
-On "Continue anyway": record `verification_deferred_gaps` using the table below, display `Phase ${PHASE_NUM} ⏭ verification_deferred_gaps — resume with /gsd:plan-phase ${PHASE_NUM} --gaps`, then handle_blocker: "Verification gaps deferred for phase ${PHASE_NUM}."
-On "Stop autonomous mode": Go to handle_blocker.
-
-This limits gap closure to 1 retry.
-
-On **"Continue without fixing"**: record an explicit deferred state and stop autonomous mode:
-
-```markdown
-## Deferred Verification
-
-| Phase | State | Resume |
-|-------|-------|--------|
-| ${PHASE_NUM} | verification_deferred_gaps | /gsd:plan-phase ${PHASE_NUM} --gaps |
-```
-
-Append/update this STATE.md section, display `Phase ${PHASE_NUM} ⏭ verification_deferred_gaps — resume with /gsd:plan-phase ${PHASE_NUM} --gaps`, then handle_blocker: "Verification gaps deferred for phase ${PHASE_NUM}."
-
-On **"Stop autonomous mode"**: Go to handle_blocker with "User stopped — gaps remain in phase ${PHASE_NUM}".
+<!-- gsd:section id="gaps-found" when="always" -->
+If `section_manifest` is `null` or `"gaps-found"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/gaps-found.md`. Otherwise skip — do not read the file.
+<!-- /gsd:section -->
 
 **3d.5. UI Review (Frontend Phases)**
 
@@ -635,6 +585,19 @@ cat "$STATE_PATH"
 Re-filter incomplete phases using discover_phases logic: keep phases where `phase_complete !== true` or `verification_status !== "passed"`, drop deferred phases from the autonomous queue, re-apply `--from` / `--to`, then sort by number ascending.
 
 Check for blockers in the Blockers/Concerns section. If blockers are found, go to handle_blocker with the blocker description.
+
+**Phase budget.** Increment `PHASES_RUN`. If `MAX_PHASES` is set and `PHASES_RUN >= MAX_PHASES`, stop here — a run that ends because it chose to is reviewable; one that ends because the context filled is not. Print:
+
+```
+ GSD ► AUTONOMOUS ▸ PHASE BUDGET REACHED
+
+ Ran ${PHASES_RUN} phase(s) — the limit set by --max-phases / workflow.autonomous_max_phases.
+ Work so far is committed and verified; nothing is half-applied.
+
+ Resume with: /gsd:autonomous --from ${next_phase}${TO_PHASE ? " --to " + TO_PHASE : ""}
+```
+
+Then proceed to the lifecycle step as a partial completion (it skips audit/complete/cleanup), and exit cleanly.
 
 If incomplete phases remain: proceed to next phase, loop back to execute_phase.
 
@@ -783,7 +746,15 @@ Display final completion banner:
 
 ## 6. Handle Blocker
 
-When any phase operation fails or a blocker is detected, present 3 options via AskUserQuestion:
+**Record the blocker before asking about it.** Unattended, nobody answers `AskUserQuestion`: the session dies and takes the question, the options and the resume command with it, leaving nothing on disk for the next session — or `forensics` — to read.
+
+```bash
+gsd_run state signal-waiting --type blocker --question "{description}" --options "Fix and retry|Skip this phase|Stop" --phase ${PHASE_NUM}
+```
+
+This writes `.planning/WAITING.json` (question, options, `since`) — the file `init` already parses into `waitingSignal`. Writer, reader and CLI exist since #1034; nothing called them.
+
+Then present 3 options via AskUserQuestion (in text mode — `--text` or init `text_mode=true` — as a plain-text numbered list instead):
 
 **Prompt:** "Phase {N} ({Name}) encountered an issue: {description}"
 
@@ -792,9 +763,11 @@ When any phase operation fails or a blocker is detected, present 3 options via A
 2. **"Skip this phase"** — Mark phase as skipped, continue to the next incomplete phase
 3. **"Stop autonomous mode"** — Display summary of progress so far and exit cleanly
 
+**Whichever option is chosen, clear the signal first** — `gsd_run state signal-resume`. A leftover `WAITING.json` makes the next session report a blocker that was already answered.
+
 **On "Fix and retry":** Loop back to the failed step within execute_phase. Track the retry count per phase + step (`RETRY_COUNT`, kept in memory for the run). If the same step fails again after retry, re-present these options. **Retry ceiling (#3210):** once the same phase step has failed 3 "Fix and retry" attempts, do NOT re-present the options — escalate to a terminal `needs_human` halt: display `Phase {N} ⛔ {Name} — needs_human`, list the unmet items (the blocker description from each attempt), append/update a `## Needs Human` section in STATE.md (`| ${PHASE_NUM} | needs_human | resolve blocker, then /gsd:autonomous --from ${PHASE_NUM} |`), and stop autonomous mode with the standard stopped-summary banner. A blocker that survives 3 fix attempts is an operator gate, not an executable gap.
 
-**On "Skip this phase":** Log `Phase {N} ⏭ {Name} — Skipped by user` and proceed to iterate.
+**On "Skip this phase":** Append the phase to `## Deferred Items` in STATE.md, with the blocker description as its reason — `complete-milestone` reads that section, and a skip logged only to the terminal is indistinguishable from a completed phase on the next run. Then proceed to iterate.
 
 **On "Stop autonomous mode":** Display progress summary:
 

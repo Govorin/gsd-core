@@ -5570,7 +5570,14 @@ describe('#5118 G: workflows surface verification-status errors instead of readi
   // refusal leaks into every later iteration's routing.
   test('V48b: every `|| VERIFY_ERROR=1` read is preceded in its own fence by a `VERIFY_ERROR=""` reset (review E)', () => {
     let seen = 0;
-    for (const rel of ['autonomous.md', path.join('quick-batch', 'steps', 'verification-wave.md')]) {
+    // The gap-closure re-read lives in autonomous/steps/gaps-found.md (fork: the
+    // human_needed / gaps_found branches are lazily read step sections), so it is
+    // listed beside its host rather than lost from the count.
+    for (const rel of [
+      'autonomous.md',
+      path.join('autonomous', 'steps', 'gaps-found.md'),
+      path.join('quick-batch', 'steps', 'verification-wave.md'),
+    ]) {
       const lines = fs.readFileSync(path.join(WORKFLOWS, rel), 'utf-8').split(/\r?\n/);
       for (const block of scanFencedBlocks(lines)) {
         if (block.closeLineIdx === -1) continue;
