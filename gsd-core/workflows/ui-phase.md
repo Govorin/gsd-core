@@ -208,7 +208,7 @@ Read ~/.claude/agents/gsd-ui-checker.md for instructions.
 
 <objective>
 Validate UI design contract for Phase {phase_number}: {phase_name}
-Check all 7 dimensions. Return APPROVED or BLOCKED.
+Check all 8 dimensions (Dimension 8 is N/A when the repo has no `.pen` contract). Return APPROVED or BLOCKED.
 </objective>
 
 <required_reading>
@@ -481,7 +481,7 @@ Display:
 
 **Phase {N}: {Name}** — UI design contract approved
 
-Dimensions: 7/7 passed
+Dimensions: 8/8 passed
 {If any FLAGs: "Recommendations: {N} (non-blocking)"}
 
 ---
@@ -527,7 +527,7 @@ gsd_run query state.record-session \
 - [ ] gsd-ui-researcher spawned with correct context and file paths
 - [ ] UI-SPEC.md created in correct location
 - [ ] gsd-ui-checker spawned with UI-SPEC.md
-- [ ] All 7 dimensions evaluated
+- [ ] All 8 dimensions evaluated (Dimension 8 N/A without a `.pen` contract)
 - [ ] Revision loop if BLOCKED (max 2 iterations)
 - [ ] Final status displayed with next steps
 - [ ] UI-SPEC.md committed (if commit_docs enabled)
