@@ -250,7 +250,7 @@ function isBootstrapDrop(stmt, stmts) {
   const m = /DROP\s+TABLE\s+IF\s+EXISTS\s+([\w."`]+)/i.exec(stmt);
   if (!m) return false;
   const name = m[1].replace(/["`]/g, '');
-  return stmts.some((x) => new RegExp(`CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?["\`]?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`]?`, 'i').test(x));
+  return stmts.some((x) => new RegExp(`CREATE\\s+TABLE\\s+(IF\\s+NOT\\s+EXISTS\\s+)?["\`]?${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["\`]?`, 'i').test(x)); // allow-adhoc-regex-escape: standalone capability script run from $HOME/.gsd/mn-verify-gate, cannot reach the src/pattern.cts seam
 }
 
 function analyzeSql(relPath, raw) {

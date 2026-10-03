@@ -305,7 +305,7 @@ function findActualSignature(name, files) {
 }
 
 function escapeRegex(s) {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // allow-adhoc-regex-escape: standalone capability script run from $HOME/.gsd/mn-verify-gate, cannot reach the src/pattern.cts seam
 }
 
 // ── main ────────────────────────────────────────────────────────────────────

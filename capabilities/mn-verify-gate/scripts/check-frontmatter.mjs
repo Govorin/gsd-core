@@ -89,8 +89,12 @@ if (!fm) {
  * в имени (маловероятный, но легальный) продолжает работать и не перекрывается
  * трактовкой «путь».
  */
+function escapeRegex(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // allow-adhoc-regex-escape: standalone capability script run from $HOME/.gsd/mn-verify-gate, cannot reach the src/pattern.cts seam
+}
+
 function findScalar(yaml, path) {
-  const flat = new RegExp(`^${path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(.+?)\\s*$`, 'm').exec(yaml);
+  const flat = new RegExp(`^${escapeRegex(path)}:\\s*(.+?)\\s*$`, 'm').exec(yaml);
   if (flat) return flat[1];
 
   const dot = path.indexOf('.');
@@ -101,13 +105,13 @@ function findScalar(yaml, path) {
   // Блок родителя: строка `parent:` без значения, затем отступённые строки до
   // первой строки нулевого отступа.
   const block = new RegExp(
-    `^${parent.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*$\\n((?:[ \\t]+.*\\n?)*)`,
+    `^${escapeRegex(parent)}:\\s*$\\n((?:[ \\t]+.*\\n?)*)`,
     'm'
   ).exec(yaml);
   if (!block) return null;
 
   const nested = new RegExp(
-    `^[ \\t]+${child.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:\\s*(.+?)\\s*$`,
+    `^[ \\t]+${escapeRegex(child)}:\\s*(.+?)\\s*$`,
     'm'
   ).exec(block[1]);
   return nested ? nested[1] : null;
