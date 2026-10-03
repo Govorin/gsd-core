@@ -1,0 +1,164 @@
+{
+  "$comment": [
+    "Behavioural cases for the mn fork's enforcement layer, drawn from failures",
+    "that actually happened in this author's projects rather than invented for",
+    "the test. Each case is stated the way the evals guidance asks: a situation",
+    "two people would independently agree on, with one expected verdict.",
+    "",
+    "Why these exist alongside the per-hook unit tests: a unit test asks 'does",
+    "this function return deny'. These ask 'given the situation that burned us,",
+    "does the harness as a whole refuse'. The distinction matters because every",
+    "one of these passed its unit tests at the time the failure happened — the",
+    "gap was in which situations were wired, not in whether the code worked.",
+    "",
+    "`source` names where the failure is recorded. `verdict` is what the harness",
+    "must do: block (refuse and say why), allow (proceed silently), or warn",
+    "(proceed but say something). A case whose verdict is `allow` is doing real",
+    "work: it pins a legitimate shape the guard must NOT block, which is the",
+    "failure mode that makes people disable a guard entirely."
+  ],
+  "cases": [
+    {
+      "id": "drift-outside-declared-scope",
+      "hook": "prohibition",
+      "source": "mn-fork-worklog: 26 of 174 phases carry same-wave plans touching overlapping files",
+      "situation": "A plan declares libs/rpg/ports/book.port.ts; the executor writes libs/rpg/domain/entity.ts, which no plan in the phase names.",
+      "config": { "prohibition_guard": "deny" },
+      "plan": { "status": "in_progress", "files_modified": ["libs/rpg/ports/book.port.ts"] },
+      "write": "libs/rpg/domain/entity.ts",
+      "verdict": "block",
+      "because": "blast-radius would report this at verify:pre, after the commit. The same question at the write costs one redirect."
+    },
+    {
+      "id": "declared-glob-must-not-block",
+      "hook": "prohibition",
+      "source": "measured: ~10% of real files_modified entries are globs or directories",
+      "situation": "A plan declares libs/rpg/domain/** and the executor writes a file three levels inside it.",
+      "config": { "prohibition_guard": "deny" },
+      "plan": { "status": "in_progress", "files_modified": ["libs/rpg/domain/**"] },
+      "write": "libs/rpg/domain/deep/nested/entity.ts",
+      "verdict": "allow",
+      "because": "Treating a declared glob as a literal filename would deny the writes it exists to permit — the false positive that trains people to turn a guard off."
+    },
+    {
+      "id": "planning-bookkeeping-must-not-block",
+      "hook": "prohibition",
+      "source": "design: SUMMARY/VERIFICATION/STATE are written by the harness and never appear in files_modified",
+      "situation": "The executor writes its own SUMMARY.md while a plan with a narrow scope is in flight.",
+      "config": { "prohibition_guard": "deny" },
+      "plan": { "status": "in_progress", "files_modified": ["libs/rpg/ports/book.port.ts"] },
+      "write": ".planning/phases/03-ports/03-01-SUMMARY.md",
+      "verdict": "allow",
+      "because": "Guarding the harness's own bookkeeping would block the workflow instead of protecting it."
+    },
+    {
+      "id": "empty-declaration-is-not-permission",
+      "hook": "prohibition",
+      "source": "measured: 14% of plans carry an empty files_modified",
+      "situation": "The running plan declares no files at all, and the executor writes something.",
+      "config": { "prohibition_guard": "deny" },
+      "plan": { "status": "in_progress", "files_modified": [] },
+      "write": "libs/anything.ts",
+      "verdict": "allow",
+      "because": "An empty declaration is blast-radius's refusal to make at verify:pre, where it fails rather than passes. Reading it here as 'declares nothing, so permits everything' would disarm the guard exactly on the phases where the planner was sloppiest — so this hook stays out of it deliberately, and the case pins that it is a decision rather than an oversight."
+    },
+    {
+      "id": "assertion-deleted-not-fixed",
+      "hook": "tamper",
+      "source": "assertion-ratchet exists because this happens; SpecBench measures the general form",
+      "situation": "A test file with three assertions is rewritten with two, while the third's behaviour is unchanged.",
+      "config": { "test_tamper_guard": "deny" },
+      "existing": "spec-three-assertions",
+      "write": "spec-two-assertions",
+      "verdict": "block",
+      "because": "Deleting the check is the cheapest way to make a red suite green, and the one failure a green suite cannot report."
+    },
+    {
+      "id": "assertion-commented-out",
+      "hook": "tamper",
+      "source": "the obvious evasion of a line-count check",
+      "situation": "The third assertion is commented out in place rather than deleted.",
+      "config": { "test_tamper_guard": "deny" },
+      "existing": "spec-three-assertions",
+      "write": "spec-one-commented",
+      "verdict": "block",
+      "because": "A commented-out assertion is a deleted assertion. Counting it as live would let the deletion through disguised as a comment."
+    },
+    {
+      "id": "adding-a-test-must-not-block",
+      "hook": "tamper",
+      "source": "design",
+      "situation": "A fourth assertion is added to an existing test file.",
+      "config": { "test_tamper_guard": "deny" },
+      "existing": "spec-three-assertions",
+      "write": "spec-four-assertions",
+      "verdict": "allow",
+      "because": "The guard defends the count from below. Blocking growth would make it an obstacle to the thing it is protecting."
+    },
+    {
+      "id": "executor-stops-on-red",
+      "hook": "exit-gate",
+      "source": "ucars SUMMARYs: \"the plan's resolver snippet does not compile\", \"the plan's useInject would have crashed web and mobile\"",
+      "situation": "An executor finishes while the project's own typecheck still fails.",
+      "config": { "exit_gate": "RED" },
+      "verdict": "block",
+      "because": "The work is not finished while the project's own checks are red, and lint/typecheck are the cheapest verifier in the system — deterministic, already written, and unable to be optimistic."
+    },
+    {
+      "id": "unrunnable-gate-is-not-a-failed-gate",
+      "hook": "exit-gate",
+      "source": "design; the same rule autonomous.md applies to loop gates",
+      "situation": "workflow.exit_gate names a command that does not exist.",
+      "config": { "exit_gate": "MISSING" },
+      "verdict": "allow",
+      "because": "A gate that cannot run is a configuration problem, not a code problem. Reporting it as a code failure is how a gate earns the reputation that gets it disabled."
+    },
+    {
+      "id": "stale-worktree-base-refused-before-work",
+      "hook": "worktree",
+      "source": "ucars retrospective: \"worktree 380 commits behind main at start\"",
+      "situation": "A worktree is created from a base far behind the main checkout.",
+      "config": { "worktree_provision": true, "worktree_max_base_lag": 50 },
+      "behind": 380,
+      "verdict": "block",
+      "because": "Plans written against a base that has already moved have to be redone. Refusing costs one command; proceeding costs the phase."
+    },
+    {
+      "id": "missing-tool-config-warns-not-blocks",
+      "hook": "worktree",
+      "source": "ideas/atlas-mcp-backlog.md §B-2: \"tools don't reach GSD agents\"",
+      "situation": "The main checkout has no .mcp.json to copy into the new worktree.",
+      "config": { "worktree_provision": true },
+      "behind": 0,
+      "verdict": "allow",
+      "because": "The phase may not need the tool. Refusing to create a worktree over an optional convenience is how people come to distrust isolation and turn it off."
+    },
+    {
+      "id": "unrun-manual-check-blocks-ship",
+      "hook": "uat",
+      "source": "ucars retrospective: NN-HUMAN-UAT.md invented by hand because items \"got silently dropped\"",
+      "situation": "The phase's UAT file lists a check the verifier deferred to a human, and nobody ran it.",
+      "uat": "pending",
+      "verdict": "block",
+      "because": "The phase's own report says nobody checked. Shipping past that makes the record a formality."
+    },
+    {
+      "id": "failed-manual-check-is-not-this-gate",
+      "hook": "uat",
+      "source": "design: the verifier owns the gaps_found / human_needed verdict",
+      "situation": "The UAT item was run and failed.",
+      "uat": "fail",
+      "verdict": "allow",
+      "because": "A failed manual check is a known defect whose verdict belongs to verification. This gate asks only whether anything went unrun; blocking here too would make two mechanisms fight over one decision."
+    },
+    {
+      "id": "phase-with-no-manual-checks-ships",
+      "hook": "uat",
+      "source": "design: most phases defer nothing",
+      "situation": "The phase produced no UAT file at all.",
+      "uat": "absent",
+      "verdict": "allow",
+      "because": "Requiring the artifact would block a phase for having nothing to check — the inverse of blast-radius, where an empty declaration IS the defect."
+    }
+  ]
+}

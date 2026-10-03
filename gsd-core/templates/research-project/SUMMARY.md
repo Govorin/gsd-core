@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-research-synthesizer, gsd-roadmapper]
+---
+
 # Research Summary Template
 
 Template for `.planning/research/SUMMARY.md` — executive summary of project research with roadmap implications.

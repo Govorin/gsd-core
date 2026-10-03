@@ -2842,6 +2842,590 @@ const capabilities = {
     "contributions": [],
     "gates": []
   },
+  "mn-verify-gate": {
+    "id": "mn-verify-gate",
+    "role": "feature",
+    "version": "1.9.1",
+    "title": "Verification enforcement gates",
+    "description": "Blocks ship while the phase's own verification artifacts still say the work is unproven. Core GSD produces VERIFICATION.md and VALIDATION.md but no gate reads either — a phase with gaps_found reaches ship unopposed.",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.9.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [],
+    "agents": [
+      "gsd-finding-refuter"
+    ],
+    "hooks": [],
+    "config": {
+      "workflow.verify_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship when VERIFICATION.md reports unproven truths (truths_unproven != 0). Requires the verifier to emit that field."
+      },
+      "workflow.nyquist_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship when VALIDATION.md reports nyquist_compliant: false, or when the phase produced no VALIDATION.md at all."
+      },
+      "workflow.mn_security_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+      },
+      "workflow.mn_windows_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+      },
+      "workflow.assertion_ratchet": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+      },
+      "workflow.data_contract_for_ui": {
+        "type": "boolean",
+        "default": false,
+        "description": "Instruct the planner to derive a field table from the Zod schema for any screen bound to a DTO, and to state the control, order, error copy and conditional-visibility decisions the schema cannot express. UI-SPEC.md carries no fields, so without this the designer invents them."
+      },
+      "workflow.design_phase": {
+        "type": "boolean",
+        "default": false,
+        "description": "Instruct the planner to fix layer placement and cross-plan signatures in {phase}-DESIGN.md before splitting the phase into plans. The split into plans IS the boundary decision, and nothing downstream records that it was made: PATTERNS.md answers what an existing file should be copied from, using a controller/service/model role vocabulary that cannot express layers like ports or rules. The concrete failure is signature divergence between parallel waves — wave 2's plan is written before wave 1's code exists, so it calls Promise<Book|null> against an EitherAsync port. Both plans verify green (files_modified disjoint, key_links matched, per-project tests pass) and the mismatch lands on the pre-commit typecheck with both commits already in history. Requires templates/DESIGN.md."
+      },
+      "workflow.design_registry": {
+        "type": "boolean",
+        "default": false,
+        "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from scripts/design-registry.mjs; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
+      },
+      "workflow.user_route": {
+        "type": "boolean",
+        "default": false,
+        "description": "Instruct the planner to name the screens of a multi-screen phase and the route through them — inventory, stateDiagram-v2, and where every failure branch lands — before any screen is designed. Nothing upstream carries this: UI-SPEC.md mentions a page only as a spacing token, and the user story is one sentence naming an outcome, not a path."
+      },
+      "workflow.spec_phase": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run spec-phase at the start of an autonomous phase, before discuss. Core reaches spec-phase from no route in autonomous.md or next.md, so SPEC.md is written only if someone types the command — and every consumer that reads it silently gets nothing. Non-blocking: a phase adequately specified by its roadmap entry continues to discuss without one."
+      },
+      "workflow.migration_safety": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block the wave when a new .sql migration performs an operation that is irreversible without data loss (DROP COLUMN/TABLE, incompatible ALTER TYPE, NOT NULL without DEFAULT, TRUNCATE) and nobody declared it, or when meta/_journal.json disagrees with the .sql files on disk. schema-gate proves the schema was pushed and drift proves schema matches tree — a column-dropping migration passes both, because schema and code are consistent precisely because the column is gone. Also instructs the planner to settle backfill, ordering and the undo path before the migration is written. Silenced per-file by `-- gsd:irreversible`, `-- gsd:backfill`, `-- gsd:reverse:`, `-- gsd:manual`, or by a phase artifact that discusses rollback/backfill."
+      },
+      "workflow.migration_safety_strict": {
+        "type": "boolean",
+        "default": false,
+        "description": "Tighten workflow.migration_safety: warnings (USING casts, duplicate migration indices) also block, and a destructive statement must be declared in the .sql itself — prose in PLAN.md no longer silences it. Off by default because the looser form already forces the decision; turn on for domains where a bad migration is unrecoverable."
+      },
+      "workflow.blast_radius": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block verification when files changed by the phase were named by no PLAN.md in it. files_modified is a declaration nothing checks after the fact — ADR-1239 specifies the check and neither isolation adapter implements it (#2596). Divergence is the signal, not volume: a phase legitimately touching 105 files is fine, one touching a file nobody planned is not."
+      },
+      "workflow.verify_gates": {
+        "type": "string",
+        "default": "",
+        "description": "JSON object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Example: {\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. Declared as a string because the capability config schema admits boolean, string, number and enum only; a JSON object literal in config.json is read directly."
+      },
+      "workflow.verify_gates_record": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run `verify gates` automatically at verify:pre, before the verifier reads the phase. Order matters: the verifier should read numbers it did not produce. Off by default because it is inert without workflow.verify_gates naming commands, and running an unconfigured recorder on every phase would print a refusal each time."
+      },
+      "workflow.verify_gates_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship when the recorded gate results say a check failed (gates.all_passed != true). This is the gate ADR-2008's artifact-frontmatter-equals predicate was built for and has had nothing to read: workflow.verify_enforce reads truths_unproven, which the verifier writes about itself, while this reads what the commands returned. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
+      },
+      "workflow.mutation_spot_check": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+      },
+      "workflow.mutation_test_command": {
+        "type": "string",
+        "default": "",
+        "description": "Test command the mutation spot-check runs, e.g. \"npx vitest run --project unit\" or \"npx nx affected -t test\". Uses the project's own runner rather than a mutation framework: neither mn nor awesome-projects installs Stryker, and a gate that first requires installing a tool does not get switched on. Prefer the narrowest command that still covers the phase — the check runs it once per mutant."
+      },
+      "workflow.mutation_max_mutants": {
+        "type": "number",
+        "default": 3,
+        "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+      },
+      "workflow.worktree_provision": {
+        "type": "boolean",
+        "default": false,
+        "description": "Equip a new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings.local.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js (WorktreeCreate); on runtimes without that event the existing dispatch path is unchanged."
+      },
+      "workflow.worktree_deps": {
+        "type": "enum",
+        "values": [
+          "link",
+          "install",
+          "none"
+        ],
+        "default": "link",
+        "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree: the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it."
+      },
+      "workflow.worktree_install_command": {
+        "type": "string",
+        "default": "",
+        "description": "Command run inside a new worktree when workflow.worktree_deps is \"install\" (e.g. \"bun install --frozen-lockfile\"). Empty means the install step reports that nothing was configured rather than guessing a package manager."
+      },
+      "workflow.worktree_max_base_lag": {
+        "type": "number",
+        "default": 200,
+        "description": "Refuse a worktree whose base is more than this many commits behind the main checkout (0 disables the check). Plans written against a stale base are written against code that has already moved — recorded in the ucars retrospective as \"worktree 380 commits behind main at start\", discovered mid-phase. This is the one provisioning step that BLOCKS, because unlike a missing tool it cannot be worked around: the work has to be redone. An unmeasurable base (shallow clone, unrelated histories) warns instead — refusing there would strand the phase, and the executor's own first build surfaces it anyway."
+      },
+      "workflow.worktree_copy_tools": {
+        "type": "boolean",
+        "default": true,
+        "description": "Copy .mcp.json and .claude/settings*.json into a provisioned worktree so an agent has the tools it had a moment ago. An existing file in the worktree is never clobbered — a worktree carrying its own settings is making a deliberate statement. Only consulted when workflow.worktree_provision is on."
+      },
+      "workflow.autonomous_max_phases": {
+        "type": "number",
+        "default": 0,
+        "description": "Stop an autonomous run after this many phases (0 = no limit, the prior behaviour). Overridable per run with --max-phases N. The run ends by choosing to, at a phase boundary where work is committed and verified — which is reviewable — rather than by exhausting its context mid-phase, which is not. Long-run failure in agentic coding is measured to be dominated by exhaustion (MAX_TURNS, wall clock), not by a wrong decision at the end; a harness that stops cleanly costs far less per unit of work delivered than one that runs until it cannot."
+      },
+      "workflow.uat_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship while the phase's own {phase}-UAT.md still lists manual checks nobody ran. The verifier already writes them there when it cannot confirm a truth by reading code, and `audit-uat` already finds them — nothing read that, so a phase whose report says \"nobody checked\" shipped anyway. A phase with no UAT file passes (most defer nothing); a FAILED item passes too, because a failed manual check is a known defect that verification owns, and this gate asks only whether anything went unrun."
+      },
+      "workflow.clean_state_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block ship while the working tree has changes outside .planning/ or git is halfway through a merge, rebase, cherry-pick or revert. ship.md already asks the model to read `git status --short` and stop; this makes it an exit code, and adds the one state status cannot show: a stopped rebase or cherry-pick leaves the tree clean while history is mid-operation. Changes under .planning/ are ignored (they move while the work runs), and a leftover .continue-here.md is not counted (resume does not delete it, so it does not mean the session was dropped)."
+      },
+      "workflow.prohibition_guard": {
+        "type": "string",
+        "default": "off",
+        "enum": [
+          "off",
+          "ask",
+          "deny"
+        ],
+        "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse)."
+      },
+      "workflow.test_tamper_guard": {
+        "type": "string",
+        "default": "off",
+        "enum": [
+          "off",
+          "ask",
+          "deny"
+        ],
+        "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
+      },
+      "workflow.exit_gate": {
+        "type": "string",
+        "default": "",
+        "description": "Command run when an executor subagent stops; a non-zero exit refuses the stop and hands the command's own output back for repair. Empty (the default) leaves the gate inert — only the project knows what green means for it. Typical values: \"lefthook run pre-commit\", \"nx affected -t lint,typecheck --base=HEAD\", \"npm run lint:ci\". Runs in the tree the subagent worked in (git rev-parse --show-toplevel from its cwd), never the main checkout — judging a worktree agent against somebody else's uncommitted WIP once reported 19 untouched files as its failure. Implemented by hooks/gsd-exit-gate.js (SubagentStop)."
+      },
+      "workflow.exit_gate_agents": {
+        "type": "string",
+        "default": "gsd-executor",
+        "description": "Comma-separated subagent names that workflow.exit_gate applies to. Defaults to the executor alone; add others only if their output is the kind a lint/typecheck run can judge. A comma-separated string rather than a list because the capability config schema admits boolean, string, number and enum only."
+      },
+      "workflow.exit_gate_max_retries": {
+        "type": "number",
+        "default": 3,
+        "description": "How many times workflow.exit_gate may refuse a stop for one phase-and-worktree before it reports instead of blocking. Past this, the failure travels to verification rather than looping an executor against debt it may not own. The check still RUNS after the budget is spent — a green tree clears the ledger and re-arms the gate; skipping the run would disarm it permanently for that worktree."
+      },
+      "workflow.exit_gate_timeout": {
+        "type": "number",
+        "default": 600,
+        "description": "Seconds workflow.exit_gate may run before it is killed. A killed gate allows the stop — a gate that could not run is a configuration problem, not a code problem, and conflating the two trains people to disable it."
+      },
+      "workflow.pin_invariants": {
+        "type": "boolean",
+        "default": true,
+        "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js (PostCompact, with SessionStart as the degrade path on runtimes lacking it)."
+      },
+      "workflow.pin_invariants_budget": {
+        "type": "number",
+        "default": 2000,
+        "description": "Character cap on the workflow.pin_invariants injection. A pin that grows without bound recreates the problem it solves; over the cap, whole blocks are dropped at an item boundary and the omission is stated rather than hidden."
+      },
+      "workflow.contract_drift": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block verify when a signature declared in DESIGN.md ## Contracts no longer matches the code. A phase declaring no signatures passes — the gate is silent where there is nothing to compare."
+      },
+      "workflow.wave_collision": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block when two plans in the same wave declare the same file in files_modified. Same-wave plans run concurrently in separate worktrees, so a shared file means the second commit overwrites the first or conflicts. Measured at 13.4% of phases."
+      },
+      "workflow.wave_normalize": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block on same-wave overlap AFTER resolving directories and globs against the working tree, and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Supersedes workflow.wave_collision for projects whose plans declare directories: that gate compares only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Both may be enabled — wave_collision runs first, this one catches what it skipped. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
+      },
+      "workflow.orphan_plans": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block verify when a plan declares status: in_progress but produced no SUMMARY — the executor started and never finished, so the next pass re-runs it on top of its own unrecorded work. Plans with no status at all are reported, not blocked: 37.4% of live plans are in that state and a gate failing a third of the repository gets switched off."
+      },
+      "workflow.wave_solve": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block at plan:post when a declared wave is EARLIER than the computed assignment — the plan would run before its dependency exists, or race another plan over the same file. A wave declared LATER than necessary is reported, not blocked: it is sequential where parallel would do, slower but never wrong."
+      },
+      "workflow.plan_status_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block at execute:wave:post when a plan's declared status contradicts what is on disk: an in_progress plan that produced no SUMMARY (the executor started and never finished, so the next pass re-runs it over its own uncommitted work), a status outside the vocabulary in_progress|blocked|done|superseded, a blocked plan with no blocked_reason, a superseded plan naming no successor, or a blocked_reason past 2048 characters. What it deliberately does NOT block: a plan carrying no status at all passes — 37.4% of live plans are in that state and a gate that fails a third of a repository is switched off permanently rather than fixed; and a correctly-declared blocked plan passes, because declaring a blockage is the behaviour the gate exists to reward, not to punish. Default false inverts GSD's usual absent-means-enabled on purpose: an enforcement gate that armed itself on upgrade would fail trees that never opted in."
+      },
+      "workflow.refute_findings": {
+        "type": "boolean",
+        "default": false,
+        "description": "Put the plan-checker's findings through an adversarial pass before the planner sees them: gsd-finding-refuter must try to disprove each one, and may only drop a finding with evidence — a file, a line, or a command's output. A reviewer whose findings are never challenged drifts toward reporting more of them, because an unreported real issue is visibly a miss while a reported non-issue costs it nothing; the cost lands on the planner rewriting plans to satisfy findings that were never true. Self-critique by the reviewer is the wrong shape and measurably worse (recall 27%->33%, signal-to-noise 5.11->1.95, arXiv 2603.11078) — the pass has to come from something that is not the reviewer. Deliberately one refuter and not a panel: five critics per plan is the ceremony the workflows guidance warns against. Expect it to change nothing most of the time; a refuter that regularly refutes half the findings is disputing on argument rather than evidence, which its evidence lines will show."
+      },
+      "workflow.type_model": {
+        "type": "boolean",
+        "default": false,
+        "description": "Instruct the planner to fix the phase's type model — domain vocabulary and branded ids, the closed error-code set, port signatures with their full return types, which Zod schema is authoritative, and any domain state the type cannot hold — BEFORE the tasks that write behaviour. In this codebase the type is the specification (2,646 files import @monads, 1,696 use Zod, 289 *.error-code.ts, and ~60 oxc rules enforce the shape), yet nothing in the pipeline asked for those decisions: the lint layer enforces the SHAPE of a decision and fires only once code exists, by which point whoever typed first made it. An empty section is a legitimate answer for a phase that introduces no types; an absent one is not. Port signatures land under DESIGN.md ## Contracts, where workflow.contract_drift already reads them."
+      },
+      "workflow.enforcement_provenance": {
+        "type": "boolean",
+        "default": false,
+        "description": "Require every review finding to name what guards it — a rule and where it runs, or \"review only\". A check is a mechanism only once it has an assigned execution point: a script nothing invokes is worse than none, because it creates the impression the invariant is guarded and removes the question from review while checking nothing. \"This is a violation\" and \"CI will catch this\" are separate claims and the second is wrong more often than expected — several boundary rules that read as general are hardcoded to one domain, and a rule at warn in a project that tolerates warnings guards nothing. The distinction changes the fix: a review-only finding recurs the moment nobody looks, so it ships with a mechanism or is knowingly accepted. Taken from the doctrine in the author's own mn/docs/architecture/enforcement.md, where it is a mandatory review step."
+      }
+    },
+    "steps": [
+      {
+        "point": "verify:pre",
+        "ref": {
+          "command": "gsd_run verify gates \"${PHASE_DIR}\" --raw"
+        },
+        "produces": [
+          "{phase}-VERIFICATION.md"
+        ],
+        "consumes": [],
+        "when": "workflow.verify_gates_record",
+        "onError": "skip"
+      }
+    ],
+    "contributions": [
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-design.md",
+          "inline": "<design_before_planning>\n**Before splitting this phase into plans, decide where the new code lives and what signatures cross between plans — and write both down.**\n\nThe split into plans *is* a boundary decision. When you assign `book.service.ts` to plan 02 and `book-repository.port.ts` to plan 01, you have already decided which layer owns which behaviour, which project each file lands in, and what has to pass between them. Nothing downstream records that you decided it. `PATTERNS.md` answers a neighbouring question — \"what existing file should this one resemble\" — with a role vocabulary of controller/service/model/middleware/utility. That vocabulary is three-layer MVC. It cannot express a repository where `ports` and `rules` are separate layers with separate import permissions, so in that repository it answers about form and stays silent about boundary.\n\nRecord the design in `{phase}-DESIGN.md` (template: `~/.claude/gsd-core/templates/DESIGN.md`). Four things earn their place; the rest are conditional.\n\n**1. Where each new artifact lives, and why not the layer next door.**\n\nThe reason is the load-bearing part. \"This is a service, so it goes in services\" restates the placement. A reason names either the import that would become illegal or the consumer that would be forced into knowledge it must not have:\n\n> `canCompleteTask` goes in `rules`, not `services`. The button needs it and `ui/**` may not import `services`. Putting it in `services` forces a copy in the component, and the copy is what drifts — the button ends up permitting what the server rejects.\n\nPlacements that are forced deserve one line each. Spend the words on the contested ones. If every row in the table reads \"belongs in X\", the section was filled in out of obligation and no one will read the next one.\n\n**2. The signatures this phase introduces that another plan will call — with their full return types.**\n\nThis is the failure the section exists to close, and it is not hypothetical. Parallel plans are planned before the code they depend on exists. Wave 1 writes `findById(id): EitherAsync<RepoError, Book>`; wave 2's plan was authored when nothing existed to read, so it calls `findById(id): Promise<Book | null>`. Both plans pass their own verification — `files_modified` do not overlap, `key_links` match by regexp, each plan's tests run against its own project. Nothing in the pipeline typechecks across plans. The mismatch surfaces at the pre-commit gate, with both commits already in history.\n\nAn abbreviated signature does not prevent this. It is what causes it. The `<interfaces>` blocks in this repository's own completed phases show the shape:\n\n```\nITaskRepository: findById, findByName, listActive, save, update, delete\n```\n\nEvery executor that read this had to guess a return type, and the guesses agreed only by luck. The real declaration is `findByName(name: TaskName): Promise<Either<RepositoryError, TaskEntity | null>>` — three decisions (`Promise` vs `EitherAsync`, `Either` vs throw, `| null` vs a not-found error code) that the method name records none of. Write the declaration, not the roster:\n\n```typescript\nfindByName(name: TaskName): Promise<Either<RepositoryError, TaskEntity | null>>;\n```\n\nThen carry the same text into each consuming plan's `<interfaces>` block, so the two plans are reading one string rather than two paraphrases of one intention.\n\n**Put these declarations under a heading named exactly `## Contracts`.** That is not a formatting preference: `workflow.contract_drift` reads that section and only that section, then compares each declaration against the shipped code at verify:pre. Written under any other heading, the signatures are prose — the gate finds nothing to compare and reports no drift on a phase that drifted. Measured before this line was added: nine DESIGN.md files in one project, not one of them carrying the heading, so the gate had been silent by construction.\n\n**3. What was rejected, stated as its advocate would state it.**\n\nAn option rejected without a record is re-proposed at every review, and the rebuttal is reconstructed from memory each time — slightly differently, until someone reconstructs it wrong and the option wins by attrition. This is the cheapest section in the document and the only one that stays true after the code changes.\n\nTwo rules make it worth writing. State the alternative strongly: a strawman makes a live question look settled, and the option returns anyway with nothing recorded to answer it. And give the condition that would flip it — \"would revisit if the fake repository needs a second implementation\" is a decision; \"rejected, less clean\" is a preference wearing a decision's clothes.\n\n**4. Do not hand-draw what the repository can generate.**\n\nWhere a layer graph exists in machine-readable form, the allowed-dependency diagram is derived from it and carries the command that produced it, so the reader can re-run it. Typed by hand, that diagram is an unverified claim about the linter's configuration that no one re-checks, and it diverges the first time the graph changes — leaving a document that contradicts the tool while looking authoritative. Absent is better than wrong. Same for the port/implementation diagram: generate it where the ports already exist, author it only for ports this phase introduces.\n\n**On the shelf life of section 2.** Once the phase executes, the code is the contract and the markdown is a copy. Set `contracts_superseded: true` and stop maintaining it. It remains useful as a record of what was intended at plan time — which is exactly what a reviewer wants when the shipped signature differs. Chasing refactors with edits to a markdown table produces a document that is neither a record nor a source of truth.\n\n**When to skip all of this.** A phase that adds one function to an existing library, touches one project, and hands nothing to a parallel plan has one honest row of placement and no contracts. Write those and move on. The document earns its cost when plans run in parallel, when a port is introduced, or when the layer was genuinely arguable — and it loses its readers when it is filled in because the section existed.\n</design_before_planning>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.design_phase",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-typemodel.md",
+          "inline": "<type_model_before_implementation>\n**Before any task that writes behaviour, the plan must state the types that behaviour moves through.**\n\nIn this codebase the type IS the specification: an `EitherAsync<OrderError, Order>` says what can fail and what comes back; a `Brand<string, 'OrderId'>` says which ids may be passed where; a closed `ErrorCode` const says which failures exist at all. Code written before those decisions does not merely need refactoring later — it encodes a different specification, and the compiler will defend the wrong one.\n\nThe lint layer already enforces the SHAPE of these decisions (`no-raw-primitive-domain-types`, `no-unbranded-id-in-port`, `error-code-file-naming`, `zod-enum-const-object`, `no-inline-error-type`, and ~60 more). It cannot make the decisions, and it fires only once code exists — by then the choice was made by whoever typed first. That is the gap this section fills: the decisions, in the plan, before the tasks that depend on them.\n\n## What the plan must state\n\nState only what this phase actually introduces. A phase that adds a screen over existing types declares nothing here and says so in one line — an empty section is a legitimate answer, an absent one is not.\n\n**1. Domain vocabulary — the nouns and their identity**\n\n| Type | Shape | Branded? | Where it lives |\n|---|---|---|---|\n| `OrderId` | `Brand<string, 'OrderId'>` | yes | `libs/trade/types/src/order/order-id.ts` |\n| `Order` | `{ id: OrderId; status: OrderStatus; … }` | — | `libs/trade/types/src/order/order.ts` |\n\nA raw `string` id crossing a port boundary is the defect `no-unbranded-id-in-port` exists to catch; deciding it here means the rule never has to fire.\n\n**2. The failure set — closed, named, and complete before the first `left()`**\n\nEvery service this phase touches gets one discriminated union and one `*.error-code.ts`:\n\n```ts\nexport const OrderErrorCode = {\n  OrderNotFound: 'OrderNotFound',\n  OrderAlreadyFilled: 'OrderAlreadyFilled',\n} as const;\nexport type OrderErrorCode = (typeof OrderErrorCode)[keyof typeof OrderErrorCode];\n```\n\nList the codes in the plan. A code invented mid-implementation is a failure mode nobody decided should exist, and every caller's `match(...).exhaustive()` silently widens to accommodate it.\n\n**3. Port signatures — the exact return types crossing a plan boundary**\n\n```\nOrderPort.findPending(): EitherAsync<OrderError, Order[]>\nOrderPort.fill(id: OrderId): EitherAsync<OrderError, Order>\n```\n\nWrite them as they will compile. This is the concrete failure DESIGN.md was added for: wave 2's plan is written before wave 1's code exists, so it calls `Promise<Order|null>` against an `EitherAsync` port; both plans verify green in isolation and the mismatch lands on the pre-commit typecheck with both commits already in history.\n\n**Where to put them:** if this phase writes a `{phase}-DESIGN.md`, these signatures belong under its `## Contracts` heading — `workflow.contract_drift` reads that heading and only that one, and compares each declaration against the shipped code at verify:pre. Signatures written anywhere else are prose that nothing checks. Without a DESIGN.md, put them in the plan that introduces the port and repeat the exact text in each consuming plan's `<interfaces>` block.\n\n**4. Schema ownership — which Zod schema is authoritative, and what is derived from it**\n\nName the schema, then state that the DTO type is `z.infer` of it, never a hand-written twin. Two declarations of the same shape drift; the only question worth answering in the plan is which one is the source.\n\n**5. State that the type cannot hold**\n\nIf a value is legal in the type but illegal in the domain — an `Order` that is `filled` with no `filledAt`, a `Price` in the wrong currency — say so and say what carries the constraint: a phantom parameter (`Order<Filled>`), a smart constructor, or a `.refine()` on the schema. \"The service checks it\" is the answer that produces the bug this section is here to prevent, because a check is a thing that can be forgotten at one of its call sites.\n\n## Ordering that follows from this\n\nTypes, error codes and schemas land in the phase's **first wave**, ahead of the services and controllers that consume them. A later wave adding a field to a shared type is a signal the model was decided too late — not fatal, but worth a line in the deviation notes so the next phase's split accounts for it.\n\n## What does not belong here\n\nImplementation. This section fixes the contract; the tasks fill it in. If a decision cannot be made without writing code first, that is a spike, and the plan should say so rather than guessing at a signature nobody has tried.\n</type_model_before_implementation>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.type_model",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-fieldtable.md",
+          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\nbun \"$HOME/.gsd/mn-verify-gate/scripts/zod-fieldtable.mjs\" \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName>\n```\n\nIt emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.data_contract_for_ui",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-user-route.md",
+          "inline": "<user_route>\n**If this phase spans more than one screen, name the screens and the route through them before any of them is designed.**\n\nNothing upstream carries this. UI-SPEC.md holds palette, spacing and typography — its only mention of a page is a spacing token. The user story is one sentence (\"As a user, I want to add a word, so that I can review it later\"), which names an outcome, not a path. So screens get designed one at a time, verified one at a time, and the route between them is assembled by whoever writes the code last.\n\nStart with the inventory — every screen the phase touches:\n\n| Screen | Route | Purpose | Entered from |\n|--------|-------|---------|--------------|\n| DeckList | `/decks` | browse decks | app launch, back from AddWord |\n| AddWord | `/decks/:id/add` | create a word | DeckList «Add» |\n\nThen the route itself. A `stateDiagram-v2` is the right shape here, and not for decoration: it forces a label on every transition, so an unlabelled arrow — a transition nobody decided — cannot be drawn without noticing.\n\n```mermaid\nstateDiagram-v2\n  [*] --> DeckList\n  DeckList --> AddWord: tap «Add»\n  AddWord --> Saving: submit\n  Saving --> DeckList: right(word)\n  Saving --> AddWord: left(ValidationFailed)\n  Saving --> Login: left(Unauthorized)\n  Login --> AddWord: session restored\n```\n\n**Then state where each failure sends the user — not just where success does.** The happy path is always covered, because each screen is reviewed on its own and each one renders. What no artifact records is the branch: the session expiring on step three, the 403 on submit, the network dropping mid-upload. The user lands on an empty screen with no way back, and it surfaces in UAT as a major issue that needs its own phase to fix.\n\nFor each screen this phase touches, name the exits:\n\n| From | Trigger | Goes to | User sees | State kept? |\n|------|---------|---------|-----------|-------------|\n| AddWord | submit succeeds | DeckList | new word in list | — |\n| AddWord | `left(ValidationFailed)` | AddWord | field errors inline | yes — input preserved |\n| AddWord | `left(Unauthorized)` | Login | session expired notice | **decide: draft kept or lost** |\n\nFour rules that make this worth writing down:\n\n- **Every screen needs an entry.** A screen nobody can reach is built and never seen; the inventory's \"entered from\" column is what catches it, and it catches it before the code exists rather than in UAT.\n- **Every `left(...)` in the flow needs a destination.** An error branch with no target screen is a dead end, and dead ends are found by users, not by reviewers.\n- **Say explicitly whether unsaved input survives.** This is the single question most often left unanswered, and the answer changes the implementation — it decides whether the form state lives in the component or above it.\n- **Re-entry is a case too.** After the user logs back in, do they return to where they were or to the start? Both are defensible; silence is not.\n\nTwo consumers depend on this, which is why it belongs in the plan rather than in someone's head: the UI work knows which screens to design and which states each must carry, and UAT knows how many paths to walk — otherwise it walks the happy one and calls the phase done.\n\nIf the phase renders exactly one screen with no navigation away from it, say so in one line and skip both tables — an empty table filled out of obligation teaches everyone to skip the real ones.\n</user_route>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.user_route",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-migration.md",
+          "inline": "<migration_safety>\n**If this phase changes the database schema, decide what happens to the rows that already exist — before the migration is written.**\n\nA migration is the one artifact in a phase that cannot be fixed by a follow-up commit. Code that ships wrong is reverted; a column that ships dropped is gone, and the revert brings back the file, not the data. The existing gates do not cover this: `schema-gate` checks that the schema was pushed, `drift` checks that schema and tree agree — and a migration that drops a column passes both, because schema and code are consistent precisely *because* the column is gone everywhere. Data loss is not a schema discrepancy. It is a consequence of a consistent schema.\n\nState four things in the plan. Not as prose — as answers, so the executor can act on them and the reviewer can check them.\n\n**1. What existing rows contain.** Not \"the table is probably empty\" — say how you know. The answer differs per environment, and the one that matters is production.\n\n| Table | Rows in prod | Rows in dev | How verified |\n|-------|--------------|-------------|--------------|\n| `user_word_knowledge` | ~40k | ~200 | `select count(*)` on 2026-08-07 |\n\nAn empty table makes half of this section trivial and that is a fine outcome — but write down that it is empty, because \"assumed empty\" is how `ADD COLUMN … NOT NULL` reaches a populated table and aborts the deploy.\n\n**2. The order of operations for any new NOT NULL column.** A single statement adding `NOT NULL` without `DEFAULT` fails on a non-empty table — Postgres has no value to put in the existing rows. The three-step form is not ceremony, it is the only form that works:\n\n```sql\n-- 1. nullable first — always succeeds, no table rewrite\nALTER TABLE \"user_word_knowledge\" ADD COLUMN \"ignored_at\" timestamptz;\n-- 2. backfill — decide the value for rows that predate the column\nUPDATE \"user_word_knowledge\" SET \"ignored_at\" = \"created_at\" WHERE \"ignored_at\" IS NULL;\n-- 3. only now constrain\nALTER TABLE \"user_word_knowledge\" ALTER COLUMN \"ignored_at\" SET NOT NULL;\n```\n\nThe interesting step is 2, and it is the one no artifact currently asks about: **what is the right value for a row that existed before the concept did?** `created_at` says \"it was always so\", `now()` says \"it starts today\", a sentinel says \"unknown\". These are three different product decisions and the schema cannot express which one you meant. A `DEFAULT` shortcut is legitimate when a single constant is genuinely correct — say that it is, rather than reaching for it to avoid the question.\n\n**3. The reverse path — and be honest when there isn't one.** For each destructive statement, write the SQL that undoes it, or state that nothing does:\n\n| Statement | Reverse | Data recoverable? |\n|-----------|---------|-------------------|\n| `ADD COLUMN ignored_at` | `DROP COLUMN ignored_at` | yes — nothing existed before |\n| `DROP COLUMN s3_text_key` | `ADD COLUMN s3_text_key text` | **no — values are gone** |\n| `ALTER COLUMN status TYPE status_enum USING …` | cast back to text | partially — rows failing the cast are lost |\n\n\"No reverse exists\" is an acceptable answer and often the correct one. What is not acceptable is not knowing. Record the decision in the `.sql` itself so the gate and the next reader see the same thing:\n\n```sql\n-- gsd:irreversible  s3_text_key superseded by object-store keys; values not needed\n-- gsd:backfill      existing rows take created_at\n-- gsd:reverse: ALTER TABLE book_analysis ADD COLUMN s3_text_key text\n-- gsd:manual        written by hand; registered in _journal.json deliberately\n```\n\n**4. What happens if this phase is undone.** `gsd-undo` reverts commits, and a migration does not live only in a commit — it has already run against the database. The revert removes the `.sql` file while the table it created stays, and `__drizzle_migrations` keeps the hash of a file that no longer exists. The next `drizzle-kit generate` then diffs a schema-without-the-table against a database-with-the-table and emits `DROP TABLE`. Nothing fails at revert time; the loss arrives on the next unrelated migration. So state plainly: **is this phase revertible by `gsd-undo` alone, or does undoing it also require a manual database step?** If it requires one, write that step here — this is the only place it will be recorded.\n\nTwo more rules worth the line they cost:\n\n- **Never write migration `.sql` by hand without registering it in `meta/_journal.json`.** A file outside the journal is invisible to `drizzle-kit`: it will not be applied by `migrate`, will not be counted in the hash chain, and will not be represented in the next generated snapshot. This is not hypothetical in this repo — `apps/savor/api` has 15 migrations on disk and 7 in its journal, and `trade-mind`'s archive has 40 against 27, with eight duplicated index prefixes whose apply order is undefined. Both drifted exactly this way. If a hand-written file is genuinely necessary, mark it `-- gsd:manual` and say in the plan why `drizzle-kit generate` could not produce it.\n- **Separate the destructive migration from the code that stops using the column.** Ship the readers first, drop the column in a later phase. A single phase that does both cannot be rolled back at all — reverting the code restores readers for a column that no longer exists.\n\nIf the phase touches no schema files, say so in one line and skip this section. A table filled in out of obligation teaches everyone to skim the ones that matter.\n</migration_safety>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.migration_safety",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-design-registry.md",
+          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running)\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --html <export-dir> --code libs/<domain>\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain>\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it.\n\nExit codes: `0` checked and clean · `1` checked, components unimplemented (under `--check`) · `2` could not check at all. Treat `2` as a blocked task, not a pass — a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line.\n\n## What the registry does not decide\n\nThe script reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.design_registry",
+        "onError": "skip"
+      }
+    ],
+    "gates": [
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.nyquist_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.verify_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.verify_gates_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 90
+          }
+        },
+        "when": "workflow.uat_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 1800
+          }
+        },
+        "when": "workflow.mutation_spot_check",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.mn_security_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.mn_windows_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
+            "timeout": 120
+          }
+        },
+        "when": "workflow.assertion_ratchet",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.migration_safety",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.migration_safety_strict",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.blast_radius",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
+            "timeout": 120
+          }
+        },
+        "when": "workflow.contract_drift",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-collision.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_collision",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.orphan_plans",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-solve.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_solve",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.plan_status_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-normalize.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_normalize",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 30
+          }
+        },
+        "when": "workflow.clean_state_enforce",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
+  },
   "nyquist": {
     "id": "nyquist",
     "role": "feature",
@@ -4306,6 +4890,7 @@ const byAgent = {
   "gsd-code-fixer": "code-review",
   "gsd-dom-verifier": "live-dom-uat",
   "gsd-mempalace-curator": "mempalace",
+  "gsd-finding-refuter": "mn-verify-gate",
   "gsd-nyquist-auditor": "nyquist",
   "gsd-pattern-mapper": "pattern-mapper",
   "gsd-user-profiler": "profile-pipeline",
@@ -4506,6 +5091,84 @@ const byLoopPoint = {
         "onError": "skip"
       },
       {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-design.md",
+          "inline": "<design_before_planning>\n**Before splitting this phase into plans, decide where the new code lives and what signatures cross between plans — and write both down.**\n\nThe split into plans *is* a boundary decision. When you assign `book.service.ts` to plan 02 and `book-repository.port.ts` to plan 01, you have already decided which layer owns which behaviour, which project each file lands in, and what has to pass between them. Nothing downstream records that you decided it. `PATTERNS.md` answers a neighbouring question — \"what existing file should this one resemble\" — with a role vocabulary of controller/service/model/middleware/utility. That vocabulary is three-layer MVC. It cannot express a repository where `ports` and `rules` are separate layers with separate import permissions, so in that repository it answers about form and stays silent about boundary.\n\nRecord the design in `{phase}-DESIGN.md` (template: `~/.claude/gsd-core/templates/DESIGN.md`). Four things earn their place; the rest are conditional.\n\n**1. Where each new artifact lives, and why not the layer next door.**\n\nThe reason is the load-bearing part. \"This is a service, so it goes in services\" restates the placement. A reason names either the import that would become illegal or the consumer that would be forced into knowledge it must not have:\n\n> `canCompleteTask` goes in `rules`, not `services`. The button needs it and `ui/**` may not import `services`. Putting it in `services` forces a copy in the component, and the copy is what drifts — the button ends up permitting what the server rejects.\n\nPlacements that are forced deserve one line each. Spend the words on the contested ones. If every row in the table reads \"belongs in X\", the section was filled in out of obligation and no one will read the next one.\n\n**2. The signatures this phase introduces that another plan will call — with their full return types.**\n\nThis is the failure the section exists to close, and it is not hypothetical. Parallel plans are planned before the code they depend on exists. Wave 1 writes `findById(id): EitherAsync<RepoError, Book>`; wave 2's plan was authored when nothing existed to read, so it calls `findById(id): Promise<Book | null>`. Both plans pass their own verification — `files_modified` do not overlap, `key_links` match by regexp, each plan's tests run against its own project. Nothing in the pipeline typechecks across plans. The mismatch surfaces at the pre-commit gate, with both commits already in history.\n\nAn abbreviated signature does not prevent this. It is what causes it. The `<interfaces>` blocks in this repository's own completed phases show the shape:\n\n```\nITaskRepository: findById, findByName, listActive, save, update, delete\n```\n\nEvery executor that read this had to guess a return type, and the guesses agreed only by luck. The real declaration is `findByName(name: TaskName): Promise<Either<RepositoryError, TaskEntity | null>>` — three decisions (`Promise` vs `EitherAsync`, `Either` vs throw, `| null` vs a not-found error code) that the method name records none of. Write the declaration, not the roster:\n\n```typescript\nfindByName(name: TaskName): Promise<Either<RepositoryError, TaskEntity | null>>;\n```\n\nThen carry the same text into each consuming plan's `<interfaces>` block, so the two plans are reading one string rather than two paraphrases of one intention.\n\n**Put these declarations under a heading named exactly `## Contracts`.** That is not a formatting preference: `workflow.contract_drift` reads that section and only that section, then compares each declaration against the shipped code at verify:pre. Written under any other heading, the signatures are prose — the gate finds nothing to compare and reports no drift on a phase that drifted. Measured before this line was added: nine DESIGN.md files in one project, not one of them carrying the heading, so the gate had been silent by construction.\n\n**3. What was rejected, stated as its advocate would state it.**\n\nAn option rejected without a record is re-proposed at every review, and the rebuttal is reconstructed from memory each time — slightly differently, until someone reconstructs it wrong and the option wins by attrition. This is the cheapest section in the document and the only one that stays true after the code changes.\n\nTwo rules make it worth writing. State the alternative strongly: a strawman makes a live question look settled, and the option returns anyway with nothing recorded to answer it. And give the condition that would flip it — \"would revisit if the fake repository needs a second implementation\" is a decision; \"rejected, less clean\" is a preference wearing a decision's clothes.\n\n**4. Do not hand-draw what the repository can generate.**\n\nWhere a layer graph exists in machine-readable form, the allowed-dependency diagram is derived from it and carries the command that produced it, so the reader can re-run it. Typed by hand, that diagram is an unverified claim about the linter's configuration that no one re-checks, and it diverges the first time the graph changes — leaving a document that contradicts the tool while looking authoritative. Absent is better than wrong. Same for the port/implementation diagram: generate it where the ports already exist, author it only for ports this phase introduces.\n\n**On the shelf life of section 2.** Once the phase executes, the code is the contract and the markdown is a copy. Set `contracts_superseded: true` and stop maintaining it. It remains useful as a record of what was intended at plan time — which is exactly what a reviewer wants when the shipped signature differs. Chasing refactors with edits to a markdown table produces a document that is neither a record nor a source of truth.\n\n**When to skip all of this.** A phase that adds one function to an existing library, touches one project, and hands nothing to a parallel plan has one honest row of placement and no contracts. Write those and move on. The document earns its cost when plans run in parallel, when a port is introduced, or when the layer was genuinely arguable — and it loses its readers when it is filled in because the section existed.\n</design_before_planning>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.design_phase",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-typemodel.md",
+          "inline": "<type_model_before_implementation>\n**Before any task that writes behaviour, the plan must state the types that behaviour moves through.**\n\nIn this codebase the type IS the specification: an `EitherAsync<OrderError, Order>` says what can fail and what comes back; a `Brand<string, 'OrderId'>` says which ids may be passed where; a closed `ErrorCode` const says which failures exist at all. Code written before those decisions does not merely need refactoring later — it encodes a different specification, and the compiler will defend the wrong one.\n\nThe lint layer already enforces the SHAPE of these decisions (`no-raw-primitive-domain-types`, `no-unbranded-id-in-port`, `error-code-file-naming`, `zod-enum-const-object`, `no-inline-error-type`, and ~60 more). It cannot make the decisions, and it fires only once code exists — by then the choice was made by whoever typed first. That is the gap this section fills: the decisions, in the plan, before the tasks that depend on them.\n\n## What the plan must state\n\nState only what this phase actually introduces. A phase that adds a screen over existing types declares nothing here and says so in one line — an empty section is a legitimate answer, an absent one is not.\n\n**1. Domain vocabulary — the nouns and their identity**\n\n| Type | Shape | Branded? | Where it lives |\n|---|---|---|---|\n| `OrderId` | `Brand<string, 'OrderId'>` | yes | `libs/trade/types/src/order/order-id.ts` |\n| `Order` | `{ id: OrderId; status: OrderStatus; … }` | — | `libs/trade/types/src/order/order.ts` |\n\nA raw `string` id crossing a port boundary is the defect `no-unbranded-id-in-port` exists to catch; deciding it here means the rule never has to fire.\n\n**2. The failure set — closed, named, and complete before the first `left()`**\n\nEvery service this phase touches gets one discriminated union and one `*.error-code.ts`:\n\n```ts\nexport const OrderErrorCode = {\n  OrderNotFound: 'OrderNotFound',\n  OrderAlreadyFilled: 'OrderAlreadyFilled',\n} as const;\nexport type OrderErrorCode = (typeof OrderErrorCode)[keyof typeof OrderErrorCode];\n```\n\nList the codes in the plan. A code invented mid-implementation is a failure mode nobody decided should exist, and every caller's `match(...).exhaustive()` silently widens to accommodate it.\n\n**3. Port signatures — the exact return types crossing a plan boundary**\n\n```\nOrderPort.findPending(): EitherAsync<OrderError, Order[]>\nOrderPort.fill(id: OrderId): EitherAsync<OrderError, Order>\n```\n\nWrite them as they will compile. This is the concrete failure DESIGN.md was added for: wave 2's plan is written before wave 1's code exists, so it calls `Promise<Order|null>` against an `EitherAsync` port; both plans verify green in isolation and the mismatch lands on the pre-commit typecheck with both commits already in history.\n\n**Where to put them:** if this phase writes a `{phase}-DESIGN.md`, these signatures belong under its `## Contracts` heading — `workflow.contract_drift` reads that heading and only that one, and compares each declaration against the shipped code at verify:pre. Signatures written anywhere else are prose that nothing checks. Without a DESIGN.md, put them in the plan that introduces the port and repeat the exact text in each consuming plan's `<interfaces>` block.\n\n**4. Schema ownership — which Zod schema is authoritative, and what is derived from it**\n\nName the schema, then state that the DTO type is `z.infer` of it, never a hand-written twin. Two declarations of the same shape drift; the only question worth answering in the plan is which one is the source.\n\n**5. State that the type cannot hold**\n\nIf a value is legal in the type but illegal in the domain — an `Order` that is `filled` with no `filledAt`, a `Price` in the wrong currency — say so and say what carries the constraint: a phantom parameter (`Order<Filled>`), a smart constructor, or a `.refine()` on the schema. \"The service checks it\" is the answer that produces the bug this section is here to prevent, because a check is a thing that can be forgotten at one of its call sites.\n\n## Ordering that follows from this\n\nTypes, error codes and schemas land in the phase's **first wave**, ahead of the services and controllers that consume them. A later wave adding a field to a shared type is a signal the model was decided too late — not fatal, but worth a line in the deviation notes so the next phase's split accounts for it.\n\n## What does not belong here\n\nImplementation. This section fixes the contract; the tasks fill it in. If a decision cannot be made without writing code first, that is a spike, and the plan should say so rather than guessing at a signature nobody has tried.\n</type_model_before_implementation>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.type_model",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-fieldtable.md",
+          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\nbun \"$HOME/.gsd/mn-verify-gate/scripts/zod-fieldtable.mjs\" \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName>\n```\n\nIt emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.data_contract_for_ui",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-user-route.md",
+          "inline": "<user_route>\n**If this phase spans more than one screen, name the screens and the route through them before any of them is designed.**\n\nNothing upstream carries this. UI-SPEC.md holds palette, spacing and typography — its only mention of a page is a spacing token. The user story is one sentence (\"As a user, I want to add a word, so that I can review it later\"), which names an outcome, not a path. So screens get designed one at a time, verified one at a time, and the route between them is assembled by whoever writes the code last.\n\nStart with the inventory — every screen the phase touches:\n\n| Screen | Route | Purpose | Entered from |\n|--------|-------|---------|--------------|\n| DeckList | `/decks` | browse decks | app launch, back from AddWord |\n| AddWord | `/decks/:id/add` | create a word | DeckList «Add» |\n\nThen the route itself. A `stateDiagram-v2` is the right shape here, and not for decoration: it forces a label on every transition, so an unlabelled arrow — a transition nobody decided — cannot be drawn without noticing.\n\n```mermaid\nstateDiagram-v2\n  [*] --> DeckList\n  DeckList --> AddWord: tap «Add»\n  AddWord --> Saving: submit\n  Saving --> DeckList: right(word)\n  Saving --> AddWord: left(ValidationFailed)\n  Saving --> Login: left(Unauthorized)\n  Login --> AddWord: session restored\n```\n\n**Then state where each failure sends the user — not just where success does.** The happy path is always covered, because each screen is reviewed on its own and each one renders. What no artifact records is the branch: the session expiring on step three, the 403 on submit, the network dropping mid-upload. The user lands on an empty screen with no way back, and it surfaces in UAT as a major issue that needs its own phase to fix.\n\nFor each screen this phase touches, name the exits:\n\n| From | Trigger | Goes to | User sees | State kept? |\n|------|---------|---------|-----------|-------------|\n| AddWord | submit succeeds | DeckList | new word in list | — |\n| AddWord | `left(ValidationFailed)` | AddWord | field errors inline | yes — input preserved |\n| AddWord | `left(Unauthorized)` | Login | session expired notice | **decide: draft kept or lost** |\n\nFour rules that make this worth writing down:\n\n- **Every screen needs an entry.** A screen nobody can reach is built and never seen; the inventory's \"entered from\" column is what catches it, and it catches it before the code exists rather than in UAT.\n- **Every `left(...)` in the flow needs a destination.** An error branch with no target screen is a dead end, and dead ends are found by users, not by reviewers.\n- **Say explicitly whether unsaved input survives.** This is the single question most often left unanswered, and the answer changes the implementation — it decides whether the form state lives in the component or above it.\n- **Re-entry is a case too.** After the user logs back in, do they return to where they were or to the start? Both are defensible; silence is not.\n\nTwo consumers depend on this, which is why it belongs in the plan rather than in someone's head: the UI work knows which screens to design and which states each must carry, and UAT knows how many paths to walk — otherwise it walks the happy one and calls the phase done.\n\nIf the phase renders exactly one screen with no navigation away from it, say so in one line and skip both tables — an empty table filled out of obligation teaches everyone to skip the real ones.\n</user_route>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.user_route",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-migration.md",
+          "inline": "<migration_safety>\n**If this phase changes the database schema, decide what happens to the rows that already exist — before the migration is written.**\n\nA migration is the one artifact in a phase that cannot be fixed by a follow-up commit. Code that ships wrong is reverted; a column that ships dropped is gone, and the revert brings back the file, not the data. The existing gates do not cover this: `schema-gate` checks that the schema was pushed, `drift` checks that schema and tree agree — and a migration that drops a column passes both, because schema and code are consistent precisely *because* the column is gone everywhere. Data loss is not a schema discrepancy. It is a consequence of a consistent schema.\n\nState four things in the plan. Not as prose — as answers, so the executor can act on them and the reviewer can check them.\n\n**1. What existing rows contain.** Not \"the table is probably empty\" — say how you know. The answer differs per environment, and the one that matters is production.\n\n| Table | Rows in prod | Rows in dev | How verified |\n|-------|--------------|-------------|--------------|\n| `user_word_knowledge` | ~40k | ~200 | `select count(*)` on 2026-08-07 |\n\nAn empty table makes half of this section trivial and that is a fine outcome — but write down that it is empty, because \"assumed empty\" is how `ADD COLUMN … NOT NULL` reaches a populated table and aborts the deploy.\n\n**2. The order of operations for any new NOT NULL column.** A single statement adding `NOT NULL` without `DEFAULT` fails on a non-empty table — Postgres has no value to put in the existing rows. The three-step form is not ceremony, it is the only form that works:\n\n```sql\n-- 1. nullable first — always succeeds, no table rewrite\nALTER TABLE \"user_word_knowledge\" ADD COLUMN \"ignored_at\" timestamptz;\n-- 2. backfill — decide the value for rows that predate the column\nUPDATE \"user_word_knowledge\" SET \"ignored_at\" = \"created_at\" WHERE \"ignored_at\" IS NULL;\n-- 3. only now constrain\nALTER TABLE \"user_word_knowledge\" ALTER COLUMN \"ignored_at\" SET NOT NULL;\n```\n\nThe interesting step is 2, and it is the one no artifact currently asks about: **what is the right value for a row that existed before the concept did?** `created_at` says \"it was always so\", `now()` says \"it starts today\", a sentinel says \"unknown\". These are three different product decisions and the schema cannot express which one you meant. A `DEFAULT` shortcut is legitimate when a single constant is genuinely correct — say that it is, rather than reaching for it to avoid the question.\n\n**3. The reverse path — and be honest when there isn't one.** For each destructive statement, write the SQL that undoes it, or state that nothing does:\n\n| Statement | Reverse | Data recoverable? |\n|-----------|---------|-------------------|\n| `ADD COLUMN ignored_at` | `DROP COLUMN ignored_at` | yes — nothing existed before |\n| `DROP COLUMN s3_text_key` | `ADD COLUMN s3_text_key text` | **no — values are gone** |\n| `ALTER COLUMN status TYPE status_enum USING …` | cast back to text | partially — rows failing the cast are lost |\n\n\"No reverse exists\" is an acceptable answer and often the correct one. What is not acceptable is not knowing. Record the decision in the `.sql` itself so the gate and the next reader see the same thing:\n\n```sql\n-- gsd:irreversible  s3_text_key superseded by object-store keys; values not needed\n-- gsd:backfill      existing rows take created_at\n-- gsd:reverse: ALTER TABLE book_analysis ADD COLUMN s3_text_key text\n-- gsd:manual        written by hand; registered in _journal.json deliberately\n```\n\n**4. What happens if this phase is undone.** `gsd-undo` reverts commits, and a migration does not live only in a commit — it has already run against the database. The revert removes the `.sql` file while the table it created stays, and `__drizzle_migrations` keeps the hash of a file that no longer exists. The next `drizzle-kit generate` then diffs a schema-without-the-table against a database-with-the-table and emits `DROP TABLE`. Nothing fails at revert time; the loss arrives on the next unrelated migration. So state plainly: **is this phase revertible by `gsd-undo` alone, or does undoing it also require a manual database step?** If it requires one, write that step here — this is the only place it will be recorded.\n\nTwo more rules worth the line they cost:\n\n- **Never write migration `.sql` by hand without registering it in `meta/_journal.json`.** A file outside the journal is invisible to `drizzle-kit`: it will not be applied by `migrate`, will not be counted in the hash chain, and will not be represented in the next generated snapshot. This is not hypothetical in this repo — `apps/savor/api` has 15 migrations on disk and 7 in its journal, and `trade-mind`'s archive has 40 against 27, with eight duplicated index prefixes whose apply order is undefined. Both drifted exactly this way. If a hand-written file is genuinely necessary, mark it `-- gsd:manual` and say in the plan why `drizzle-kit generate` could not produce it.\n- **Separate the destructive migration from the code that stops using the column.** Ship the readers first, drop the column in a later phase. A single phase that does both cannot be rolled back at all — reverting the code restores readers for a column that no longer exists.\n\nIf the phase touches no schema files, say so in one line and skip this section. A table filled in out of obligation teaches everyone to skim the ones that matter.\n</migration_safety>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.migration_safety",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-design-registry.md",
+          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running)\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --html <export-dir> --code libs/<domain>\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain>\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it.\n\nExit codes: `0` checked and clean · `1` checked, components unimplemented (under `--check`) · `2` could not check at all. Treat `2` as a blocked task, not a pass — a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line.\n\n## What the registry does not decide\n\nThe script reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.design_registry",
+        "onError": "skip"
+      },
+      {
         "capId": "schema-gate",
         "point": "plan:pre",
         "into": "planner",
@@ -4639,6 +5302,48 @@ const byLoopPoint = {
         "when": "workflow.post_planning_gaps",
         "blocking": false,
         "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-collision.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_collision",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-solve.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_solve",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-normalize.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.wave_normalize",
+        "blocking": true,
+        "onError": "halt"
       }
     ]
   },
@@ -4743,6 +5448,48 @@ const byLoopPoint = {
         "onError": "skip"
       },
       {
+        "capId": "mn-verify-gate",
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.migration_safety",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.migration_safety_strict",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:wave:post",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.plan_status_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
         "capId": "ui",
         "point": "execute:wave:post",
         "check": {
@@ -4821,6 +5568,19 @@ const byLoopPoint = {
         ],
         "when": "workflow.architecture_review",
         "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "ref": {
+          "command": "gsd_run verify gates \"${PHASE_DIR}\" --raw"
+        },
+        "produces": [
+          "{phase}-VERIFICATION.md"
+        ],
+        "consumes": [],
+        "when": "workflow.verify_gates_record",
+        "onError": "skip"
       }
     ],
     "contributions": [],
@@ -4832,6 +5592,76 @@ const byLoopPoint = {
           "query": "api-coverage.verify-pre"
         },
         "when": "workflow.api_coverage_gate",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 1800
+          }
+        },
+        "when": "workflow.mutation_spot_check",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
+            "timeout": 120
+          }
+        },
+        "when": "workflow.assertion_ratchet",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.blast_radius",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
+            "timeout": 120
+          }
+        },
+        "when": "workflow.contract_drift",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 60
+          }
+        },
+        "when": "workflow.orphan_plans",
         "blocking": true,
         "onError": "halt"
       }
@@ -4917,6 +5747,104 @@ const byLoopPoint = {
           }
         },
         "when": "workflow.windows_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.nyquist_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.verify_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.verify_gates_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 90
+          }
+        },
+        "when": "workflow.uat_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.mn_security_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
+            "timeout": 20
+          }
+        },
+        "when": "workflow.mn_windows_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "ship:pre",
+        "check": {
+          "predicate": {
+            "kind": "command-exit-zero",
+            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
+            "timeout": 30
+          }
+        },
+        "when": "workflow.clean_state_enforce",
         "blocking": true,
         "onError": "halt"
       },
@@ -5021,6 +5949,50 @@ const configKeys = {
   "mempalace.cross_project_tunnels": "mempalace",
   "mempalace.diary_journal": "mempalace",
   "mempalace.auto_capture_hooks": "mempalace",
+  "workflow.verify_enforce": "mn-verify-gate",
+  "workflow.nyquist_enforce": "mn-verify-gate",
+  "workflow.mn_security_enforce": "mn-verify-gate",
+  "workflow.mn_windows_enforce": "mn-verify-gate",
+  "workflow.assertion_ratchet": "mn-verify-gate",
+  "workflow.data_contract_for_ui": "mn-verify-gate",
+  "workflow.design_phase": "mn-verify-gate",
+  "workflow.design_registry": "mn-verify-gate",
+  "workflow.user_route": "mn-verify-gate",
+  "workflow.spec_phase": "mn-verify-gate",
+  "workflow.migration_safety": "mn-verify-gate",
+  "workflow.migration_safety_strict": "mn-verify-gate",
+  "workflow.blast_radius": "mn-verify-gate",
+  "workflow.verify_gates": "mn-verify-gate",
+  "workflow.verify_gates_record": "mn-verify-gate",
+  "workflow.verify_gates_enforce": "mn-verify-gate",
+  "workflow.mutation_spot_check": "mn-verify-gate",
+  "workflow.mutation_test_command": "mn-verify-gate",
+  "workflow.mutation_max_mutants": "mn-verify-gate",
+  "workflow.worktree_provision": "mn-verify-gate",
+  "workflow.worktree_deps": "mn-verify-gate",
+  "workflow.worktree_install_command": "mn-verify-gate",
+  "workflow.worktree_max_base_lag": "mn-verify-gate",
+  "workflow.worktree_copy_tools": "mn-verify-gate",
+  "workflow.autonomous_max_phases": "mn-verify-gate",
+  "workflow.uat_enforce": "mn-verify-gate",
+  "workflow.clean_state_enforce": "mn-verify-gate",
+  "workflow.prohibition_guard": "mn-verify-gate",
+  "workflow.test_tamper_guard": "mn-verify-gate",
+  "workflow.exit_gate": "mn-verify-gate",
+  "workflow.exit_gate_agents": "mn-verify-gate",
+  "workflow.exit_gate_max_retries": "mn-verify-gate",
+  "workflow.exit_gate_timeout": "mn-verify-gate",
+  "workflow.pin_invariants": "mn-verify-gate",
+  "workflow.pin_invariants_budget": "mn-verify-gate",
+  "workflow.contract_drift": "mn-verify-gate",
+  "workflow.wave_collision": "mn-verify-gate",
+  "workflow.wave_normalize": "mn-verify-gate",
+  "workflow.orphan_plans": "mn-verify-gate",
+  "workflow.wave_solve": "mn-verify-gate",
+  "workflow.plan_status_enforce": "mn-verify-gate",
+  "workflow.refute_findings": "mn-verify-gate",
+  "workflow.type_model": "mn-verify-gate",
+  "workflow.enforcement_provenance": "mn-verify-gate",
   "workflow.nyquist_validation": "nyquist",
   "review.models.ollama": "ollama",
   "review.ollama_host": "ollama",
@@ -5451,6 +6423,275 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Reserved / not yet implemented: will install MemPalace's native stop/precompact Claude Code hooks for passive mid-session capture (the capability's hooks array is currently empty)."
+  },
+  "workflow.verify_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship when VERIFICATION.md reports unproven truths (truths_unproven != 0). Requires the verifier to emit that field."
+  },
+  "workflow.nyquist_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship when VALIDATION.md reports nyquist_compliant: false, or when the phase produced no VALIDATION.md at all."
+  },
+  "workflow.mn_security_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+  },
+  "workflow.mn_windows_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+  },
+  "workflow.assertion_ratchet": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+  },
+  "workflow.data_contract_for_ui": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Instruct the planner to derive a field table from the Zod schema for any screen bound to a DTO, and to state the control, order, error copy and conditional-visibility decisions the schema cannot express. UI-SPEC.md carries no fields, so without this the designer invents them."
+  },
+  "workflow.design_phase": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Instruct the planner to fix layer placement and cross-plan signatures in {phase}-DESIGN.md before splitting the phase into plans. The split into plans IS the boundary decision, and nothing downstream records that it was made: PATTERNS.md answers what an existing file should be copied from, using a controller/service/model role vocabulary that cannot express layers like ports or rules. The concrete failure is signature divergence between parallel waves — wave 2's plan is written before wave 1's code exists, so it calls Promise<Book|null> against an EitherAsync port. Both plans verify green (files_modified disjoint, key_links matched, per-project tests pass) and the mismatch lands on the pre-commit typecheck with both commits already in history. Requires templates/DESIGN.md."
+  },
+  "workflow.design_registry": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from scripts/design-registry.mjs; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
+  },
+  "workflow.user_route": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Instruct the planner to name the screens of a multi-screen phase and the route through them — inventory, stateDiagram-v2, and where every failure branch lands — before any screen is designed. Nothing upstream carries this: UI-SPEC.md mentions a page only as a spacing token, and the user story is one sentence naming an outcome, not a path."
+  },
+  "workflow.spec_phase": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Run spec-phase at the start of an autonomous phase, before discuss. Core reaches spec-phase from no route in autonomous.md or next.md, so SPEC.md is written only if someone types the command — and every consumer that reads it silently gets nothing. Non-blocking: a phase adequately specified by its roadmap entry continues to discuss without one."
+  },
+  "workflow.migration_safety": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block the wave when a new .sql migration performs an operation that is irreversible without data loss (DROP COLUMN/TABLE, incompatible ALTER TYPE, NOT NULL without DEFAULT, TRUNCATE) and nobody declared it, or when meta/_journal.json disagrees with the .sql files on disk. schema-gate proves the schema was pushed and drift proves schema matches tree — a column-dropping migration passes both, because schema and code are consistent precisely because the column is gone. Also instructs the planner to settle backfill, ordering and the undo path before the migration is written. Silenced per-file by `-- gsd:irreversible`, `-- gsd:backfill`, `-- gsd:reverse:`, `-- gsd:manual`, or by a phase artifact that discusses rollback/backfill."
+  },
+  "workflow.migration_safety_strict": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Tighten workflow.migration_safety: warnings (USING casts, duplicate migration indices) also block, and a destructive statement must be declared in the .sql itself — prose in PLAN.md no longer silences it. Off by default because the looser form already forces the decision; turn on for domains where a bad migration is unrecoverable."
+  },
+  "workflow.blast_radius": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block verification when files changed by the phase were named by no PLAN.md in it. files_modified is a declaration nothing checks after the fact — ADR-1239 specifies the check and neither isolation adapter implements it (#2596). Divergence is the signal, not volume: a phase legitimately touching 105 files is fine, one touching a file nobody planned is not."
+  },
+  "workflow.verify_gates": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "",
+    "description": "JSON object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Example: {\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. Declared as a string because the capability config schema admits boolean, string, number and enum only; a JSON object literal in config.json is read directly."
+  },
+  "workflow.verify_gates_record": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Run `verify gates` automatically at verify:pre, before the verifier reads the phase. Order matters: the verifier should read numbers it did not produce. Off by default because it is inert without workflow.verify_gates naming commands, and running an unconfigured recorder on every phase would print a refusal each time."
+  },
+  "workflow.verify_gates_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship when the recorded gate results say a check failed (gates.all_passed != true). This is the gate ADR-2008's artifact-frontmatter-equals predicate was built for and has had nothing to read: workflow.verify_enforce reads truths_unproven, which the verifier writes about itself, while this reads what the commands returned. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
+  },
+  "workflow.mutation_spot_check": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+  },
+  "workflow.mutation_test_command": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "",
+    "description": "Test command the mutation spot-check runs, e.g. \"npx vitest run --project unit\" or \"npx nx affected -t test\". Uses the project's own runner rather than a mutation framework: neither mn nor awesome-projects installs Stryker, and a gate that first requires installing a tool does not get switched on. Prefer the narrowest command that still covers the phase — the check runs it once per mutant."
+  },
+  "workflow.mutation_max_mutants": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 3,
+    "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+  },
+  "workflow.worktree_provision": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Equip a new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings.local.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js (WorktreeCreate); on runtimes without that event the existing dispatch path is unchanged."
+  },
+  "workflow.worktree_deps": {
+    "owner": "mn-verify-gate",
+    "type": "enum",
+    "default": "link",
+    "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree: the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it.",
+    "values": [
+      "link",
+      "install",
+      "none"
+    ]
+  },
+  "workflow.worktree_install_command": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "",
+    "description": "Command run inside a new worktree when workflow.worktree_deps is \"install\" (e.g. \"bun install --frozen-lockfile\"). Empty means the install step reports that nothing was configured rather than guessing a package manager."
+  },
+  "workflow.worktree_max_base_lag": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 200,
+    "description": "Refuse a worktree whose base is more than this many commits behind the main checkout (0 disables the check). Plans written against a stale base are written against code that has already moved — recorded in the ucars retrospective as \"worktree 380 commits behind main at start\", discovered mid-phase. This is the one provisioning step that BLOCKS, because unlike a missing tool it cannot be worked around: the work has to be redone. An unmeasurable base (shallow clone, unrelated histories) warns instead — refusing there would strand the phase, and the executor's own first build surfaces it anyway."
+  },
+  "workflow.worktree_copy_tools": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Copy .mcp.json and .claude/settings*.json into a provisioned worktree so an agent has the tools it had a moment ago. An existing file in the worktree is never clobbered — a worktree carrying its own settings is making a deliberate statement. Only consulted when workflow.worktree_provision is on."
+  },
+  "workflow.autonomous_max_phases": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 0,
+    "description": "Stop an autonomous run after this many phases (0 = no limit, the prior behaviour). Overridable per run with --max-phases N. The run ends by choosing to, at a phase boundary where work is committed and verified — which is reviewable — rather than by exhausting its context mid-phase, which is not. Long-run failure in agentic coding is measured to be dominated by exhaustion (MAX_TURNS, wall clock), not by a wrong decision at the end; a harness that stops cleanly costs far less per unit of work delivered than one that runs until it cannot."
+  },
+  "workflow.uat_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship while the phase's own {phase}-UAT.md still lists manual checks nobody ran. The verifier already writes them there when it cannot confirm a truth by reading code, and `audit-uat` already finds them — nothing read that, so a phase whose report says \"nobody checked\" shipped anyway. A phase with no UAT file passes (most defer nothing); a FAILED item passes too, because a failed manual check is a known defect that verification owns, and this gate asks only whether anything went unrun."
+  },
+  "workflow.clean_state_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block ship while the working tree has changes outside .planning/ or git is halfway through a merge, rebase, cherry-pick or revert. ship.md already asks the model to read `git status --short` and stop; this makes it an exit code, and adds the one state status cannot show: a stopped rebase or cherry-pick leaves the tree clean while history is mid-operation. Changes under .planning/ are ignored (they move while the work runs), and a leftover .continue-here.md is not counted (resume does not delete it, so it does not mean the session was dropped)."
+  },
+  "workflow.prohibition_guard": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "off",
+    "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse)."
+  },
+  "workflow.test_tamper_guard": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "off",
+    "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
+  },
+  "workflow.exit_gate": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "",
+    "description": "Command run when an executor subagent stops; a non-zero exit refuses the stop and hands the command's own output back for repair. Empty (the default) leaves the gate inert — only the project knows what green means for it. Typical values: \"lefthook run pre-commit\", \"nx affected -t lint,typecheck --base=HEAD\", \"npm run lint:ci\". Runs in the tree the subagent worked in (git rev-parse --show-toplevel from its cwd), never the main checkout — judging a worktree agent against somebody else's uncommitted WIP once reported 19 untouched files as its failure. Implemented by hooks/gsd-exit-gate.js (SubagentStop)."
+  },
+  "workflow.exit_gate_agents": {
+    "owner": "mn-verify-gate",
+    "type": "string",
+    "default": "gsd-executor",
+    "description": "Comma-separated subagent names that workflow.exit_gate applies to. Defaults to the executor alone; add others only if their output is the kind a lint/typecheck run can judge. A comma-separated string rather than a list because the capability config schema admits boolean, string, number and enum only."
+  },
+  "workflow.exit_gate_max_retries": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 3,
+    "description": "How many times workflow.exit_gate may refuse a stop for one phase-and-worktree before it reports instead of blocking. Past this, the failure travels to verification rather than looping an executor against debt it may not own. The check still RUNS after the budget is spent — a green tree clears the ledger and re-arms the gate; skipping the run would disarm it permanently for that worktree."
+  },
+  "workflow.exit_gate_timeout": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 600,
+    "description": "Seconds workflow.exit_gate may run before it is killed. A killed gate allows the stop — a gate that could not run is a configuration problem, not a code problem, and conflating the two trains people to disable it."
+  },
+  "workflow.pin_invariants": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js (PostCompact, with SessionStart as the degrade path on runtimes lacking it)."
+  },
+  "workflow.pin_invariants_budget": {
+    "owner": "mn-verify-gate",
+    "type": "number",
+    "default": 2000,
+    "description": "Character cap on the workflow.pin_invariants injection. A pin that grows without bound recreates the problem it solves; over the cap, whole blocks are dropped at an item boundary and the omission is stated rather than hidden."
+  },
+  "workflow.contract_drift": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block verify when a signature declared in DESIGN.md ## Contracts no longer matches the code. A phase declaring no signatures passes — the gate is silent where there is nothing to compare."
+  },
+  "workflow.wave_collision": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block when two plans in the same wave declare the same file in files_modified. Same-wave plans run concurrently in separate worktrees, so a shared file means the second commit overwrites the first or conflicts. Measured at 13.4% of phases."
+  },
+  "workflow.wave_normalize": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block on same-wave overlap AFTER resolving directories and globs against the working tree, and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Supersedes workflow.wave_collision for projects whose plans declare directories: that gate compares only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Both may be enabled — wave_collision runs first, this one catches what it skipped. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
+  },
+  "workflow.orphan_plans": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block verify when a plan declares status: in_progress but produced no SUMMARY — the executor started and never finished, so the next pass re-runs it on top of its own unrecorded work. Plans with no status at all are reported, not blocked: 37.4% of live plans are in that state and a gate failing a third of the repository gets switched off."
+  },
+  "workflow.wave_solve": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block at plan:post when a declared wave is EARLIER than the computed assignment — the plan would run before its dependency exists, or race another plan over the same file. A wave declared LATER than necessary is reported, not blocked: it is sequential where parallel would do, slower but never wrong."
+  },
+  "workflow.plan_status_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Block at execute:wave:post when a plan's declared status contradicts what is on disk: an in_progress plan that produced no SUMMARY (the executor started and never finished, so the next pass re-runs it over its own uncommitted work), a status outside the vocabulary in_progress|blocked|done|superseded, a blocked plan with no blocked_reason, a superseded plan naming no successor, or a blocked_reason past 2048 characters. What it deliberately does NOT block: a plan carrying no status at all passes — 37.4% of live plans are in that state and a gate that fails a third of a repository is switched off permanently rather than fixed; and a correctly-declared blocked plan passes, because declaring a blockage is the behaviour the gate exists to reward, not to punish. Default false inverts GSD's usual absent-means-enabled on purpose: an enforcement gate that armed itself on upgrade would fail trees that never opted in."
+  },
+  "workflow.refute_findings": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Put the plan-checker's findings through an adversarial pass before the planner sees them: gsd-finding-refuter must try to disprove each one, and may only drop a finding with evidence — a file, a line, or a command's output. A reviewer whose findings are never challenged drifts toward reporting more of them, because an unreported real issue is visibly a miss while a reported non-issue costs it nothing; the cost lands on the planner rewriting plans to satisfy findings that were never true. Self-critique by the reviewer is the wrong shape and measurably worse (recall 27%->33%, signal-to-noise 5.11->1.95, arXiv 2603.11078) — the pass has to come from something that is not the reviewer. Deliberately one refuter and not a panel: five critics per plan is the ceremony the workflows guidance warns against. Expect it to change nothing most of the time; a refuter that regularly refutes half the findings is disputing on argument rather than evidence, which its evidence lines will show."
+  },
+  "workflow.type_model": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Instruct the planner to fix the phase's type model — domain vocabulary and branded ids, the closed error-code set, port signatures with their full return types, which Zod schema is authoritative, and any domain state the type cannot hold — BEFORE the tasks that write behaviour. In this codebase the type is the specification (2,646 files import @monads, 1,696 use Zod, 289 *.error-code.ts, and ~60 oxc rules enforce the shape), yet nothing in the pipeline asked for those decisions: the lint layer enforces the SHAPE of a decision and fires only once code exists, by which point whoever typed first made it. An empty section is a legitimate answer for a phase that introduces no types; an absent one is not. Port signatures land under DESIGN.md ## Contracts, where workflow.contract_drift already reads them."
+  },
+  "workflow.enforcement_provenance": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Require every review finding to name what guards it — a rule and where it runs, or \"review only\". A check is a mechanism only once it has an assigned execution point: a script nothing invokes is worse than none, because it creates the impression the invariant is guarded and removes the question from review while checking nothing. \"This is a violation\" and \"CI will catch this\" are separate claims and the second is wrong more often than expected — several boundary rules that read as general are hardcoded to one domain, and a rule at warn in a project that tolerates warnings guards nothing. The distinction changes the fix: a review-only finding recurs the moment nobody looks, so it ships with a mechanism or is knowingly accepted. Taken from the doctrine in the author's own mn/docs/architecture/enforcement.md, where it is a mandatory review step."
   },
   "workflow.nyquist_validation": {
     "owner": "nyquist",
@@ -8209,6 +9450,7 @@ const _requiresGraph = {
   "lm-studio": [],
   "mempalace": [],
   "mn-expertise": [],
+  "mn-verify-gate": [],
   "nyquist": [],
   "ollama": [],
   "opencode": [],

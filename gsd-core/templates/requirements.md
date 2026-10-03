@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: true
+  author: agent
+  readers: [gsd-new-milestone, gsd-planner]
+---
+
 # Requirements Template
 
 Template for `.planning/REQUIREMENTS.md` — checkable requirements that define "done."

@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: milestone
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-complete-milestone]
+---
+
 # Milestone Archive Template
 
 This template is used by the complete-milestone workflow to create archive files in `.planning/milestones/`.

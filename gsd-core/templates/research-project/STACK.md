@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-project-researcher, gsd-research-synthesizer]
+---
+
 # Stack Research Template
 
 Template for `.planning/research/STACK.md` — recommended technologies for the project domain.

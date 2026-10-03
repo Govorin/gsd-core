@@ -3,12 +3,17 @@
 //
 // RED-first PROSE-PRESENCE contract for the plan-phase lift of confirmed prohibitions. plan-phase.md
 // spawns the planner from its own inline <downstream_consumer> block; the load-bearing lift instruction
-// must live THERE (not in templates/planner-subagent-prompt.md, which nothing loads at runtime — the
-// edge-probe orphan-prompt regression, edge planner test 145-153). Assertions scope to extracted
-// sub-blocks to avoid false positives.
+// must live THERE, never in a shipped template. Templates are inert artifact scaffolding — nothing
+// loads one as the planner's consumer contract — so an instruction relocated into a template is
+// false assurance: the test stays green while the runtime never consumes it.
+//
+// Guard history: this was originally pinned to templates/planner-subagent-prompt.md, a single file
+// that was an orphan BY DESIGN — it existed so the guard had something to point at. Phase 4 deleted
+// that file and generalized the guard to scan gsd-core/templates/ recursively, so the invariant now
+// outlives any one filename and also catches relocation into plan.md, summary.md, or a template that
+// does not exist yet. Do not narrow it back to a single path.
 //
 // ADR-550 Decision 2: resolved prohibitions lift into must_haves.PROHIBITIONS — NOT must_haves.truths.
-// EXPECTED RED until Wave 3 adds the plan-phase lift + quality_gate item.
 'use strict';
 process.env.GSD_TEST_MODE = '1';
 
@@ -18,10 +23,43 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const PLAN_PHASE_PATH = path.join(__dirname, '..', 'gsd-core', 'workflows', 'plan-phase.md');
-const PROMPT_PATH = path.join(__dirname, '..', 'gsd-core', 'templates', 'planner-subagent-prompt.md');
+const TEMPLATES_DIR = path.join(__dirname, '..', 'gsd-core', 'templates');
+
+// SPEC-artifact templates are exempt from the token scan. They are the PRODUCER side of the lift:
+// spec.md authors the `## Prohibitions` / `## Edge Coverage` sections themselves and documents where
+// plan-phase lifts them TO, and UI-SPEC.md cross-references the SPEC rule by name. Naming the target
+// is not relocating the instruction. Measured on this tree: these are the only two templates of 49
+// that carry either token, so the exemption is exactly as wide as the false positives require.
+const SPEC_ARTIFACT_TEMPLATES = new Set(['spec.md', 'UI-SPEC.md']);
 
 function readPlanPhase() {
   return fs.readFileSync(PLAN_PHASE_PATH, 'utf8');
+}
+
+// Every shipped template that could plausibly host a relocated planner instruction, as repo-relative
+// paths so a failure names the offending file instead of sending the reader through 47 of them.
+function scannableTemplates() {
+  return fs
+    .readdirSync(TEMPLATES_DIR, { recursive: true })
+    .filter((entry) => entry.endsWith('.md'))
+    .filter((entry) => !SPEC_ARTIFACT_TEMPLATES.has(path.basename(entry)))
+    .map((entry) => ({
+      rel: path.posix.join('gsd-core/templates', entry.split(path.sep).join('/')),
+      abs: path.join(TEMPLATES_DIR, entry),
+    }));
+}
+
+// Assert `pattern` appears in no scannable template, naming the offender when it does.
+function assertAbsentFromTemplates(pattern, message) {
+  const templates = scannableTemplates();
+  assert.ok(
+    templates.length > 0,
+    'sanity: gsd-core/templates/ must contain scannable .md templates for this guard to mean anything'
+  );
+  const offenders = templates
+    .filter(({ abs }) => pattern.test(fs.readFileSync(abs, 'utf8')))
+    .map(({ rel }) => rel);
+  assert.deepEqual(offenders, [], `${message} — found in: ${offenders.join(', ')}`);
 }
 
 // Extract the planner <downstream_consumer> block from plan-phase.md (the runtime planner surface).
@@ -67,14 +105,13 @@ test('PROB-04 consumer: downstream_consumer lifts SPEC Prohibitions into must_ha
   );
 });
 
-// Orphan-prompt regression guard (mirror edge planner test 145-153): the lift instruction must NOT
-// be relocated into templates/planner-subagent-prompt.md (which nothing loads at runtime).
-test('PROB-04 regression: the prohibitions lift does not live in the orphaned planner-subagent-prompt.md', () => {
-  const prompt = fs.readFileSync(PROMPT_PATH, 'utf8');
-  assert.doesNotMatch(
-    prompt,
+// Orphan-prompt regression guard (mirror edge planner test): the lift instruction must NOT be
+// relocated out of plan-phase.md into any shipped template. No template is loaded as the planner's
+// consumer contract, so an instruction parked in one is inert — green test, dead runtime.
+test('PROB-04 regression: the prohibitions lift lives in plan-phase.md, not in any shipped template', () => {
+  assertAbsentFromTemplates(
     /must_haves\.prohibitions/,
-    'planner-subagent-prompt.md is not loaded at runtime — the prohibitions lift instruction must not live there'
+    'no shipped template is loaded as the planner consumer contract — the prohibitions lift instruction must live in plan-phase.md <downstream_consumer>'
   );
 });
 

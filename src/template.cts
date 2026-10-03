@@ -45,13 +45,34 @@ interface TemplateFillOptions {
 }
 
 interface TemplateSelectResult {
+  /**
+   * Always `templates/summary.md` since the four-file merge (#mn phase 4): one template
+   * carrying three inline granularity variants, instead of three near-identical files that
+   * could drift apart. The caller reads `variant` to know which section to fill.
+   */
   template: string;
+  /**
+   * Which granularity the heuristic chose: `minimal | standard | complex`.
+   *
+   * `type` is retained as an alias and carries the same value. Removing it would widen this
+   * plan's blast radius into every consumer that reads the field — and the point of the merge
+   * was to collapse FILES, not to break the read surface. New callers should read `variant`.
+   */
+  variant: string;
   type: string;
   taskCount?: number;
   fileCount?: number;
   hasDecisions?: boolean;
   error?: string;
 }
+
+/**
+ * The single merged SUMMARY template. Was three files (`summary-minimal.md`,
+ * `summary-standard.md`, `summary-complex.md`) whose bodies differed only in heading text,
+ * bullet count and which optional sections appeared — three copies of one contract, with
+ * nothing reconciling them.
+ */
+const SUMMARY_TEMPLATE = 'templates/summary.md';
 
 // ─── cmdTemplateSelect ────────────────────────────────────────────────────────
 
@@ -82,22 +103,36 @@ function cmdTemplateSelect(cwd: string, planPath: string | null | undefined, raw
     }
     const fileCount = fileMentions.size;
 
-    let template = 'templates/summary-standard.md';
-    let type = 'standard';
+    // The thresholds below are deliberately byte-identical to what shipped before the
+    // four-file merge. Changing a selection boundary while changing the return shape would
+    // make a behaviour regression indistinguishable from the refactor.
+    let variant = 'standard';
 
     if (taskCount <= 2 && fileCount <= 3 && !hasDecisions) {
-      template = 'templates/summary-minimal.md';
-      type = 'minimal';
+      variant = 'minimal';
     } else if (hasDecisions || fileCount > 6 || taskCount > 5) {
-      template = 'templates/summary-complex.md';
-      type = 'complex';
+      variant = 'complex';
     }
 
-    const result: TemplateSelectResult = { template, type, taskCount, fileCount, hasDecisions };
-    output(result, raw, template);
+    const result: TemplateSelectResult = {
+      template: SUMMARY_TEMPLATE,
+      variant,
+      type: variant,
+      taskCount,
+      fileCount,
+      hasDecisions,
+    };
+    output(result, raw, SUMMARY_TEMPLATE);
   } catch (e) {
-    // Fallback to standard
-    output({ template: 'templates/summary-standard.md', type: 'standard', error: (e as Error).message }, raw, 'templates/summary-standard.md');
+    // Fallback to standard. Both the object AND the raw-output argument must name the merged
+    // template: before the merge each hardcoded `summary-standard.md`, and leaving either
+    // behind would make the error path emit a path to a deleted file — an unreadable failure
+    // for exactly the caller who already hit an error.
+    output(
+      { template: SUMMARY_TEMPLATE, variant: 'standard', type: 'standard', error: (e as Error).message },
+      raw,
+      SUMMARY_TEMPLATE,
+    );
   }
 }
 

@@ -1,0 +1,522 @@
+#!/usr/bin/env node
+// gsd-hook-version: {{GSD_VERSION}}
+// GSD Prohibition Guard — PreToolUse hook (mn fork)
+//
+// Problem: `files_modified` in PLAN.md is a declaration of intent, checked by
+// plan-checker BEFORE work and by blast-radius AFTER it. Between those two
+// points nothing reads it. An executor that drifts outside its declared scope
+// discovers this at verify:pre — after the edits are on disk and, in the GSD
+// commit discipline, usually already committed. The measured consequence in
+// this fork's own history: 26 of 174 phases carry same-wave plans that touch
+// overlapping files, and the fix is always a revert plus a replan.
+//
+// blast-radius is the same check one step too late. This guard moves it to the
+// moment of the write, where the answer is still "don't" rather than "undo".
+//
+// Applicability (must positively determine all four to act — otherwise inert):
+//   1. this is a GSD project (`.planning/` resolves from cwd),
+//   2. a phase is in progress (STATE.md names it, or exactly one phase
+//      directory holds a plan with `status: in_progress`),
+//   3. that phase has at least one PLAN.md carrying `files_modified`,
+//   4. the pending write targets a path under the repository.
+//
+// Decision (`workflow.prohibition_guard`, default "off"):
+//   "off"  — inert.
+//   "ask"  — a write outside the declared set escalates to the user
+//            (`permissionDecision: "ask"`); the model cannot self-approve.
+//   "deny" — the same write is blocked outright. For unattended runs, where
+//            "ask" has no one to ask and times out into a default.
+//
+// Always allowed regardless of mode, because blocking them would break the
+// workflow itself rather than protect it:
+//   • anything under `.planning/` — the harness's own bookkeeping (SUMMARY,
+//     VERIFICATION, STATE) is written by design and is never in files_modified,
+//   • paths matching a declared glob or a declared directory prefix — 10% of
+//     real `files_modified` entries are globs or directories, and treating
+//     `libs/rpg/ports/**` as a literal filename would deny every write it was
+//     written to permit,
+//   • files the phase's own plans declare, obviously.
+//
+// Fail-closed exception (#3050 lesson: a guard that cannot verify must not
+// answer "safe"): if the project IS a GSD project, a phase IS in progress, and
+// the guard cannot read that phase's plans, it escalates rather than allowing.
+// A guard that waves writes through on a read error is not enforcement.
+//
+// Fail-open by construction: no `.planning/`, no phase in progress, no plan
+// with a non-empty `files_modified`, or an unreadable/unrecognized payload —
+// all exit 0. The guard only speaks when it can point at a declaration.
+//
+// An EMPTY `files_modified` across every plan is NOT treated as "declares
+// nothing, so allow everything" — that is the inverse of what the field means
+// and would make the guard silently inert on exactly the phases where the
+// planner was sloppiest. It is treated as "this phase declared nothing", which
+// is out of scope for a per-write guard, and reported by blast-radius at
+// verify:pre instead (which refuses rather than passes). Hence: inert here.
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+/** Modes, in the order of increasing strictness. */
+const MODE_OFF = 'off';
+const MODE_ASK = 'ask';
+const MODE_DENY = 'deny';
+const VALID_MODES = new Set([MODE_OFF, MODE_ASK, MODE_DENY]);
+
+/** Tools whose payload carries a single destination path. */
+const WRITE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit']);
+
+// #2304 class: Kimi's hook bus delivers Kimi's tool vocabulary in the payload
+// while the matcher is registered pre-translated. Mirrors the normalization in
+// gsd-write-guard.js — inlined per guard on purpose: hook scripts are staged as
+// standalone files and a sibling require is a staging dependency that can fail
+// silently. A Map (not an object literal) so prototype keys can't resolve.
+const KIMI_TOOL_NAMES = new Map([
+  ['WriteFile', 'Write'],
+  ['StrReplaceFile', 'Edit'],
+]);
+
+function normalizeKimiPayload(data) {
+  if (data === null || typeof data !== 'object') return data;
+  const raw = data.tool_name;
+  if (typeof raw !== 'string') return data;
+  const mapped = KIMI_TOOL_NAMES.get(raw.slice(raw.lastIndexOf(':') + 1));
+  if (!mapped) return data;
+  data.tool_name = mapped;
+  const input = data.tool_input;
+  if (input && typeof input === 'object' && typeof input.path === 'string') {
+    // Kimi's `path` is authoritative: its schemas carry no `file_path` at all,
+    // so any `file_path` in a Kimi payload is model-supplied.
+    input.file_path = input.path;
+  }
+  return data;
+}
+
+/**
+ * Walk up from `cwd` to the nearest directory holding `.planning/`.
+ *
+ * Nearest-upward, not repo-root: the measured topology in this fork's own
+ * projects is 10 `.planning/` roots inside one monorepo (`mn`) and 3 in another
+ * (`awesome-projects`). Anchoring at the repo root would read the wrong phase's
+ * plans for every nested project — the exact failure recorded in the ucars
+ * retrospective ("gsd-tools state/roadmap intermittently resolved to the wrong
+ * monorepo-root .planning/").
+ */
+function findPlanningRoot(cwd) {
+  let dir = path.resolve(cwd);
+  for (let depth = 0; depth < 64; depth += 1) {
+    if (fs.existsSync(path.join(dir, '.planning'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
+/** Read `workflow.prohibition_guard` from a project's config. Absent → off. */
+function readMode(planningRoot) {
+  try {
+    const raw = fs.readFileSync(path.join(planningRoot, '.planning', 'config.json'), 'utf8');
+    const cfg = JSON.parse(raw);
+    const value = cfg && cfg.workflow ? cfg.workflow.prohibition_guard : undefined;
+    if (typeof value !== 'string') return MODE_OFF;
+    const normalized = value.trim().toLowerCase();
+    return VALID_MODES.has(normalized) ? normalized : MODE_OFF;
+  } catch {
+    // No config, unreadable config, or malformed JSON: the guard is opt-in, and
+    // an unreadable config cannot have opted in. Distinct from the fail-closed
+    // branch below, which only applies once the mode is known to be armed.
+    return MODE_OFF;
+  }
+}
+
+/**
+ * Extract `files_modified` from a plan's frontmatter.
+ *
+ * Both YAML forms the planner actually emits are read: the block list
+ * (`files_modified:` followed by `  - path` lines) and the inline array
+ * (`files_modified: [a, b]`). A full YAML parser would be a dependency for a
+ * guard that must run without installation; anything that matches neither shape
+ * ends the list rather than being guessed at. Shared shape with
+ * capabilities/mn-verify-gate/scripts/blast-radius.mjs `declaredFiles`.
+ */
+function declaredFiles(text) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fm) return [];
+  const body = fm[1];
+  const lines = body.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^files_modified:\s*$/.test(l));
+  if (start === -1) {
+    const inline = /^files_modified:\s*\[(.*)\]\s*$/m.exec(body);
+    if (!inline) return [];
+    return inline[1]
+      .split(',')
+      .map((s) => s.trim().replace(/^['"]|['"]$/g, ''))
+      .filter(Boolean);
+  }
+  const out = [];
+  for (let i = start + 1; i < lines.length; i += 1) {
+    // A blank line inside the block does NOT end it. Measured: 17 of 96 plans
+    // in one live project put an empty line between `files_modified:` and the
+    // first `  - path`, and treating that as the end of the list made the
+    // guard read those plans as declaring nothing — which, by the empty-
+    // declaration rule below, silently turned it off for exactly those phases.
+    // YAML ignores the blank line; so does this now.
+    if (lines[i].trim() === '') continue;
+    const m = /^\s+-\s+(.+?)\s*$/.exec(lines[i]);
+    if (!m) break; // a non-item, non-blank line closes the block
+    const entry = m[1].replace(/^['"]|['"]$/g, '').replace(/\s+#.*$/, '').trim();
+    if (entry) out.push(entry);
+  }
+  return out;
+}
+
+/** `status:` from a plan's frontmatter, or null when the field is absent. */
+function planStatus(text) {
+  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!fm) return null;
+  const m = /^status:\s*(.+?)\s*$/m.exec(fm[1]);
+  return m ? m[1].replace(/^['"]|['"]$/g, '').trim() : null;
+}
+
+/**
+ * Resolve the phase directory whose declaration governs this write.
+ *
+ * Two signals, in order of authority:
+ *   1. a plan marked `status: in_progress` — written by the executor at
+ *      dispatch (feat/mn-verify-gate: "mark a plan in_progress when execution
+ *      starts"), so it is the freshest statement of what is running now;
+ *   2. `STATE.md`'s `current_phase` — the orchestrator's view, correct between
+ *      plans but stale while a plan is mid-flight.
+ *
+ * Returns `{ phaseDir }`, `{ error }` when a signal exists but its target
+ * cannot be read, or `null` when no phase is in progress at all.
+ */
+function resolveActivePhase(planningRoot) {
+  const phasesDir = path.join(planningRoot, '.planning', 'phases');
+  let entries;
+  try {
+    entries = fs.readdirSync(phasesDir, { withFileTypes: true });
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null; // no phases yet — nothing to govern
+    return { error: err };
+  }
+
+  const phaseDirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
+
+  // Signal 1: a plan that says it is running.
+  const inProgress = [];
+  for (const name of phaseDirs) {
+    const dir = path.join(phasesDir, name);
+    let planNames;
+    try {
+      planNames = fs.readdirSync(dir).filter((f) => f.endsWith('PLAN.md'));
+    } catch {
+      continue; // one unreadable phase dir must not blind the scan
+    }
+    for (const plan of planNames) {
+      let text;
+      try {
+        text = fs.readFileSync(path.join(dir, plan), 'utf8');
+      } catch {
+        continue;
+      }
+      if (planStatus(text) === 'in_progress') {
+        inProgress.push(dir);
+        break;
+      }
+    }
+  }
+  // Exactly one: unambiguous. Several at once means parallel waves are running
+  // and no single declaration governs the write — the union of their scopes is
+  // not a scope, so the guard steps aside rather than picking one.
+  if (inProgress.length === 1) return { phaseDir: inProgress[0] };
+  if (inProgress.length > 1) return null;
+
+  // Signal 2: STATE.md.
+  let stateText;
+  try {
+    stateText = fs.readFileSync(path.join(planningRoot, '.planning', 'STATE.md'), 'utf8');
+  } catch {
+    return null; // no STATE.md and no in-progress plan: nothing claims to be running
+  }
+  const m = /^current_phase:\s*(.+?)\s*$/m.exec(stateText);
+  if (!m) return null;
+  const current = m[1].replace(/^['"]|['"]$/g, '').trim();
+  if (!current || current === 'null' || current === 'none') return null;
+
+  // STATE.md may name the phase by id ("03") or by directory ("03-ports").
+  const exact = phaseDirs.find((d) => d === current);
+  if (exact) return { phaseDir: path.join(phasesDir, exact) };
+  const byPrefix = phaseDirs.filter((d) => d === current || d.startsWith(`${current}-`));
+  if (byPrefix.length === 1) return { phaseDir: path.join(phasesDir, byPrefix[0]) };
+  return null; // ambiguous or absent — do not guess which phase governs
+}
+
+/**
+ * Collect declared paths for a phase.
+ *
+ * Returns `{ declared: string[] }`, or `{ error }` when the phase directory
+ * cannot be read — the fail-closed branch, because an armed guard that cannot
+ * see the declaration must not answer "in scope".
+ */
+function collectDeclared(phaseDir) {
+  let planNames;
+  try {
+    planNames = fs.readdirSync(phaseDir).filter((f) => f.endsWith('PLAN.md')).sort();
+  } catch (err) {
+    return { error: err };
+  }
+  if (planNames.length === 0) return { declared: [] };
+
+  const declared = [];
+  for (const name of planNames) {
+    let text;
+    try {
+      text = fs.readFileSync(path.join(phaseDir, name), 'utf8');
+    } catch (err) {
+      return { error: err };
+    }
+    for (const entry of declaredFiles(text)) {
+      declared.push(entry.replace(/^\.\//, '').replace(/^\/+/, ''));
+    }
+  }
+  return { declared };
+}
+
+/**
+ * Does `target` (repo-relative, forward slashes) fall inside `entry`?
+ *
+ * Three shapes are honoured, because all three occur in real plans:
+ *   • exact path            `libs/rpg/ports/book.port.ts`
+ *   • directory prefix      `libs/rpg/ports/`  or  `libs/rpg/ports`
+ *   • glob                  `libs/rpg/ports/@@`, `libs/@@/x.spec.ts` (@@ = double star)
+ *
+ * Measured on this fork's projects: ~10% of entries are globs or directories.
+ * Literal-only matching would deny writes those entries exist to permit, which
+ * is the failure mode that trains people to disable a guard.
+ */
+function matchesDeclaration(target, entry) {
+  if (!entry) return false;
+  const clean = entry.replace(/^\.\//, '').replace(/^\/+/, '').replace(/\\/g, '/');
+  if (!clean) return false;
+
+  if (clean === target) return true;
+
+  // Directory: declared as a path with no glob and no extension-looking tail,
+  // or with an explicit trailing slash.
+  if (clean.endsWith('/')) return target.startsWith(clean);
+
+  if (!clean.includes('*') && !clean.includes('?')) {
+    // `libs/rpg/ports` covers `libs/rpg/ports/book.ts`. A file declared without
+    // an extension is indistinguishable from a directory here; treating it as a
+    // prefix errs toward allowing, which is correct for a scope declaration.
+    // `?` must fall through to the glob branch — it is a wildcard, and treating
+    // a pattern that carries one as a literal directory prefix would silently
+    // match nothing.
+    return target.startsWith(`${clean}/`);
+  }
+
+  // Glob: a double star spans separators, a single star and ? do not.
+  //
+  // A trailing double star is the common "everything under here" form and must
+  // cover the whole subtree, files directly inside it included. It is handled
+  // before the general translation, because the general form (optional path
+  // segments) leaves nothing to match at the end of the pattern and would
+  // reject such a declaration against a file sitting directly inside it.
+  const trailing = /^(.*?)\/?\*\*$/.exec(clean);
+  if (trailing) {
+    const prefix = trailing[1];
+    if (!prefix) return true; // a bare double star declares the whole tree
+    if (!prefix.includes('*')) return target === prefix || target.startsWith(prefix + '/');
+  }
+
+  // A NUL byte stands in for the separator-crossing double star: it cannot
+  // occur in a path, so it cannot collide with literal pattern text the way a
+  // printable placeholder could.
+  const CROSS = String.fromCharCode(0);
+  const rx = clean
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*\//g, CROSS)
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\?/g, '[^/]')
+    .split(CROSS)
+    .join('(?:.*/)?');
+  try {
+    return new RegExp(`^${rx}$`).test(target);
+  } catch {
+    return false; // an unparseable declaration cannot authorize, but must not crash
+  }
+}
+
+/**
+ * Decide one PreToolUse payload.
+ *
+ * Pure: no stdin, stdout, or process.exit — the directly testable core, per the
+ * seam convention established by gsd-agent-isolation-guard.js.
+ *
+ * Returns `{ action: 'allow' }` or
+ * `{ action: 'ask' | 'deny', reason, targetPath, phaseDir, declaredCount }`.
+ */
+function evaluateWrite(data, { cwd: cwdOverride } = {}) {
+  if (!data || typeof data !== 'object') return { action: 'allow' };
+  const payload = normalizeKimiPayload(data);
+
+  if (!WRITE_TOOLS.has(payload.tool_name)) return { action: 'allow' };
+
+  const rawInput = payload.tool_input;
+  const rawPath =
+    rawInput && typeof rawInput === 'object' && typeof rawInput.file_path === 'string'
+      ? rawInput.file_path
+      : '';
+  if (!rawPath) return { action: 'allow' };
+
+  const cwd = cwdOverride || payload.cwd || process.cwd();
+  const planningRoot = findPlanningRoot(cwd);
+  if (!planningRoot) return { action: 'allow' }; // not a GSD project
+
+  const mode = readMode(planningRoot);
+  if (mode === MODE_OFF) return { action: 'allow' };
+
+  const active = resolveActivePhase(planningRoot);
+  if (!active) return { action: 'allow' }; // no phase in progress
+  if (active.error) {
+    return {
+      action: mode === MODE_DENY ? 'deny' : 'ask',
+      targetPath: rawPath,
+      phaseDir: null,
+      declaredCount: 0,
+      readError: active.error.code ? String(active.error.code) : 'UNKNOWN',
+      reason:
+        `Prohibition guard: could not read this project's phase directory under ` +
+        `'${planningRoot}/.planning/phases' (${active.error.code || 'unknown read error'}), so ` +
+        `the declared scope of the running phase is unknown. workflow.prohibition_guard is ` +
+        `"${mode}", and a guard that cannot verify must not answer "in scope". Retry once the ` +
+        `directory is readable.`,
+    };
+  }
+
+  const { phaseDir } = active;
+  const collected = collectDeclared(phaseDir);
+  if (collected.error) {
+    return {
+      action: mode === MODE_DENY ? 'deny' : 'ask',
+      targetPath: rawPath,
+      phaseDir,
+      declaredCount: 0,
+      readError: collected.error.code ? String(collected.error.code) : 'UNKNOWN',
+      reason:
+        `Prohibition guard: could not read the plans in '${phaseDir}' ` +
+        `(${collected.error.code || 'unknown read error'}), so this phase's declared file scope ` +
+        `is unknown. workflow.prohibition_guard is "${mode}", and a guard that cannot verify ` +
+        `must not answer "in scope". Retry once the plans are readable.`,
+    };
+  }
+
+  const declared = collected.declared;
+  // A phase whose plans declare nothing is out of scope for a per-write guard —
+  // see the header note. blast-radius refuses this case at verify:pre.
+  if (declared.length === 0) return { action: 'allow' };
+
+  // Resolve the write target relative to the planning root, following symlinks
+  // so a link into a declared tree is judged by where it lands, not where it is
+  // named (the gsd-write-guard.js precedent).
+  let absolute = path.resolve(cwd, rawPath);
+  try {
+    absolute = fs.realpathSync(absolute);
+  } catch {
+    /* new file — keep the lexical path */
+  }
+  const relative = path.relative(planningRoot, absolute).replace(/\\/g, '/');
+
+  // Outside the project tree entirely: not this phase's business. Writes to
+  // ~/.claude, /tmp, a sibling repo — all legitimate and none declarable.
+  if (!relative || relative.startsWith('../')) return { action: 'allow' };
+
+  // The harness's own bookkeeping. SUMMARY.md, VERIFICATION.md, STATE.md and
+  // the rest are written by design and never appear in files_modified; guarding
+  // them would block the workflow instead of protecting it.
+  if (relative === '.planning' || relative.startsWith('.planning/')) return { action: 'allow' };
+
+  if (declared.some((entry) => matchesDeclaration(relative, entry))) return { action: 'allow' };
+
+  const phaseName = path.basename(phaseDir);
+  const reason =
+    `Prohibition guard: '${relative}' is not declared by any plan in phase '${phaseName}'. ` +
+    `That phase's plans declare ${declared.length} path(s); this write falls outside all of ` +
+    `them. Either the work drifted outside the task, or the plan was incomplete — both need a ` +
+    `decision, not a silent edit. To proceed: add '${relative}' to the owning PLAN.md's ` +
+    `files_modified (and say why in the plan's deviation notes), or write inside the declared ` +
+    `scope instead. This is blast-radius (verify:pre) moved to the moment of the write, where ` +
+    `the answer can still be "don't" rather than "revert".`;
+
+  return {
+    action: mode === MODE_DENY ? 'deny' : 'ask',
+    targetPath: relative,
+    phaseDir,
+    declaredCount: declared.length,
+    reason,
+  };
+}
+
+/* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
+function main() {
+  let input = '';
+  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    input += chunk;
+  });
+  process.stdin.on('end', () => {
+    clearTimeout(stdinTimeout);
+    let decision;
+    try {
+      decision = evaluateWrite(JSON.parse(input));
+    } catch {
+      // Silent fail — a malformed payload must never block a valid tool call.
+      process.exit(0);
+    }
+    if (!decision || decision.action === 'allow') process.exit(0);
+
+    // `ask` escalates to the user through the permission layer and leaves the
+    // session running; `deny` blocks outright. Both carry typed fields beside
+    // the prose so consumers never regex the reason (CONTRIBUTING.md).
+    const output = {
+      hookSpecificOutput: {
+        hookEventName: 'PreToolUse',
+        permissionDecision: decision.action === 'deny' ? 'deny' : 'ask',
+        permissionDecisionReason: decision.reason,
+      },
+      decision: decision.action === 'deny' ? 'block' : undefined,
+      targetPath: decision.targetPath,
+      declaredCount: decision.declaredCount,
+      readError: decision.readError,
+      reason: decision.reason,
+    };
+    try {
+      // writeSync: piped writes are async on Windows and process.exit() does
+      // not flush them — a truncated payload is a guard that half-fired.
+      fs.writeSync(1, JSON.stringify(output));
+      // Kimi feeds stderr (not stdout) back to the model on exit 2.
+      fs.writeSync(2, decision.reason);
+    } catch {
+      /* emission failed; the decision still stands */
+    }
+    process.exit(decision.action === 'deny' ? 2 : 0);
+  });
+}
+
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  evaluateWrite,
+  declaredFiles,
+  matchesDeclaration,
+  findPlanningRoot,
+  resolveActivePhase,
+  readMode,
+};

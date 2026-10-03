@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-codebase-mapper, gsd-planner]
+---
+
 # Technology Stack Template
 
 Template for `.planning/codebase/STACK.md` - captures the technology foundation.

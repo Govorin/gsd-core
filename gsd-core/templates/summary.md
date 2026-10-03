@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: phase
+  lifecycle: active
+  required: true
+  author: agent
+  readers: [gsd-executor, gsd-planner]
+---
+
 # Summary Template
 
 Template for `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md` - phase completion documentation.
@@ -155,6 +166,36 @@ None - no external service configuration required.
 *Completed: [date]*
 ```
 
+<granularity_variants>
+## Granularity variants
+
+`gsd-tools template select <plan-path>` returns `{ template, variant }`. `template` is always
+this file; `variant` is one of `minimal | standard | complex` and says how much of the File
+Template above to fill in.
+
+Before the merge these were three separate files — `summary-minimal.md`,
+`summary-standard.md`, `summary-complex.md` — whose bodies differed only in heading text,
+bullet count, and which optional sections appeared. Three copies of one contract with nothing
+reconciling them is how the copies drift; the selector is now the only thing that varies.
+
+**The frontmatter block is identical in all three variants.** Every field above is filled
+regardless of granularity — including `requires`, which is present on purpose: the selector
+defaults to `standard`, so keeping `requires` in only the largest variant would mean the
+default path could not declare a dependency at all. The graph would break silently, and
+`gsd-undo` would then revert a phase without knowing what stood on it.
+
+| variant | chosen when | body sections to fill |
+|---|---|---|
+| `minimal` | `taskCount <= 2 && fileCount <= 3 && !hasDecisions` | Performance · Accomplishments (1-2 bullets) · Task Commits · Files Created/Modified · Next Phase Readiness. Title reads `# Phase [X]: [Name] Summary (Minimal)`. `key-decisions: []` — an empty list, not an omitted key. |
+| `standard` | anything not matching the other two — **the default** | Everything in `minimal`, plus Decisions Made, Deviations from Plan, and Issues Encountered. Accomplishments carries 3-5 bullets. |
+| `complex` | `hasDecisions \|\| fileCount > 6 \|\| taskCount > 5` | Everything in `standard`, plus Auto-fixed Issues and User Setup Required, and a `coverage:` entry per shipped deliverable. |
+
+A section that has nothing to report is omitted rather than filled with "none" — except
+`key-decisions`, where an explicit empty list distinguishes "no decisions were made" from
+"nobody recorded them".
+
+</granularity_variants>
+
 <frontmatter_guidance>
 **Purpose:** Enable automatic context assembly via dependency graph. Frontmatter makes summary metadata machine-readable so plan-phase can scan all summaries quickly and select relevant ones based on dependencies.
 
@@ -184,7 +225,7 @@ None - no external service configuration required.
 |---|---|
 | `id` | Stable identifier (`D1`, `D2`…) for cross-referencing from UAT.md and audit reports. Must be unique within the SUMMARY. |
 | `description` | The deliverable in human-readable form — what would have been a prose bullet. |
-| `requirement` | Links back to a REQUIREMENTS.md REQ-ID (joins `requirements-completed`). Optional. |
+| `requirement` | The requirement ID this deliverable satisfies, in whatever scheme REQUIREMENTS.md uses. Optional, and currently read only for display — no tooling joins it against `requirements-completed`, so filling it buys traceability a human can follow, not a check that fires. |
 | `verification[].kind` | Enum: `unit \| integration \| e2e \| automated_ui \| manual_procedural \| other`. |
 | `verification[].ref` | Test path + descriptor (`file#test name`), Playwright screenshot ref, or command invocation. Required per entry. |
 | `verification[].status` | `pass \| fail \| unknown` — populated from the latest test run. |

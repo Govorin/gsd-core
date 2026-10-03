@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: milestone
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-complete-milestone]
+---
+
 # Project Retrospective
 
 *A living document updated after each milestone. Lessons feed forward into future planning.*

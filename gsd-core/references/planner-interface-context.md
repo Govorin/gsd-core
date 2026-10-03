@@ -4,6 +4,19 @@
 
 When creating plans that depend on existing code or create new interfaces consumed by other plans:
 
+## Source order: the decision first, the code second
+
+**If the phase has a `{phase}-DESIGN.md`, read its `## Contracts` section before you grep anything.** Those signatures are what was *decided*; a grep returns what currently *exists*. For a port this phase introduces, the two differ in the way that matters — the code is not written yet, so grep finds nothing and the plan is authored against a guess.
+
+That guess is the failure this whole block exists to prevent, and it is not hypothetical: wave 1 declares `findById(id): EitherAsync<RepoError, Book>`, wave 2's plan was written when nothing existed to read and calls it as `Promise<Book | null>`. Both plans verify green — `files_modified` do not overlap, `key_links` match, each project's tests pass — and the mismatch lands on the pre-commit typecheck with both commits already in history.
+
+So:
+
+1. `## Contracts` in the phase's DESIGN.md — for signatures this phase introduces. Copy the declaration **verbatim**; a paraphrase is a second source of truth.
+2. The codebase grep below — for everything that already exists.
+
+When both speak about the same symbol and disagree, the DESIGN.md is the newer statement of intent and the code is the older fact. Carry the declaration, and say in the plan that it changes an existing signature — that is a consumer-breaking change, and the plans that call it need to know.
+
 ## For plans that USE existing code:
 After determining `files_modified`, extract the key interfaces/types/exports from the codebase that executors will need:
 

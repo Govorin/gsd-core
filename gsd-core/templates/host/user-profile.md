@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: host
+  lifecycle: active
+  required: false
+  author: generated
+  readers: [gsd-profile-user]
+---
+
 # Developer Profile
 
 > This profile was generated from session analysis. It contains behavioral directives

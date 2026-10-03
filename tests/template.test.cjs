@@ -46,8 +46,11 @@ describe('template select command', () => {
     const result = runGsdTools(`template select .planning/phases/01-setup/01-01-PLAN.md`, tmpDir);
     assert.ok(result.success, `Failed: ${result.error}`);
     const out = JSON.parse(result.output);
+    // Since the four-file merge the template path is constant and the granularity moves to
+    // `variant`; `type` is kept as an alias so existing readers keep working.
+    assert.strictEqual(out.variant, 'minimal');
     assert.strictEqual(out.type, 'minimal');
-    assert.ok(out.template.includes('summary-minimal'));
+    assert.ok(out.template.endsWith('summary.md'));
   });
 
   test('selects standard template for moderate plan', () => {

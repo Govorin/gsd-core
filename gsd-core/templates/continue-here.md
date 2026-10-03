@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: phase
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-pause-work, gsd-resume-work, gsd-execute-phase]
+---
+
 # Continue-Here Template
 
 Copy and fill this structure for `.planning/phases/XX-name/.continue-here.md`:

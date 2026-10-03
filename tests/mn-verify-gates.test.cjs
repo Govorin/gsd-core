@@ -1,0 +1,407 @@
+'use strict';
+
+/**
+ * `gsd_run verify gates` — measured check results recorded into
+ * {phase}-VERIFICATION.md, and the gate that reads them back.
+ *
+ * Seams: src/verify-gates.cts (via the built gsd-core/bin/lib/verify-gates.cjs
+ * and, for the CLI contract, the real `gsd-tools.cjs verify gates` through the
+ * process seam) and src/gate-predicate-evaluator.cts's dotted-path field
+ * resolution.
+ *
+ * The defect: VERIFICATION.md's "Automated checks: 2 passed, 8 failed" is a
+ * line the verifying agent typed. Nothing downstream can distinguish a
+ * verifier that ran the suite from one that described running it, and the
+ * predicate built to consume such evidence — artifact-frontmatter-equals,
+ * ADR-2008 — has had nothing to read. This command supplies it.
+ *
+ * The round-trip suite at the bottom is the one that matters: record, then
+ * gate on the recording. Without it the rest is a nicer-looking piece of prose.
+ */
+
+process.env.GSD_TEST_MODE = '1';
+
+const { describe, test, beforeEach, afterEach } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
+const { createTempDir, cleanup } = require('./helpers.cjs');
+
+const REPO_ROOT = path.join(__dirname, '..');
+const TOOLS = path.join(REPO_ROOT, 'gsd-core', 'bin', 'gsd-tools.cjs');
+const verifyGates = require(path.join(REPO_ROOT, 'gsd-core', 'bin', 'lib', 'verify-gates.cjs'));
+const { evaluatePredicate } = require(path.join(
+  REPO_ROOT,
+  'gsd-core',
+  'bin',
+  'lib',
+  'gate-predicate-evaluator.cjs'
+));
+const { extractFrontmatter } = require(path.join(
+  REPO_ROOT,
+  'gsd-core',
+  'bin',
+  'lib',
+  'frontmatter.cjs'
+));
+
+/** A project with a phase directory and a configurable check roster. */
+function makeProject(dir, verifyGatesConfig) {
+  const phaseDir = path.join(dir, '.planning', 'phases', '03-ports');
+  fs.mkdirSync(phaseDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, '.planning', 'config.json'),
+    JSON.stringify(
+      { workflow: verifyGatesConfig === null ? {} : { verify_gates: verifyGatesConfig } },
+      null,
+      2
+    )
+  );
+  return phaseDir;
+}
+
+function runGatesCli(dir, phaseDir, extraArgs = []) {
+  const result = runNode([TOOLS, 'verify', 'gates', phaseDir, ...extraArgs, '--cwd', dir], {
+    cwd: dir,
+  });
+  let payload = null;
+  try {
+    payload = JSON.parse(result.stdout);
+  } catch {
+    /* a non-JSON stdout is itself a finding the assertions will surface */
+  }
+  return { ...result, payload };
+}
+
+describe('verify gates — measuring', () => {
+  const green = () => ({ status: 0, stdout: '', stderr: '', error: null, signal: null });
+  const red = () => ({ status: 1, stdout: 'boom', stderr: '', error: null, signal: null });
+
+  test('runs every check even after one fails', () => {
+    const seen = [];
+    const results = verifyGates.runGates({
+      cwd: '/nowhere',
+      phaseDir: '/nowhere',
+      checks: [
+        { name: 'a', command: 'a' },
+        { name: 'b', command: 'b' },
+        { name: 'c', command: 'c' },
+      ],
+      runner: (command) => {
+        seen.push(command);
+        return command === 'a' ? red() : green();
+      },
+      clock: { now: () => 0 },
+    });
+    assert.deepEqual(seen, ['a', 'b', 'c'], 'stopping at the first red would make "no command configured" and "never reached" indistinguishable');
+    assert.equal(results.length, 3);
+    assert.equal(results[0].passed, false);
+    assert.equal(results[2].passed, true);
+  });
+
+  test('a check that could not run is recorded as unrunnable, not as a code failure', () => {
+    const cases = [
+      ['missing binary', { status: null, stdout: '', stderr: '', error: { code: 'ENOENT' }, signal: null }, 'ENOENT'],
+      ['killed', { status: null, stdout: '', stderr: '', error: null, signal: 'SIGTERM' }, 'SIGTERM'],
+    ];
+    for (const [label, raw, expected] of cases) {
+      const [result] = verifyGates.runGates({
+        cwd: '/nowhere',
+        phaseDir: '/nowhere',
+        checks: [{ name: 'tests', command: 'x' }],
+        runner: () => raw,
+        clock: { now: () => 0 },
+      });
+      assert.equal(result.unrunnable, expected, label);
+      assert.equal(result.exitCode, null, `${label}: a null exit code is what distinguishes it from a red check`);
+      assert.equal(result.passed, false, `${label}: it still does not count as a pass`);
+    }
+  });
+
+  test('a runner that throws is caught rather than aborting the whole recording', () => {
+    const [result] = verifyGates.runGates({
+      cwd: '/nowhere',
+      phaseDir: '/nowhere',
+      checks: [{ name: 'tests', command: 'x' }],
+      runner: () => {
+        throw Object.assign(new Error('nope'), { code: 'EACCES' });
+      },
+      clock: { now: () => 0 },
+    });
+    assert.equal(result.unrunnable, 'EACCES');
+  });
+
+  test('parses the count shapes this fork\'s projects actually emit', () => {
+    const cases = [
+      ['node:test', '# pass 41\n# fail 0\n', { passed: 41, failed: 0 }],
+      ['vitest', 'Tests  2 failed | 204 passed (206)\n', { failed: 2, passed: 204 }],
+      ['jest', 'Tests:       204 passed, 206 total\n', { passed: 204 }],
+      ['tsc', 'Found 3 errors in 2 files.\n', { errors: 3 }],
+      ['oxlint', 'Found 5700 warnings and 0 errors.\n', { warnings: 5700, errors: 0 }],
+    ];
+    for (const [label, output, expected] of cases) {
+      const counts = verifyGates.parseCounts(output);
+      for (const [key, value] of Object.entries(expected)) {
+        assert.equal(counts[key], value, `${label}: ${key}`);
+      }
+    }
+  });
+
+  test('unrecognised output carries no counts rather than guessed ones', () => {
+    // A wrong count is worse than no count: it is evidence that says something
+    // false, which is the exact failure this command exists to remove.
+    assert.equal(verifyGates.parseCounts('everything is fine\n'), undefined);
+  });
+});
+
+describe('verify gates — recording', () => {
+  test('flattens per-check detail, because the writer cannot nest', () => {
+    // spliceFrontmatter refuses a nested object-list outright, so the obvious
+    // shape (gates.checks.tests.exit_code) cannot be written at all.
+    const block = verifyGates.buildGatesFrontmatter(
+      [
+        { name: 'tests', command: 't', exitCode: 0, passed: true, durationMs: 5, counts: { passed: 41 } },
+        { name: 'type-check', command: 'tc', exitCode: 2, passed: false, durationMs: 7 },
+      ],
+      '2026-01-01T00:00:00Z'
+    );
+    assert.equal(block.all_passed, false);
+    assert.equal(block.failed, 1);
+    assert.deepEqual(block.ran, ['tests', 'type-check']);
+    assert.equal(block.tests_exit_code, 0);
+    assert.equal(block.type_check_exit_code, 2, 'a name with punctuation becomes a plain YAML key');
+  });
+
+  test('a parsed count never overwrites the boolean verdict of the same name', () => {
+    // Regression: `tests` parsing out `passed: 41` wrote `tests_passed`, which
+    // is already the boolean verdict — so `gates.tests_passed == true`, the
+    // natural gate to write, silently came to mean "41".
+    const block = verifyGates.buildGatesFrontmatter(
+      [{ name: 'tests', command: 't', exitCode: 0, passed: true, durationMs: 1, counts: { passed: 41, failed: 0 } }],
+      '2026-01-01T00:00:00Z'
+    );
+    assert.equal(block.tests_passed, true, 'the verdict stays a boolean');
+    assert.equal(block.tests_passed_count, 41, 'the count lives beside it');
+    assert.equal(block.tests_failed_count, 0);
+  });
+
+  test('reads the roster as an object or as a JSON string', () => {
+    // The capability config schema admits scalars only, so the key is DECLARED
+    // as a string holding JSON — but a hand-written config.json will naturally
+    // carry a real object, and refusing that would make the command silently
+    // inert on a config that reads as perfectly correct.
+    const dir = createTempDir();
+    try {
+      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+      const write = (value) =>
+        fs.writeFileSync(
+          path.join(dir, '.planning', 'config.json'),
+          JSON.stringify({ workflow: { verify_gates: value } })
+        );
+
+      write({ tests: 'npm test' });
+      assert.deepEqual(verifyGates.readChecks(dir), [{ name: 'tests', command: 'npm test' }]);
+
+      write('{"tests":"npm test","lint":"npm run lint"}');
+      assert.equal(verifyGates.readChecks(dir).length, 2);
+
+      // Malformed input yields no checks, which the CLI then refuses on —
+      // better than half a roster silently standing in for the whole one.
+      for (const bad of ['not json', '', [1, 2], null]) {
+        write(bad);
+        assert.deepEqual(verifyGates.readChecks(dir), [], `unusable roster: ${JSON.stringify(bad)}`);
+      }
+    } finally {
+      cleanup(dir);
+    }
+  });
+
+  test('an empty roster is not a pass', () => {
+    const block = verifyGates.buildGatesFrontmatter([], '2026-01-01T00:00:00Z');
+    assert.equal(
+      block.all_passed,
+      false,
+      'recording "nothing ran" as green would be a field that proves nothing'
+    );
+  });
+});
+
+describe('verify gates — CLI contract', () => {
+  let dir;
+  beforeEach(() => {
+    dir = createTempDir();
+  });
+  afterEach(() => {
+    cleanup(dir);
+  });
+
+  test('refuses when no checks are configured, and writes nothing', () => {
+    const phaseDir = makeProject(dir, null);
+    const result = runGatesCli(dir, phaseDir);
+    assert.equal(result.outcome, OUTCOME.EXITED);
+    assert.equal(result.exitCode, 2);
+    assert.equal(result.payload.reason, 'no_checks_configured');
+    assert.equal(
+      fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')),
+      false,
+      'a refusal must not leave a half-written record behind'
+    );
+  });
+
+  test('records a green run and exits 0', () => {
+    const phaseDir = makeProject(dir, { tests: 'echo "# pass 41" && echo "# fail 0"', typecheck: 'true' });
+    const result = runGatesCli(dir, phaseDir);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.payload.allPassed, true);
+    assert.equal(result.payload.created, true);
+
+    const fm = extractFrontmatter(
+      fs.readFileSync(path.join(phaseDir, '03-VERIFICATION.md'), 'utf8')
+    );
+    // extractFrontmatter does not coerce types — every scalar comes back a
+    // string, at the top level and inside a nested map alike. The predicate
+    // compares by string representation for exactly this reason, so the gate
+    // still works; the assertions below record the parser's actual contract
+    // rather than an assumed one.
+    assert.equal(fm.gates.all_passed, 'true');
+    assert.equal(fm.gates.tests_passed_count, '41');
+    assert.equal(fm.gates.typecheck_exit_code, '0');
+  });
+
+  test('a fresh record carries no status — only the verifier writes one', () => {
+    // A seeded `status: pending` is outside the closed verification-status set
+    // upstream reads (passed | gaps_found | human_needed): the reader throws on
+    // it. An absent status reads as "the verify step never ran", which is the
+    // truth at this point. Recording twice must not invent one either.
+    const phaseDir = makeProject(dir, { tests: 'true' });
+    runGatesCli(dir, phaseDir);
+    runGatesCli(dir, phaseDir);
+
+    const fm = extractFrontmatter(fs.readFileSync(path.join(phaseDir, '03-VERIFICATION.md'), 'utf8'));
+    assert.equal(Object.prototype.hasOwnProperty.call(fm, 'status'), false, `unexpected status: ${fm.status}`);
+    assert.equal(fm.gates.all_passed, 'true');
+  });
+
+  test('a red check still records, and the command still exits 0', () => {
+    // The exit code of THIS command answers "was the result recorded", not
+    // "were the checks green". A recording step that fails when the news is
+    // bad is a step people route around.
+    const phaseDir = makeProject(dir, { tests: 'exit 1' });
+    const result = runGatesCli(dir, phaseDir);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.payload.allPassed, false);
+    assert.equal(result.payload.failed, 1);
+  });
+
+  test('--strict propagates the failure to the caller', () => {
+    const phaseDir = makeProject(dir, { tests: 'exit 1' });
+    assert.equal(runGatesCli(dir, phaseDir, ['--strict']).exitCode, 1);
+
+    fs.writeFileSync(
+      path.join(dir, '.planning', 'config.json'),
+      JSON.stringify({ workflow: { verify_gates: { tests: 'true' } } })
+    );
+    assert.equal(runGatesCli(dir, phaseDir, ['--strict']).exitCode, 0);
+  });
+
+  test('re-recording preserves everything the verifier wrote', () => {
+    const phaseDir = makeProject(dir, { tests: 'true' });
+    const vpath = path.join(phaseDir, '03-VERIFICATION.md');
+    fs.writeFileSync(
+      vpath,
+      '---\nphase: 03-ports\nstatus: gaps_found\ntruths_unproven: 2\n---\n\n# Report\n\nprose the verifier wrote\n'
+    );
+    runGatesCli(dir, phaseDir);
+
+    const content = fs.readFileSync(vpath, 'utf8');
+    const fm = extractFrontmatter(content);
+    assert.equal(fm.status, 'gaps_found');
+    assert.equal(fm.truths_unproven, '2');
+    assert.equal(fm.gates.all_passed, 'true');
+    assert.ok(content.includes('prose the verifier wrote'), 'the body must survive a key-level splice');
+  });
+
+  test('a missing phase directory and a missing argument both refuse', () => {
+    makeProject(dir, { tests: 'true' });
+    assert.equal(
+      runGatesCli(dir, path.join(dir, '.planning', 'phases', 'nope')).payload.reason,
+      'phase_dir_not_found'
+    );
+    const noArg = runNode([TOOLS, 'verify', 'gates', '--cwd', dir], { cwd: dir });
+    assert.equal(noArg.exitCode, 2);
+  });
+});
+
+describe('verify gates — the round trip a gate actually makes', () => {
+  let dir;
+  let phaseDir;
+
+  const deps = () => ({
+    findPhaseArtifact: (searchDir, suffix) => {
+      const hit = fs.readdirSync(searchDir).find((f) => f.endsWith(suffix));
+      return hit ? path.join(searchDir, hit) : null;
+    },
+    readFrontmatter: (file) => extractFrontmatter(fs.readFileSync(file, 'utf8')),
+    // Never reached by this predicate kind; required by the evaluator's
+    // dependency contract.
+    runBoundedShell: () => ({ exitCode: 0, stdout: '', stderr: '', signal: null }),
+  });
+
+  const gateOn = (field, equals) =>
+    evaluatePredicate(
+      { kind: 'artifact-frontmatter-equals', artifact: 'VERIFICATION.md', field, equals },
+      { cwd: dir, phaseDir },
+      deps()
+    );
+
+  beforeEach(() => {
+    dir = createTempDir();
+    phaseDir = makeProject(dir, { tests: 'echo "# pass 12" && echo "# fail 0"' });
+  });
+  afterEach(() => {
+    cleanup(dir);
+  });
+
+  test('a green recording lets the gate through', () => {
+    runGatesCli(dir, phaseDir);
+    assert.equal(gateOn('gates.all_passed', true).block, false);
+    assert.equal(gateOn('gates.failed', 0).block, false);
+    assert.equal(gateOn('gates.tests_failed_count', 0).block, false);
+  });
+
+  test('a red recording blocks the same gate', () => {
+    fs.writeFileSync(
+      path.join(dir, '.planning', 'config.json'),
+      JSON.stringify({ workflow: { verify_gates: { tests: 'exit 1' } } })
+    );
+    runGatesCli(dir, phaseDir);
+    assert.equal(
+      gateOn('gates.all_passed', true).block,
+      true,
+      'the verdict must follow the measurement, not a narrative'
+    );
+  });
+
+  test('top-level fields still resolve — existing gates are unaffected', () => {
+    runGatesCli(dir, phaseDir);
+    const vpath = path.join(phaseDir, '03-VERIFICATION.md');
+    fs.writeFileSync(
+      path.join(phaseDir, '03-VERIFICATION.md'),
+      fs.readFileSync(vpath, 'utf8').replace('---\n', '---\ntruths_unproven: 0\n')
+    );
+    assert.equal(gateOn('truths_unproven', 0).block, false);
+  });
+
+  test('an absent path blocks rather than throwing, at either depth', () => {
+    runGatesCli(dir, phaseDir);
+    assert.equal(gateOn('gates.nope.deeper', true).block, true);
+    assert.equal(gateOn('not_a_field', true).block, true);
+  });
+
+  test('a prototype key does not resolve to a function', () => {
+    runGatesCli(dir, phaseDir);
+    assert.equal(gateOn('gates.constructor', true).block, true);
+    assert.equal(gateOn('gates.toString', true).block, true);
+  });
+});

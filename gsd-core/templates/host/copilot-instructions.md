@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: host
+  lifecycle: active
+  required: false
+  author: generated
+  readers: []
+---
+
 # Instructions for GSD
 
 - Use the gsd-core skill when the user asks for GSD or uses a `gsd-*` command.

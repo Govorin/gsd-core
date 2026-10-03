@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-project-researcher, gsd-research-synthesizer]
+---
+
 # Pitfalls Research Template
 
 Template for `.planning/research/PITFALLS.md` — common mistakes to avoid in the project domain.
