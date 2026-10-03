@@ -112,6 +112,7 @@ function git(args, cwd) {
     encoding: 'utf8',
     timeout: 30000,
     stdio: ['ignore', 'pipe', 'ignore'],
+    windowsHide: true,
   }).trim();
 }
 
@@ -212,6 +213,7 @@ function provisionDeps(mode, mainPath, worktreePath, installCommand, timeoutMs) 
     encoding: 'utf8',
     timeout: timeoutMs,
     maxBuffer: 32 * 1024 * 1024,
+    windowsHide: true, // shell:true would otherwise flash a console window (#685)
   });
   if (res.error || res.status !== 0) {
     return {

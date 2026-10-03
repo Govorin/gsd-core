@@ -133,6 +133,26 @@ function readMode(planningRoot) {
 }
 
 /**
+ * The YAML body of a document's frontmatter, or null when it has no closed block.
+ * The fence is located by the repo's single owner (src/frontmatter-fence.cts →
+ * gsd-core/bin/lib/frontmatter-fence.cjs), reached through the self-healing build
+ * seam like every compiled-lib require under hooks/. If the owner cannot be
+ * loaded the hook reads no frontmatter — the same inert outcome as a plan that
+ * has none — and never blocks over its own plumbing.
+ */
+function frontmatterBody(text) {
+  try {
+    const { ensureRuntimeBuild } = require('../gsd-core/bin/ensure-runtime-build.cjs');
+    ensureRuntimeBuild();
+    const { locateFrontmatterFence } = require('../gsd-core/bin/lib/frontmatter-fence.cjs');
+    const fence = locateFrontmatterFence(text);
+    return fence && fence.closed ? text.slice(fence.openEnd, fence.bodyEnd) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract `files_modified` from a plan's frontmatter.
  *
  * Both YAML forms the planner actually emits are read: the block list
@@ -143,9 +163,8 @@ function readMode(planningRoot) {
  * capabilities/mn-verify-gate/scripts/blast-radius.mjs `declaredFiles`.
  */
 function declaredFiles(text) {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fm) return [];
-  const body = fm[1];
+  const body = frontmatterBody(text);
+  if (body === null) return [];
   const lines = body.split(/\r?\n/);
   const start = lines.findIndex((l) => /^files_modified:\s*$/.test(l));
   if (start === -1) {
@@ -175,9 +194,9 @@ function declaredFiles(text) {
 
 /** `status:` from a plan's frontmatter, or null when the field is absent. */
 function planStatus(text) {
-  const fm = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fm) return null;
-  const m = /^status:\s*(.+?)\s*$/m.exec(fm[1]);
+  const body = frontmatterBody(text);
+  if (body === null) return null;
+  const m = /^status:\s*(.+?)\s*$/m.exec(body);
   return m ? m[1].replace(/^['"]|['"]$/g, '').trim() : null;
 }
 

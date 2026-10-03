@@ -70,10 +70,29 @@ function readConfig(planningRoot) {
   }
 }
 
+/**
+ * The YAML body of a document's frontmatter, or null when it has no closed block.
+ * The fence is located by the repo's single owner (src/frontmatter-fence.cts →
+ * gsd-core/bin/lib/frontmatter-fence.cjs), reached through the self-healing build
+ * seam like every compiled-lib require under hooks/. If the owner cannot be
+ * loaded the hook reads no frontmatter — the same inert outcome as a plan that
+ * has none — and never blocks over its own plumbing.
+ */
+function frontmatterBody(text) {
+  try {
+    const { ensureRuntimeBuild } = require('../gsd-core/bin/ensure-runtime-build.cjs');
+    ensureRuntimeBuild();
+    const { locateFrontmatterFence } = require('../gsd-core/bin/lib/frontmatter-fence.cjs');
+    const fence = locateFrontmatterFence(text);
+    return fence && fence.closed ? text.slice(fence.openEnd, fence.bodyEnd) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Frontmatter body of a markdown file, or '' when there is none. */
 function frontmatter(text) {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  return m ? m[1] : '';
+  return frontmatterBody(text) ?? '';
 }
 
 /**

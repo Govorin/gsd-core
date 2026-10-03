@@ -144,6 +144,7 @@ function resolveWorkTree(cwd, planningRoot) {
       encoding: 'utf8',
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
     });
     const top = out.trim();
     if (top) return top;
@@ -254,6 +255,7 @@ function evaluateStop(data, options = {}) {
         encoding: 'utf8',
         timeout: timeoutMs,
         maxBuffer: 32 * 1024 * 1024,
+        windowsHide: true, // shell:true would otherwise flash a console window (#685)
       });
       return {
         status: res.status,
