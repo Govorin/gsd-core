@@ -35,7 +35,7 @@ If no phase number is given, GSD Core targets the current phase.
 The command runs in two stages:
 
 1. **`gsd-ui-researcher`** — reads `CONTEXT.md`, `RESEARCH.md`, and `REQUIREMENTS.md` for existing decisions, detects the design system state (shadcn `components.json`, Tailwind config, existing tokens), and asks only the unanswered design questions across five areas: spacing, color, typography, copywriting, and registry safety.
-2. **`gsd-ui-checker`** — validates the resulting `UI-SPEC.md` across seven dimensions. If issues are found, a revision loop reruns the researcher (up to two iterations) targeting only the flagged items.
+2. **`gsd-ui-checker`** — validates the resulting `UI-SPEC.md` across eight dimensions (the eighth, Design Contract, applies only when the repo has a `.pen` contract). If issues are found, a revision loop reruns the researcher (up to two iterations) targeting only the flagged items.
 
 **Output:** `{padded_phase}-UI-SPEC.md` in `.planning/phases/{phase-dir}/`.
 
@@ -54,7 +54,7 @@ The researcher locks decisions across five areas:
 | **Registry safety** | shadcn component inspection protocol (see below) |
 | **Component inventory** | What the design system actually provides, plus the command that enumerated it (see below) |
 
-The checker validates the spec against its seven dimensions — Copywriting, Visuals, Color, Typography, Spacing, Registry Safety, and Inventory Provenance — returning PASS, FLAG or BLOCK for each. (The scored 1–4 six-pillar rubric belongs to `/gsd-ui-review`'s retroactive audit, not to this checker.)
+The checker validates the spec against its eight dimensions — Copywriting, Visuals, Color, Typography, Spacing, Registry Safety, Inventory Provenance, and Design Contract (N/A when the repo has no `.pen` contract) — returning PASS, FLAG or BLOCK for each. (The scored 1–4 six-pillar rubric belongs to `/gsd-ui-review`'s retroactive audit, not to this checker.)
 
 ---
 
@@ -156,7 +156,7 @@ Worth knowing before you rely on it, because the check is narrower than it looks
   `<package>@<version>` is for: compare it against what is installed now. A spec reused after an
   upgrade looks exactly like a fresh one apart from that string.
 - **Enforcement is applied by an agent, not by a parser.** Dimension 7 is a rule `gsd-ui-checker`
-  follows, the same as the other six dimensions. It is not a schema check that runs over your
+  follows, the same as the other seven dimensions. It is not a schema check that runs over your
   spec, so treat a PASS as "the reviewer found a provenance line", not as a machine guarantee.
 - **"The checker never runs the recorded command" is an instruction, not a sandbox.** See
   [Security model → Trade-offs and limits](../explanation/security-model.md#trade-offs-and-limits)

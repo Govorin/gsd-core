@@ -222,10 +222,12 @@ GSD Core 是一个**元提示框架**，位于用户与 AI 编码 Agent（Claude
 
 ### 模板（`gsd-core/templates/`）
 
+> The authoritative roster is generated: `docs/TEMPLATE-REGISTRY.json` + the **Template Index** in `gsd-core/templates/README.md`, from each template's `gsd-template:` block (`docs/reference/template-registry.md`). The list below is a localized copy and may lag.
+
 所有规划产物的 Markdown 模板。由 `gsd-tools.cjs template fill` / `phase.scaffold`（以及顶级 `scaffold`）使用，以创建预结构化文件：
 - `project.md`、`requirements.md`、`roadmap.md`、`state.md` — 核心项目文件
-- `phase-prompt.md` — 阶段执行提示词模板
-- `summary.md`（及 `summary-minimal.md`、`summary-standard.md`、`summary-complex.md`）— 粒度感知摘要模板
+- `plan.md` — 阶段执行提示词模板
+- `summary.md` — 粒度感知摘要模板
 - `DEBUG.md` — 调试会话跟踪模板
 - `UI-SPEC.md`、`UAT.md`、`VALIDATION.md` — 专用验证模板
 - `discussion-log.md` — 讨论审计追踪模板

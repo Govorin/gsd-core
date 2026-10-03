@@ -8,6 +8,17 @@ asvs_level: 1
 created: "{date}"
 ---
 
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: phase
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-secure-phase, gsd-security-auditor]
+---
+
 # Phase {N} — Security
 
 > Per-phase security contract: threat register, accepted risks, and audit trail.

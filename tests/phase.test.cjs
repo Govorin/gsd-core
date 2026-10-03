@@ -11964,6 +11964,17 @@ function createDeferredReqFixture({ includeMissingActive = false } = {}) {
     '',
     '- **FUTURE-001** Consider for next major release.',
     '',
+    // A "Deferred Decisions" table records product choices the owner parked,
+    // not requirements — but its rows carry ID-shaped labels, so the body scan
+    // matched them like any other and reported each as missing from
+    // Traceability on every phase.complete (observed in legion-app,
+    // 2026-08-15; ignored as a false positive, which is how a warning stops
+    // being read).
+    '## Deferred Decisions',
+    '',
+    '- **DEF-03** Which consumers the Staff API serves — parked until v2.',
+    '- **DEF-04** Cyrillic vs Latin transliteration — parked.',
+    '',
     '## Traceability',
     '',
     '| Requirement | Phase | Status |',
@@ -12018,6 +12029,47 @@ describe('issue #1159 (Defect B): deferred/future requirement IDs must not trigg
   afterEach(() => {
     cleanup(tmpDir);
   });
+
+  test(
+    'a "Deferred Decisions" table is not a requirements list, and must not warn',
+    () => {
+      // The fixture carries DEF-03 / DEF-04 under "## Deferred Decisions".
+      // They are parked product choices, not requirements, and belong in no
+      // traceability table — so a warning about them is pure noise.
+      //
+      // Filtering by ID PREFIX was the obvious alternative and is wrong: real
+      // projects namespace requirements freely (ucars uses ENF/UI/FEAT/APP,
+      // trade-mind MONEY/RT/ROUTES/SVC/BOOT), so a REQ-/TOOL- allowlist would
+      // silently stop checking most of them. The section a row lives in says
+      // whether it is a requirement; its prefix does not.
+      tmpDir = createDeferredReqFixture({ includeMissingActive: false });
+      const { output } = runGsdTools(['phase', 'complete', '1'], tmpDir);
+      const warnings = JSON.parse(output).warnings || [];
+      const traceWarnings = warnings.filter((w) => /Traceability/i.test(w));
+      assert.equal(
+        traceWarnings.length,
+        0,
+        `parked decisions must not be reported as untraced requirements.\nWarnings: ${JSON.stringify(warnings)}`,
+      );
+    },
+  );
+
+  test(
+    'an untraced requirement still warns, whatever namespace it uses',
+    () => {
+      // The other half of the contract: suppressing decision tables must not
+      // suppress the check itself. MISSING-001 sits in an active section under
+      // a namespace that is neither REQ- nor TOOL-, which is the ordinary case
+      // in these projects.
+      tmpDir = createDeferredReqFixture({ includeMissingActive: true });
+      const { output } = runGsdTools(['phase', 'complete', '1'], tmpDir);
+      const warnings = JSON.parse(output).warnings || [];
+      const traceWarnings = warnings.filter((w) => /Traceability/i.test(w));
+      assert.equal(traceWarnings.length, 1, `expected exactly one traceability warning, got ${JSON.stringify(warnings)}`);
+      assert.match(traceWarnings[0], /MISSING-001/);
+      assert.doesNotMatch(traceWarnings[0], /DEF-0/, 'the parked decisions must not be swept in alongside it');
+    },
+  );
 
   test(
     '#1159-B-1: IDs under "Deferred v2 Requirements" and "Future Backlog" sections → NO traceability warning',

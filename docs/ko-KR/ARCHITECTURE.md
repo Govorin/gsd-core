@@ -222,10 +222,12 @@ GSD 워크플로우에 thinking 클래스 모델(o3, o4-mini, Gemini 2.5 Pro)을
 
 ### Templates (`gsd-core/templates/`)
 
+> The authoritative roster is generated: `docs/TEMPLATE-REGISTRY.json` + the **Template Index** in `gsd-core/templates/README.md`, from each template's `gsd-template:` block (`docs/reference/template-registry.md`). The list below is a localized copy and may lag.
+
 모든 계획 결과물을 위한 마크다운 템플릿. `gsd-tools.cjs template fill` / `phase.scaffold`(와 최상위 `scaffold`)가 사전 구조화된 파일을 생성하는 데 사용:
 - `project.md`, `requirements.md`, `roadmap.md`, `state.md` — 핵심 프로젝트 파일
-- `phase-prompt.md` — 단계 실행 프롬프트 템플릿
-- `summary.md` (+ `summary-minimal.md`, `summary-standard.md`, `summary-complex.md`) — 세분화 인식 요약 템플릿
+- `plan.md` — 단계 실행 프롬프트 템플릿
+- `summary.md` — 세분화 인식 요약 템플릿
 - `DEBUG.md` — 디버그 세션 추적 템플릿
 - `UI-SPEC.md`, `UAT.md`, `VALIDATION.md` — 전문화된 검증 템플릿
 - `discussion-log.md` — 논의 감사 추적 템플릿

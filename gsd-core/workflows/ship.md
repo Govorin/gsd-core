@@ -190,6 +190,45 @@ Verify the work is ready to ship:
    **When every active gate has been processed without a halt:** continue to the next preflight check.
 </step>
 
+<step name="filter_planning_commits">
+
+> **Why this step exists:** the branch you have been working on carries one planning commit per
+> phase artifact — PLAN.md, SUMMARY.md, CONTEXT.md, RESEARCH.md. Pushing it as-is puts all of that
+> in front of the reviewer, who has to read past GSD's bookkeeping to find the code. `/gsd:pr-branch`
+> already knows how to rebuild a clean history (it keeps STATE/ROADMAP/MILESTONES/PROJECT/REQUIREMENTS
+> and drops `phases/`, `quick/`, `research/`, `threads/`, `todos/`, `debug/`, `seeds/`, `codebase/`,
+> `ui-reviews/`); until now nothing called it, so the filter was written but unreachable.
+
+Skip this step entirely when `--no-filter` is present in `$ARGUMENTS`, or when the branch has no
+transient planning commits to drop (the filter would be a no-op rename).
+
+Otherwise, count what the filter would remove before doing anything:
+
+```bash
+TRANSIENT=$(git log --format=%H "${BASE_BRANCH}..${CURRENT_BRANCH}" --no-merges -- \
+  '.planning/phases' '.planning/quick' '.planning/research' '.planning/threads' \
+  '.planning/todos' '.planning/debug' '.planning/seeds' '.planning/codebase' '.planning/ui-reviews' \
+  | wc -l | tr -d ' ')
+```
+
+If `TRANSIENT` is `0`: skip to `push_branch` — nothing to filter.
+
+If `TRANSIENT` is non-zero, follow `@~/.claude/gsd-core/workflows/pr-branch.md` end-to-end with
+`${BASE_BRANCH}` as its target. It creates `${CURRENT_BRANCH}-pr` by cherry-picking only the
+code and structural-planning commits.
+
+**Then rebind the branch the rest of this workflow acts on** — `create_pr` opens the PR from it and
+`track_shipping` pushes the ship-note onto it, so leaving `CURRENT_BRANCH` pointed at the unfiltered
+branch would open the PR from the wrong head and strand the ship-note on a branch nobody merges:
+
+```bash
+CURRENT_BRANCH="${CURRENT_BRANCH}-pr"
+```
+
+Report: "Filtered {TRANSIENT} transient planning commits — PR will be opened from `{CURRENT_BRANCH}`.
+Your working branch is untouched."
+</step>
+
 <step name="push_branch">
 Push the current branch to remote:
 

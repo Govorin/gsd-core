@@ -300,14 +300,14 @@
 **Requirements:**
 - REQ-UI-01: System MUST detect existing design system state (shadcn components.json, Tailwind config, tokens)
 - REQ-UI-02: System MUST ask only unanswered design contract questions
-- REQ-UI-03: System MUST validate against 7 dimensions (Copywriting, Visuals, Color, Typography, Spacing, Registry Safety, Inventory Provenance)
+- REQ-UI-03: System MUST validate against 8 dimensions (Copywriting, Visuals, Color, Typography, Spacing, Registry Safety, Inventory Provenance, Design Contract)
 - REQ-UI-04: System MUST enter revision loop if validation returns BLOCKED (max 2 iterations)
 - REQ-UI-05: System MUST offer shadcn initialization for React/Next.js/Vite projects without `components.json`
 - REQ-UI-06: System MUST enforce registry safety gate for third-party shadcn registries
 
 **Produces:** `{padded_phase}-UI-SPEC.md` — Design contract consumed by executors
 
-**7 Validation Dimensions:**
+**8 Validation Dimensions:**
 1. **Copywriting** — CTA labels, empty states, error messages
 2. **Visuals** — Focal points, visual hierarchy, icon accessibility
 3. **Color** — Accent usage discipline, 60/30/10 compliance
@@ -315,6 +315,7 @@
 5. **Spacing** — Grid alignment, token consistency
 6. **Registry Safety** — Third-party component inspection requirements
 7. **Inventory Provenance** — Component inventory enumerated from the installed design system, not recalled
+8. **Design Contract** — with a `.pen` contract, the spec cites components by machine-checkable `nodeId`s from the extracted contract (N/A without one)
 
 **shadcn Integration:**
 - Detects missing `components.json` in React/Next.js/Vite projects

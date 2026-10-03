@@ -178,33 +178,35 @@ describe('execute-plan.md create_summary populates the coverage block (deployed 
 });
 
 describe('SUMMARY templates carry the coverage field (deployed contract)', () => {
-  const templates = {
-    main: fs.readFileSync(path.join(ROOT, 'gsd-core', 'templates', 'summary.md'), 'utf-8'),
-    standard: fs.readFileSync(path.join(ROOT, 'gsd-core', 'templates', 'summary-standard.md'), 'utf-8'),
-    complex: fs.readFileSync(path.join(ROOT, 'gsd-core', 'templates', 'summary-complex.md'), 'utf-8'),
-    minimal: fs.readFileSync(path.join(ROOT, 'gsd-core', 'templates', 'summary-minimal.md'), 'utf-8'),
-  };
+  // Phase 4 merged summary-minimal/standard/complex.md into summary.md with inline granularity
+  // variants, so there is one body to read instead of four. Both contracts below survive the
+  // merge unchanged — they were always about what the template TELLS the agent, not about how
+  // many files carried the telling.
+  const main = fs.readFileSync(path.join(ROOT, 'gsd-core', 'templates', 'summary.md'), 'utf-8');
 
   test('the main template documents the coverage schema and field semantics', () => {
-    assert.ok(templates.main.includes('coverage:'), 'summary.md must include the coverage block');
-    assert.ok(templates.main.includes('human_judgment'), 'summary.md must document human_judgment');
-    assert.ok(templates.main.includes('verification'), 'summary.md must document verification');
+    assert.ok(main.includes('coverage:'), 'summary.md must include the coverage block');
+    assert.ok(main.includes('human_judgment'), 'summary.md must document human_judgment');
+    assert.ok(main.includes('verification'), 'summary.md must document verification');
   });
 
-  for (const [name, body] of Object.entries(templates)) {
-    test(`${name} template references coverage`, () => {
-      assert.ok(body.includes('coverage'), `${name} template must reference the coverage field`);
-    });
-  }
-
-  test('variant templates do not ship a live empty coverage list (fail-open footgun guard)', () => {
-    for (const name of ['standard', 'complex', 'minimal']) {
-      const body = templates[name];
-      const live = body.split('\n').some((l) => /^coverage:\s*\[\]\s*$/.test(l));
+  test('the merged template names every granularity variant the selector can return', () => {
+    // The selector returns `variant: minimal | standard | complex`. If a variant were dropped
+    // from the template's guidance, the selector would still emit its name and the agent would
+    // have nothing to fill — the drift the merge exists to prevent, one level up.
+    for (const variant of ['minimal', 'standard', 'complex']) {
       assert.ok(
-        !live,
-        `${name} template must not default to a live \`coverage: []\` — that would auto-skip UAT; keep it commented/illustrative`,
+        main.includes(variant),
+        `summary.md must describe the \`${variant}\` variant — the selector can return it`,
       );
     }
+  });
+
+  test('the template does not ship a live empty coverage list (fail-open footgun guard)', () => {
+    const live = main.split(/\r?\n/).some((l) => /^coverage:\s*\[\]\s*$/.test(l));
+    assert.ok(
+      !live,
+      'summary.md must not default to a live `coverage: []` — that would auto-skip UAT; keep it commented/illustrative',
+    );
   });
 });

@@ -11,7 +11,7 @@
  * `.planning/` document shape written by this file's fixture builders is
  * derived from the SHIPPED templates the product author wrote —
  * `gsd-core/templates/requirements.md` (checkbox bullets, `## Traceability`
- * table), `gsd-core/templates/phase-prompt.md` (the `<task>` XML grammar and
+ * table), `gsd-core/templates/plan.md` (the `<task>` XML grammar and
  * `## Task N` legacy heading fallback), `gsd-core/templates/summary.md`
  * (`## Files Created/Modified`, `## Deviations from Plan` / `**Found
  * during:**` / `**Files modified:**`), `gsd-core/templates/state.md`

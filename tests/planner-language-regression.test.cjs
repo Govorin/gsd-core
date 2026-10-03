@@ -606,7 +606,12 @@ const directives = [
   { desc: 'User Decision Fidelity heading is CRITICAL',         pattern: /## CRITICAL: User Decision Fidelity/ },
   { desc: 'Never Simplify heading is CRITICAL',                 pattern: /## CRITICAL: Never Simplify User Decisions/ },
   { desc: 'Multi-Source Audit heading is MANDATORY',            pattern: /## Multi-Source Coverage Audit \(MANDATORY in every plan set\)/ },
-  { desc: 'Source audit uses "Audit ALL" imperative',           pattern: /Audit ALL four source types before finalizing/ },
+  // The count is deliberately not pinned: this fork added SPEC as a fifth source
+  // (`{phase}-SPEC.md`), and a later phase may add a sixth. What the regression
+  // guards is the IMPERATIVE — "Audit ALL … before finalizing" — since that is
+  // the language PR #2489 demoted. Pinning the numeral instead turned a genuine
+  // feature into a red test.
+  { desc: 'Source audit uses "Audit ALL" imperative',           pattern: /Audit ALL \w+ source types before finalizing/ },
   { desc: 'Discovery is MANDATORY',                             pattern: /Discovery is MANDATORY unless/ },
   { desc: 'Split signals use ALWAYS',                           pattern: /\*\*ALWAYS split if:\*\*/ },
   { desc: 'requirements field doc uses MUST',                   pattern: /\*\*MUST\*\* list requirement IDs from ROADMAP/ },

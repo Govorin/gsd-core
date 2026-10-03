@@ -171,7 +171,7 @@ function elementBody(block: string, tag: string): string | null {
 
 /**
  * Split a `<files>` body into paths. Comma-separated per the shipped
- * `templates/phase-prompt.md` grammar; newline-separated forms are tolerated
+ * `templates/plan.md` grammar; newline-separated forms are tolerated
  * too (Postel — liberal in what we accept), and the caller records nothing
  * special for them because a path list is a path list either way.
  */

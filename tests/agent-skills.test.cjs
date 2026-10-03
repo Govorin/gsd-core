@@ -732,6 +732,239 @@ describe('agent-skills global: prefix', () => {
     assert.ok(r.success, `Command failed: ${r.error}`);
     assert.strictEqual(r.ir.block, '', 'block must be empty for empty global: prefix');
   });
+
+  // ─── home-anchored skill paths resolve as global instead of being skipped ──────
+  //
+  // A user reading the runtime's own layout writes `~/.claude/skills/foo`. Before this,
+  // that entry failed project-relative resolution and was skipped with a warning on
+  // stderr while the command still exited 0 and emitted a well-formed block — a silent
+  // loss measured at 43 of 87 entries on a live project. A home-anchored path names
+  // exactly one skill, so it is accepted; a BARE name still must not be, because a
+  // project may carry a skill whose name collides with a global one.
+
+  test('home-anchored ~/ path resolves as the matching global skill', () => {
+    createGlobalSkill('quality-typescript');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['~/.claude/skills/quality-typescript'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(r.ir.block.includes('quality-typescript/SKILL.md'),
+      `home-anchored path must resolve, got block: ${r.ir.block}`);
+    assert.strictEqual(r.ir.skills_count, 1, 'the entry must count as resolved, not skipped');
+  });
+
+  test('home-anchored $HOME/ path resolves as the matching global skill', () => {
+    createGlobalSkill('drizzle-orm');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['$HOME/.claude/skills/drizzle-orm'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(r.ir.block.includes('drizzle-orm/SKILL.md'),
+      `$HOME-anchored path must resolve, got block: ${r.ir.block}`);
+    assert.strictEqual(r.ir.skills_count, 1, 'the entry must count as resolved, not skipped');
+  });
+
+  test('home-anchored path naming NO global skill is still skipped', () => {
+    // The acceptance is conditional on the basename resolving to a real global skill.
+    // It must not degrade into "any home-anchored path is fine".
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['~/.claude/skills/never-created'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.block, '', 'block must be empty — no such global skill exists');
+    const notFound = r.ir.warnings.find((w) => /Skill not found/.test(w) && /never-created/.test(w));
+    assert.ok(notFound, `must warn that the skill is absent, got: ${JSON.stringify(r.ir.warnings)}`);
+  });
+
+  test('a bare name is NOT re-read as global even when a global skill matches', () => {
+    // Regression guard for the shadowing hazard: `foo` is a legitimate project-relative
+    // reference. Silently preferring ~/.claude/skills/foo would shadow a project skill
+    // of the same name. Bare names keep the #2941 hint-and-skip behaviour.
+    createGlobalSkill('collides');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['collides'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.block, '', 'bare name must not resolve to the global skill');
+    const hint = r.ir.warnings.find((w) => /collides/.test(w) && /global:/.test(w));
+    assert.ok(hint, `bare name must still get the global: hint, got: ${JSON.stringify(r.ir.warnings)}`);
+  });
+
+  test('a project-relative skill wins over a global skill of the same name', () => {
+    // The complement of the guard above, stated as behaviour rather than absence:
+    // when both exist, the project copy is what the agent reads.
+    createGlobalSkill('shared-name');
+    const projectSkillDir = path.join(tmpDir, 'skills', 'shared-name');
+    fs.mkdirSync(projectSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(projectSkillDir, 'SKILL.md'), '# project copy\n');
+
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['skills/shared-name'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(r.ir.block.includes('skills/shared-name/SKILL.md'),
+      `project copy must be referenced, got: ${r.ir.block}`);
+    assert.ok(!r.ir.block.includes(fakeHome),
+      `must not reference the global copy, got: ${r.ir.block}`);
+  });
+
+  test('a home path OUTSIDE the skills dir is not substituted by a same-named global skill', () => {
+    // The acceptance must not degrade into "any $HOME path whose basename matches".
+    // ~/.gsd/capabilities/<id>/skills/foo is a DIFFERENT file from ~/.claude/skills/foo;
+    // answering with the latter would hand back a file the caller never named, and
+    // nothing downstream could tell. Skipping is the correct answer here.
+    createGlobalSkill('same-name');
+    const elsewhere = path.join(fakeHome, '.gsd', 'capabilities', 'somecap', 'skills', 'same-name');
+    fs.mkdirSync(elsewhere, { recursive: true });
+    fs.writeFileSync(path.join(elsewhere, 'SKILL.md'), '# a different file entirely\n');
+
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['~/.gsd/capabilities/somecap/skills/same-name'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(!r.ir.block.includes(path.join('.claude', 'skills', 'same-name')),
+      `must not substitute the global copy, got: ${r.ir.block}`);
+    assert.strictEqual(r.ir.block, '', 'block must be empty — the named path is not a runtime global skill');
+  });
+
+  test('a nested path under the skills dir is not flattened to its basename', () => {
+    // `<base>/a/b` is not what `global:b` resolves to, so it must not be accepted as such.
+    createGlobalSkill('leaf');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['~/.claude/skills/some-bundle/leaf'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.block, '', 'a nested path must not resolve to the top-level skill');
+  });
+
+  // ─── global: falls back to a skill vendored by an installed capability ────────
+  //
+  // A capability may ship its own skills/<name>/SKILL.md (#2045) and the installer copies
+  // the whole capability directory, so those files land intact. Until now nothing pointed
+  // `global:<name>` at them, so a vendored skill was unreachable by the only name a config
+  // can use. That is what made a setup unportable: a checkout can carry its expertise as
+  // files, yet on a machine with no ~/.claude/skills every entry still resolved to nothing.
+
+  function createCapabilitySkill(capId, name, body) {
+    const dir = path.join(fakeHome, '.gsd', 'capabilities', capId, 'skills', name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), body || `# ${name} (vendored by ${capId})\n`);
+    return dir;
+  }
+
+  test('global: resolves from an installed capability when no global skill exists', () => {
+    createCapabilitySkill('mn-expertise', 'vendored-skill');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['global:vendored-skill'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(r.ir.block.includes(path.join('mn-expertise', 'skills', 'vendored-skill', 'SKILL.md')),
+      `must resolve from the capability, got: ${r.ir.block}`);
+    assert.strictEqual(r.ir.skills_count, 1, 'the vendored skill must count as resolved');
+  });
+
+  test('a globally installed skill wins over a vendored copy of the same name', () => {
+    // Precedence guard: vendoring must never silently override what the machine has.
+    createGlobalSkill('contested');
+    createCapabilitySkill('mn-expertise', 'contested', '# vendored copy\n');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['global:contested'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.ok(r.ir.block.includes(path.join('.claude', 'skills', 'contested')),
+      `the globally installed copy must win, got: ${r.ir.block}`);
+    assert.ok(!r.ir.block.includes('capabilities'),
+      `must not fall back while a global copy exists, got: ${r.ir.block}`);
+  });
+
+  test('a capability directory without the named skill does not resolve', () => {
+    // The fallback searches; it does not invent. An installed capability that ships
+    // other skills must not make an unrelated name resolve.
+    createCapabilitySkill('mn-expertise', 'something-else');
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['global:not-shipped'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.block, '', 'block must be empty — no capability ships this skill');
+    const notFound = r.ir.warnings.find((w) => /Global skill not found/.test(w) && /not-shipped/.test(w));
+    assert.ok(notFound, `the not-found warning must survive, got: ${JSON.stringify(r.ir.warnings)}`);
+  });
+
+  test('a capability skill directory missing SKILL.md does not resolve', () => {
+    // Presence of the directory is not enough — the file the block references must exist,
+    // or the agent would be handed an @-include pointing at nothing.
+    const dir = path.join(fakeHome, '.gsd', 'capabilities', 'mn-expertise', 'skills', 'hollow');
+    fs.mkdirSync(dir, { recursive: true });
+    writeConfig(tmpDir, {
+      agent_skills: { 'gsd-executor': ['global:hollow'] },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.block, '', 'block must be empty — the directory has no SKILL.md');
+  });
+
+  test('mixed forms all resolve in one config', () => {
+    createGlobalSkill('g-one');
+    createGlobalSkill('g-two');
+    const projectSkillDir = path.join(tmpDir, 'skills', 'p-one');
+    fs.mkdirSync(projectSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(projectSkillDir, 'SKILL.md'), '# p\n');
+
+    writeConfig(tmpDir, {
+      agent_skills: {
+        'gsd-executor': ['global:g-one', '~/.claude/skills/g-two', 'skills/p-one'],
+      },
+    });
+
+    const r = runAgentSkillsJson(
+      ['agent-skills', 'gsd-executor'], tmpDir, { HOME: fakeHome, USERPROFILE: fakeHome }
+    );
+    assert.ok(r.success, `Command failed: ${r.error}`);
+    assert.strictEqual(r.ir.skills_count, 3, `all three forms must resolve, got block: ${r.ir.block}`);
+  });
 });
 
 // ─── loadTrustedGlobalRoots unit tests (#52) ──────────────────────────────────

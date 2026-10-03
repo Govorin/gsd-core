@@ -67,13 +67,14 @@ Extract from result: `phase_number`, `padded`, `name`, `slug`, `directory`.
 <step name="update_project_state">
 Update STATE.md to reflect the new phase:
 
-1. Read `.planning/STATE.md`
-2. Under "## Accumulated Context" → "### Roadmap Evolution" add entry:
-   ```
-   - Phase {N} added: {description}
-   ```
+```bash
+gsd_run query state.add-roadmap-evolution \
+  --phase "{N}" --action added --note "{description}"
+```
 
-If "Roadmap Evolution" section doesn't exist, create it.
+The handler takes the lock, creates the "### Roadmap Evolution" section if absent, appends the
+entry, and preserves every other field. **Do not** read STATE.md and re-write it by hand — a
+whole-file write drops keys added by writers whose changes are not in your context.
 </step>
 
 <step name="completion">

@@ -615,7 +615,23 @@ increases monotonically across waves. `{status}` is `complete` (success),
    DISPATCH_TS=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
    EXPECTED_BRANCH=$(git rev-parse --abbrev-ref HEAD)
     if [ "${USE_WORKTREES:-true}" != "false" ] && [ "${USE_WORKTREES_FOR_PLAN:-true}" != "false" ] && [ -z "${WAVE_WORKTREE_MANIFEST:-}" ]; then
-     M=$(mktemp "${TMPDIR:-/tmp}/gsd-worktree-wave-XXXXXX") && mv "$M" "$M.json" && WAVE_WORKTREE_MANIFEST="$M.json" || exit 1  # XXXXXX must be path-final on BSD/macOS (#1520)
+     # Inside .planning/, not $TMPDIR. The manifest is the only record of which
+     # worktrees a wave created, and cleanup is manifest-only by design (#3384) —
+     # it refuses to glob. So when the session dies mid-wave, or the OS sweeps
+     # /tmp, every worktree that wave made becomes invisible to the cleanup path
+     # permanently: reap-orphans only considers trees carrying a `locked` file,
+     # and an abandoned tree has none. A short-lived pointer to a long-lived
+     # directory is what turns a crash into disk that accumulates until it fills.
+     # One anchor for the directory and the file alike: dispatch does not always run
+     # from the repository root, and a relative mkdir with an absolute write lands
+     # the manifest somewhere the cleanup path was never told about.
+     WT_MANIFEST_DIR="$(git rev-parse --show-toplevel)/.planning/.worktrees"
+     mkdir -p "$WT_MANIFEST_DIR" || exit 1
+     # Self-ignoring: a manifest describes one wave on one machine and is worthless
+     # to anyone who checks it out, so it must not reach a commit. Writing the rule
+     # into the directory keeps that true without editing the repository's .gitignore.
+     [ -f "$WT_MANIFEST_DIR/.gitignore" ] || printf '*\n' > "$WT_MANIFEST_DIR/.gitignore"
+     WAVE_WORKTREE_MANIFEST="$WT_MANIFEST_DIR/wave-$(date -u +%Y%m%dT%H%M%SZ)-$$.json"
      # Persist the dispatch-time orchestrator worktree root so wave-cleanup can pin back to the
      # orchestrator's OWN worktree — NOT `git worktree list`'s first entry (always the main
      # checkout), which pins a non-primary (per-phase lane) orchestrator off its branch (#630).

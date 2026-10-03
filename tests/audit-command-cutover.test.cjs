@@ -1348,7 +1348,8 @@ function mkTmp() {
  * Extract the first YAML frontmatter block from a file's content.
  *
  * Two layouts are handled:
- *  - Leading frontmatter: file starts with `---\n…\n---` (summary-minimal/standard/complex.md)
+ *  - Leading frontmatter: file starts with `---\n…\n---` (summary.md, which since the phase-4
+ *    merge carries the granularity variants inline instead of in three sibling files)
  *  - Fenced frontmatter: frontmatter lives inside a ```markdown … ``` fence (summary.md,
  *    whose content IS a markdown example showing the template). In that case we extract
  *    the `---\n…\n---` block that sits immediately after the opening fence line.
@@ -1357,6 +1358,16 @@ function mkTmp() {
  * or null if no frontmatter could be found.
  */
 function extractFrontmatter(content) {
+  // Phase 4.1 put a `gsd-template:` registry block at the head of every shipped template.
+  // That block is metadata ABOUT the file, never the frontmatter the template tells an agent
+  // to emit — the distinction this whole phase exists to preserve. Skip past it before looking
+  // for the artifact block, or every shape-B template (artifact frontmatter inside a fence)
+  // reports the registry block instead and the contract below silently stops being checked.
+  const registry = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n/);
+  if (registry && /^\s*gsd-template:/m.test(registry[0])) {
+    content = content.slice(registry[0].length);
+  }
+
   // Case 1: file begins with --- (leading frontmatter)
   if (/^---\r?\n/.test(content)) {
     const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n/);
@@ -1544,44 +1555,21 @@ describe('bug #950: quick-task SUMMARY must carry status: complete', () => {
     );
   });
 
-  test('[TEMPLATE CONTRACT] summary-minimal.md contains status: complete in frontmatter', () => {
-    const content = fs.readFileSync(path.join(TEMPLATES_DIR, 'summary-minimal.md'), 'utf-8');
+  // Was three near-identical tests, one per variant file (summary-minimal/standard/complex.md).
+  // Phase 4 merged those three files into summary.md with inline granularity variants, so there
+  // is now one frontmatter block to assert against. The CONTRACT is unchanged and is what
+  // matters: a SUMMARY template tells the agent to stamp `status: complete`. Deleting the files
+  // without rehoming this assertion would have silently deleted the contract with them.
+  test('[TEMPLATE CONTRACT] summary.md contains status: complete in frontmatter', () => {
+    const content = fs.readFileSync(path.join(TEMPLATES_DIR, 'summary.md'), 'utf-8');
     const fm = extractFrontmatter(content);
     assert.ok(
       fm !== null,
-      'gsd-core/templates/summary-minimal.md: could not locate a leading YAML frontmatter block'
+      'gsd-core/templates/summary.md: could not locate a leading YAML frontmatter block'
     );
     assert.ok(
       /^status:\s*complete\s*$/m.test(fm),
-      `gsd-core/templates/summary-minimal.md: \`status: complete\` not found in the frontmatter block.\n` +
-      `Frontmatter extracted:\n${fm}`
-    );
-  });
-
-  test('[TEMPLATE CONTRACT] summary-standard.md contains status: complete in frontmatter', () => {
-    const content = fs.readFileSync(path.join(TEMPLATES_DIR, 'summary-standard.md'), 'utf-8');
-    const fm = extractFrontmatter(content);
-    assert.ok(
-      fm !== null,
-      'gsd-core/templates/summary-standard.md: could not locate a leading YAML frontmatter block'
-    );
-    assert.ok(
-      /^status:\s*complete\s*$/m.test(fm),
-      `gsd-core/templates/summary-standard.md: \`status: complete\` not found in the frontmatter block.\n` +
-      `Frontmatter extracted:\n${fm}`
-    );
-  });
-
-  test('[TEMPLATE CONTRACT] summary-complex.md contains status: complete in frontmatter', () => {
-    const content = fs.readFileSync(path.join(TEMPLATES_DIR, 'summary-complex.md'), 'utf-8');
-    const fm = extractFrontmatter(content);
-    assert.ok(
-      fm !== null,
-      'gsd-core/templates/summary-complex.md: could not locate a leading YAML frontmatter block'
-    );
-    assert.ok(
-      /^status:\s*complete\s*$/m.test(fm),
-      `gsd-core/templates/summary-complex.md: \`status: complete\` not found in the frontmatter block.\n` +
+      `gsd-core/templates/summary.md: \`status: complete\` not found in the frontmatter block.\n` +
       `Frontmatter extracted:\n${fm}`
     );
   });

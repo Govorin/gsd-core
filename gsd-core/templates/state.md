@@ -1,6 +1,45 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: project
+  lifecycle: active
+  required: true
+  author: agent
+  readers: [gsd-roadmapper, gsd-executor]
+---
+
 # State Template
 
 Template for `.planning/STATE.md` — the project's living memory.
+
+---
+
+## Two Readers, Two Halves
+
+STATE.md serves two readers, and the split between them is the point of the file's shape.
+
+**Frontmatter = execution state.** Everything an agent needs to pick the work back up after a
+context reset, and nothing else: `gsd_state_version`, `milestone`, `milestone_name`,
+`current_phase`, `current_phase_name`, `current_plan`, `status`, `last_updated`,
+`last_activity`, `last_activity_desc`, `stopped_at`, `paused_at`, and the `progress` block.
+These are typed, machine-written, and the only fields that change what happens next.
+
+**Body = the report for the human.** The rendered progress bar, Performance Metrics, velocity
+and trend, the decisions digest, and the deferred-items table exist so a person can see where
+the project stands. They are *derived* — an agent that re-reads them learns nothing the
+frontmatter did not already say.
+
+**So, for readers:** an agent resuming work reads `gsd_run query state.json` (the resolved
+frontmatter, with counters rebuilt from disk), not the whole file. Read the body only to
+show a human their status, or to reach a narrative section — Blockers/Concerns, Pending Todos,
+Deferred Items — that the frontmatter does not carry.
+
+**The exception:** workflows whose *subject* is the history — forensics, audits, debugging a
+past decision, explaining what happened — need the body, and the accumulated record is the
+thing they are examining. This split is for execution, not for investigation.
+
+**For writers:** see `<write_contract>` below. Every write is a field-level merge.
 
 ---
 
@@ -120,8 +159,8 @@ STATE.md is the project's short-term memory spanning all phases and sessions.
 - Initialize empty accumulated context sections
 - Set position to "Phase 1 ready to plan"
 
-**Reading:** First step of every workflow
-- progress: Present status to user
+**Reading:** First step of every workflow — via `gsd_run query state.json`, not `cat`
+- progress: Present status to user (this one does read the body — the report is the output)
 - plan: Inform planning decisions
 - execute: Know current position
 - transition: Know what's complete
@@ -137,6 +176,48 @@ STATE.md is the project's short-term memory spanning all phases and sessions.
   - Refresh Project Reference date
 
 </lifecycle>
+
+<write_contract>
+
+**Every write is a merge into the file on disk. Never a replacement of it.**
+
+Write through the `state.*` handlers (`gsd_run query state.advance-plan`,
+`state.update-progress`, `state.record-metric`, `state.add-decision`, `state.add-blocker`,
+`state.record-session`, `state.add-roadmap-evolution`, …). Each one takes the lock, re-reads the
+file, changes only the fields its flags name, and carries every other key forward — including
+keys it does not recognise, which belong to writers the caller cannot see.
+
+**Never write the whole file.** Do not `Write` a reconstructed STATE.md, and do not `Edit` it
+into a shape assembled from memory. Between the moment a context was built and the moment it is
+written back, other writers have added fields; a whole-file write drops exactly those, silently,
+and the loss is invisible because the result still parses. This is the dominant state-management
+failure mode, not a hypothetical one.
+
+**Never re-emit a field you were not asked to change.** Omitting a flag preserves the field.
+Passing it with a value carried over from a stale read overwrites the fresher one.
+
+**If no handler fits, do not hand-edit around it.** Record a blocker
+(`gsd_run query state.add-blocker`) and surface the gap. A missing verb is a tooling bug; an
+improvised file write is a data-loss bug.
+
+The preservation policy is enforced in code by the field-classification table in
+`src/state-transition.cts` — `FIELD_CLASSIFICATION` plus `applyStatePreservation`. That table is
+the source of truth for which field wins when frontmatter and body disagree; adding a STATE.md
+field means adding a row there, not patching call sites.
+
+</write_contract>
+
+<forensics_exception>
+
+The compaction rule above — read the frontmatter, skip the accumulated body — is an
+**execution** optimisation. It does not apply to workflows whose subject *is* the history:
+forensics, milestone and UAT audits, debugging a past decision, extracting learnings, or
+explaining why something happened. For those, the accumulated record is the material being
+examined, and summarising it away destroys the evidence. They read the full file, and the
+sections that look redundant to an executor — metrics, trend, the decisions digest, deferred
+items — are their primary input.
+
+</forensics_exception>
 
 <sections>
 

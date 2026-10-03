@@ -238,6 +238,12 @@ Apply routing rules based on state:
 If ROADMAP has phases but no phase directories exist on disk:
 → Next action: `/gsd:discuss-phase <first-phase>`
 
+**Route 1b: Phase needs its requirements locked first → spec**
+If `workflow.spec_phase` is true, the current phase has no `*-SPEC.md`, and no CONTEXT.md yet:
+→ Next action: `/gsd:spec-phase <current-phase>`
+
+Without this route spec-phase is reachable only by typing it — no route in this file or in `autonomous.md` leads there — so SPEC.md gets written by accident or not at all, and everything downstream that reads it gets nothing. It settles *what* the phase delivers, in falsifiable terms, before discuss starts arguing about *how*.
+
 **Route 2: Phase exists but has no CONTEXT.md or RESEARCH.md → discuss**
 If the current phase directory exists but has neither CONTEXT.md nor RESEARCH.md:
 → Next action: `/gsd:discuss-phase <current-phase>`

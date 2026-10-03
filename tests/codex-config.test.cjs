@@ -637,7 +637,7 @@ description: An unknown agent with no declared tools
   });
 
   test('drops a claude-* model_overrides id instead of leaking it into the Codex .toml (#2310)', () => {
-    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'claude-sonnet-5' });
+    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'claude-sonnet-5-5' });
     assert.ok(!result.includes('claude-'), 'a claude-* id must never appear as the Codex model');
     // No runtime resolver → nothing to fall through to → no model line at all.
     assert.ok(!result.includes('model ='), 'unmappable Anthropic override falls through to Codex default (no model pinned)');
@@ -648,7 +648,7 @@ description: An unknown agent with no declared tools
     // dropped alias/claude-* override now has nothing left to fall through to
     // — it is simply omitted, same as the claude id never leaking.
     const runtimeResolver = { runtime: 'codex', resolve: () => ({ model: 'gpt-5.6-terra' }) };
-    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'claude-opus-4-8' }, runtimeResolver);
+    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'claude-opus-5-5' }, runtimeResolver);
     assert.ok(!result.includes('model = "gpt-5.6-terra"'), 'resolver fallback no longer fires (#3241 D1)');
     assert.ok(!result.includes('claude-'), 'claude id must not leak even with a resolver present');
   });
@@ -656,7 +656,7 @@ description: An unknown agent with no declared tools
   test('final gate blocks an Anthropic model from the runtime-resolver path too (#2310)', () => {
     // Simulate a defaults.json runtime that does not match the codex install target:
     // the resolver hands back a Claude id, which must still never reach the Codex .toml.
-    const runtimeResolver = { runtime: 'claude', resolve: () => ({ model: 'claude-sonnet-5' }) };
+    const runtimeResolver = { runtime: 'claude', resolve: () => ({ model: 'claude-sonnet-5-5' }) };
     const result = generateCodexAgentToml('gsd-executor', sampleAgent, null, runtimeResolver);
     assert.ok(!result.includes('claude-'), 'runtime-resolver Claude id must be gated out of the Codex .toml');
     assert.ok(!result.includes('model ='), 'no valid Codex model available → none pinned');
@@ -670,14 +670,14 @@ description: An unknown agent with no declared tools
   test('gates a provider-namespaced anthropic/claude-* model from the runtime-resolver path (#2310 review)', () => {
     // Catalog assigns anthropic/claude-* to opencode/hermes/kilo. A mixed-runtime config
     // (runtime: opencode) + Codex install resolves those; they must NOT reach the .toml.
-    const runtimeResolver = { runtime: 'opencode', resolve: () => ({ model: 'anthropic/claude-opus-4-8' }) };
+    const runtimeResolver = { runtime: 'opencode', resolve: () => ({ model: 'anthropic/claude-opus-5-5' }) };
     const result = generateCodexAgentToml('gsd-executor', sampleAgent, null, runtimeResolver);
     assert.ok(!/claude/i.test(result.split('\n').find((l) => /^model = /.test(l)) || ''), 'no claude-bearing model may be emitted');
     assert.ok(!/^model = /m.test(result), 'anthropic/claude-* is gated out → no model pinned');
   });
 
   test('omits a provider-namespaced anthropic/claude-* model_overrides pin (#2310 review)', () => {
-    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'anthropic/claude-sonnet-5' });
+    const result = generateCodexAgentToml('gsd-executor', sampleAgent, { 'gsd-executor': 'anthropic/claude-sonnet-5-5' });
     assert.ok(!result.includes('claude'), 'anthropic/claude-* must be omitted, never emitted');
     assert.ok(!/^model = /m.test(result), 'no model pinned');
   });
@@ -874,7 +874,7 @@ tools: Read, Grep
     // install target — the #2310 gate (bin/install.js:4192) rejects this
     // model BEFORE Phase 1 too, so this user never had the pin. Bare alias
     // form covered too, since both routes hit the same gate.
-    for (const model of ['anthropic/claude-opus-4-8', 'sonnet']) {
+    for (const model of ['anthropic/claude-opus-5-5', 'sonnet']) {
       const runtimeResolver = { runtime: 'opencode', resolve: () => ({ model }) };
       const result = generateCodexAgentToml('gsd-executor', sampleAgent, null, runtimeResolver);
       assert.ok(!/^model = /m.test(result), `no model pinned for would-be resolver model "${model}"`);
@@ -1820,7 +1820,7 @@ tools: Read, Write
     // RED (pre-fix): modelCatalog.isAnthropicFlavoredModel is undefined, so
     // the first loop iteration throws "not a function" before any
     // generateCodexAgentToml call happens.
-    const probeValues = [...CLAUDE_AGENT_ALIASES, 'claude-sonnet-5', 'gpt-5.6-sol'];
+    const probeValues = [...CLAUDE_AGENT_ALIASES, 'claude-sonnet-5-5', 'gpt-5.6-sol'];
     for (const value of probeValues) {
       const expectedFlavored = modelCatalog.isAnthropicFlavoredModel(value);
       const result = generateCodexAgentToml('gsd-executor', parityAgent, { 'gsd-executor': value });

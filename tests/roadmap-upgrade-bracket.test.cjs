@@ -1157,7 +1157,7 @@ describe('roadmap upgrade --convention bracket', () => {
       const depsDir = path.join(phasesDir, '03-deps');
       fs.mkdirSync(depsDir, { recursive: true });
       // Two plans in the SAME phase directory: 02 depends on 01 by its full
-      // phase-qualified id, mirroring templates/phase-prompt.md's own
+      // phase-qualified id, mirroring templates/plan.md's own
       // documented `depends_on: ["03-01"]` example for a same-phase sibling.
       fs.writeFileSync(
         path.join(depsDir, '03-01-PLAN.md'),

@@ -9,6 +9,17 @@ wave_0_complete: false
 created: "{date}"
 ---
 
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: phase
+  lifecycle: active
+  required: false
+  author: agent
+  readers: [gsd-planner, gsd-validate-phase]
+---
+
 # Phase {N} — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
@@ -40,7 +51,7 @@ created: "{date}"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| {N}-01-01 | 01 | 1 | REQ-{XX} | T-{N}-01 / — | {expected secure behavior or "N/A"} | unit | `{command}` | ✅ / ❌ W0 | ⬜ pending |
+| {N}-01-01 | 01 | 1 | {CAT}-{NN} | T-{N}-01 / — | {expected secure behavior or "N/A"} | unit | `{command}` | ✅ / ❌ W0 | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -48,7 +59,7 @@ created: "{date}"
 
 ## Wave 0 Requirements
 
-- [ ] `{tests/test_file.py}` — stubs for REQ-{XX}
+- [ ] `{tests/test_file.py}` — stubs for {CAT}-{NN}
 - [ ] `{tests/conftest.py}` — shared fixtures
 - [ ] `{framework install}` — if no framework detected
 
@@ -60,7 +71,7 @@ created: "{date}"
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| {behavior} | REQ-{XX} | {reason} | {steps} |
+| {behavior} | {CAT}-{NN} | {reason} | {steps} |
 
 *If none: "All phase behaviors have automated verification."*
 
