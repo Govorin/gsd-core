@@ -7657,7 +7657,7 @@ describe('#2873 C1-C6 — install-time shadow report (spawned installer wiring)'
 // consuming project, and ~/.gsd/defaults.json never carries model_profile
 // (writeNonClaudeDefaults writes only resolve_model_ids + runtime), so the
 // resolver silently fell back to 'balanced' and baked e.g.
-// anthropic/claude-opus-4-8 into the emitted agent frontmatter — defeating a
+// anthropic/claude-opus-5-5 into the emitted agent frontmatter — defeating a
 // project's explicit model_profile:"inherit" (OpenCode subagents use the
 // static frontmatter model, which overrides the live /model selection).
 //
@@ -7678,8 +7678,8 @@ describe('#2873 C1-C6 — install-time shadow report (spawned installer wiring)'
   const __INSTALLER_DEFAULTS_3543 = { resolve_model_ids: 'omit', runtime: 'opencode' };
   // Tier ids from gsd-core/bin/shared/model-catalog.json runtimeTierDefaults.
   // gsd-roadmapper distinguishes profiles: balanced → sonnet, quality → opus.
-  const __SONNET_3543 = 'anthropic/claude-sonnet-5';
-  const __OPUS_3543 = 'anthropic/claude-opus-4-8';
+  const __SONNET_3543 = 'anthropic/claude-sonnet-5-5';
+  const __OPUS_3543 = 'anthropic/claude-opus-5-5';
 
   function __writeJson3543(p, obj) {
     fs.mkdirSync(path.dirname(p), { recursive: true });

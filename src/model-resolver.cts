@@ -240,7 +240,7 @@ const CLAUDE_POLICY_ID_TO_ALIAS: Record<string, string> = {
       .filter((e): e is [string, string] => typeof e[1] === 'string')
       .map(([aliasName, id]) => [id, aliasName]),
   ),
-  'claude-fable-5': 'fable',
+  'claude-fable-5-1': 'fable',
 };
 // CLAUDE_AGENT_ALIASES moved to ./model-catalog.cts (#3241) — imported above
 // and re-exported below for back-compat (bin/install.js:474,

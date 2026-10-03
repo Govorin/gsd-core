@@ -98,8 +98,8 @@ describe('model-catalog: exported enums/maps', () => {
   });
 
   test('MODEL_ALIAS_MAP maps opus/sonnet/haiku to claude model ids', () => {
-    assert.equal(MODEL_ALIAS_MAP.opus, 'claude-opus-4-8');
-    assert.equal(MODEL_ALIAS_MAP.sonnet, 'claude-sonnet-5');
+    assert.equal(MODEL_ALIAS_MAP.opus, 'claude-opus-5-5');
+    assert.equal(MODEL_ALIAS_MAP.sonnet, 'claude-sonnet-5-5');
     assert.equal(MODEL_ALIAS_MAP.haiku, 'claude-haiku-4-5');
   });
 
@@ -119,9 +119,9 @@ describe('model-catalog: isAnthropicFlavoredModel', () => {
   });
 
   test('claude-* ids are flavored in every provider namespacing', () => {
-    assert.equal(isAnthropicFlavoredModel('claude-opus-4-8'), true);
-    assert.equal(isAnthropicFlavoredModel('anthropic/claude-opus-4-8'), true);
-    assert.equal(isAnthropicFlavoredModel('us.anthropic.claude-opus-4-8'), true);
+    assert.equal(isAnthropicFlavoredModel('claude-opus-5-5'), true);
+    assert.equal(isAnthropicFlavoredModel('anthropic/claude-opus-5-5'), true);
+    assert.equal(isAnthropicFlavoredModel('us.anthropic.claude-opus-5-5'), true);
   });
 
   test('negative case: gpt-* id is not flavored', () => {
@@ -439,8 +439,8 @@ describe('model-catalog: RUNTIME_PROFILE_MAP filtering (#3915)', () => {
 
   test('a fully-populated runtime keeps every tier entry, unmodified', () => {
     assert.deepStrictEqual(RUNTIME_PROFILE_MAP.claude, {
-      opus: { model: 'claude-opus-4-8' },
-      sonnet: { model: 'claude-sonnet-5' },
+      opus: { model: 'claude-opus-5-5' },
+      sonnet: { model: 'claude-sonnet-5-5' },
       haiku: { model: 'claude-haiku-4-5' },
     });
   });
@@ -508,4 +508,38 @@ describe('model-catalog: clampEffortForHost (#3915)', () => {
     assert.equal(clampEffortForHost(spoofedHost, 'high'), null);
     assert.equal(clampEffortForHost('claude', 'high'), 'high');
   });
+});
+
+// ─── the verifier is not weaker than the executor it judges ──────────────────
+//
+// "Put the judge in a different context than the worker" only helps if the judge
+// is not the weaker party. The verifier used to be routed to the standard tier,
+// with Haiku under `budget`: the same effort as the executor it checks, and a
+// smaller model than it in one profile. Nothing compared the two rows, so the
+// gap was only visible by reading the catalog.
+//
+// Scope is the verifier alone. The code reviewer, plan checker and the other
+// judges sit on their own tiers for their own reasons and are not asserted here.
+describe('model-catalog: verifier is not weaker than the executor it judges', () => {
+  const { MODEL_PROFILES, VALID_PROFILES } = catalog;
+  const RANK = { haiku: 0, sonnet: 1, opus: 2 };
+
+  test('the verifier is routed to the heavy tier', () => {
+    assert.equal(AGENT_DEFAULT_TIERS['gsd-verifier'], 'heavy');
+  });
+
+  const profiles = VALID_PROFILES.filter((p) => p !== 'inherit');
+  assert.ok(profiles.length >= 4, `expected the named profiles, got ${JSON.stringify(profiles)}`);
+
+  for (const profile of profiles) {
+    test(`${profile}: the verifier's model is at least the executor's`, () => {
+      const verifier = MODEL_PROFILES['gsd-verifier'][profile];
+      const executor = MODEL_PROFILES['gsd-executor'][profile];
+      assert.ok(verifier in RANK && executor in RANK, `unexpected tier names: verifier=${verifier} executor=${executor}`);
+      assert.ok(
+        RANK[verifier] >= RANK[executor],
+        `${profile}: verifier gets ${verifier}, executor gets ${executor} — the judge is the weaker party`,
+      );
+    });
+  }
 });

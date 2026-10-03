@@ -14,7 +14,7 @@ Model profiles control which Claude model each GSD agent uses. This allows balan
 | gsd-research-synthesizer | sonnet | sonnet | haiku | haiku | inherit |
 | gsd-debugger | opus | sonnet | sonnet | opus | inherit |
 | gsd-codebase-mapper | sonnet | haiku | haiku | haiku | inherit |
-| gsd-verifier | sonnet | sonnet | haiku | sonnet | inherit |
+| gsd-verifier | opus | sonnet | sonnet | opus | inherit |
 | gsd-plan-checker | sonnet | sonnet | haiku | haiku | inherit |
 | gsd-integration-checker | sonnet | sonnet | haiku | haiku | inherit |
 | gsd-nyquist-auditor | sonnet | sonnet | haiku | haiku | inherit |
@@ -149,11 +149,11 @@ Per Anthropic's advisor-tool docs the advisor must be at least as capable as the
 
 | Profile | Typical executors | Candidate advisor | Rationale (per Anthropic docs) |
 |---|---|---|---|
-| `budget` | Haiku / Sonnet | Fable 5 or Opus | A step up in intelligence over Haiku alone, at lower cost than switching the executor to a larger model |
-| `balanced` | Sonnet | Fable 5 or Opus | A quality lift at similar or lower total cost than Sonnet-solo on complex tasks |
-| `quality` / `adaptive` | Opus (planning), Sonnet | Fable 5 or Opus | Marginal on turns already at top capability; most valuable on the Sonnet-executor agents |
+| `budget` | Haiku / Sonnet | Fable 5.1 or Opus 5.5 | A step up in intelligence over Haiku alone, at lower cost than switching the executor to a larger model |
+| `balanced` | Sonnet | Fable 5.1 or Opus 5.5 | A quality lift at similar or lower total cost than Sonnet-solo on complex tasks |
+| `quality` / `adaptive` | Opus (planning), Sonnet | Fable 5.1 or Opus 5.5 | Marginal on turns already at top capability; most valuable on the Sonnet-executor agents |
 
-Fable 5 is a valid advisor for Haiku 4.5, Sonnet 4.6/5, and Opus 4.8 executors, so it pairs with any tier a profile assigns.
+Fable 5.1 is a valid advisor for Haiku 4.5, Sonnet 5.5, and Opus 5.5 executors, so it pairs with any tier a profile assigns. Opus 5.5 is also a valid advisor for all three. The advisor must be at least as capable as the executor; a weaker pairing returns a 400.
 
 ### When it's worth enabling
 
@@ -188,8 +188,8 @@ When `dynamic_routing.enabled = true` in `.planning/config.json`, the resolver p
 | Tier | Agents | Use case |
 |---|---|---|
 | `light` | gsd-codebase-mapper, gsd-pattern-mapper, gsd-research-synthesizer, gsd-plan-checker, gsd-integration-checker, gsd-nyquist-auditor, gsd-ui-checker, gsd-ui-auditor, gsd-doc-verifier | Cheap/fast — pure mappers, scanners, low-stakes audits |
-| `standard` | gsd-executor, gsd-phase-researcher, gsd-project-researcher, gsd-verifier, gsd-doc-writer, gsd-ui-researcher | Default workhorse — research, writing, primary verification |
-| `heavy` | gsd-planner, gsd-roadmapper, gsd-debugger | Deep reasoning — already at top, can't escalate further |
+| `standard` | gsd-executor, gsd-phase-researcher, gsd-project-researcher, gsd-doc-writer, gsd-ui-researcher | Default workhorse — research, writing, primary verification |
+| `heavy` | gsd-planner, gsd-roadmapper, gsd-debugger, gsd-verifier | Deep reasoning — already at top, can't escalate further |
 
 **Escalation flow** (orchestrator-driven):
 
@@ -255,7 +255,7 @@ Override specific agents without changing the entire profile:
 
 Overrides take precedence over the profile. Valid values: `opus`, `sonnet`, `haiku`, `fable`, `inherit`, or any fully-qualified model ID (e.g., `"o3"`, `"openai/o3"`, `"google/gemini-2.5-pro"`). `fable` is a Claude Code Agent-tool alias, not a GSD profile tier — it has no column in the profile table above.
 
-On the Claude runtime, fully-qualified Claude model IDs are honored as explicit generation pins (#4192): an ID that names the current tier default (e.g. `"claude-sonnet-5"`) resolves to its tier alias — the same model in the form the Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) resolves verbatim, with a warn-once stderr note that setups accepting only tier aliases will not honor a full ID. To pin a generation for a whole tier rather than one agent, set `model_profile_overrides.claude.<tier>` (see docs/CONFIGURATION.md — Runtime-Aware Profiles).
+On the Claude runtime, fully-qualified Claude model IDs are honored as explicit generation pins (#4192): an ID that names the current tier default (e.g. `"claude-sonnet-5-5"`) resolves to its tier alias — the same model in the form the Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) resolves verbatim, with a warn-once stderr note that setups accepting only tier aliases will not honor a full ID. To pin a generation for a whole tier rather than one agent, set `model_profile_overrides.claude.<tier>` (see docs/CONFIGURATION.md — Runtime-Aware Profiles).
 
 ## Switching Profiles
 

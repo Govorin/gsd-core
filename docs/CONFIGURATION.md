@@ -242,7 +242,7 @@ derived from the shipped agent declaration.
 | `project_code` | string | any short string | (none) | Prefix for phase directory names (e.g., `"ABC"` produces `ABC-01-setup/`). Added in v1.31 |
 | `phase_id_convention` | enum | `"sequential"`, `"milestone-prefixed"`, `"bracket"`, `null` | `null` | Phase ID naming convention. `null` and `"sequential"` use legacy numeric IDs (`Phase 1`, `Phase 2`). `"milestone-prefixed"` uses globally unique IDs that encode the enclosing milestone (`Phase 1-01`, `Phase 1-02`). Run `gsd-tools roadmap upgrade --convention milestone-prefixed` to migrate an existing ROADMAP.md. `"bracket"` carries the milestone ahead of the phase number — heading `### [GSD.02] 05: Name`, directory `GSD.02-05-name` — per [ADR-612](adr/612-bracket-phase-id-convention.md) and the [compact convention card](../gsd-core/references/phase-id-convention.md). `config-set` accepts only these three exact strings (or `null` to unset the key). **`"bracket"` currently affects read, display, and migration paths (no bracket emit yet):** read-path surfaces — `roadmap analyze` / `roadmap get-phase`, the W005/W006/W007 phase checks, `validate health` (including an advisory W021 covering a bracket phase's milestone disagreeing with its enclosing section, or a phase heading still spelled in legacy form and not yet migrated to bracket form), both `total_phases` derivations, state, and phase-directory membership — recognize the bracket spelling once it is set; display-path surfaces — progress, stats, manager-init, and statusline — recognize and display canonical IDs, while `progress` / `stats` expose per-phase `display_id` and keep the bare `number`. Phase-directory membership on a bracket repo scopes by the directory's real bracket token, so an artifact misfiled from another phase (`01-VERIFICATION.md` sitting in a phase `03` directory) no longer supplies `phase complete`'s pass/fail verdict for the phase it was misfiled into — the same protection legacy directories already have. Call sites that do not yet resolve a convention keep the wider include-everything fail-safe on bracket directories until they thread one: the aggregate scans (`uat`, `audit`, `gap-checker`) and — except for `init.manager`, whose phase lookup threads the convention through `findPhaseInternal` since #4801 — `phase-locator`'s remaining consumers; `phase complete`'s advisory UAT/VERIFICATION warning pre-scan, which can still surface a spurious warning but cannot decide completion; and the workstream inventory's per-phase completion projection, which can still report a bracket phase complete or incomplete from a cross-phase stray. Existing legacy or M-NN projects can run `gsd-tools roadmap upgrade --convention bracket` to preview the conversion, then add `--apply`; the bracket target requires `project_code`, refuses a dirty tracked tree, and rolls back its own changes on failure. When a renamed phase directory's token changes, the migration also renames that phase's own artifacts inside it (`03-VERIFICATION.md` becomes `01-VERIFICATION.md`, `03-01-PLAN.md` becomes `01-01-PLAN.md`, and so on) so existing plans and verification reports remain attached to the phase under its new identity, and rewrites a `depends_on` entry inside that same directory's plan files that named a renamed sibling by its old token (`depends_on: ["03-01"]` becomes `["01-01"]`) so the dependency still resolves after migration, and rewrites that artifact's own `phase:` frontmatter scalar to its new token so `history-digest` keys decisions correctly after renumbering. Legacy sentinel phases (`Phase 999.x`/`Phase 0.x`) are lifted into their own sentinel bracket milestone rather than folded into the enclosing real milestone, and checklist bullets convert using the same reader-recognized bold-checkbox grammar `missing_phase_details` is scored against (no colon required), attributed to their own milestone section when two sections share a leading major integer. The migration refuses before writing when a source phase has no bracket spelling, a multi-milestone phase (or an out-of-section checklist bullet) has no unambiguous reader-recognized milestone section, the same legacy phase number appears twice within one milestone section, a directory matches more than one candidate heading without its slug disambiguating exactly one, two directories resolve to the same phase heading (a stale same-number copy beside the real directory), or a rename's target directory already exists and is not itself part of the same migration. **The general phase-creation write path is not bracket-native yet**, so the migration slice should not be mistaken for the later bracket emit rollout. A project on any other value compiles the same heading patterns and retains the same output shape it did before. **What opting in costs:** on a bracket repo a heading whose bracket is followed directly by a digit is read as a phase heading, so shapes that are legal prose headings on any other convention — `### [RFC.2119] 5:`, `### [v1.0] 2024:`, `### [ADR.612] 3:` — are claimed as phases and will move `phase_count`, `total_phases` and W006. A bracket repo cedes that heading shape; that is the trade the opt-in buys, and it is why the widened read is selected at construction time from this value rather than applied everywhere. ([#2761](https://github.com/open-gsd/gsd-core/issues/2761), [#3638](https://github.com/open-gsd/gsd-core/issues/3638)) |
 | `response_language` | string | language code | (none) | Language for agent responses (e.g., `"pt"`, `"ko"`, `"ja"`). Propagates to all spawned agents for cross-phase language consistency. Added in v1.32. UAT checkpoint frames (`/gsd-verify-work`) render a localized banner/instruction for English, Spanish, French, German, Portuguese, Japanese, Chinese, Korean, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Hindi, Arabic, Vietnamese, and Indonesian (endonyms and ISO codes also accepted); any other value falls back to the English frame. One deliberate exception: the `spec-phase` edge-completeness probe is fed an English translation of each requirement's text, because its shape cues are English-only — the SPEC itself stays in this language. See [Spec-Phase Edge-Completeness Probe](FEATURES.md#144-spec-phase-edge-completeness-probe). Every workflow is required to carry a directive honouring this setting, including for inter-tool narration; authors add or fix one per [response-language coverage](contributing/response-language-coverage.md), and `npm run lint:response-language` enforces it. |
-| `context_window` | number | any integer | `200000` | Context window size in tokens. Set `1000000` for 1M-context models (e.g., `claude-fable-5`). Values `>= 500000` enable adaptive context enrichment (full-body reads of prior SUMMARY.md, deeper anti-pattern reads). Configured via `/gsd-config --advanced`. |
+| `context_window` | number | any integer | `200000` | Context window size in tokens. Set `1000000` for 1M-context models (e.g., `claude-fable-5-1`). Values `>= 500000` enable adaptive context enrichment (full-body reads of prior SUMMARY.md, deeper anti-pattern reads). Configured via `/gsd-config --advanced`. |
 | `context_profile` | string | `dev`, `research`, `review` | (none) | Execution context preset that applies a pre-configured bundle of mode, model, and workflow settings for the current type of work. Added in v1.34 |
 | `claude_md_path` | string | any file path | `./.claude/CLAUDE.md` | Custom output path for the generated CLAUDE.md file. Useful for monorepos or projects that need CLAUDE.md in a non-root location. Defaults to `./.claude/CLAUDE.md` — a valid project-scoped memory location that keeps GSD-generated content from polluting a hand-crafted repo-root `CLAUDE.md` ([#1098](https://github.com/open-gsd/gsd-core/issues/1098)). An existing file without GSD markers is never overwritten unless `--force` is passed. Default changed from `./CLAUDE.md` in v1.5. Added in v1.36 |
 | `claude_md_assembly.mode` | enum | `embed`, `link` | `embed` | Controls how managed sections are written into CLAUDE.md. `embed` (default) inlines content between GSD markers. `link` writes `@.planning/<source-path>` instead — Claude Code expands the reference at runtime, reducing CLAUDE.md size by ~65% on typical projects. `link` only applies to sections that have a real source file; `workflow` and fallback sections always embed. Per-block overrides: `claude_md_assembly.blocks.<section>` (e.g. `claude_md_assembly.blocks.architecture: link`). Added in v1.38 |
@@ -1554,7 +1554,7 @@ Invalid flag tokens are sanitized and logged as warnings. Only recognized GSD fl
 | gsd-research-synthesizer | Sonnet | Sonnet | Haiku | Haiku | Inherit |
 | gsd-debugger | Opus | Sonnet | Sonnet | Opus | Inherit |
 | gsd-codebase-mapper | Sonnet | Haiku | Haiku | Haiku | Inherit |
-| gsd-verifier | Sonnet | Sonnet | Haiku | Sonnet | Inherit |
+| gsd-verifier | Opus | Sonnet | Sonnet | Opus | Inherit |
 | gsd-plan-checker | Sonnet | Sonnet | Haiku | Haiku | Inherit |
 | gsd-integration-checker | Sonnet | Sonnet | Haiku | Haiku | Inherit |
 | gsd-nyquist-auditor | Sonnet | Sonnet | Haiku | Haiku | Inherit |
@@ -1583,7 +1583,7 @@ Override specific agents without changing the entire profile:
 
 Valid override values: `opus`, `sonnet`, `haiku`, `fable`, `inherit`, or any fully-qualified model ID (e.g., `"openai/o3"`, `"google/gemini-2.5-pro"`).
 
-On the Claude runtime, fully-qualified Claude model IDs are honored as explicit generation pins (#4192): an ID that names the current tier default (e.g. `"claude-sonnet-5"`) collapses to its tier alias — the same model in the form Claude Code's Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) is resolved verbatim, so the pinned generation is what `resolve-model` reports. GSD emits a warn-once stderr breadcrumb for verbatim pins, because Claude Code setups whose Agent tool accepts only tier aliases will not honor a full ID. `fable` is a Claude Code Agent-tool alias, not a GSD profile tier: it is valid in `model_overrides` but has no column in the profile table.
+On the Claude runtime, fully-qualified Claude model IDs are honored as explicit generation pins (#4192): an ID that names the current tier default (e.g. `"claude-sonnet-5-5"`) collapses to its tier alias — the same model in the form Claude Code's Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) is resolved verbatim, so the pinned generation is what `resolve-model` reports. GSD emits a warn-once stderr breadcrumb for verbatim pins, because Claude Code setups whose Agent tool accepts only tier aliases will not honor a full ID. `fable` is a Claude Code Agent-tool alias, not a GSD profile tier: it is valid in `model_overrides` but has no column in the profile table.
 
 `model_overrides` can be set in either `.planning/config.json` (per-project)
 or `$GSD_HOME/.gsd/defaults.json` (global). The install-time embedding for
@@ -1710,8 +1710,8 @@ Each agent in `MODEL_PROFILES` declares one of three default tiers. The resolver
 | Tier | Agents | Use case |
 |---|---|---|
 | `light` | gsd-codebase-mapper, gsd-doc-classifier, gsd-doc-verifier, gsd-integration-checker, gsd-intel-updater, gsd-nyquist-auditor, gsd-pattern-mapper, gsd-plan-checker, gsd-research-synthesizer, gsd-ui-auditor, gsd-ui-checker | Cheap/fast — pure mappers, scanners, low-stakes audits |
-| `standard` | gsd-advisor-researcher, gsd-ai-researcher, gsd-code-fixer, gsd-code-reviewer, gsd-doc-synthesizer, gsd-doc-writer, gsd-domain-researcher, gsd-eval-auditor, gsd-executor, gsd-phase-researcher, gsd-project-researcher, gsd-ui-researcher, gsd-verifier | Default workhorse — research, writing, primary verification |
-| `heavy` | gsd-assumptions-analyzer, gsd-debug-session-manager, gsd-debugger, gsd-eval-planner, gsd-framework-selector, gsd-planner, gsd-roadmapper, gsd-security-auditor, gsd-user-profiler | Deep reasoning — already at top, can't escalate further |
+| `standard` | gsd-advisor-researcher, gsd-ai-researcher, gsd-code-fixer, gsd-code-reviewer, gsd-doc-synthesizer, gsd-doc-writer, gsd-domain-researcher, gsd-eval-auditor, gsd-executor, gsd-phase-researcher, gsd-project-researcher, gsd-ui-researcher | Default workhorse — research, writing, primary verification |
+| `heavy` | gsd-assumptions-analyzer, gsd-debug-session-manager, gsd-debugger, gsd-eval-planner, gsd-framework-selector, gsd-planner, gsd-roadmapper, gsd-security-auditor, gsd-user-profiler, gsd-verifier | Deep reasoning — already at top, can't escalate further |
 
 #### Escalation flow
 
@@ -1879,7 +1879,7 @@ The model-catalog's `reasoning_effort` per-tier hint is a legacy field kept for 
    block fills its gaps from the built-ins instead of discarding them, and an invalid
    value falls back to that tier's built-in ([#3531](https://github.com/open-gsd/gsd-core/issues/3531))
 4. `effort.default`
-5. `"high"` (Anthropic Opus 4.8 universal default)
+5. `"high"` (final fallback — set effort explicitly: Opus 5.5 alone defaults to `medium`, Sonnet 5.5 to `high`)
 
 ```json
 {
@@ -2068,7 +2068,7 @@ The intent is the same as the Claude profile tiers -- use a stronger model for p
 | Value | Behavior | Use When |
 |-------|----------|----------|
 | `false` (default) | Returns Claude aliases (`opus`, `sonnet`, `haiku`) | Claude Code with native Anthropic API |
-| `true` | Maps aliases to full Claude model IDs (`claude-opus-4-8`) | Claude Code with API that requires full IDs |
+| `true` | Maps aliases to full Claude model IDs (`claude-opus-5-5`) | Claude Code with API that requires full IDs |
 | `"omit"` | Claude protection: yields an empty string when no runtime identity is known (or the value fails recognition); a runtime identified by its install marker resolves its own tier map instead | Non-Claude runtimes (Codex, OpenCode, Antigravity CLI, Kilo) |
 
 ### The `tier` Field
@@ -2093,14 +2093,14 @@ When `runtime` is set, profile tiers (`opus`/`sonnet`/`haiku`) resolve to runtim
 
 | Runtime | `opus` | `sonnet` | `haiku` | reasoning_effort |
 |---------|--------|----------|---------|------------------|
-| `claude` | `claude-opus-4-8` | `claude-sonnet-5` | `claude-haiku-4-5` | (not used) |
+| `claude` | `claude-opus-5-5` | `claude-sonnet-5-5` | `claude-haiku-4-5` | (not used) |
 | `codex` | `gpt-5.6-sol` | `gpt-5.6-terra` | `gpt-5.6-luna` | `xhigh` / `medium` / `medium` |
 | `qwen` | `qwen3-max-2026-01-23` | `qwen3-coder-plus` | `qwen3-coder-next` | (not used) |
-| `opencode` | `anthropic/claude-opus-4-8` | `anthropic/claude-sonnet-5` | `anthropic/claude-haiku-4-5` | (not used) |
-| `copilot` | `claude-opus-4-8` | `claude-sonnet-5` | `claude-haiku-4-5` | (not used) |
-| `hermes` | `anthropic/claude-opus-4-8` | `anthropic/claude-sonnet-5` | `anthropic/claude-haiku-4-5` | (not used) |
-| `kilo` | `anthropic/claude-opus-4-8` | `anthropic/claude-sonnet-5` | `anthropic/claude-haiku-4-5` | (not used) |
-| `pi` | `claude-opus-4-8` | `claude-sonnet-5` | `claude-haiku-4-5` | (not used) |
+| `opencode` | `anthropic/claude-opus-5-5` | `anthropic/claude-sonnet-5-5` | `anthropic/claude-haiku-4-5` | (not used) |
+| `copilot` | `claude-opus-5-5` | `claude-sonnet-5-5` | `claude-haiku-4-5` | (not used) |
+| `hermes` | `anthropic/claude-opus-5-5` | `anthropic/claude-sonnet-5-5` | `anthropic/claude-haiku-4-5` | (not used) |
+| `kilo` | `anthropic/claude-opus-5-5` | `anthropic/claude-sonnet-5-5` | `anthropic/claude-haiku-4-5` | (not used) |
+| `pi` | `claude-opus-5-5` | `claude-sonnet-5-5` | `claude-haiku-4-5` | (not used) |
 | Group B (`cline`, `cursor`, `windsurf` (alias: `devin-desktop`), `augment`, `trae`, `codebuddy`, `antigravity`) | (no built-in default — your runtime handles model selection) | | | |
 
 > **How these model IDs are sourced.** The catalog (`bin/shared/model-catalog.json`) pins each runtime's tier defaults to that provider's current frontier IDs, and may intentionally carry forward-dated IDs ahead of a provider's public docs. To verify an ID is live before changing it, check the provider's own source/API — e.g. Codex: `codex debug models` or the OpenAI Codex models page; Qwen: Alibaba Model Studio model list. Only change an ID that the provider actually rejects — absence from documentation alone is not proof of invalidity.
@@ -2191,7 +2191,7 @@ Choose a provider and budget level via the settings workflow; GSD writes the can
 }
 ```
 
-Known providers: `openai`, `anthropic`, `anthropic-fable`, `google`, `qwen`. Budget levels: `high`, `medium`, `low`. Use `anthropic` to keep the Opus 4.8-backed Claude preset, or `anthropic-fable` to opt into Claude Fable 5 for high-budget top-tier routing. On the default `claude` runtime, policy-resolved model IDs are mapped to Claude Code agent aliases (for example `claude-fable-5` → `fable`); an ID with no corresponding Claude alias emits a warning and falls back to the configured tier.
+Known providers: `openai`, `anthropic`, `anthropic-fable`, `google`, `qwen`. Budget levels: `high`, `medium`, `low`. Use `anthropic` to keep the Opus 5.5-backed Claude preset, or `anthropic-fable` to opt into Claude Fable 5.1 for high-budget top-tier routing. On the default `claude` runtime, policy-resolved model IDs are mapped to Claude Code agent aliases (for example `claude-fable-5-1` → `fable`); an ID with no corresponding Claude alias emits a warning and falls back to the configured tier.
 
 For advanced per-runtime control, `runtime_tiers` accepts explicit entries using the internal profile tier names (`opus`, `sonnet`, `haiku`):
 
@@ -2220,7 +2220,7 @@ Use `provider: "generic"` (or `"custom"`) for OpenRouter, LiteLLM, local gateway
   "runtime": "opencode",
   "model_policy": {
     "provider": "generic",
-    "high":   "openrouter/anthropic/claude-opus-4-5",
+    "high":   "openrouter/anthropic/claude-opus-5-5",
     "medium": "openrouter/anthropic/claude-sonnet-4-5",
     "low":    "openrouter/anthropic/claude-haiku-4-5"
   }

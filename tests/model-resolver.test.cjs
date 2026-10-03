@@ -3249,7 +3249,7 @@ describe('#443 injectEffortFrontmatter: newline-agnostic YAML frontmatter inject
  *       "budget": "high",
  *       "runtime_tiers": {
  *         "opencode": {
- *           "opus": { "model": "anthropic/claude-opus-4-8" }
+ *           "opus": { "model": "anthropic/claude-opus-5-5" }
  *         }
  *       }
  *     }
@@ -3361,29 +3361,29 @@ describe('#49 resolveModelPolicy Sub-path B: provider presets', () => {
     const result = resolveModelPolicy(policy, 'opus');
     assert.ok(typeof result === 'string' && result.length > 0,
       `expected a non-empty model ID string, got: ${JSON.stringify(result)}`);
-    assert.strictEqual(result, 'claude-opus-4-8',
-      `expected anthropic opus/high to resolve to claude-opus-4-8, got: ${result}`);
+    assert.strictEqual(result, 'claude-opus-5-5',
+      `expected anthropic opus/high to resolve to claude-opus-5-5, got: ${result}`);
   });
 
-  test('known provider "anthropic" + tier "sonnet" + budget "high" preserves Opus 4.8 routing', () => {
+  test('known provider "anthropic" + tier "sonnet" + budget "high" preserves Opus 5.5 routing', () => {
     const policy = { provider: 'anthropic', budget: 'high' };
     const result = resolveModelPolicy(policy, 'sonnet');
-    assert.strictEqual(result, 'claude-opus-4-8',
-      `expected anthropic sonnet/high to resolve to claude-opus-4-8, got: ${result}`);
+    assert.strictEqual(result, 'claude-opus-5-5',
+      `expected anthropic sonnet/high to resolve to claude-opus-5-5, got: ${result}`);
   });
 
-  test('known provider "anthropic-fable" + tier "opus" + budget "high" resolves to Claude Fable 5', () => {
+  test('known provider "anthropic-fable" + tier "opus" + budget "high" resolves to Claude Fable 5.1', () => {
     const policy = { provider: 'anthropic-fable', budget: 'high' };
     const result = resolveModelPolicy(policy, 'opus');
-    assert.strictEqual(result, 'claude-fable-5',
-      `expected anthropic-fable opus/high to resolve to claude-fable-5, got: ${result}`);
+    assert.strictEqual(result, 'claude-fable-5-1',
+      `expected anthropic-fable opus/high to resolve to claude-fable-5-1, got: ${result}`);
   });
 
   test('known provider "anthropic-fable" + tier "haiku" + budget "high" keeps low tier on Sonnet', () => {
     const policy = { provider: 'anthropic-fable', budget: 'high' };
     const result = resolveModelPolicy(policy, 'haiku');
-    assert.strictEqual(result, 'claude-sonnet-5',
-      `expected anthropic-fable haiku/high to resolve to claude-sonnet-5, got: ${result}`);
+    assert.strictEqual(result, 'claude-sonnet-5-5',
+      `expected anthropic-fable haiku/high to resolve to claude-sonnet-5-5, got: ${result}`);
   });
 
   test('known provider "openai" + tier "sonnet" + budget "low" returns model with reasoning_effort from preset', () => {
@@ -3548,8 +3548,8 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       'model_policy must fire before model_profile_overrides and win');
     assert.ok(typeof result === 'string' && result.length > 0,
       'must return a non-empty model ID');
-    assert.strictEqual(result, 'claude-opus-4-8',
-      'expected anthropic preset opus/high to resolve to claude-opus-4-8');
+    assert.strictEqual(result, 'claude-opus-5-5',
+      'expected anthropic preset opus/high to resolve to claude-opus-5-5');
   });
 
   test('model_policy with provider:"anthropic" + budget:"high" + runtime:"opencode" resolves to preset model', () => {
@@ -3564,8 +3564,8 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
     const result = resolveModelInternal(projectDir, 'gsd-planner');
     assert.ok(typeof result === 'string' && result.length > 0,
       'expected a non-empty model ID');
-    assert.strictEqual(result, 'claude-opus-4-8',
-      'anthropic/opus/high must resolve to claude-opus-4-8');
+    assert.strictEqual(result, 'claude-opus-5-5',
+      'anthropic/opus/high must resolve to claude-opus-5-5');
   });
 
   test('model_policy with provider:"anthropic-fable" + budget:"high" resolves to Fable preset model', () => {
@@ -3578,8 +3578,8 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       },
     });
     const result = resolveModelInternal(projectDir, 'gsd-planner');
-    assert.strictEqual(result, 'claude-fable-5',
-      'anthropic-fable/opus/high must resolve to claude-fable-5');
+    assert.strictEqual(result, 'claude-fable-5-1',
+      'anthropic-fable/opus/high must resolve to claude-fable-5-1');
   });
 
   test('model_policy is skipped when runtime is absent', () => {
@@ -3623,7 +3623,7 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       model_profile: 'balanced',
       model_policy: { provider: 'anthropic-fable', budget: 'high' },
     });
-    // gsd-planner -> opus tier; anthropic-fable opus/high = claude-fable-5 -> alias "fable"
+    // gsd-planner -> opus tier; anthropic-fable opus/high = claude-fable-5-1 -> alias "fable"
     assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'fable');
   });
 
@@ -3632,7 +3632,7 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       model_profile: 'balanced',
       model_policy: { provider: 'anthropic-fable', budget: 'high' },
     });
-    // gsd-executor -> sonnet tier; anthropic-fable sonnet/high = claude-fable-5 -> "fable"
+    // gsd-executor -> sonnet tier; anthropic-fable sonnet/high = claude-fable-5-1 -> "fable"
     assert.strictEqual(resolveModelInternal(projectDir, 'gsd-executor'), 'fable');
   });
 
@@ -3641,9 +3641,15 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
     writeConfig(projectDir, {
       runtime: 'claude',
       model_profile: 'balanced',
-      model_policy: { provider: 'anthropic-fable', budget: 'low' },
+      model_policy: {
+        provider: 'anthropic-fable',
+        budget: 'low',
+        // The unmappable ID is explicit here: it used to come from the preset's own
+        // opus/low step, which is now a mappable model (claude-sonnet-5-5).
+        runtime_tiers: { claude: { opus: { model: 'claude-opus-4-5' } } },
+      },
     });
-    // gsd-planner -> opus tier; anthropic-fable opus/low = claude-opus-4-5 (no alias) -> fall back to "opus"
+    // gsd-planner -> opus tier; runtime_tiers.claude.opus = claude-opus-4-5 (no alias) -> fall back to "opus"
     assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'opus');
   });
 
@@ -3654,10 +3660,10 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       model_policy: {
         provider: 'anthropic',
         budget: 'high',
-        runtime_tiers: { claude: { opus: { model: 'claude-fable-5' } } },
+        runtime_tiers: { claude: { opus: { model: 'claude-fable-5-1' } } },
       },
     });
-    // gsd-planner -> opus tier; runtime_tiers.claude.opus = claude-fable-5 -> "fable" (was a no-op pre-#1133)
+    // gsd-planner -> opus tier; runtime_tiers.claude.opus = claude-fable-5-1 -> "fable" (was a no-op pre-#1133)
     assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'fable');
   });
 
@@ -3668,10 +3674,10 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       model_policy: {
         provider: 'anthropic',
         budget: 'high',
-        runtime_tiers: { claude: { opus: { model: 'claude-opus-4-8' } } },
+        runtime_tiers: { claude: { opus: { model: 'claude-opus-5-5' } } },
       },
     });
-    // gsd-planner -> opus tier; runtime_tiers.claude.opus = claude-opus-4-8 ->
+    // gsd-planner -> opus tier; runtime_tiers.claude.opus = claude-opus-5-5 ->
     // reverse of MODEL_ALIAS_MAP -> "opus" (exercises the non-fable reverse-map path)
     assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'opus');
   });
@@ -3682,7 +3688,7 @@ describe('#49 resolveModelInternal: model_policy in the resolution chain', () =>
       model_profile: 'balanced',
       model_policy: { provider: 'anthropic-fable', budget: 'high' },
     });
-    assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'claude-fable-5');
+    assert.strictEqual(resolveModelInternal(projectDir, 'gsd-planner'), 'claude-fable-5-1');
   });
 
   test('model_policy is skipped when tier:"inherit"', () => {
@@ -3887,7 +3893,7 @@ describe('#49 reasoning_effort in model_policy entries', () => {
       runtime: 'opencode',
       runtime_tiers: {
         opencode: {
-          opus: { model: 'anthropic/claude-opus-4-8', reasoning_effort: 'high' },
+          opus: { model: 'anthropic/claude-opus-5-5', reasoning_effort: 'high' },
         },
       },
     };
@@ -3895,7 +3901,7 @@ describe('#49 reasoning_effort in model_policy entries', () => {
     // The caller (resolveModelInternal) is responsible for deciding what to
     // emit — the resolver just returns the model ID string.
     const result = resolveModelPolicy(policy, 'opus');
-    assert.strictEqual(result, 'anthropic/claude-opus-4-8',
+    assert.strictEqual(result, 'anthropic/claude-opus-5-5',
       'resolveModelPolicy must return the model string from the runtime_tiers entry');
   });
 
@@ -3923,12 +3929,12 @@ describe('#49 reasoning_effort in model_policy entries', () => {
       budget: 'high',
       runtime_tiers: {
         opencode: {
-          opus: { model: 'anthropic/claude-opus-4-8', reasoning_effort: 'high' },
+          opus: { model: 'anthropic/claude-opus-5-5', reasoning_effort: 'high' },
         },
       },
     };
     const result = resolveModelPolicy(policy, 'opus');
-    assert.strictEqual(result, 'anthropic/claude-opus-4-8',
+    assert.strictEqual(result, 'anthropic/claude-opus-5-5',
       'resolveModelPolicy must return model string; reasoning_effort is stripped downstream');
   });
 });
@@ -4038,7 +4044,7 @@ describe('#49 resolveModelPolicy: prototype-pollution guards', () => {
 //
 // Mirrors the #1133 model_policy alias-mapping tests (above) for the
 // model_overrides path. Bug: a full Claude model ID in model_overrides
-// (e.g. "claude-sonnet-5") was returned VERBATIM on the claude runtime and
+// (e.g. "claude-sonnet-5-5") was returned VERBATIM on the claude runtime and
 // handed to the Claude Agent tool, whose typed `model` parameter documents only
 // tier aliases (opus/sonnet/haiku/fable). The model_policy path already maps
 // full IDs → aliases via CLAUDE_POLICY_ID_TO_ALIAS (#1144); model_overrides
@@ -4057,18 +4063,18 @@ describe('#2041 model_overrides: Claude full ID → alias on claude runtime', ()
   });
 
   // AC1 + AC2: mappable Claude full IDs resolve to their aliases on claude runtime
-  test('model_overrides claude-sonnet-5 → "sonnet" on runtime:claude (resolveModelInternal)', () => {
+  test('model_overrides claude-sonnet-5-5 → "sonnet" on runtime:claude (resolveModelInternal)', () => {
     writeConfig(tmpDir, {
       runtime: 'claude',
-      model_overrides: { 'gsd-executor': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-executor': 'claude-sonnet-5-5' },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-executor'), 'sonnet');
   });
 
-  test('model_overrides claude-opus-4-8 → "opus" on runtime:claude', () => {
+  test('model_overrides claude-opus-5-5 → "opus" on runtime:claude', () => {
     writeConfig(tmpDir, {
       runtime: 'claude',
-      model_overrides: { 'gsd-planner': 'claude-opus-4-8' },
+      model_overrides: { 'gsd-planner': 'claude-opus-5-5' },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'opus');
   });
@@ -4081,10 +4087,10 @@ describe('#2041 model_overrides: Claude full ID → alias on claude runtime', ()
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-codebase-mapper'), 'haiku');
   });
 
-  test('model_overrides claude-fable-5 → "fable" on runtime:claude', () => {
+  test('model_overrides claude-fable-5-1 → "fable" on runtime:claude', () => {
     writeConfig(tmpDir, {
       runtime: 'claude',
-      model_overrides: { 'gsd-planner': 'claude-fable-5' },
+      model_overrides: { 'gsd-planner': 'claude-fable-5-1' },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'fable');
   });
@@ -4107,20 +4113,20 @@ describe('#2041 model_overrides: Claude full ID → alias on claude runtime', ()
   });
 
   // AC1 (implicit claude): mapping fires when runtime key is absent (defaults to claude)
-  test('model_overrides claude-sonnet-5 → "sonnet" with implicit claude runtime (no runtime key)', () => {
+  test('model_overrides claude-sonnet-5-5 → "sonnet" with implicit claude runtime (no runtime key)', () => {
     writeConfig(tmpDir, {
-      model_overrides: { 'gsd-executor': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-executor': 'claude-sonnet-5-5' },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-executor'), 'sonnet');
   });
 
   // AC4: non-claude runtimes keep full IDs verbatim (parity with model_policy path)
-  test('model_overrides claude-sonnet-5 → verbatim ID on non-claude runtime (opencode)', () => {
+  test('model_overrides claude-sonnet-5-5 → verbatim ID on non-claude runtime (opencode)', () => {
     writeConfig(tmpDir, {
       runtime: 'opencode',
-      model_overrides: { 'gsd-executor': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-executor': 'claude-sonnet-5-5' },
     });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-executor'), 'claude-sonnet-5');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-executor'), 'claude-sonnet-5-5');
   });
 
   // AC5 (#4192 revision): an unmappable Claude full ID — an explicit
@@ -4160,10 +4166,10 @@ describe('#2041 model_overrides: Claude full ID → alias on claude runtime', ()
   });
 
   // AC6: resolveModelForTier (escalation / --attempt path) maps the same way
-  test('resolveModelForTier maps claude-sonnet-5 → "sonnet" on runtime:claude', () => {
+  test('resolveModelForTier maps claude-sonnet-5-5 → "sonnet" on runtime:claude', () => {
     writeConfig(tmpDir, {
       runtime: 'claude',
-      model_overrides: { 'gsd-executor': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-executor': 'claude-sonnet-5-5' },
     });
     assert.strictEqual(resolveModelForTier(tmpDir, 'gsd-executor', 0), 'sonnet');
   });
@@ -4171,9 +4177,9 @@ describe('#2041 model_overrides: Claude full ID → alias on claude runtime', ()
   test('resolveModelForTier keeps full ID verbatim on non-claude runtime', () => {
     writeConfig(tmpDir, {
       runtime: 'opencode',
-      model_overrides: { 'gsd-executor': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-executor': 'claude-sonnet-5-5' },
     });
-    assert.strictEqual(resolveModelForTier(tmpDir, 'gsd-executor', 0), 'claude-sonnet-5');
+    assert.strictEqual(resolveModelForTier(tmpDir, 'gsd-executor', 0), 'claude-sonnet-5-5');
   });
 
   // MEDIUM-1 (review, #4192 revision): exercise the unmappable-override
@@ -4423,7 +4429,7 @@ describe('#3282 resolveTierFromConfig mirrors resolveModelInternal step 2.5 (mod
 
   // Measured (2026-08-09): model_profile:"budget" gives gsd-phase-researcher
   // a "haiku" profile tier, but model_policy.budget:"high" resolves the
-  // anthropic "haiku" preset's high slot to "claude-sonnet-5" — the POLICY
+  // anthropic "haiku" preset's high slot to "claude-sonnet-5-5" — the POLICY
   // outranks the PROFILE, so the actually-dispatched tier is "sonnet", not
   // the profile's "haiku". A profile-only reporter would under-report this.
   test('model_policy outranks model_profile: budget profile + policy budget:high -> tier "sonnet"', () => {
@@ -4443,7 +4449,7 @@ describe('#3282 resolveTierFromConfig mirrors resolveModelInternal step 2.5 (mod
   });
 
   // "fable" is a real, reachable tier value (Claude Code's Agent tool accepts
-  // it, and CLAUDE_POLICY_ID_TO_ALIAS maps "claude-fable-5" to it) — it is
+  // it, and CLAUDE_POLICY_ID_TO_ALIAS maps "claude-fable-5-1" to it) — it is
   // NOT the budget tier and must NOT be floored by a budget-tier check.
   test('model_overrides pinning "fable" -> tier "fable", a valid non-floored tier', () => {
     writeConfig(tmpDir, { model_overrides: { 'gsd-phase-researcher': 'fable' } });
@@ -4915,10 +4921,10 @@ describe('#2297: resolve_model_ids:true still materializes full Claude model ids
   beforeEach(() => { isolateHome(); projDir = null; });
   afterEach(() => { rmDir(projDir); restoreHome(); });
 
-  test('resolve_model_ids:true + balanced profile -> full materialized claude-opus-4-8 id', () => {
+  test('resolve_model_ids:true + balanced profile -> full materialized claude-opus-5-5 id', () => {
     projDir = mkProjWithConfig({ resolve_model_ids: true, model_profile: 'balanced' });
 
-    assert.strictEqual(resolveModelInternal(projDir, 'gsd-planner'), 'claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(projDir, 'gsd-planner'), 'claude-opus-5-5');
   });
 });
 
@@ -5139,7 +5145,7 @@ describe('issue #2517: backwards compat — no runtime key set', () => {
 
   test('resolve_model_ids:true still maps alias -> full Claude ID with no runtime', () => {
     writeConfig(tmpDir, { model_profile: 'balanced', resolve_model_ids: true });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-5-5');
   });
 
   test('resolve_model_ids:"omit" still returns "" with no runtime', () => {
@@ -5193,7 +5199,7 @@ describe('issue #2517: runtime "claude" is a no-op for resolution (finding #4)',
       model_profile: 'quality',
       resolve_model_ids: true,
     });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-5-5');
   });
 
   test('effort is first-class on Claude (emits output_config.effort)', () => {
@@ -5750,7 +5756,7 @@ describe('issue #2517: RUNTIME_PROFILE_MAP single source of truth (finding #16)'
     const codexOpus = RUNTIME_PROFILE_MAP.codex?.opus;
     assert.deepStrictEqual(codexOpus, { model: 'gpt-5.6-sol', reasoning_effort: 'xhigh' });
     const claudeOpus = RUNTIME_PROFILE_MAP.claude?.opus;
-    assert.deepStrictEqual(claudeOpus, { model: 'claude-opus-4-8' });
+    assert.deepStrictEqual(claudeOpus, { model: 'claude-opus-5-5' });
   });
 });
 
@@ -5793,14 +5799,14 @@ describe('issue #2612: runtime "opencode" — OpenCode tier resolution', () => {
   beforeEach(() => { isolateHome(); tmpDir = createTempProject(); resetRuntimeWarningCaches(); });
   afterEach(() => { cleanup(tmpDir); restoreHome(); });
 
-  test('opus tier -> anthropic/claude-opus-4-8', () => {
+  test('opus tier -> anthropic/claude-opus-5-5', () => {
     writeConfig(tmpDir, { runtime: 'opencode', model_profile: 'quality' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-5-5');
   });
 
-  test('sonnet tier -> anthropic/claude-sonnet-5', () => {
+  test('sonnet tier -> anthropic/claude-sonnet-5-5', () => {
     writeConfig(tmpDir, { runtime: 'opencode', model_profile: 'balanced' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-5');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-5-5');
   });
 
   test('haiku tier -> anthropic/claude-haiku-4-5', () => {
@@ -5823,14 +5829,14 @@ describe('issue #2093: runtime "kilo" — Kilo tier resolution', () => {
   beforeEach(() => { isolateHome(); tmpDir = createTempProject(); resetRuntimeWarningCaches(); });
   afterEach(() => { cleanup(tmpDir); restoreHome(); });
 
-  test('opus tier -> anthropic/claude-opus-4-8', () => {
+  test('opus tier -> anthropic/claude-opus-5-5', () => {
     writeConfig(tmpDir, { runtime: 'kilo', model_profile: 'quality' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-5-5');
   });
 
-  test('sonnet tier -> anthropic/claude-sonnet-5', () => {
+  test('sonnet tier -> anthropic/claude-sonnet-5-5', () => {
     writeConfig(tmpDir, { runtime: 'kilo', model_profile: 'balanced' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-5');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-5-5');
   });
 
   test('haiku tier -> anthropic/claude-haiku-4-5', () => {
@@ -5851,14 +5857,14 @@ describe('issue #2612: runtime "copilot" — Copilot tier resolution', () => {
   beforeEach(() => { isolateHome(); tmpDir = createTempProject(); resetRuntimeWarningCaches(); });
   afterEach(() => { cleanup(tmpDir); restoreHome(); });
 
-  test('opus tier -> claude-opus-4-8', () => {
+  test('opus tier -> claude-opus-5-5', () => {
     writeConfig(tmpDir, { runtime: 'copilot', model_profile: 'quality' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-opus-5-5');
   });
 
-  test('sonnet tier -> claude-sonnet-5', () => {
+  test('sonnet tier -> claude-sonnet-5-5', () => {
     writeConfig(tmpDir, { runtime: 'copilot', model_profile: 'balanced' });
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'claude-sonnet-5');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'claude-sonnet-5-5');
   });
 
   test('haiku tier -> claude-haiku-4-5', () => {
@@ -5949,7 +5955,7 @@ describe('issue #2612: partial override merge for new Group A runtimes', () => {
       },
     });
     // gsd-planner balanced -> opus -> built-in default
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-5-5');
     // gsd-roadmapper balanced -> sonnet -> overridden
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-4-7');
     // gsd-codebase-mapper balanced -> haiku -> built-in default (haiku not overridden)
@@ -5967,7 +5973,7 @@ describe('issue #2612: partial override merge for new Group A runtimes', () => {
     // gsd-codebase-mapper budget -> haiku -> overridden
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-codebase-mapper'), 'claude-haiku-4-6');
     // gsd-planner budget -> sonnet -> built-in default
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-sonnet-5');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'claude-sonnet-5-5');
   });
 
   // #2093: kilo just moved into Group A — same partial-merge coverage as opencode.
@@ -5980,7 +5986,7 @@ describe('issue #2612: partial override merge for new Group A runtimes', () => {
       },
     });
     // gsd-planner balanced -> opus -> built-in default
-    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-4-8');
+    assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'anthropic/claude-opus-5-5');
     // gsd-roadmapper balanced -> sonnet -> overridden
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-roadmapper'), 'anthropic/claude-sonnet-4-7');
     // gsd-codebase-mapper balanced -> haiku -> built-in default (haiku not overridden)
@@ -6145,7 +6151,7 @@ describe('#3007 — Codex effort capability is per-model, and every clamp is vis
   test('an anthropic-flavored id is not an effort-capability error', () => {
     const { renderEffortForRuntime } = require('../gsd-core/bin/lib/model-catalog.cjs');
     let r;
-    assert.doesNotThrow(() => { r = renderEffortForRuntime('codex', 'max', 'claude-opus-4-8'); });
+    assert.doesNotThrow(() => { r = renderEffortForRuntime('codex', 'max', 'claude-opus-5-5'); });
     assert.strictEqual(r.value, 'max');
   });
 
@@ -6400,19 +6406,19 @@ describe('#4192 model_profile_overrides.claude.*: tier overrides honor pins on t
   });
 
   // Row 3 — mappable override collapses to the alias (form parity with #2041 step 1).
-  test('claude.sonnet = "claude-sonnet-5" resolves to the "sonnet" alias', () => {
+  test('claude.sonnet = "claude-sonnet-5-5" resolves to the "sonnet" alias', () => {
     write({
       model_profile: 'balanced',
-      model_profile_overrides: { claude: { sonnet: 'claude-sonnet-5' } },
+      model_profile_overrides: { claude: { sonnet: 'claude-sonnet-5-5' } },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-executor'), 'sonnet');
   });
 
   // Row 4 — fable-valued override maps through the fable alias.
-  test('claude.opus = "claude-fable-5" resolves to "fable"', () => {
+  test('claude.opus = "claude-fable-5-1" resolves to "fable"', () => {
     write({
       model_profile: 'balanced',
-      model_profile_overrides: { claude: { opus: 'claude-fable-5' } },
+      model_profile_overrides: { claude: { opus: 'claude-fable-5-1' } },
     });
     assert.strictEqual(resolveModelInternal(tmpDir, 'gsd-planner'), 'fable');
   });
@@ -6611,7 +6617,7 @@ describe('#4192 model_overrides: fully-qualified claude IDs resolve as configure
     write({
       runtime: 'claude',
       model_profile: 'balanced',
-      model_overrides: { 'gsd-debugger': 'claude-sonnet-5' },
+      model_overrides: { 'gsd-debugger': 'claude-sonnet-5-5' },
     });
     const writes = [];
     const original = process.stderr.write.bind(process.stderr);
@@ -6953,12 +6959,12 @@ describe('#4192 model_overrides: fully-qualified claude IDs resolve as configure
     // test pinned the old reading. Without the fix the first assertion returns
     // 'opus' — a Claude-only alias handed to a runtime that cannot spawn it.
     test('an explicit claude pin is not unpinned just because the runtime came from env', () => {
-      dir = project({ model_overrides: { 'gsd-phase-researcher': 'claude-opus-4-8' } });
-      assert.strictEqual(resolveModel(dir, 'gsd-phase-researcher', 'opencode'), 'claude-opus-4-8');
+      dir = project({ model_overrides: { 'gsd-phase-researcher': 'claude-opus-5-5' } });
+      assert.strictEqual(resolveModel(dir, 'gsd-phase-researcher', 'opencode'), 'claude-opus-5-5');
     });
 
     test('the same pin still collapses to its alias when claude IS the active runtime', () => {
-      dir = project({ model_overrides: { 'gsd-phase-researcher': 'claude-opus-4-8' } });
+      dir = project({ model_overrides: { 'gsd-phase-researcher': 'claude-opus-5-5' } });
       assert.strictEqual(resolveModel(dir, 'gsd-phase-researcher', 'claude'), 'opus');
     });
   });

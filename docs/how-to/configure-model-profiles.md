@@ -53,7 +53,7 @@ If a single agent needs a different tier without changing the whole profile, use
 
 Valid values: `opus`, `sonnet`, `haiku`, `fable`, `inherit`, or any fully-qualified model ID (e.g. `"openai/o3"`, `"google/gemini-2.5-pro"`).
 
-On the Claude runtime, fully-qualified Claude model IDs act as explicit generation pins (#4192): an ID naming the current tier default (e.g. `"claude-sonnet-5"`) resolves to its tier alias — the same model in the form Claude Code's Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) resolves verbatim, with a warn-once stderr note that setups accepting only tier aliases will not honor a full ID. `fable` is a Claude Code Agent-tool alias, not a GSD profile tier: valid here, but it has no column in the profile table. To pin a generation for a whole tier instead of one agent, use `model_profile_overrides` (see below).
+On the Claude runtime, fully-qualified Claude model IDs act as explicit generation pins (#4192): an ID naming the current tier default (e.g. `"claude-sonnet-5-5"`) resolves to its tier alias — the same model in the form Claude Code's Agent tool always accepts — while any other ID (e.g. `"claude-opus-4-7"`) resolves verbatim, with a warn-once stderr note that setups accepting only tier aliases will not honor a full ID. `fable` is a Claude Code Agent-tool alias, not a GSD profile tier: valid here, but it has no column in the profile table. To pin a generation for a whole tier instead of one agent, use `model_profile_overrides` (see below).
 
 `model_overrides` can be set per-project in `.planning/config.json` or globally in `~/.gsd/defaults.json`. Per-project entries win on conflict; non-conflicting global entries are preserved.
 

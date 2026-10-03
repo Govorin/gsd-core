@@ -369,14 +369,14 @@ Built-in tier defaults by runtime:
 
 | Runtime    | `opus`                        | `sonnet`                        | `haiku`                       |
 |------------|-------------------------------|---------------------------------|-------------------------------|
-| `claude`   | `claude-opus-4-8`             | `claude-sonnet-5`             | `claude-haiku-4-5`            |
+| `claude`   | `claude-opus-5-5`             | `claude-sonnet-5-5`             | `claude-haiku-4-5`            |
 | `codex`    | `gpt-5.6-sol`                 | `gpt-5.6-terra`                 | `gpt-5.6-luna`                |
 | `qwen`     | `qwen3-max-2026-01-23`        | `qwen3-coder-plus`              | `qwen3-coder-next`            |
-| `opencode` | `anthropic/claude-opus-4-8`   | `anthropic/claude-sonnet-5`   | `anthropic/claude-haiku-4-5`  |
-| `copilot`  | `claude-opus-4-8`             | `claude-sonnet-5`             | `claude-haiku-4-5`            |
-| `hermes`   | `anthropic/claude-opus-4-8`   | `anthropic/claude-sonnet-5`   | `anthropic/claude-haiku-4-5`  |
-| `kilo`     | `anthropic/claude-opus-4-8`   | `anthropic/claude-sonnet-5`   | `anthropic/claude-haiku-4-5`  |
-| `pi`       | `claude-opus-4-8`             | `claude-sonnet-5`             | `claude-haiku-4-5`            |
+| `opencode` | `anthropic/claude-opus-5-5`   | `anthropic/claude-sonnet-5-5`   | `anthropic/claude-haiku-4-5`  |
+| `copilot`  | `claude-opus-5-5`             | `claude-sonnet-5-5`             | `claude-haiku-4-5`            |
+| `hermes`   | `anthropic/claude-opus-5-5`   | `anthropic/claude-sonnet-5-5`   | `anthropic/claude-haiku-4-5`  |
+| `kilo`     | `anthropic/claude-opus-5-5`   | `anthropic/claude-sonnet-5-5`   | `anthropic/claude-haiku-4-5`  |
+| `pi`       | `claude-opus-5-5`             | `claude-sonnet-5-5`             | `claude-haiku-4-5`            |
 | Group B (`cline`, `cursor`, `windsurf`, `augment`, `trae`, `codebuddy`, `antigravity`) | (no built-in default — your runtime handles model selection) | | |
 
 Display a table to the user showing the effective configuration:
@@ -648,8 +648,8 @@ AskUserQuestion([
     header: "Provider",
     multiSelect: false,
     options: [
-      { label: "anthropic", description: "claude-opus-4-8 / claude-sonnet-5 / claude-haiku-4-5 (Anthropic / Claude)" },
-      { label: "anthropic-fable", description: "claude-fable-5 / claude-sonnet-5 / claude-haiku-4-5 (Anthropic / Claude Fable opt-in)" },
+      { label: "anthropic", description: "claude-opus-5-5 / claude-sonnet-5-5 / claude-haiku-4-5 (Anthropic / Claude)" },
+      { label: "anthropic-fable", description: "claude-fable-5-1 / claude-sonnet-5-5 / claude-haiku-4-5 (Anthropic / Claude Fable opt-in)" },
       { label: "openai", description: "gpt-5.6-sol / gpt-5.6-terra / gpt-5.6-luna (OpenAI / Codex)" },
       { label: "Other known provider", description: "Type google or qwen; both still use the canonical tier mapping." }
     ]
@@ -679,12 +679,12 @@ Canonical tier mappings by provider and budget:
 
 | Provider  | Budget | high                       | medium                     | low                        |
 |-----------|--------|----------------------------|----------------------------|----------------------------|
-| anthropic | high   | claude-opus-4-8            | claude-opus-4-8            | claude-sonnet-5          |
-| anthropic | medium | claude-opus-4-8            | claude-sonnet-5          | claude-haiku-4-5           |
-| anthropic | low    | claude-haiku-4-5           | claude-haiku-4-5           | claude-haiku-4-5           |
-| anthropic-fable | high   | claude-fable-5             | claude-fable-5             | claude-sonnet-5          |
-| anthropic-fable | medium | claude-opus-4-8            | claude-sonnet-5          | claude-haiku-4-5           |
-| anthropic-fable | low    | claude-haiku-4-5           | claude-haiku-4-5           | claude-haiku-4-5           |
+| anthropic | high   | claude-opus-5-5            | claude-opus-5-5            | claude-sonnet-5-5          |
+| anthropic | medium | claude-opus-5-5            | claude-sonnet-5-5          | claude-haiku-4-5           |
+| anthropic | low    | claude-sonnet-5-5          | claude-haiku-4-5           | claude-haiku-4-5           |
+| anthropic-fable | high   | claude-fable-5-1             | claude-fable-5-1             | claude-sonnet-5-5          |
+| anthropic-fable | medium | claude-opus-5-5            | claude-sonnet-5-5          | claude-haiku-4-5           |
+| anthropic-fable | low    | claude-sonnet-5-5          | claude-haiku-4-5           | claude-haiku-4-5           |
 | openai    | high   | gpt-5.6-sol                | gpt-5.6-sol                | gpt-5.6-sol                |
 | openai    | medium | gpt-5.6-sol                | gpt-5.6-terra              | gpt-5.6-luna               |
 | openai    | low    | gpt-5.6-luna               | gpt-5.6-luna               | gpt-5.6-luna               |
@@ -697,7 +697,7 @@ Canonical tier mappings by provider and budget:
 
 Look up the selected (provider, budget) row and proceed to Step E to write those values.
 
-> **claude runtime note:** On the default `claude` runtime, policy-resolved model IDs (e.g. `claude-fable-5`) are mapped to Claude Code agent aliases (`fable`, `opus`, `sonnet`, `haiku`); an ID with no corresponding alias emits a stderr warning and falls back to the configured tier alias.
+> **claude runtime note:** On the default `claude` runtime, policy-resolved model IDs (e.g. `claude-fable-5-1`) are mapped to Claude Code agent aliases (`fable`, `opus`, `sonnet`, `haiku`); an ID with no corresponding alias emits a stderr warning and falls back to the configured tier alias.
 
 **Step D — Generic-provider path:**
 
