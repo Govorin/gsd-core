@@ -1,0 +1,25 @@
+{
+  "id": "mn-expertise",
+  "role": "feature",
+  "version": "1.15.0",
+  "title": "Portable expertise skills",
+  "description": "Ships the project's expertise skills as files under skills/ so a clone carries them. Without this, agent_skills points at ~/.claude/skills and a fresh machine silently resolves nothing. The skills[] array is deliberately empty: that field declares SURFACE skills (the ones that become /gsd-* commands and must exist in commands/gsd/), and every first-party capability keeps the registry a no-op against that manifest. These travel as files and are reached by name through agent_skills, which scans the directory rather than the manifest.",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.6.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [],
+  "agents": [],
+  "hooks": [],
+  "config": {},
+  "steps": [],
+  "contributions": [],
+  "gates": []
+}

@@ -1,0 +1,82 @@
+[
+  {
+    "query": "у меня в libs/savor/services/tasting.service.ts надо достать оценки из базы, я импортнул drizzle-схему прямо из infrastructure/db и линт орёт что-то про layer imports. это вообще законно или мне порт городить?",
+    "should_trigger": true
+  },
+  {
+    "query": "пишу компонент карточки заведения, нужно показать имя текущего юзера. могу я в презентационном компоненте дёрнуть authStore напрямую или это против правил?",
+    "should_trigger": true
+  },
+  {
+    "query": "куда положить функцию canPublishReview(draft) — она нужна и на кнопке чтобы дизейблить, и на бэке чтобы 422 не отдавать. в domain? в dtos? запутался",
+    "should_trigger": true
+  },
+  {
+    "query": "завожу новую либу под работу с картами станций. libs/savor/ui/maps или это должно быть внутри ui/views? и как назвать nx-проект",
+    "should_trigger": true
+  },
+  {
+    "query": "отревьюй пожалуйста мой PR, там новый экран профиля. интересует не стиль а не нарушил ли я границы между либами",
+    "should_trigger": true
+  },
+  {
+    "query": "оxlint выдал @mn/oxc-plugin/enforce-layer-imports на файле libs/polyglot/ui/views/deck-view.ts. что он от меня хочет",
+    "should_trigger": true
+  },
+  {
+    "query": "хочу вынести общий хелпер formatDuration, его используют polyglot и savor. в libs/shared? или пока копию оставить",
+    "should_trigger": true
+  },
+  {
+    "query": "у меня BookingAggregate импортится в react-компонент. коллега говорит нельзя, но линт зелёный. кто прав",
+    "should_trigger": true
+  },
+  {
+    "query": "перекладываю фичу бронирования из старой раскладки. сейчас всё в одной либе feature-booking, надо разнести. что куда",
+    "should_trigger": true
+  },
+  {
+    "query": "в какой слой класть маппер, который переводит доменную ошибку в http-статус",
+    "should_trigger": true
+  },
+  {
+    "query": "у меня EitherAsync цепочка в сервисе разваливается, chain не типизируется после mapLeft. можешь глянуть что не так с дженериками",
+    "should_trigger": false
+  },
+  {
+    "query": "напиши мне zod-схему для формы регистрации: email, пароль минимум 8 символов, повтор пароля должен совпадать",
+    "should_trigger": false
+  },
+  {
+    "query": "nx test savor-services падает с ошибкой про fakeredis, хотя вчера работало. как чинить",
+    "should_trigger": false
+  },
+  {
+    "query": "объясни разницу между Scopes.Singleton() и Scopes.Transient() в dioma, и когда какой брать",
+    "should_trigger": false
+  },
+  {
+    "query": "drizzle-kit generate создал миграцию с drop column, а я только переименовал поле. как заставить его понять что это rename",
+    "should_trigger": false
+  },
+  {
+    "query": "надо ускорить сборку, nx affected прогоняет пол-репозитория на каждом пуше. что можно покрутить в кэше",
+    "should_trigger": false
+  },
+  {
+    "query": "у нас в компоненте карты 300 строк и три useEffect. отрефактори по-человечески, разбей на хуки",
+    "should_trigger": false
+  },
+  {
+    "query": "почему ts-pattern .exhaustive() не ругается на пропущенный вариант, хотя я добавил новый код ошибки в union",
+    "should_trigger": false
+  },
+  {
+    "query": "какие индексы навесить на таблицу bookings, если чаще всего фильтруем по user_id + status и сортируем по created_at",
+    "should_trigger": false
+  },
+  {
+    "query": "прочитай docs/architecture/domain/rules.md и перескажи мне, что там про снапшоты написано",
+    "should_trigger": false
+  }
+]

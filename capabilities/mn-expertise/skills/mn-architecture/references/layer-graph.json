@@ -1,0 +1,673 @@
+{
+ "layers": {
+  "types": [],
+  "queue-contracts": [],
+  "resilience": [],
+  "srs-scheduler": [],
+  "dtos": [
+   "types"
+  ],
+  "dto": [
+   "types"
+  ],
+  "domain": [
+   "types"
+  ],
+  "config": [
+   "types",
+   "domain",
+   "ports"
+  ],
+  "ports": [
+   "types",
+   "dtos",
+   "dto",
+   "domain"
+  ],
+  "mappers": [
+   "domain",
+   "dtos",
+   "dto",
+   "types"
+  ],
+  "services": [
+   "ports",
+   "domain",
+   "config",
+   "types",
+   "dtos",
+   "dto",
+   "mappers",
+   "rules"
+  ],
+  "adapters": [
+   "ports",
+   "types",
+   "dtos",
+   "dto",
+   "domain",
+   "config",
+   "infrastructure",
+   "services",
+   "resilience"
+  ],
+  "controllers": [
+   "dtos",
+   "dto",
+   "services",
+   "use-cases",
+   "ports",
+   "types",
+   "mappers",
+   "ws"
+  ],
+  "jobs": [
+   "services",
+   "ports",
+   "types",
+   "dtos",
+   "dto",
+   "queue-contracts"
+  ],
+  "http": [
+   "types",
+   "dtos",
+   "dto"
+  ],
+  "ui": [
+   "types",
+   "dtos",
+   "dto"
+  ],
+  "ui/facades": [
+   "types",
+   "dtos",
+   "dto",
+   "http",
+   "ws",
+   "ui/adapters"
+  ],
+  "ui/presenters": [
+   "types",
+   "dtos",
+   "dto",
+   "ui/facades"
+  ],
+  "ui/react": [
+   "types",
+   "dtos",
+   "dto",
+   "http",
+   "ui/facades",
+   "ui/presenters",
+   "ui",
+   "ui/adapters"
+  ],
+  "ui/ngx": [
+   "types",
+   "dtos",
+   "dto",
+   "http",
+   "ui/facades",
+   "ui/presenters",
+   "ui"
+  ],
+  "ui/adapters": [
+   "types",
+   "dtos",
+   "dto",
+   "ui/ports",
+   "http",
+   "ws"
+  ],
+  "i18n": [
+   "types",
+   "dtos"
+  ],
+  "rules": [
+   "types",
+   "dtos",
+   "i18n"
+  ],
+  "contracts/proto": [],
+  "infrastructure/db": [
+   "types",
+   "dtos",
+   "domain",
+   "ports"
+  ],
+  "infrastructure/cache": [
+   "types",
+   "dtos",
+   "ports"
+  ],
+  "infrastructure/queue": [
+   "types",
+   "dtos",
+   "ports"
+  ],
+  "infrastructure/files": [
+   "types",
+   "dtos",
+   "ports"
+  ],
+  "infrastructure/search": [
+   "types",
+   "dtos",
+   "ports"
+  ],
+  "infrastructure/adapters": [
+   "types",
+   "dtos",
+   "domain",
+   "ports"
+  ],
+  "transport/http/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services",
+   "rules",
+   "i18n"
+  ],
+  "transport/http/consumer": [
+   "types",
+   "dtos",
+   "ports",
+   "services"
+  ],
+  "transport/ws/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services",
+   "rules",
+   "i18n"
+  ],
+  "transport/ws/consumer": [
+   "types",
+   "dtos",
+   "ports",
+   "services"
+  ],
+  "transport/queue/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services",
+   "rules"
+  ],
+  "transport/queue/consumer": [
+   "types",
+   "dtos",
+   "ports",
+   "services"
+  ],
+  "transport/grpc/provider": [
+   "types",
+   "dtos",
+   "contracts/proto",
+   "ports",
+   "services",
+   "rules"
+  ],
+  "transport/grpc/consumer": [
+   "types",
+   "dtos",
+   "contracts/proto",
+   "ports"
+  ],
+  "transport/notify/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services",
+   "i18n"
+  ],
+  "transport/schedule/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services"
+  ],
+  "transport/export/provider": [
+   "types",
+   "dtos",
+   "ports",
+   "services",
+   "i18n"
+  ],
+  "kit": [
+   "types",
+   "dtos",
+   "dto",
+   "domain",
+   "ports",
+   "services",
+   "config",
+   "infrastructure",
+   "plugins"
+  ],
+  "client": [
+   "types",
+   "dtos"
+  ],
+  "modules/types": [],
+  "modules/dtos": [
+   "modules/types"
+  ],
+  "modules/domain": [
+   "modules/types"
+  ],
+  "modules/ports": [
+   "modules/types",
+   "modules/dtos",
+   "modules/domain"
+  ],
+  "modules/services": [
+   "modules/ports",
+   "modules/domain",
+   "modules/types",
+   "modules/dtos"
+  ],
+  "modules/infrastructure": [
+   "modules/types",
+   "modules/dtos",
+   "modules/domain",
+   "modules/ports"
+  ],
+  "modules/transport/http/provider": [
+   "modules/types",
+   "modules/dtos",
+   "modules/ports",
+   "modules/services"
+  ],
+  "modules/transport/http/consumer": [
+   "modules/types",
+   "modules/dtos",
+   "modules/ports"
+  ],
+  "modules/kit": [
+   "modules/ports",
+   "modules/services",
+   "modules/types",
+   "modules/dtos"
+  ],
+  "modules/client": [
+   "modules/types",
+   "modules/dtos"
+  ],
+  "infrastructure": [
+   "types",
+   "dtos",
+   "dto",
+   "domain",
+   "ports",
+   "config"
+  ],
+  "plugins": [
+   "types",
+   "dtos",
+   "dto",
+   "domain",
+   "ports",
+   "config"
+  ],
+  "nxtui-core": [],
+  "nxtui-ui": [
+   "nxtui-core"
+  ],
+  "nxtui-plugins": [],
+  "nxtui-testing": [],
+  "ui/bridge": [],
+  "ui/tokens": [],
+  "ui/ports": [
+   "types",
+   "dtos",
+   "rules",
+   "i18n"
+  ],
+  "ui/stores": [
+   "types",
+   "dtos",
+   "rules"
+  ],
+  "ui/flows": [
+   "types",
+   "dtos",
+   "rules",
+   "i18n",
+   "ui/ports",
+   "ui/stores"
+  ],
+  "ui/views": [
+   "types",
+   "dtos",
+   "rules",
+   "i18n",
+   "ui/ports",
+   "ui/stores",
+   "ui/flows",
+   "ui/bridge"
+  ],
+  "ui/presentation": [
+   "types",
+   "dtos",
+   "rules",
+   "i18n",
+   "ui/views",
+   "ui/tokens",
+   "ui/ports",
+   "ui/bridge"
+  ]
+ },
+ "consumers": {
+  "types": [
+   "adapters",
+   "client",
+   "config",
+   "controllers",
+   "domain",
+   "dto",
+   "dtos",
+   "http",
+   "i18n",
+   "infrastructure",
+   "infrastructure/adapters",
+   "infrastructure/cache",
+   "infrastructure/db",
+   "infrastructure/files",
+   "infrastructure/queue",
+   "infrastructure/search",
+   "jobs",
+   "kit",
+   "mappers",
+   "plugins",
+   "ports",
+   "rules",
+   "services",
+   "transport/export/provider",
+   "transport/grpc/consumer",
+   "transport/grpc/provider",
+   "transport/http/consumer",
+   "transport/http/provider",
+   "transport/notify/provider",
+   "transport/queue/consumer",
+   "transport/queue/provider",
+   "transport/schedule/provider",
+   "transport/ws/consumer",
+   "transport/ws/provider",
+   "ui",
+   "ui/adapters",
+   "ui/facades",
+   "ui/flows",
+   "ui/ngx",
+   "ui/ports",
+   "ui/presentation",
+   "ui/presenters",
+   "ui/react",
+   "ui/stores",
+   "ui/views"
+  ],
+  "domain": [
+   "adapters",
+   "config",
+   "infrastructure",
+   "infrastructure/adapters",
+   "infrastructure/db",
+   "kit",
+   "mappers",
+   "plugins",
+   "ports",
+   "services"
+  ],
+  "ports": [
+   "adapters",
+   "config",
+   "controllers",
+   "infrastructure",
+   "infrastructure/adapters",
+   "infrastructure/cache",
+   "infrastructure/db",
+   "infrastructure/files",
+   "infrastructure/queue",
+   "infrastructure/search",
+   "jobs",
+   "kit",
+   "plugins",
+   "services",
+   "transport/export/provider",
+   "transport/grpc/consumer",
+   "transport/grpc/provider",
+   "transport/http/consumer",
+   "transport/http/provider",
+   "transport/notify/provider",
+   "transport/queue/consumer",
+   "transport/queue/provider",
+   "transport/schedule/provider",
+   "transport/ws/consumer",
+   "transport/ws/provider"
+  ],
+  "dtos": [
+   "adapters",
+   "client",
+   "controllers",
+   "http",
+   "i18n",
+   "infrastructure",
+   "infrastructure/adapters",
+   "infrastructure/cache",
+   "infrastructure/db",
+   "infrastructure/files",
+   "infrastructure/queue",
+   "infrastructure/search",
+   "jobs",
+   "kit",
+   "mappers",
+   "plugins",
+   "ports",
+   "rules",
+   "services",
+   "transport/export/provider",
+   "transport/grpc/consumer",
+   "transport/grpc/provider",
+   "transport/http/consumer",
+   "transport/http/provider",
+   "transport/notify/provider",
+   "transport/queue/consumer",
+   "transport/queue/provider",
+   "transport/schedule/provider",
+   "transport/ws/consumer",
+   "transport/ws/provider",
+   "ui",
+   "ui/adapters",
+   "ui/facades",
+   "ui/flows",
+   "ui/ngx",
+   "ui/ports",
+   "ui/presentation",
+   "ui/presenters",
+   "ui/react",
+   "ui/stores",
+   "ui/views"
+  ],
+  "dto": [
+   "adapters",
+   "controllers",
+   "http",
+   "infrastructure",
+   "jobs",
+   "kit",
+   "mappers",
+   "plugins",
+   "ports",
+   "services",
+   "ui",
+   "ui/adapters",
+   "ui/facades",
+   "ui/ngx",
+   "ui/presenters",
+   "ui/react"
+  ],
+  "config": [
+   "adapters",
+   "infrastructure",
+   "kit",
+   "plugins",
+   "services"
+  ],
+  "mappers": [
+   "controllers",
+   "services"
+  ],
+  "rules": [
+   "services",
+   "transport/grpc/provider",
+   "transport/http/provider",
+   "transport/queue/provider",
+   "transport/ws/provider",
+   "ui/flows",
+   "ui/ports",
+   "ui/presentation",
+   "ui/stores",
+   "ui/views"
+  ],
+  "infrastructure": [
+   "adapters",
+   "kit"
+  ],
+  "services": [
+   "adapters",
+   "controllers",
+   "jobs",
+   "kit",
+   "transport/export/provider",
+   "transport/grpc/provider",
+   "transport/http/consumer",
+   "transport/http/provider",
+   "transport/notify/provider",
+   "transport/queue/consumer",
+   "transport/queue/provider",
+   "transport/schedule/provider",
+   "transport/ws/consumer",
+   "transport/ws/provider"
+  ],
+  "resilience": [
+   "adapters"
+  ],
+  "use-cases": [
+   "controllers"
+  ],
+  "ws": [
+   "controllers",
+   "ui/adapters",
+   "ui/facades"
+  ],
+  "queue-contracts": [
+   "jobs"
+  ],
+  "http": [
+   "ui/adapters",
+   "ui/facades",
+   "ui/ngx",
+   "ui/react"
+  ],
+  "ui/adapters": [
+   "ui/facades",
+   "ui/react"
+  ],
+  "ui/facades": [
+   "ui/ngx",
+   "ui/presenters",
+   "ui/react"
+  ],
+  "ui/presenters": [
+   "ui/ngx",
+   "ui/react"
+  ],
+  "ui": [
+   "ui/ngx",
+   "ui/react"
+  ],
+  "ui/ports": [
+   "ui/adapters",
+   "ui/flows",
+   "ui/presentation",
+   "ui/views"
+  ],
+  "i18n": [
+   "rules",
+   "transport/export/provider",
+   "transport/http/provider",
+   "transport/notify/provider",
+   "transport/ws/provider",
+   "ui/flows",
+   "ui/ports",
+   "ui/presentation",
+   "ui/views"
+  ],
+  "contracts/proto": [
+   "transport/grpc/consumer",
+   "transport/grpc/provider"
+  ],
+  "plugins": [
+   "kit"
+  ],
+  "modules/types": [
+   "modules/client",
+   "modules/domain",
+   "modules/dtos",
+   "modules/infrastructure",
+   "modules/kit",
+   "modules/ports",
+   "modules/services",
+   "modules/transport/http/consumer",
+   "modules/transport/http/provider"
+  ],
+  "modules/dtos": [
+   "modules/client",
+   "modules/infrastructure",
+   "modules/kit",
+   "modules/ports",
+   "modules/services",
+   "modules/transport/http/consumer",
+   "modules/transport/http/provider"
+  ],
+  "modules/domain": [
+   "modules/infrastructure",
+   "modules/ports",
+   "modules/services"
+  ],
+  "modules/ports": [
+   "modules/infrastructure",
+   "modules/kit",
+   "modules/services",
+   "modules/transport/http/consumer",
+   "modules/transport/http/provider"
+  ],
+  "modules/services": [
+   "modules/kit",
+   "modules/transport/http/provider"
+  ],
+  "nxtui-core": [
+   "nxtui-ui"
+  ],
+  "ui/stores": [
+   "ui/flows",
+   "ui/views"
+  ],
+  "ui/flows": [
+   "ui/views"
+  ],
+  "ui/bridge": [
+   "ui/presentation",
+   "ui/views"
+  ],
+  "ui/views": [
+   "ui/presentation"
+  ],
+  "ui/tokens": [
+   "ui/presentation"
+  ]
+ }
+}
