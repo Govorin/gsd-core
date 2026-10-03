@@ -2625,10 +2625,27 @@ describe('enh-770: Claude install is idempotent for the new hook events', () => 
     const s2 = result2.settings;
 
     for (const event of ['SubagentStop', 'Stop', 'PreCompact']) {
-      const cmds = hooksForEvent(s2, event);
+      // Count the context monitor only: the mn fork also registers its exit
+      // gate on SubagentStop, and that registration has its own dedup.
+      const cmds = hooksForEvent(s2, event).filter((c) => String(c).includes('gsd-context-monitor'));
       assert.strictEqual(cmds.length, 1,
-        `Event ${event} should have exactly 1 hook after idempotent reinstall; got ${cmds.length}: ${JSON.stringify(cmds)}`);
+        `Event ${event} should have exactly 1 context-monitor hook after idempotent reinstall; got ${cmds.length}: ${JSON.stringify(cmds)}`);
     }
+  });
+
+  test('mn fork enforcement hooks: registered once each on Claude, and a reinstall adds none', () => {
+    const result1 = install(false, 'claude', { installerMigrations: [] });
+    persistSettings(result1.settingsPath, result1.settings);
+    process.chdir(tmpDir);
+    const s2 = install(false, 'claude', { installerMigrations: [] }).settings;
+    const count = (event, name) => hooksForEvent(s2, event).filter((c) => String(c).includes(name)).length;
+    assert.strictEqual(count('PreToolUse', 'gsd-prohibition-guard'), 1);
+    assert.strictEqual(count('PreToolUse', 'gsd-test-tamper-guard'), 1);
+    assert.strictEqual(count('SubagentStop', 'gsd-exit-gate'), 1);
+    assert.strictEqual(count('SessionStart', 'gsd-pin-invariants'), 1);
+    assert.strictEqual(count('PostCompact', 'gsd-pin-invariants'), 1);
+    // WorktreeCreate replaces creation; the provisioning hook must never claim it.
+    assert.strictEqual(hooksForEvent(s2, 'WorktreeCreate').length, 0);
   });
 
   test('re-running after persisted first install does not duplicate FileChanged hook', () => {

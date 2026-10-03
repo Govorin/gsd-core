@@ -12971,7 +12971,7 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
 
   if (plan.installSurface === 'copilot-instructions') {
     // Generate copilot-instructions.md
-    const templatePath = path.join(targetDir, 'gsd-core', 'templates', 'copilot-instructions.md');
+    const templatePath = path.join(targetDir, 'gsd-core', 'templates', 'host', 'copilot-instructions.md');
     const instructionsPath = path.join(targetDir, 'copilot-instructions.md');
     if (fs.existsSync(templatePath)) {
       const template = fs.readFileSync(templatePath, 'utf8');

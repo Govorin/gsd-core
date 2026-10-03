@@ -353,6 +353,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/milestone.cjs',
       'gsd-core/bin/lib/phase.cjs',
       'gsd-core/bin/lib/verify.cjs',
+      'gsd-core/bin/lib/verify-gates.cjs',
       'gsd-core/bin/lib/init.cjs',
       'gsd-core/bin/lib/docs.cjs',
       'gsd-core/bin/lib/check-command-router.cjs',
@@ -433,6 +434,13 @@ export default tseslint.config(
       // byte-guarded by `npm run lint:generated-sync`. Lint the
       // src/cli-exit.cts source, not this emitted copy.
       'hooks/lib/cli-exit.js',
+      // Phase 3 (03-01): tsc-generated runtime artifact — lint the src/files-modified-normalize.cts source.
+      'gsd-core/bin/lib/files-modified-normalize.cjs',
+      // Phase 1 (01-01): tsc-generated runtime artifact — lint the src/plan-status.cts source.
+      'gsd-core/bin/lib/plan-status.cjs',
+      // Phase 5 (05-01/05-03): tsc-generated runtime artifacts — lint the src/*.cts sources.
+      'gsd-core/bin/lib/feature-vocabulary.cjs',
+      'gsd-core/bin/lib/feature-view.cjs',
     ],
   },
 

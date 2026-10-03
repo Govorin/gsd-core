@@ -34,6 +34,19 @@ import { escapeRegex } from './pattern.cjs';
 import unusableInputMod = require('./unusable-input.cjs');
 const { UNUSABLE_REASON, warnUnusableInput } = unusableInputMod;
 import { load as yamlLoad, dump as yamlDump, FAILSAFE_SCHEMA, YAMLException } from './vendor/js-yaml.cjs';
+// The plan lifecycle vocabulary, its normalisation, and the blocked_reason ceiling
+// live in exactly ONE place (src/plan-status.cts). Nothing here re-declares any of
+// them: `status` already ships with two independent readers hardcoding its literals
+// (src/plan-scan.cts:67, orphan-plans.mjs:136-153) and this validator would have been
+// a third list free to drift. plan-status.cts is a LEAF module (zero src/ imports),
+// which is what makes this edge safe — frontmatter.cts is itself required by 20+
+// modules including plan-scan.cts, so any back-edge would close an import cycle.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import planStatus = require('./plan-status.cjs');
+// Same CommonJS import form, and same leaf-module safety, as plan-status above:
+// feature-vocabulary.cts imports only plan-status.cts, so this edge closes no cycle.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import featureVocabulary = require('./feature-vocabulary.cjs');
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1370,12 +1383,49 @@ function spliceModule(): typeof import('./frontmatter-splice.cjs') {
 // FRONTMATTER_SCHEMAS cannot refer to itself mid-initialization (TDZ).
 const PLAN_REQUIRED_FIELDS = ['phase', 'plan', 'type', 'wave', 'depends_on', 'files_modified', 'autonomous', 'must_haves'];
 
+// The status vocabulary a plan-shaped schema admits. Named once and shared by
+// 'plan' and 'plan-gap-closure' — derived from PLAN_STATUSES, never hand-copied,
+// for the same no-drift reason PLAN_REQUIRED_FIELDS is shared below.
+const PLAN_ALLOWED_VALUES: Record<string, readonly string[]> = {
+  status: planStatus.PLAN_STATUSES,
+  // `feature` (ROADMAP Phase 5 criterion 1) is ONE added key, not a second
+  // mechanism — the fourth pass below is already generic over the field name, so
+  // no branch, no new response key, and no entry in PLAN_REQUIRED_FIELDS (D-52:
+  // zero plans on disk carry the field, so requiring it would invalidate every
+  // one of them at once).
+  //
+  // Why this vocabulary is IMPORTED from a generated module while PLAN_STATUSES
+  // is a literal: the feature list is authored in the `<!-- gsd:feature-vocabulary -->`
+  // block of .planning/ROADMAP.md and compiled here by
+  // scripts/gen-feature-vocabulary.cjs. It cannot be read at validate time
+  // because `frontmatter` sits in SKIP_ROOT_RESOLUTION (gsd-core/bin/gsd-tools.cjs)
+  // — it must work from any cwd, INCLUDING one with no .planning/ at all — so a
+  // runtime read would either reverse that dispatch decision or fall back to an
+  // empty vocabulary, at which point every feature: value would validate.
+  feature: featureVocabulary.FEATURE_VALUES,
+};
+
 // `requiredValues` is optional per schema: when a field name is a key here, the
 // field must be PRESENT AND strictly equal (===) to the given value to satisfy
 // the schema — presence alone is not enough. Every other required field (no
 // entry in requiredValues) keeps the original presence-only contract.
-const FRONTMATTER_SCHEMAS: Record<string, { required: string[]; requiredValues?: Record<string, FrontmatterValue> }> = {
-  plan: { required: PLAN_REQUIRED_FIELDS },
+//
+// `allowedValues` (D-01) is a SEPARATE mechanism sitting BESIDE requiredValues, not
+// a widening of it. The contract difference in one line: `requiredValues` constrains
+// a REQUIRED field to ONE value; `allowedValues` constrains an OPTIONAL field to a
+// SET, and is checked whether or not the field appears in `required`. A schema may
+// carry either, both, or neither. The distinction is load-bearing rather than
+// stylistic: all three of the existing `.filter` passes in cmdFrontmatterValidate
+// iterate `schema.required`, so a field outside that array is never value-checked at
+// all — and `status` must stay outside it (D-03 keeps PLAN_REQUIRED_FIELDS at 8
+// fields; D-04 makes requiring `status` unsafe, since ~1031 plans on disk carry none
+// and absence legitimately means "not started").
+const FRONTMATTER_SCHEMAS: Record<string, {
+  required: string[];
+  requiredValues?: Record<string, FrontmatterValue>;
+  allowedValues?: Record<string, readonly string[]>;
+}> = {
+  plan: { required: PLAN_REQUIRED_FIELDS, allowedValues: PLAN_ALLOWED_VALUES },
   // #2847: gap-closure plans carry every 'plan' field PLUS gap_closure — the flag
   // execute-phase --gaps-only filters on. A separate schema (not a change to
   // 'plan') so standard/reviews-mode plans stay unaffected: they validate against
@@ -1394,9 +1444,40 @@ const FRONTMATTER_SCHEMAS: Record<string, { required: string[]; requiredValues?:
     // no boolean member — `gap_closure: true` in YAML becomes the JS string
     // "true", not the boolean true), so the required value is the string here.
     requiredValues: { gap_closure: 'true' },
+    // Both mechanisms on ONE schema, proving they compose rather than compete:
+    // gap_closure is still checked by requiredValues exactly as #2847 shipped it,
+    // while status is checked by allowedValues. Derived from the shared object so
+    // the two plan-shaped schemas cannot drift apart on the vocabulary either.
+    allowedValues: PLAN_ALLOWED_VALUES,
   },
   summary: { required: ['phase', 'plan', 'subsystem', 'tags', 'duration', 'completed'] },
   verification: { required: ['phase', 'verified', 'status', 'score'] },
+};
+
+/**
+ * D-08 status-specific companion fields, as a code TABLE rather than a chain of
+ * `if (status === 'blocked')` branches — for the same reason the transition matrix in
+ * plan-status.cts is a table: a reviewer changes behaviour by editing data.
+ *
+ *   blocked     → requires a non-empty blocked_reason
+ *   superseded  → requires superseded_by
+ *   in_progress → (none)
+ *   done        → (none)
+ *
+ * `in_progress` and `done` are absent BY CONSTRUCTION, not by an omitted branch: the
+ * lookup below is `hasOwnProperty`-guarded and a miss means "requires nothing".
+ *
+ * The two field names are INDEXED OUT of plan-status.cts's PLAN_STATUS_COMPANION_FIELDS
+ * roster rather than re-typed as literals, so renaming one there is a compile-time break
+ * here rather than a silent no-op that would quietly stop requiring the field.
+ * `status_at` (index 2, D-12) is in that roster but has no entry here: it is written
+ * because it is cheap and reversible, and is deliberately never required.
+ */
+const [COMPANION_BLOCKED_REASON, COMPANION_SUPERSEDED_BY] = planStatus.PLAN_STATUS_COMPANION_FIELDS;
+
+const STATUS_COMPANION_FIELDS: Record<string, string> = {
+  blocked: COMPANION_BLOCKED_REASON,
+  superseded: COMPANION_SUPERSEDED_BY,
 };
 
 /**
@@ -1696,7 +1777,103 @@ function cmdFrontmatterValidate(cwd: string, filePath: string, schemaName: strin
   const missing = schema.required.filter(f => !satisfies(f));
   const present = schema.required.filter(f => satisfies(f));
   const invalidValue = schema.required.filter(wrongValue);
-  output({ valid: missing.length === 0, missing, present, invalidValue, schema: schemaName }, raw, missing.length === 0 ? 'valid' : 'invalid');
+
+  // ── allowedValues: a FOURTH pass, over its own key set (D-01) ──
+  //
+  // The three passes above all filter `schema.required`. This one iterates
+  // `Object.keys(schema.allowedValues)` instead, which is the entire point: an
+  // OPTIONAL field can never be value-checked by a pass that only walks the
+  // required array, and D-03 forbids adding `status` to that array.
+  //
+  // Results are folded back into the EXISTING {valid, missing, present,
+  // invalidValue, errors, schema} contract rather than announced on a new
+  // top-level key that today's callers would silently ignore. An offender goes
+  // into `invalidValue` (it is plainly present in the file — telling the author
+  // it is "missing" would send them hunting for something they can see, the
+  // actionability point the #2847 comment above makes) AND into `missing`, so
+  // `valid` stays derived from `missing.length === 0` with that formula untouched.
+  // `errors` is likewise established on this surface — the NUL-corruption path
+  // above already emits {valid:false, errors:[…]}.
+  const allowedValues = schema.allowedValues || {};
+  const errors: string[] = [];
+  const flagInvalid = (field: string, message: string): void => {
+    if (!invalidValue.includes(field)) invalidValue.push(field);
+    if (!missing.includes(field)) missing.push(field);
+    errors.push(message);
+  };
+  const flagMissing = (field: string, message: string): void => {
+    if (!missing.includes(field)) missing.push(field);
+    errors.push(message);
+  };
+  // Prototype-chain hardening (T-01-04): frontmatter keys are untrusted,
+  // git-committable content, so a plan carrying `__proto__` or `constructor` as a
+  // key must not resolve through a bare `fm[field]` lookup to an Object.prototype
+  // member and thereby read as "present" (or as a function) to the checks below.
+  // Same style the requiredValues guard above uses.
+  const own = (field: string): FrontmatterValue | undefined =>
+    Object.prototype.hasOwnProperty.call(fm, field) ? fm[field] : undefined;
+
+  for (const field of Object.keys(allowedValues)) {
+    const rawValue = own(field);
+    // D-04: absence is VALID and contributes nothing. `status` absent means "not
+    // started"; ~1031 plans on disk carry no status and not one is migrated.
+    if (rawValue === undefined) continue;
+    const vocabulary = Object.prototype.hasOwnProperty.call(allowedValues, field)
+      ? allowedValues[field]
+      : undefined;
+    if (vocabulary === undefined) continue;
+    // D-06a: normalise (trim + lowercase) exactly as src/plan-scan.cts:67 does, so
+    // `Status: SUPERSEDED` validates here rather than being rejected as unknown by
+    // a validator stricter than the reader that already accepts the same file.
+    const normalized = planStatus.normalizePlanStatus(rawValue);
+    if (normalized === null || !vocabulary.includes(normalized)) {
+      // D-09: name BOTH the offending value and the allowed set. A vocabulary that
+      // degraded silently is how `/status:\s*passed/i` came to read `passed-degraded`
+      // as success.
+      flagInvalid(field, `Invalid ${field}: ${JSON.stringify(rawValue)} is not one of: ${vocabulary.join(', ')}`);
+      continue;
+    }
+    // ── D-08 companion fields, evaluated ONLY for an in-vocabulary status ──
+    //
+    // A garbage value already failed above; also demanding its companion field
+    // would emit two confusing errors for one defect.
+    //
+    // Driven by the same table the vocabulary comes from, so `blocked` and
+    // `superseded` are the only statuses with a requirement and `in_progress`/`done`
+    // require nothing by construction — not by an omitted `if` branch.
+    if (field !== 'status') continue;
+    const companion = Object.prototype.hasOwnProperty.call(STATUS_COMPANION_FIELDS, normalized)
+      ? STATUS_COMPANION_FIELDS[normalized]
+      : undefined;
+    if (companion === undefined) continue;
+    const companionValue = own(companion);
+    if (companion === COMPANION_BLOCKED_REASON) {
+      // The length test and the ceiling both live in plan-status.cts; neither is
+      // re-implemented or re-declared here (D-10 forbids truncation, and there is
+      // no truncation path on this code path at all).
+      const check = planStatus.validateBlockedReason(companionValue);
+      if (check.ok) continue;
+      if (check.reason === 'too_long') {
+        // `too_long` → invalidValue: the field is plainly present in the file.
+        // The message names the actual length and the limit, and deliberately does
+        // NOT echo the reason back, whole or shortened.
+        flagInvalid(companion, `Invalid ${companion}: ${check.length} characters exceeds the limit of ${check.limit} (status: ${normalized})`);
+      } else {
+        // `missing`/`empty` → missing: the field is genuinely absent or blank.
+        flagMissing(companion, `Missing ${companion}: status "${normalized}" requires a non-empty ${companion}`);
+      }
+      continue;
+    }
+    if (typeof companionValue !== 'string' || companionValue.trim() === '') {
+      flagMissing(companion, `Missing ${companion}: status "${normalized}" requires a non-empty ${companion}`);
+    }
+  }
+
+  const result: Record<string, unknown> = { valid: missing.length === 0, missing, present, invalidValue, schema: schemaName };
+  // Keep `errors` off the payload entirely when nothing failed, so a passing
+  // response is byte-identical to the one this command emitted before this change.
+  if (errors.length > 0) result.errors = errors;
+  output(result, raw, missing.length === 0 ? 'valid' : 'invalid');
 }
 
 export = {

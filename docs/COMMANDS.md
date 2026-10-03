@@ -2277,6 +2277,7 @@ Each `warnings` entry is a coded diagnostic object (`{code, severity, message, r
 | `S007` | warning | Every plan in the phase has a summary, but STATE.md still says "executing" |
 | `S008` | warning | STATE.md's `Last activity` value does not begin with a real calendar date, so no reader can date the project's activity |
 | `S009` | warning | The `Last activity` description wrapped onto a second line, and every reader silently drops the remainder |
+| `S010` | warning | A `*-VERIFICATION.md` in the phase declares a `status:` outside the verifier's vocabulary (`passed`, `gaps_found`, `human_needed`) — e.g. `passed-degraded`; it is treated as unverified, never as passed |
 
 ---
 

@@ -4210,6 +4210,109 @@ function cmdInitRemoveWorkspace(cwd: string, name: string | undefined, raw: bool
   output(withProjectRoot(cwd, result), raw);
 }
 
+/**
+ * Find a skill of this name among the skills shipped by installed capabilities.
+ *
+ * A capability may carry its own `skills/<name>/SKILL.md` files (#2045); the installer
+ * copies the whole capability directory, so those files land intact. Nothing pointed
+ * `global:<name>` at them, which made a vendored skill unreachable by the one name a
+ * config can use — the capability installs, the file is on disk, and every reference to
+ * it resolves to nothing.
+ *
+ * That gap is what makes a setup unportable: a checkout can carry its expertise as files,
+ * but on a machine without `~/.claude/skills` every `global:` entry silently resolves to
+ * nothing anyway. Searching capabilities makes the vendored copy the answer.
+ *
+ * Precedence is deliberate: the caller tries the runtime's own skills directory FIRST and
+ * only falls back here. A skill the user installed globally wins over a vendored copy of
+ * the same name, so vendoring can never silently override what the machine already has.
+ *
+ * Scans both overlay roots — `<home>/.gsd/capabilities` and `<projectRoot>/.gsd/capabilities`
+ * — with the project root taking precedence, matching how capabilities themselves compose.
+ * Returns null when nothing matches; the caller keeps its existing not-found warning.
+ */
+function findCapabilitySkillDir(skillName: string, projectRoot: string): string | null {
+  const home = process.env['GSD_HOME'] || process.env['HOME'] || process.env['USERPROFILE'] || '';
+  const roots = [
+    projectRoot ? path.join(projectRoot, '.gsd', 'capabilities') : null,
+    home ? path.join(home, '.gsd', 'capabilities') : null,
+  ].filter((r): r is string => r !== null);
+
+  for (const root of roots) {
+    let capIds: string[];
+    try {
+      capIds = fs
+        .readdirSync(root, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => e.name)
+        .sort();
+    } catch {
+      continue;
+    }
+    for (const capId of capIds) {
+      const dir = path.join(root, capId, 'skills', skillName);
+      let stat: fs.Stats;
+      try {
+        // lstat, not exists: a symlinked skill directory inside a capability is not a
+        // shape the installer produces, and following one would read outside the
+        // capability tree the consent flow actually vetted.
+        stat = fs.lstatSync(dir);
+      } catch {
+        continue;
+      }
+      if (!stat.isDirectory()) continue;
+      if (fs.existsSync(path.join(dir, 'SKILL.md'))) return dir;
+    }
+  }
+  return null;
+}
+
+/**
+ * Does this path point DIRECTLY into the runtime's own global skills directory?
+ *
+ * Recognizes the shapes a user writes after reading that directory's layout:
+ * `~/.claude/skills/foo`, `$HOME/.claude/skills/foo`, `%USERPROFILE%\.claude\skills\foo`,
+ * and the already-expanded absolute form. Used to decide whether a path that failed
+ * project-relative resolution may be re-read as `global:<basename>` — such a path names
+ * exactly one skill in exactly the place `global:` resolves to, so honouring it hands
+ * back the file the user pointed at rather than a different one.
+ *
+ * Two shapes deliberately do NOT qualify, because for them a basename is not a promise
+ * about location:
+ *   - A BARE name (`foo`) is a legitimate project-relative reference; preferring a global
+ *     copy would silently shadow the project's own skill of that name.
+ *   - Any OTHER home-anchored path (`~/.gsd/capabilities/<id>/skills/foo`, a vendored
+ *     tree, a sibling checkout) points somewhere else. Re-reading it as `global:foo`
+ *     would return `~/.claude/skills/foo` — a different file that merely shares a
+ *     basename. Substituting one file for another is worse than the skip it replaces,
+ *     because nothing downstream can tell it happened.
+ *
+ * Compared against the runtime's actual skills base, so it stays correct for runtimes
+ * that do not use `~/.claude` (Kilo's `~/.kilo/skills`, and so on).
+ */
+function isRuntimeGlobalSkillsPath(skillPath: string, globalSkillsBase: string | null): boolean {
+  if (globalSkillsBase === null) return false;
+
+  const slash = (s: string): string => s.replace(/\\/g, '/').replace(/\/+$/, '');
+  const home = slash(process.env['HOME'] ?? process.env['USERPROFILE'] ?? '');
+  const base = slash(globalSkillsBase);
+  if (base === '') return false;
+
+  let normalized = slash(skillPath);
+  if (home !== '') {
+    normalized = normalized
+      .replace(/^~(?=\/)/, home)
+      .replace(/^\$\{HOME\}(?=\/)/, home)
+      .replace(/^\$HOME(?=\/)/, home)
+      .replace(/^%USERPROFILE%(?=\/)/i, home);
+  }
+
+  if (!normalized.startsWith(`${base}/`)) return false; // allow-handrolled-containment: identity matching — decides whether the written path NAMES a direct child of the skills base (then re-read as global:<basename>), not whether a path may be accessed
+  // Must sit DIRECTLY under the base — `<base>/<name>`, never `<base>/a/b`, since that
+  // is not what `global:<basename>` resolves to.
+  return !normalized.slice(base.length + 1).includes('/');
+}
+
 function buildAgentSkillsBlock(
   config: Record<string, unknown>,
   agentType: string,
@@ -4293,6 +4396,19 @@ function buildAgentSkillsBlock(
       const globalSkillMd = path.join(globalSkillDir, 'SKILL.md');
       const displayPath = getGlobalSkillDisplayPath(runtime, skillName);
       if (!fs.existsSync(globalSkillMd)) {
+        // Fall back to a skill vendored by an installed capability. This is what lets a
+        // checkout carry its own expertise: on a machine with no ~/.claude/skills the
+        // global directory is empty, but a capability's skills/ tree travelled with the
+        // repository. Tried only AFTER the runtime's own directory, so a globally
+        // installed skill still wins over a vendored copy of the same name.
+        const vendored = findCapabilitySkillDir(skillName, projectRoot);
+        if (vendored !== null) {
+          process.stderr.write(
+            `[agent-skills] NOTE: Global skill "${skillName}" resolved from an installed capability (${vendored})\n`,
+          );
+          validEntries.push({ kind: 'include', ref: `${vendored}/SKILL.md`, display: vendored });
+          continue;
+        }
         warn(
           `[agent-skills] WARNING: Global skill not found at "${displayPath}/SKILL.md" — skipping\n`,
         );
@@ -4340,11 +4456,40 @@ function buildAgentSkillsBlock(
       // user likely meant to reference a global skill. getGlobalSkillDir is already
       // imported for the global: branch above; guard on globalSkillsBase being non-null
       // since runtimes without a skills directory don't support the prefix.
+      //
+      // Fork change: when the path points directly into the runtime's own global skills
+      // directory (`~/.claude/skills/quality-typescript`) and the basename resolves to a
+      // real skill there, accept the entry instead of skipping it with advice. That path
+      // is the shape a user writes after reading the directory's layout, and it names
+      // exactly one skill in exactly the place `global:` resolves to — there is nothing
+      // to disambiguate, only a prefix to translate. Skipping it was a silent 49% loss on
+      // a live project (43 of 87 entries, `quality-typescript` for nine agents), and it
+      // was silent in the worst way: a warning on stderr, exit 0, and a well-formed
+      // <agent_skills> block that looks complete.
+      //
+      // The predicate is deliberately narrow — see isRuntimeGlobalSkillsPath. A bare name
+      // and any path pointing ELSEWHERE under $HOME are both excluded, because for them
+      // the basename says nothing about which file was meant, and answering with a
+      // same-named file from another directory is a substitution nothing downstream can
+      // detect.
       let hint = '';
       if (globalSkillsBase !== null) {
         const baseName = path.basename(skillPath);
         const globalDir = getGlobalSkillDir(runtime, baseName) as string;
         if (globalDir && fs.existsSync(path.join(globalDir, 'SKILL.md'))) {
+          if (isRuntimeGlobalSkillsPath(skillPath, globalSkillsBase)) {
+            // Acceptance trace, not a skip: a direct stderr write so it does not land
+            // in diagnostics.warnings[] (same convention as trusted_global_roots above).
+            process.stderr.write(
+              `[agent-skills] NOTE: "${skillPath}" resolved as global skill "${baseName}" (prefer the canonical form "global:${baseName}")\n`,
+            );
+            validEntries.push({
+              kind: 'include',
+              ref: `${globalDir}/SKILL.md`,
+              display: getGlobalSkillDisplayPath(runtime, baseName),
+            });
+            continue;
+          }
           hint = ` — a global skill named "${baseName}" exists; use "global:${baseName}" to reference it`;
         }
       }

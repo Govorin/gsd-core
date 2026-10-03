@@ -5973,7 +5973,28 @@ function cmdStateValidate(cwd: string, raw: boolean, opts: { strict?: boolean } 
         for (const vf of verificationFiles) {
           try {
             const vContent = fs.readFileSync(path.join(phaseDirPath, vf), 'utf-8');
-            if (/status:\s*passed/i.test(vContent) && /executing/i.test(status)) {
+            // Anchored to end-of-value on purpose. An unanchored /status:\s*passed/i
+            // matched `passed-degraded` and `passed_with_human_verification` too —
+            // statuses outside the vocabulary, invented by an agent to close a
+            // phase without claiming `passed` and without admitting `gaps_found`.
+            // Scoring those as success let a phase its own report declined to
+            // call passing read as green system-wide. The vocabulary is the
+            // verifier's closed writer set, not a local copy, so the two cannot
+            // drift apart.
+            const statusLine = /^status:\s*(.+?)\s*(?:#.*)?$/im.exec(vContent);
+            const declared = statusLine?.[1]?.replace(/^['"]|['"]$/g, '');
+            const verifierStatuses = verificationMod.VERIFIER_STATUSES as ReadonlySet<string>;
+
+            if (declared && !verifierStatuses.has(declared)) {
+              warnings.push(stateDiagnostic(
+                'S010',
+                SEVERITY.WARNING,
+                `Non-canonical status "${declared}" in ${vf} — expected one of: ${[...verifierStatuses].join(', ')}. Treated as unverified.`,
+                `Re-run verification so ${vf} declares one of: ${[...verifierStatuses].join(', ')}`,
+              ));
+            }
+
+            if (declared === 'passed' && /executing/i.test(status)) {
               warnings.push(stateDiagnostic(
                 'S006',
                 SEVERITY.WARNING,

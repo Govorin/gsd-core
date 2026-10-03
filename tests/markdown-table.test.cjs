@@ -877,6 +877,48 @@ describe('updateTableCell', () => {
     assert.ok(/AUTHZ-02 \| Phase 02\.2 \| Complete/.test(result.value), 'second table Status cell flipped Pending → Complete');
   });
 
+  test('#4102: a legend table lacking the target column ahead of the real table is skipped, not fatal', () => {
+    // Reproduces the BACKLOG.md finding: `## Traceability` opened with an
+    // "ARMED/LOADED" legend table (no Status column) before the actual
+    // Requirement/Phase/Status table. The old first-table-only scan returned
+    // {ok:false, reason:'unknown column: Status'} against the legend table
+    // and silently skipped the real row's write.
+    const section = [
+      '## Traceability',
+      '',
+      '| Тип | Критерий закрытия |',
+      '|-----|-------------------|',
+      '| **Задача** | Артефакт существует |',
+      '',
+      '| Requirement | Phase | Тип | Status |',
+      '|-------------|-------|-----|--------|',
+      '| PLAT-10 | Фаза 12 | Задача | Pending |',
+      '| CONTRACT-09 | Фаза 12 | Задача | Pending |',
+    ].join('\n');
+
+    const byReqId = (row) => (Object.values(row)[0] ?? '').trim() === 'PLAT-10';
+    const result = updateTableCell(section, byReqId, 'Status', 'Complete');
+    assert.equal(result.ok, true);
+    assert.ok(result.value.includes('| PLAT-10 | Фаза 12 | Задача |Complete|'));
+    // The legend table above it is untouched.
+    assert.ok(result.value.includes('| **Задача** | Артефакт существует |'));
+  });
+
+  test('#4102: every candidate table lacking the column still reports {ok:false, unknown column}', () => {
+    const section = [
+      '| Тип | Критерий |',
+      '|-----|----------|',
+      '| A | B |',
+      '',
+      '| Foo | Bar |',
+      '|-----|-----|',
+      '| C | D |',
+    ].join('\n');
+    const result = updateTableCell(section, () => true, 'Status', 'x');
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /unknown column: Status/);
+  });
+
   test('5-column milestone table: Milestone cell and other columns stay byte-identical', () => {
     const byPhase = (row) => row['Phase'].trim() === '1. Alpha';
     const result = updateTableCell(fiveCol, byPhase, 'Plans Complete', ' 2/2 ');

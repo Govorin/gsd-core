@@ -4371,7 +4371,22 @@ function cmdPhaseComplete(cwd: string, phaseNum: string, raw: boolean): void {
           // A false "deferred" here only ever SUPPRESSES a warning — strictly
           // safer than spamming a warning on every v\d+-headed scaffold when
           // we cannot tell whether it names the active milestone.
-          const DEFERRED_KEYWORD_RE = /\b(?:deferred|backlog|future)\b/i;
+          // `decision`/`decisions` joins the list because a "Deferred Decisions"
+          // table records product choices the owner has parked — consumers of a
+          // Staff API, Cyrillic vs Latin — not requirements. Its rows carry
+          // ID-shaped labels (DEF-03, DEF-04) which the body scan below matches
+          // like any other, so every such row was reported as "missing from
+          // Traceability" on every phase.complete. Observed in legion-app,
+          // 2026-08-15; worked around by ignoring the warning, which is how a
+          // warning stops being read.
+          //
+          // Filtering by ID PREFIX was the obvious alternative and is wrong:
+          // real projects namespace their requirements freely — ucars uses ENF,
+          // UI, FEAT, APP; trade-mind uses MONEY, RT, ROUTES, SVC, BOOT — so a
+          // REQ-/TOOL- allowlist would silently stop checking most of them. The
+          // section a row lives in says whether it is a requirement; its prefix
+          // does not.
+          const DEFERRED_KEYWORD_RE = /\b(?:deferred|backlog|future|decisions?)\b/i;
           const HEADING_VERSION_RE = /\bv(\d+)(?:\.\d+)*\b/i;
           const stateRawForMilestone = fs.existsSync(statePath) ? fs.readFileSync(statePath, 'utf-8') : null;
           const currentMilestoneRaw = stateRawForMilestone

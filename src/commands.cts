@@ -3765,8 +3765,14 @@ function cmdScaffold(cwd: string, type: string, options: ScaffoldOptions, raw: b
       break;
     }
     case 'verification': {
+      // No `status:` line. The verification vocabulary is closed to the
+      // verifier's writer set (passed | gaps_found | human_needed — ADR-5057,
+      // #5118), so the old `status: pending` placeholder made every reader of a
+      // freshly scaffolded report throw VerificationStatusError (#5202). An
+      // absent status is the honest "not yet verified" — only the verifier
+      // writes one.
       filePath = path.join(phaseDir as string, `${padded}-VERIFICATION.md`);
-      content = `---\nphase: "${padded}"\nname: "${name || (phaseInfo?.['phase_name'] as string | undefined) || 'Unnamed'}"\ncreated: ${today}\nstatus: pending\n---\n\n# Phase ${phase}: ${name || (phaseInfo?.['phase_name'] as string | undefined) || 'Unnamed'} — Verification\n\n## Goal-Backward Verification\n\n**Phase Goal:** [From ROADMAP.md]\n\n## Checks\n\n| # | Requirement | Status | Evidence |\n|---|------------|--------|----------|\n\n## Result\n\n_Pending verification_\n`;
+      content = `---\nphase: "${padded}"\nname: "${name || (phaseInfo?.['phase_name'] as string | undefined) || 'Unnamed'}"\ncreated: ${today}\n---\n\n# Phase ${phase}: ${name || (phaseInfo?.['phase_name'] as string | undefined) || 'Unnamed'} — Verification\n\n## Goal-Backward Verification\n\n**Phase Goal:** [From ROADMAP.md]\n\n## Checks\n\n| # | Requirement | Status | Evidence |\n|---|------------|--------|----------|\n\n## Result\n\n_Pending verification_\n`;
       break;
     }
     case 'phase-dir': {

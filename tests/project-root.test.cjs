@@ -388,4 +388,47 @@ describe('findProjectRoot nearest-.planning resolution (#1414)', () => {
     assert.notStrictEqual(result, parentGsd,
       'a symlinked non-.planning directory holding a nested repo must still count as a git boundary');
   });
+
+  // declaredOnly — the mode gsd-tools uses when the caller NAMED the directory
+  // via --cwd. Upward resolution then requires an ancestor to have CLAIMED the
+  // directory (sub_repos / multiRepo); the implicit signals must not fire.
+  describe('declaredOnly (an explicitly named --cwd)', () => {
+    test('a bootstrap target under a monorepo that owns .planning/ resolves to itself', () => {
+      // The shape `gsd-new-project --cwd libs/modules/<name>` creates: the
+      // monorepo owns .git and .planning/, the target owns neither yet.
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({}));
+      const target = mkDeep(tmpDir, 'libs', 'modules', 'norn');
+
+      assert.strictEqual(findProjectRoot(target), tmpDir,
+        'precondition: without declaredOnly the implicit heuristics re-root onto the monorepo');
+      assert.strictEqual(findProjectRoot(target, { declaredOnly: true }), target,
+        'a named directory no ancestor claimed is the answer, not a starting point');
+    });
+
+    test('a sub-repo an ancestor DECLARED in sub_repos still resolves to that ancestor', () => {
+      // The counterweight: declaredOnly must not turn --cwd into "never resolve".
+      // An ancestor listing the directory in sub_repos stated the relationship.
+      fs.mkdirSync(path.join(tmpDir, '.git'), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
+      fs.writeFileSync(
+        path.join(tmpDir, '.planning', 'config.json'),
+        JSON.stringify({ sub_repos: ['backend', 'frontend'] }),
+      );
+      const backend = mkDeep(tmpDir, 'backend');
+
+      assert.strictEqual(findProjectRoot(backend, { declaredOnly: true }), tmpDir,
+        'an explicit sub_repos claim outranks declaredOnly');
+    });
+
+    test('a directory that owns .planning/ is unaffected by declaredOnly', () => {
+      // Heuristic (0) short-circuits before any of this; pinned so the flag
+      // cannot regress an already-rooted project.
+      const own = mkDeep(tmpDir, 'proj');
+      fs.mkdirSync(path.join(own, '.planning'), { recursive: true });
+
+      assert.strictEqual(findProjectRoot(own, { declaredOnly: true }), own);
+    });
+  });
 });

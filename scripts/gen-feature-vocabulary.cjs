@@ -222,6 +222,18 @@ function parseVocabularyBlock(markdown) {
     const gloss = match[2].trim();
     const token = normalizeToken(rawToken);
 
+    // The gloss is interpolated into the generated module's leading JSDoc
+    // comment (serializeModule), where JSON.stringify does NOT apply. A `*/` in
+    // a gloss would close that comment and turn the rest of the line into
+    // emitted code — the injection T-05-01 exists to rule out.
+    if (gloss.includes('*/')) {
+      throw new VocabularyError(
+        REASON.FAIL_ENTRY_MALFORMED,
+        `Illegal feature gloss in ROADMAP.md: ${JSON.stringify(line)}\n` +
+        'A gloss must not contain `*/` — it is emitted inside a comment in the generated module.\n',
+      );
+    }
+
     if (rawToken !== token || !TOKEN_PATTERN.test(token)) {
       throw new VocabularyError(
         REASON.FAIL_TOKEN_NOT_NORMALIZED,
@@ -377,6 +389,64 @@ export = {
 `;
 }
 
+// ─── Committed artifacts (the ROADMAP-absent path) ────────────────────────────
+
+/**
+ * Read the committed manifest, validate its shape, and check that the committed
+ * module is exactly what the manifest serializes to. Used when the ROADMAP is
+ * absent (a clean clone): the manifest is then the vocabulary's only definition
+ * in the tree, so it is held to the same "never degrade to empty" rule.
+ *
+ * @param {string} manifestPath
+ * @param {string} modulePath
+ * @returns {{ ok: true, vocabulary: { features: string[], glosses: Record<string, string>, count: number } }
+ *   | { ok: false, reason: string, features: string[], count: number, message: string }}
+ */
+function readCommittedArtifacts(manifestPath, modulePath) {
+  const fail = (reason, message) => ({ ok: false, reason, features: [], count: 0, message });
+  const regen = 'Run (with .planning/ROADMAP.md present):\n  node scripts/gen-feature-vocabulary.cjs --write\n';
+
+  if (!fs.existsSync(manifestPath)) {
+    return fail(REASON.FAIL_MANIFEST_MISSING, `${path.relative(ROOT, manifestPath)} does not exist. ${regen}`);
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  } catch (err) {
+    return fail(REASON.FAIL_MANIFEST_UNPARSEABLE, `${path.relative(ROOT, manifestPath)} is unparseable: ${err && err.message}\n${regen}`);
+  }
+  const features = manifest && Array.isArray(manifest.features) ? manifest.features : null;
+  const glosses = manifest && manifest.glosses && typeof manifest.glosses === 'object' ? manifest.glosses : null;
+  const wellFormed =
+    features !== null &&
+    glosses !== null &&
+    features.length > 0 &&
+    manifest.count === features.length &&
+    features.every((t) => typeof t === 'string' && TOKEN_PATTERN.test(t)) &&
+    new Set(features).size === features.length &&
+    features.every((t) => typeof glosses[t] === 'string' && !glosses[t].includes('*/'));
+  if (!wellFormed) {
+    return fail(
+      REASON.FAIL_MANIFEST_UNPARSEABLE,
+      `${path.relative(ROOT, manifestPath)} does not have the expected vocabulary shape ` +
+      '(non-empty unique normalised tokens, a gloss for each, matching count).\n' + regen,
+    );
+  }
+  const vocabulary = { features: [...features], glosses: { ...glosses }, count: features.length };
+
+  if (!fs.existsSync(modulePath)) {
+    return fail(REASON.FAIL_MODULE_MISSING, `${path.relative(ROOT, modulePath)} does not exist. ${regen}`);
+  }
+  const committedModule = fs.readFileSync(modulePath, 'utf8').replace(/\r\n/g, '\n');
+  if (committedModule !== serializeModule(vocabulary)) {
+    return fail(
+      REASON.FAIL_STALE_MODULE,
+      `${path.relative(ROOT, modulePath)} disagrees with ${path.relative(ROOT, manifestPath)}. ${regen}`,
+    );
+  }
+  return { ok: true, vocabulary };
+}
+
 // ─── Typed check report ───────────────────────────────────────────────────────
 
 /**
@@ -420,14 +490,23 @@ function checkReport(roadmapPath = ROADMAP_PATH, manifestPath = MANIFEST_PATH, m
       // The distinction that matters is preserved in the reason code: "absent,
       // nothing to verify" (ok_roadmap_absent) is not "the list is empty", and
       // it is not "the artifacts are stale".
+      //
+      // What the absence does NOT excuse is the committed artifacts themselves.
+      // They are the vocabulary's only definition in this tree, so they must
+      // exist, parse, and agree with EACH OTHER: a missing manifest, or a module
+      // hand-edited away from it, is detectable without the ROADMAP and is
+      // reported. (An earlier version returned ok here unconditionally, which
+      // passed a tree with no manifest at all.)
       if (err.reason === REASON.FAIL_ROADMAP_MISSING) {
+        const committed = readCommittedArtifacts(manifestPath, modulePath);
+        if (!committed.ok) return committed;
         return {
           ok: true,
           reason: REASON.OK_ROADMAP_ABSENT,
-          features: [],
-          count: 0,
+          features: committed.vocabulary.features,
+          count: committed.vocabulary.count,
           message: `${path.relative(ROOT, roadmapPath)} is absent (.planning/ is gitignored) — ` +
-            'nothing to verify against; skipping the drift check.\n',
+            'skipping the ROADMAP drift check; the committed manifest and module agree.\n',
         };
       }
       return { ok: false, reason: err.reason, features: [], count: 0, message: err.message };
@@ -625,6 +704,29 @@ function main() {
   }
 
   // opts.mode === 'write'
+  //
+  // Without a ROADMAP (a clean clone running `npm run regen:derived`) there is
+  // nothing to regenerate FROM. That is not an error when the committed
+  // artifacts are present and agree with each other — they already are the
+  // vocabulary — so the write is skipped. Anything else (no manifest, a module
+  // that disagrees with it) is still a hard error, and nothing is written:
+  // this path can never produce an empty vocabulary.
+  if (!fs.existsSync(opts.roadmapPath)) {
+    const committed = readCommittedArtifacts(opts.manifestPath, opts.modulePath);
+    if (!committed.ok) {
+      throw new ExitError(
+        1,
+        `Cannot write: ${path.relative(ROOT, opts.roadmapPath)} is absent and the committed artifacts ` +
+        `cannot stand in for it.\n${committed.message}`,
+      );
+    }
+    process.stdout.write(
+      `${path.relative(ROOT, opts.roadmapPath)} is absent — kept the committed ` +
+      `${path.relative(ROOT, opts.manifestPath)} and ${path.relative(ROOT, opts.modulePath)} ` +
+      `(${committed.vocabulary.count} features), which agree.\n`,
+    );
+    return;
+  }
   const vocabulary = buildVocabulary(opts.roadmapPath);
   fs.mkdirSync(path.dirname(opts.manifestPath), { recursive: true });
   fs.writeFileSync(opts.manifestPath, serializeManifest(vocabulary), 'utf8');

@@ -1,0 +1,17 @@
+{
+  "features": [
+    "dispatch",
+    "lifecycle",
+    "planning",
+    "templates",
+    "validation"
+  ],
+  "glosses": {
+    "dispatch": "how a run is routed: waves, ordering, and what may execute in parallel",
+    "lifecycle": "a plan's own state over time: status, transitions, and companion fields",
+    "planning": "the artifacts that describe intended work before it is executed",
+    "templates": "the emitted document surface and the registry that describes it",
+    "validation": "the gates that reject a malformed artifact instead of degrading"
+  },
+  "count": 5
+}
