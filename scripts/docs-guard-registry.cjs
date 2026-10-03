@@ -168,6 +168,11 @@ const DOCS_GUARD_TESTS = {
   // Walks docs/features/ as a directory (the fragment corpus) and asserts the
   // committed docs/FEATURES.md equals the generated projection of it (#3840).
   'tests/features-index-gate.test.cjs': ['docs/features/', 'docs/FEATURES.md'],
+  // Reads the committed `feature:` vocabulary manifest and asserts it equals
+  // the generated `feature-vocabulary.cjs` FEATURE_VALUES — both are written
+  // by `scripts/gen-feature-vocabulary.cjs`, so a hand edit to the JSON alone
+  // is a docs change this guard must catch.
+  'tests/feature-vocabulary.test.cjs': ['docs/FEATURE-VOCABULARY.json'],
   'tests/agent-classification-parity.test.cjs': ['docs/AGENTS.md', 'docs/INVENTORY.md'],
   // #3683: pins the learnings feature section's agreement with the canonical
   // artifact registry (reads docs/FEATURES.md around the extract-learnings
@@ -309,6 +314,10 @@ const DOCS_GUARD_TESTS = {
     'docs/ko-KR/reference/state-md.md',
     'docs/pt-BR/reference/state-md.md',
   ],
+  // Runs `scripts/gen-template-registry.cjs --check --json` against the real
+  // tree: a hand edit to the committed manifest that no template supports
+  // (or a stale manifest) must fail this guard, not only the generator lane.
+  'tests/gen-template-registry.test.cjs': ['docs/TEMPLATE-REGISTRY.json'],
   'tests/gsd-write-guard.test.cjs': ['docs/USER-GUIDE.md'],
   'tests/host-integration-descriptors.test.cjs': [
     'docs/reference/host-integration-capability-matrix.md',

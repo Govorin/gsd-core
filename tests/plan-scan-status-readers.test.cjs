@@ -12,8 +12,8 @@
  * forever.
  *
  * Phase 1 gives that field a closed four-value vocabulary. Nothing here asserts
- * the vocabulary — plan-status.unit.test.cjs and frontmatter-status-vocabulary
- * .test.cjs do that. These tests assert the OPPOSITE: that teaching src/ about
+ * the vocabulary — plan-status.unit.test.cjs and the plan `status` section of
+ * frontmatter-cli.test.cjs do that. These tests assert the OPPOSITE: that teaching src/ about
  * `done` and `blocked` left this reader's counting behaviour untouched. The
  * phase can satisfy every ROADMAP criterion and still break the tree here, which
  * is why the CONTEXT verification section names these checks as mandatory and

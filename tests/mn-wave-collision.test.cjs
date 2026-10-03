@@ -187,7 +187,6 @@ describe('wave-collision gate', () => {
   // ── the gate is dispatched, not merely present ────────────────────────────
 
   test('the capability registers the gate at plan:post', () => {
-    // allow-test-rule: source-text-is-the-product
     // The manifest IS the deployed contract: the runtime reads this JSON to
     // decide what runs. A script nothing dispatches is the defect class this
     // fork exists to close.

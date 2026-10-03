@@ -18,7 +18,7 @@
  *
  * Neither may be deleted without the other becoming visibly pointless. This is
  * the same trap Phase 1 documented for `status`, closed the same way in
- * tests/frontmatter-status-vocabulary.test.cjs.
+ * tests/frontmatter-cli.test.cjs (the plan `status` vocabulary section).
  *
  * ─── Surfaces ────────────────────────────────────────────────────────────────
  *

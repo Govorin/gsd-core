@@ -422,6 +422,13 @@ export default tseslint.config(
       // src/pattern.cts — module resolution for a .cts source is relative to
       // src/, not the output dir). Same verbatim-third-party exemption.
       'src/vendor/**',
+      // mn fork: the `impeccable` skill (Apache-2.0, v3.9.1 per its SKILL.md
+      // frontmatter) is carried verbatim by the mn-expertise capability so the
+      // project's design skill installs without a global skills directory.
+      // Same verbatim-third-party exemption as vendor/** above: a local edit to
+      // satisfy this repo's rules would fork it from its upstream and break the
+      // next re-vendor. The fork's OWN capability scripts are linted below.
+      'capabilities/mn-expertise/skills/impeccable/scripts/**',
       // #3970 (ADR-3646 Phase 1): tsc-generated runtime artifact — the
       // default `import childProcess from 'node:child_process'` import emits
       // tsc's `__importDefault` helper (uses `var`), same class as 007/009/010
@@ -769,6 +776,30 @@ export default tseslint.config(
     files: ['*.mjs'],
     languageOptions: { sourceType: 'module', globals: { ...globals.node } },
     rules: { ...js.configs.recommended.rules },
+  },
+
+  // ── capability scripts: capabilities/**/scripts/**/*.mjs (#3059) ──────────
+  // Node ESM CLIs a capability runs at a loop point (e.g. mn-verify-gate's
+  // gates at plan:post / verify:pre) or a skill invokes. They run inside the
+  // user's project, not in installed gsd-core/bin, so the bin-only rules do
+  // not apply; the generic Node quality rules do. Vendored third-party skill
+  // scripts are globally ignored above instead.
+  {
+    files: ['capabilities/**/scripts/**/*.mjs'],
+    plugins: { n: pluginN },
+    languageOptions: { sourceType: 'module', globals: { ...globals.node } },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-var': 'error',
+      'prefer-const': 'warn',
+      'no-unused-vars': ['warn', {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrors: 'none',
+      }],
+      'no-empty': ['warn', { allowEmptyCatch: true }],
+      'n/no-path-concat': 'error',
+    },
   },
 
   // ── tests/**/*.test.cjs ─────────────────────────────────────────────────────

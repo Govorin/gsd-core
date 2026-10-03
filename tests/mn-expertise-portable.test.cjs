@@ -37,7 +37,6 @@ const TOOLS = path.join(REPO, 'gsd-core', 'bin', 'gsd-tools.cjs');
 
 describe('mn-expertise capability', () => {
   test('declares no surface skills, keeping the registry a no-op', () => {
-    // allow-test-rule: source-text-is-the-product
     // The manifest IS the deployed contract — the installer and the registry
     // generator both read this JSON.
     const manifest = JSON.parse(fs.readFileSync(path.join(CAPABILITY_DIR, 'capability.json'), 'utf8'));

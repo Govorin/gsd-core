@@ -1,4 +1,3 @@
-// allow-test-rule: source-text-is-the-product
 'use strict';
 
 /**
@@ -22,8 +21,12 @@
  *      phase NUMBER through `--phase`, never a directory. A command that takes a
  *      positional directory refuses, and an `onError: skip` step swallows that.
  *
- * The workflow and reference text is the contract the runtime loads, hence the
- * source-text exception; the list of steps comes from the typed registry, and
+ * The workflow and reference text is the contract the runtime loads, so asserting
+ * on it is the `source-text-is-the-product` case (CONTRIBUTING.md). No
+ * allow-test-rule marker: nothing here reads a code file, so `no-source-grep`
+ * has no violation for one to suppress, and an idle marker only inflates the
+ * unverified-marker pool `lint-allow-test-rule-refs` ratchets. The list of steps
+ * comes from the typed registry, and
  * the pattern and call shape are read out of the dispatcher reference rather than
  * restated here, so the fence moves with the dispatcher.
  */
