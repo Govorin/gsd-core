@@ -231,6 +231,38 @@ describe('mn enforcement hooks — prohibition guard', () => {
     assert.equal(prohibition.evaluateWrite(outside).action, 'allow');
   });
 
+  test('judges a Kimi payload by its authoritative path, not a decoy file_path', () => {
+    // The guard carries the canonical #2304 normalization block. Kimi's file
+    // tools execute on `path`; a model-supplied `file_path` must not shadow it,
+    // in either direction.
+    makeProject(dir, { workflow: { prohibition_guard: 'deny' } });
+    writePlan(dir, '03-ports', '03-01', { filesModified: ['libs/declared.ts'] });
+    const kimi = (kimiTool, target, decoy) => ({
+      tool_name: kimiTool,
+      tool_input: { path: path.join(dir, target), file_path: path.join(dir, decoy), content: 'x' },
+      cwd: dir,
+    });
+    for (const kimiTool of ['WriteFile', 'kimi_cli.tools.file:StrReplaceFile']) {
+      assert.equal(
+        prohibition.evaluateWrite(kimi(kimiTool, 'libs/undeclared.ts', 'libs/declared.ts')).action,
+        'deny',
+        `${kimiTool}: an undeclared path hidden behind a declared file_path must still be denied`
+      );
+      assert.equal(
+        prohibition.evaluateWrite(kimi(kimiTool, 'libs/declared.ts', 'libs/undeclared.ts')).action,
+        'allow',
+        `${kimiTool}: a declared path must not be denied because of a decoy file_path`
+      );
+    }
+    // Kimi's read and shell tools are not writes, so the guard stays out of them.
+    for (const kimiTool of ['ReadFile', 'Shell']) {
+      assert.equal(
+        prohibition.evaluateWrite(kimi(kimiTool, 'libs/undeclared.ts', 'libs/undeclared.ts')).action,
+        'allow'
+      );
+    }
+  });
+
   test('a malformed payload never blocks a tool call', () => {
     assert.equal(prohibition.evaluateWrite(null).action, 'allow');
     assert.equal(prohibition.evaluateWrite({ tool_name: 'Write' }).action, 'allow');
