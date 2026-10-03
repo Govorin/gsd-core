@@ -58,6 +58,18 @@ const MODULE_OWNED_HOOKS = new Set([
   // via install.js's classic-installer settings.json path — the plugin
   // install mode never runs bin/install.js at all.
   'gsd-ensure-canonical-path.js',
+  // mn fork enforcement hooks. The four live ones are registered in the
+  // marketplace-plugin manifest (hooks/hooks.json, pinned by
+  // tests/plugin-manifest.test.cjs) and, on a classic install, by hand in
+  // settings.json — the installer ships and staleness-checks them
+  // (HOOKS_TO_COPY, MANAGED_HOOKS) but does not register them yet.
+  // gsd-worktree-provision.js is registered nowhere: Claude Code's WorktreeCreate
+  // replaces worktree creation, and this hook does not create one.
+  'gsd-exit-gate.js',
+  'gsd-pin-invariants.js',
+  'gsd-prohibition-guard.js',
+  'gsd-test-tamper-guard.js',
+  'gsd-worktree-provision.js',
 ]);
 
 // ADR-857 phase 5f-1b: settings-json hook registration moved to runtime-hooks-surface.cts.

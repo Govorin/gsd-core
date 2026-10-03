@@ -58,6 +58,12 @@ export const BUNDLED_GSD_HOOK_FILES: ReadonlySet<string> = Object.freeze(new Set
   'hooks/gsd-workflow-guard.js',
   'hooks/gsd-worktree-path-guard.js',
   'hooks/gsd-write-guard.js',
+  // mn fork enforcement hooks (shipped via scripts/build-hooks.js HOOKS_TO_COPY).
+  'hooks/gsd-exit-gate.js',
+  'hooks/gsd-pin-invariants.js',
+  'hooks/gsd-prohibition-guard.js',
+  'hooks/gsd-test-tamper-guard.js',
+  'hooks/gsd-worktree-provision.js',
 ]));
 
 // ── Internal action types ─────────────────────────────────────────────────────

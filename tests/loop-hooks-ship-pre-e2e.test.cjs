@@ -307,9 +307,20 @@ describe('real registry ship:pre — structural guards', () => {
     // Two predicate-style gates as of #1950: security (workflow.security_enforcement)
     // and broken-windows (workflow.windows_enforce). Both default-off in tests via
     // their respective when keys; both surface in the registry regardless of activation.
-    assert.strictEqual(entry.gates.length, 2, 'ship:pre must have exactly 2 gates (security + broken-windows)');
-    const capIds = entry.gates.map(g => g.capId).sort();
-    assert.deepEqual(capIds, ['broken-windows', 'security'], 'ship:pre gate capIds must be {security, broken-windows}');
+    // Membership, not a count. Upstream ships two here — security
+    // (workflow.security_enforcement) and broken-windows (workflow.windows_enforce),
+    // both default-off and both present in the registry regardless of activation.
+    // This fork adds four mn-verify-gate gates at the same point, because the
+    // predicate those two declare (artifact-frontmatter-equals) is absent from the
+    // published evaluator and they halt instead of checking. Asserting the SET keeps
+    // a vanishing upstream gate failing, which a bare count would not.
+    const capIds = [...new Set(entry.gates.map(g => g.capId))].sort();
+    for (const required of ['broken-windows', 'security']) {
+      assert.ok(
+        capIds.includes(required),
+        `ship:pre must still carry the ${required} gate; got ${capIds.join(', ')}`,
+      );
+    }
   });
 
   test('every ship:pre gate uses predicate (not query) and the security gate is present', () => {

@@ -143,10 +143,14 @@ describe('B: hooks/hooks.json', () => {
     if (!hooksConfig) { t.skip('hooks.json could not be parsed'); return; }
     // Complete set of Claude Code hook events as of #770 (SubagentStop, Stop,
     // PreCompact, FileChanged added in #770; prior set was SessionStart,
-    // PreToolUse, PostToolUse from #766).
+    // PreToolUse, PostToolUse from #766). PostCompact carries the mn fork's
+    // gsd-pin-invariants; `claude plugin validate --strict` (CLI 2.1.288) accepts
+    // it and rejects an unknown event with "unknown hook event; entry ignored at
+    // runtime", so C2 backs this list with the host's own schema.
     const validEvents = new Set([
       'SessionStart', 'PreToolUse', 'PostToolUse',
       'SubagentStop', 'Stop', 'PreCompact', 'FileChanged',
+      'PostCompact',
     ]);
     for (const eventName of Object.keys(hooksConfig.hooks)) {
       assert.ok(validEvents.has(eventName), `Unknown hook event: "${eventName}"`);
@@ -739,19 +743,20 @@ describe('D: always-on hook contract drift guard', () => {
     return map;
   }
 
-  test('SessionStart: one no-matcher group with gsd-ensure-canonical-path.js then gsd-check-update.js', () => {
+  test('SessionStart: one no-matcher group with gsd-ensure-canonical-path.js, gsd-check-update.js, then gsd-pin-invariants.js', () => {
     // #997: gsd-ensure-canonical-path.js is wired alongside gsd-check-update.js
     // in the single SessionStart no-matcher group. It must run FIRST so the
     // canonical ~/.claude/gsd-core path (and its @-include targets) exist before
     // any other SessionStart logic that may read the bundled tree.
+    // mn fork: gsd-pin-invariants.js runs LAST (asserted in the fork section below).
     const map = buildHookMap();
     const groups = map['SessionStart'];
     assert.ok(groups, 'SessionStart must be present in hooks.json');
     // There must be exactly one entry group (key '' = no matcher)
     const noMatcherHooks = groups[''];
     assert.ok(
-      Array.isArray(noMatcherHooks) && noMatcherHooks.length === 2,
-      `SessionStart no-matcher group must contain exactly two hooks; got: ${JSON.stringify(noMatcherHooks)}`
+      Array.isArray(noMatcherHooks) && noMatcherHooks.length === 3,
+      `SessionStart no-matcher group must contain exactly three hooks; got: ${JSON.stringify(noMatcherHooks)}`
     );
     assert.equal(
       noMatcherHooks[0].script, 'gsd-ensure-canonical-path.js',
@@ -783,17 +788,21 @@ describe('D: always-on hook contract drift guard', () => {
     assert.equal(hooks[1].timeout, 5, 'gsd-read-guard.js must have timeout 5');
   });
 
-  test('PreToolUse Write|Edit|MultiEdit group: gsd-worktree-path-guard.js (blocking budget)', () => {
+  test('PreToolUse Write|Edit|MultiEdit group: gsd-worktree-path-guard.js (blocking budget) then the two mn fork guards', () => {
+    // mn fork: prohibition-guard and test-tamper-guard deny a write, so they
+    // ride in the same Write|Edit|MultiEdit group as the worktree path guard.
     const map = buildHookMap();
     const groups = map['PreToolUse'];
     assert.ok(groups, 'PreToolUse must be present in hooks.json');
     const hooks = groups['Write|Edit|MultiEdit'];
     assert.ok(
-      Array.isArray(hooks) && hooks.length === 1,
-      `PreToolUse Write|Edit|MultiEdit must have exactly 1 hook; got: ${JSON.stringify(hooks)}`
+      Array.isArray(hooks) && hooks.length === 3,
+      `PreToolUse Write|Edit|MultiEdit must have exactly 3 hooks; got: ${JSON.stringify(hooks)}`
     );
     assert.equal(hooks[0].script, 'gsd-worktree-path-guard.js', 'hook must be gsd-worktree-path-guard.js');
     assert.equal(hooks[0].timeout, blockingGuardBudget('gsd-worktree-path-guard.js'), 'gsd-worktree-path-guard.js must carry the blocking-guard budget');
+    // The fork guards' timeouts are asserted in the fork section below.
+    assert.deepEqual(hooks.slice(1).map((h) => h.script), ['gsd-prohibition-guard.js', 'gsd-test-tamper-guard.js']);
   });
 
   test('PreToolUse Write group: gsd-write-guard.js (blocking budget)', () => {
@@ -853,6 +862,69 @@ describe('D: always-on hook contract drift guard', () => {
     );
     assert.equal(hooks[0].script, 'gsd-read-injection-scanner.js', 'hook must be gsd-read-injection-scanner.js');
     assert.equal(hooks[0].timeout, 5, 'gsd-read-injection-scanner.js must have timeout 5');
+  });
+
+  // ── mn fork enforcement hooks ──────────────────────────────────────────────
+  // Where each fork hook is wired and with what host budget. A host timeout is
+  // NON-blocking (#3981), so a guard that denies must carry the same budget as
+  // upstream's blocking guards; a hook that only adds context must stay small.
+
+  // Host budgets (seconds) restated from hooks/hooks.json — the manifest is the
+  // product under test, not a subprocess this suite spawns, so these are not
+  // tests/helpers/timeouts.cjs classes. The pin only reads .planning/ files;
+  // the exit gate runs the project's check under its own 600 s default cap
+  // (DEFAULT_TIMEOUT_MS in hooks/gsd-exit-gate.js) and needs headroom over it.
+  const PIN_INVARIANTS_BUDGET_S = 5;
+  const EXIT_GATE_BUDGET_S = 620;
+
+  /** Every {event, matcher, timeout} at which `script` is wired. */
+  function wiringOf(map, script) {
+    const out = [];
+    for (const [event, groups] of Object.entries(map)) {
+      for (const [matcher, hooks] of Object.entries(groups)) {
+        for (const h of hooks) if (h.script === script) out.push({ event, matcher, timeout: h.timeout });
+      }
+    }
+    return out;
+  }
+
+  test('mn fork: the two denying write guards carry the blocking-guard host budget', () => {
+    const map = buildHookMap();
+    for (const script of ['gsd-prohibition-guard.js', 'gsd-test-tamper-guard.js']) {
+      assert.deepEqual(
+        wiringOf(map, script),
+        [{ event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S }],
+        `${script} must be wired once, on PreToolUse Write|Edit|MultiEdit, at the blocking budget`,
+      );
+    }
+  });
+
+  test('mn fork: gsd-pin-invariants.js re-injects on SessionStart (last) and PostCompact, at timeout 5', () => {
+    const map = buildHookMap();
+    assert.deepEqual(wiringOf(map, 'gsd-pin-invariants.js'), [
+      { event: 'SessionStart', matcher: '', timeout: PIN_INVARIANTS_BUDGET_S },
+      { event: 'PostCompact', matcher: '', timeout: PIN_INVARIANTS_BUDGET_S },
+    ]);
+    assert.equal(map.SessionStart[''].at(-1).script, 'gsd-pin-invariants.js', 'the pin runs after the canonical-path and update hooks');
+    assert.ok(PIN_INVARIANTS_BUDGET_S < BLOCKING_GUARD_TIMEOUT_S, 'negative control: the pin is advisory, not held to the blocking budget');
+  });
+
+  test('mn fork: gsd-exit-gate.js is wired on SubagentStop with headroom over its 600 s check cap', () => {
+    const map = buildHookMap();
+    assert.deepEqual(wiringOf(map, 'gsd-exit-gate.js'), [{ event: 'SubagentStop', matcher: '', timeout: EXIT_GATE_BUDGET_S }]);
+  });
+
+  test('mn fork: gsd-worktree-provision.js is NOT wired on WorktreeCreate', () => {
+    // A Claude Code WorktreeCreate hook REPLACES `git worktree add`: the host
+    // uses the path the hook prints on stdout and fails creation when the hook
+    // prints none (hooks reference, "WorktreeCreate output"; upstream #4588
+    // relies on the same contract). gsd-worktree-provision.js equips a worktree
+    // that already exists and prints no path, so wiring it here would fail every
+    // `isolation: "worktree"` spawn. It ships (build-hooks, MANAGED_HOOKS) for a
+    // future wiring point; until then it stays out of the plugin manifest.
+    const map = buildHookMap();
+    assert.deepEqual(wiringOf(map, 'gsd-worktree-provision.js'), []);
+    assert.equal(map.WorktreeCreate, undefined, 'no GSD hook may claim WorktreeCreate without creating the worktree');
   });
 });
 

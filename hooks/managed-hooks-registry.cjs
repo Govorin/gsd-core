@@ -28,23 +28,28 @@ const MANAGED_HOOKS = [
   'gsd-cursor-subagent-start.js',
   'gsd-cursor-subagent-stop.js',
   'gsd-ensure-canonical-path.js',
+  'gsd-exit-gate.js',
   'gsd-graphify-update.sh',
   // #3662: portable node resolver (helper staged in hooks/; managed JS hook
   // commands route through it under --portable-hooks).
   'gsd-node-runner.sh',
   'gsd-phase-boundary.sh',
+  'gsd-pin-invariants.js',
+  'gsd-prohibition-guard.js',
   'gsd-prompt-guard.js',
   'gsd-read-guard.js',
   'gsd-read-injection-scanner.js',
   'gsd-secret-read-guard.js',
   'gsd-session-state.sh',
   'gsd-statusline.js',
+  'gsd-test-tamper-guard.js',
   'gsd-update-banner.js',
   'gsd-validate-commit.sh',
   'gsd-windsurf-pre-command.js',
   'gsd-windsurf-pre-write.js',
   'gsd-workflow-guard.js',
   'gsd-worktree-path-guard.js',
+  'gsd-worktree-provision.js',
   'gsd-write-guard.js',
 ];
 

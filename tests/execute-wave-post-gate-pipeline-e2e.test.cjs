@@ -606,16 +606,21 @@ describe('F. Real registry execute:wave:post shape — guard against accidental 
 
   const realRegistry = require('../gsd-core/bin/lib/capability-registry.cjs');
 
-  test('[happy] real registry execute:wave:post has exactly 3 gates with correct queries', () => {
+  test('[happy] real registry execute:wave:post has exactly 3 upstream gates with correct queries', () => {
     const point = realRegistry.byLoopPoint['execute:wave:post'];
     assert.ok(point, 'byLoopPoint must have execute:wave:post key');
     assert.ok(Array.isArray(point.gates), 'gates must be an array');
 
-    // Specific: exactly 3 gates — fails if someone adds or removes one
-    assert.strictEqual(point.gates.length, 3,
-      `execute:wave:post must have exactly 3 gates; got ${point.gates.length}`);
+    // Specific: exactly 3 upstream gates — fails if someone adds or removes one.
+    // The mn fork's mn-verify-gate capability adds its own gates at this point
+    // (the fork's verify gates, run per wave); they are counted apart so an
+    // upstream gate that vanishes or appears still fails here.
+    const FORK_CAP_ID = 'mn-verify-gate';
+    const upstreamGates = point.gates.filter(g => g.capId !== FORK_CAP_ID);
+    assert.strictEqual(upstreamGates.length, 3,
+      `execute:wave:post must have exactly 3 upstream gates; got ${upstreamGates.length} (${upstreamGates.map(g => g.capId).join(', ')})`);
 
-    const queries = point.gates.map(g => g.check?.query);
+    const queries = upstreamGates.map(g => g.check?.query);
     assert.ok(queries.includes('verify.schema-drift'), 'verify.schema-drift gate must exist');
     assert.ok(queries.includes('verify.codebase-drift'), 'verify.codebase-drift gate must exist');
     assert.ok(queries.includes('ui.safety-gate'), 'ui.safety-gate gate must exist');
