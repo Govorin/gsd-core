@@ -152,6 +152,37 @@ function evaluateCommandExitZero(
 
 // ─── Kind: artifact-frontmatter-equals ──────────────────────────────────────────
 
+/**
+ * Resolve a frontmatter field, accepting a dotted path into a nested map.
+ *
+ * A bare name (`truths_unproven`) reads the top level exactly as before — that
+ * path is checked FIRST, so a key that literally contains a dot keeps working
+ * and cannot be shadowed by a path interpretation. Only when no such key
+ * exists is the name walked as a path (`gates.all_passed`).
+ *
+ * Why this exists: `verify gates` records measured check results under a
+ * `gates:` map, and without a path the only way to gate on them would be to
+ * flatten every field to the document's top level — polluting the namespace
+ * a verifier and three other gates already share, and making a collision with
+ * a future `failed:` or `ran_at:` key a matter of time.
+ */
+function resolveFrontmatterField(fm: Record<string, unknown>, field: string): unknown {
+  if (Object.prototype.hasOwnProperty.call(fm, field)) return fm[field];
+  if (!field.includes('.')) return undefined;
+
+  let current: unknown = fm;
+  for (const segment of field.split('.')) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) return undefined;
+    const container = current as Record<string, unknown>;
+    // hasOwnProperty, not a bare read: a segment named "constructor" or
+    // "toString" would otherwise resolve to a prototype function and compare
+    // as a defined value.
+    if (!Object.prototype.hasOwnProperty.call(container, segment)) return undefined;
+    current = container[segment];
+  }
+  return current;
+}
+
 function evaluateArtifactFrontmatterEquals(
   predicate: Record<string, unknown>,
   ctx: PredicateContext,
@@ -181,7 +212,7 @@ function evaluateArtifactFrontmatterEquals(
 
   const fm = deps.readFrontmatter(filePath);
 
-  const actualValue = fm[field];
+  const actualValue = resolveFrontmatterField(fm, field);
   // eslint-disable-next-line @typescript-eslint/no-base-to-string
   const expectedStr = typeof expectedValue === 'object' ? JSON.stringify(expectedValue) : String(expectedValue);
   // eslint-disable-next-line @typescript-eslint/no-base-to-string

@@ -226,8 +226,30 @@ function resolveWorktreeLinkage(cwd: string, deps: WorktreeDeps = {}): WorktreeC
     };
   }
 
-  const gitDirResolved = path.resolve(cwd, gitDir.stdout);
-  const commonDirResolved = path.resolve(cwd, commonDir.stdout);
+  // Compare the two git dirs by REAL path, not by the strings git happened to
+  // print. git answers these two questions in different forms — `--git-dir` may
+  // come back absolute and already symlink-resolved while `--git-common-dir`
+  // comes back relative to cwd — so path.resolve alone leaves a repository whose
+  // path crosses a symlink comparing unequal to itself. On macOS every
+  // os.tmpdir() path does (/tmp -> /private/tmp), which silently classified an
+  // ordinary subdirectory of a main worktree as a LINKED worktree and re-rooted
+  // it onto the repo root:
+  //   /tmp/r/libs/modules/norn
+  //     resolve(--git-dir)        /private/tmp/r/.git
+  //     resolve(--git-common-dir) /tmp/r/.git        -> unequal -> 'linked_worktree'
+  // realpathSync collapses both to the same inode-backed path. It is wrapped
+  // because a git dir can legitimately be absent from disk (a submodule gitfile,
+  // a pruned worktree); falling back to the resolved string there preserves the
+  // previous answer rather than throwing.
+  const realpath = (p: string): string => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return p;
+    }
+  };
+  const gitDirResolved = realpath(path.resolve(cwd, gitDir.stdout));
+  const commonDirResolved = realpath(path.resolve(cwd, commonDir.stdout));
   if (gitDirResolved !== commonDirResolved) {
     return {
       effectiveRoot: path.dirname(commonDirResolved),

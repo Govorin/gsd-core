@@ -48,6 +48,8 @@
  *   summary-extract <path> [--fields]  Extract structured data from SUMMARY.md
  *   state-snapshot                     Structured parse of STATE.md
  *   phase-plan-index <phase>           Index plans with waves and status
+ *   feature-view                       Feature->plans view, derived from plan
+ *                                      frontmatter on every read (never stored)
  *   websearch <query>                  Search web via Brave API (if configured)
  *     [--limit N] [--freshness day|week|month]
  *
@@ -306,6 +308,7 @@ try {
 const { resolveActiveWorkstream, applyResolvedWorkstreamEnv, peekActiveWorkstream } = require('./lib/active-workstream-store.cjs');
 const state = require('./lib/state.cjs');
 const phase = require('./lib/phase.cjs');
+const featureView = require('./lib/feature-view.cjs');
 const roadmap = require('./lib/roadmap.cjs');
 // #3024: resolve skills root for the sync-skills workflow (install.js is not
 // shipped in installed trees; gsd-tools IS shipped, so the workflow calls this).
@@ -3221,6 +3224,14 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
     phase.cmdPhasePlanIndex(cwd, args[1], raw);
   }
 
+  // `feature-view` takes no positional arguments: the whole tree IS the query.
+  // It is deliberately NOT in SKIP_ROOT_RESOLUTION — its entire job is reading
+  // `.planning/phases`, so it needs project-root resolution exactly as
+  // `phase-plan-index` does.
+  function routeFeatureView({ args, cwd, raw, error }) {
+    featureView.cmdFeatureView(cwd, raw);
+  }
+
   function routeStateSnapshot({ args, cwd, raw, error }) {
     state.cmdStateSnapshot(cwd, raw);
   }
@@ -4748,6 +4759,7 @@ const HOST_COMMAND_ROUTERS = {
     'scaffold': routeScaffold,
     'loop': routeLoop,
     'phase-plan-index': routePhasePlanIndex,
+    'feature-view': routeFeatureView,
     'state-snapshot': routeStateSnapshot,
     'summary-extract': routeSummaryExtract,
     'websearch': routeWebsearch,
@@ -5028,7 +5040,7 @@ function runWithTimeout(argv) {
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
   'Commands: agent, agent-skills, assumption-delta, audit-open, audit-uat, check, check-commit, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
   'config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, ' +
-  'context-predicates, current-timestamp, detect-custom-files, docs-init, drift-guard, effort, extract-messages, find-phase, ' +
+  'context-predicates, current-timestamp, detect-custom-files, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +
   'generate-dev-preferences, generate-slug, graphify, history-digest, init, intel, ' +
   'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, package-legitimacy, phase, phase-plan-index, phases, planning, profile-questionnaire, ' +
@@ -5121,6 +5133,26 @@ function resolveMainWorktreeCwd(cwd, deps = {}) {
   if (existsSync(path.join(cwd, '.planning'))) {
     return cwd;
   }
+  // Deliberately NO explicitCwd branch here. An earlier attempt short-circuited
+  // on the flag to protect a fresh bootstrap target (`gsd-new-project` creating
+  // a nested .planning/ under libs/modules/<name>/ in a monorepo) — but that
+  // protection is not this function's to give, and giving it here broke the
+  // linked-worktree contract pinned in tests/gsd-agent-isolation-guard.test.cjs
+  // (the section folded from the former fix-3045-dispatch-isolation-resolver test).
+  //
+  // The two shapes are already distinguishable to resolveWorktreeRoot, via git:
+  //   bootstrap target  git-dir === git-common-dir -> reason 'main_worktree',
+  //                     root = cwd. Nothing walks up; the flag changes nothing.
+  //   linked worktree   git-dir !== git-common-dir -> reason 'linked_worktree',
+  //                     root = the MAIN tree. The writer MUST follow it there,
+  //                     because the sentinel reader (a guard hook handed the raw
+  //                     data.cwd) derives that same root — honouring --cwd
+  //                     verbatim makes writer and reader disagree and the
+  //                     sentinel is never found.
+  //
+  // The re-rooting a bootstrap target genuinely needs shielding from comes from
+  // findProjectRoot's "(4) nearest ancestor .planning/" heuristic, and is handled
+  // at that call site in main(). One guard, at the path that actually needs it.
   const { root: worktreeRoot, reason: worktreeRootReason } = resolveWorktreeRoot(cwd);
   if (worktreeRootReason === 'git_timed_out') {
     writeWarning(
@@ -5228,6 +5260,7 @@ async function main() {
 
   // Optional cwd override for sandboxed subagents running outside project root.
   let cwd = process.cwd();
+  let explicitCwd = false;
   const cwdEqArg = args.find(arg => arg.startsWith('--cwd='));
   const cwdIdx = args.indexOf('--cwd');
   if (cwdEqArg) {
@@ -5235,11 +5268,13 @@ async function main() {
     if (!value) error('Missing value for --cwd', ERROR_REASON.USAGE);
     args.splice(args.indexOf(cwdEqArg), 1);
     cwd = path.resolve(value);
+    explicitCwd = true;
   } else if (cwdIdx !== -1) {
     const value = args[cwdIdx + 1];
     if (!value || value.startsWith('--')) error('Missing value for --cwd', ERROR_REASON.USAGE);
     args.splice(cwdIdx, 2);
     cwd = path.resolve(value);
+    explicitCwd = true;
   }
 
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) {
@@ -5406,11 +5441,27 @@ async function main() {
     }
   }
 
+  // THE guard for an explicitly named cwd, and the only one (resolveMainWorktreeCwd
+  // above deliberately has none — git already tells a linked worktree apart from a
+  // plain subdirectory there; see its comment).
+  //
+  // An explicit --cwd still resolves upward, but only on an ancestor's EXPLICIT
+  // claim (sub_repos / multiRepo), never on the implicit signals ".git plus a
+  // parent .planning/" or "nearest ancestor .planning/". Those two read a fresh
+  // bootstrap target — libs/modules/<name>/ under a monorepo that already owns
+  // .planning/ — as an ordinary descendant and re-root onto the ancestor project
+  // (measured: <repo>/libs/modules/norn -> <repo>), which is the whole failure
+  // this chain exists to prevent. A sub_repos entry is a stated relationship, so
+  // it still wins and `--cwd <sub-repo>` keeps resolving to its parent.
+  //
   // #3881: an explicit --project-dir already IS the resolved project root
-  // (validated above) — findProjectRoot's ancestor walk-up must not run
-  // over it, per docs/CONFIGURATION.md's documented idempotence.
+  // (validated above) — findProjectRoot's ancestor walk-up must not run over it,
+  // per docs/CONFIGURATION.md's documented idempotence. The two flags answer
+  // different questions: --project-dir names an EXISTING root (it must already
+  // hold .planning/), while --cwd names a directory that may be a bootstrap
+  // target with no .planning/ yet — which is why --cwd keeps its own guard.
   if (!projectDirExplicit && !SKIP_ROOT_RESOLUTION.has(command)) {
-    cwd = findProjectRoot(cwd);
+    cwd = findProjectRoot(cwd, { declaredOnly: explicitCwd });
   }
 
   // When --pick is active, capture stdout and extract the requested field.

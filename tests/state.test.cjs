@@ -6394,6 +6394,44 @@ describe('#3310 state validate — S0NN coded diagnostics', () => {
     assertNoDriftKey(output);
   });
 
+  test('S010: a non-canonical verification status is reported and is not read as passed (S006 stays silent)', () => {
+    // `passed-degraded` starts with `passed` — an unanchored match scored it as
+    // success. It is outside the verifier's writer set, so it must surface as
+    // S010 and must NOT be treated as "verification passed" drift.
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# Project State\n\n**Status:** Executing Phase 1\n**Current Phase:** 1\n**Total Plans in Phase:** 1\n**Current Plan:** 1\n`,
+    );
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-setup');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
+    fs.writeFileSync(path.join(phaseDir, '01-VERIFICATION.md'), '---\nstatus: passed-degraded\n---\n# Verification\n');
+
+    const output = JSON.parse(runGsdTools('state validate', tmpDir).output);
+    assert.strictEqual(output.valid, false);
+    const s010 = findWarning(output, 'S010');
+    assert.ok(s010, `S010 must fire for a non-canonical status; got: ${JSON.stringify(output.warnings)}`);
+    assert.strictEqual(s010.severity, SEVERITY.WARNING);
+    assert.strictEqual(s010.remedy.action, 'advise');
+    assert.ok(!findWarning(output, 'S006'), 'a status that merely starts with "passed" is not verification passed');
+    assertNoDriftKey(output);
+  });
+
+  test('S010: each canonical verifier status is accepted without a vocabulary warning', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      `# Project State\n\n**Status:** Executing Phase 1\n**Current Phase:** 1\n**Total Plans in Phase:** 1\n**Current Plan:** 1\n`,
+    );
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-setup');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
+    for (const status of ['passed', 'gaps_found', 'human_needed', '"passed"']) {
+      fs.writeFileSync(path.join(phaseDir, '01-VERIFICATION.md'), `---\nstatus: ${status}\n---\n# Verification\n`);
+      const output = JSON.parse(runGsdTools('state validate', tmpDir).output);
+      assert.ok(!findWarning(output, 'S010'), `status ${status} is canonical; got: ${JSON.stringify(output.warnings)}`);
+    }
+  });
+
   test('#3511: S006 does not fire from a cross-phase stray VERIFICATION file; this phase\'s own file still fires it', () => {
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'STATE.md'),

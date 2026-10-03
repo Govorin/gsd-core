@@ -20,6 +20,14 @@ export const CANONICAL_EXACT: ReadonlySet<string> = new Set([
   'MILESTONES.md',
   'BACKLOG.md',
   'LEARNINGS.md',
+  // Accumulated distillation written at transition; the planner loads it on every
+  // phase, unlike per-phase LEARNINGS.md which the recency window drops after three.
+  // Absent from this list it reads as an unrecognised root file and health advises
+  // deleting it — the same trap STATE-ARCHIVE.md falls into.
+  'LEARNINGS-DIGEST.md',
+  // Written at a nested project's transition, read by every sibling's planner.
+  // Lives at the repo root .planning/, above the projects that share it.
+  'CROSS-DOMAIN.md',
   'THREADS.md',
   'config.json',
   'CLAUDE.md',

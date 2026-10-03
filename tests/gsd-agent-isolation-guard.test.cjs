@@ -1395,6 +1395,57 @@ describe('#3045 MINOR — writer/reader sentinel path derivation now agrees for 
     assert.equal(read.stale, false);
     assert.equal(read.isolation, 'harness-worktree');
   });
+
+  // The companion case to the one above: a FRESH BOOTSTRAP target — a
+  // directory named by --cwd that does not own .planning/ yet, nested under a
+  // monorepo that does (gsd-new-project initialising libs/modules/<name>/).
+  // The caller is NOT in a linked worktree, so nothing may walk up: writing to
+  // the ancestor's .planning/ would scatter one project's artifacts into another.
+  //
+  // git already tells the two shapes apart (git-dir === git-common-dir for a
+  // plain subdirectory), so resolveMainWorktreeCwd needs no flag override. What
+  // does need the explicit-cwd guard is findProjectRoot's implicit heuristics in
+  // main() — `findProjectRoot(cwd, { declaredOnly: explicitCwd })`; without it
+  // the target re-roots onto the monorepo (measured: <repo>/libs/modules/norn
+  // -> <repo>). --project-dir does not cover this: it requires .planning/ to
+  // exist already.
+  test('a fresh bootstrap target named via --cwd keeps its own root and is not re-rooted onto the enclosing monorepo', (t) => {
+    const monorepo = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-3045-bootstrap-'));
+    t.after(() => cleanup(monorepo));
+    git(['init'], monorepo);
+    git(['config', 'user.email', 'test@test.com'], monorepo);
+    git(['config', 'user.name', 'Test'], monorepo);
+    git(['config', 'commit.gpgsign', 'false'], monorepo);
+    fs.writeFileSync(path.join(monorepo, 'README.md'), 'placeholder\n');
+    git(['add', '-A'], monorepo);
+    git(['commit', '-m', 'initial commit'], monorepo);
+
+    // The enclosing monorepo already owns a .planning/ — exactly what
+    // findProjectRoot's ancestor heuristics would latch onto.
+    fs.mkdirSync(path.join(monorepo, '.planning'));
+    fs.writeFileSync(path.join(monorepo, '.planning', 'config.json'), JSON.stringify({}));
+
+    // The bootstrap target: nested, tracked by the SAME git worktree, with no
+    // .planning/ of its own yet.
+    const target = path.join(monorepo, 'libs', 'modules', 'norn');
+    fs.mkdirSync(target, { recursive: true });
+    assert.equal(fs.existsSync(path.join(target, '.planning')), false, 'precondition: bootstrap target has no .planning/ yet');
+
+    const result = runGsdTools(
+      ['query', 'dispatch-isolation', '--raw', '--cwd', target, '--phase', '1'],
+      monorepo,
+      { GSD_RUNTIME: 'claude', HOME: monorepo },
+    );
+    assert.equal(result.success, true, result.error);
+
+    assert.equal(fs.existsSync(sentinelFile(target)), true, 'writer must honour the explicitly named bootstrap target');
+    assert.equal(
+      fs.existsSync(sentinelFile(monorepo)),
+      false,
+      'writer must NOT re-root onto the enclosing monorepo that already owns .planning/',
+    );
+    assert.equal(readSentinelRaw(target).isolation, 'harness-worktree');
+  });
 });
 
 describe('#2486 regression: inspect-dispatch-isolation is the sentinel-free read', () => {

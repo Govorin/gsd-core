@@ -36,7 +36,24 @@ export function resolveProjectRoot(startDir: string): string {
   return explicitProjectRoot ?? findProjectRoot(startDir);
 }
 
-export function findProjectRoot(startDir: string): string {
+/**
+ * @param startDir - directory to resolve from.
+ * @param options.declaredOnly - resolve upward ONLY on an ancestor's EXPLICIT
+ *   claim over startDir — heuristics (1) sub_repos and (2) multiRepo — and never
+ *   on the implicit signals (3) ".git plus a parent .planning/" or (4) "nearest
+ *   ancestor .planning/". Pass it when the caller NAMED the directory (`--cwd`).
+ *
+ *   A named directory that no ancestor has claimed is an answer, not a starting
+ *   point: `gsd-new-project --cwd libs/modules/<name>` bootstraps a .planning/
+ *   that does not exist yet, and both implicit heuristics read its absence as
+ *   "keep walking", re-rooting the command onto the enclosing monorepo (measured:
+ *   <repo>/libs/modules/norn -> <repo>). An ancestor that lists the directory in
+ *   sub_repos, by contrast, has stated the relationship on purpose — that claim
+ *   still wins, which is what keeps `--cwd <sub-repo>` resolving to its parent
+ *   (tests/init.test.cjs "findProjectRoot integration via --cwd").
+ */
+export function findProjectRoot(startDir: string, options: { declaredOnly?: boolean } = {}): string {
+  const declaredOnly = options.declaredOnly === true;
   let resolvedStart: string;
   try {
     resolvedStart = path.resolve(startDir);
@@ -214,6 +231,16 @@ export function findProjectRoot(startDir: string): string {
           ancestor = nextAncestor;
           ancestorDepth += 1;
         }
+        // The lookahead above may still return an ancestor, because a sub_repos
+        // entry is an explicit claim. Returning `parent` here is not — it rests
+        // only on ".git exists and parent happens to own .planning/", which a
+        // caller-named directory must not be re-rooted by. Keep walking so a
+        // declared ancestor further up can still claim it.
+        if (declaredOnly) {
+          dir = parent;
+          depth += 1;
+          continue;
+        }
         return parent;
       }
     }
@@ -229,6 +256,14 @@ export function findProjectRoot(startDir: string): string {
   // bound; returns the nearest ancestor directory that contains a .planning/
   // subdirectory so config resolves correctly when invoked from a plain
   // descendant of a single-repo project. (#1414)
+  //
+  // Skipped entirely under declaredOnly: "an ancestor owns a .planning/" is the
+  // weakest signal there is, and it is exactly what re-roots a caller-named
+  // bootstrap target onto the enclosing project. With (1)–(3) exhausted, no
+  // ancestor has claimed startDir, so the answer is startDir itself.
+  if (declaredOnly) {
+    return startDir;
+  }
   let dir2 = resolvedStart;
   let depth2 = 0;
   while (dir2 !== fsRoot && depth2 < FIND_PROJECT_ROOT_MAX_DEPTH) {

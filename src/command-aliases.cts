@@ -268,6 +268,19 @@ export const VERIFY_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "context-drift",
     "mutation": false
+  },
+  {
+    // mutation: true — this one WRITES (the gate results into
+    // {phase}-VERIFICATION.md's frontmatter). Every other verify subcommand
+    // reports; this is the one that records, which is the whole point: the
+    // numbers a verifier is judged on must come from a command, not from the
+    // agent being judged.
+    "canonical": "verify.gates",
+    "aliases": [
+      "verify gates"
+    ],
+    "subcommand": "gates",
+    "mutation": true
   }
 ];
 

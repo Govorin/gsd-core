@@ -657,7 +657,7 @@ function cmdWriteProfile(cwd: string, options: CmdWriteProfileOptions, raw: bool
     process.stderr.write(`Sensitive content redacted: ${redactedCount} pattern(s) removed from evidence quotes\n`);
   }
 
-  const templatePath = path.join(__dirname, '..', '..', 'templates', 'user-profile.md');
+  const templatePath = path.join(__dirname, '..', '..', 'templates', 'host', 'user-profile.md');
   if (!fs.existsSync(templatePath)) error(`Template not found: ${templatePath}`);
   let template = fs.readFileSync(templatePath, 'utf-8');
 
@@ -872,7 +872,7 @@ function cmdGenerateDevPreferences(cwd: string, options: CmdGenerateDevPreferenc
     learning_style: 'Learning Support',
   };
 
-  const templatePath = path.join(__dirname, '..', '..', 'templates', 'dev-preferences.md');
+  const templatePath = path.join(__dirname, '..', '..', 'templates', 'host', 'dev-preferences.md');
   if (!fs.existsSync(templatePath)) error(`Template not found: ${templatePath}`);
   let template = fs.readFileSync(templatePath, 'utf-8');
 

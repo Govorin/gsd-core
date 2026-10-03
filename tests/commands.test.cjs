@@ -6295,6 +6295,57 @@ describe('gsd-tools.cjs resolveMainWorktreeCwd (#3050)', () => {
     });
     assert.equal(resolved, '/repo/wt');
   });
+
+  // explicitCwd — a fresh bootstrap target (gsd-new-project creating a nested
+  // .planning/ under an existing git worktree, e.g. libs/modules/<name>/ in a
+  // monorepo) must NOT be re-rooted onto the outer project.
+  //
+  // resolveMainWorktreeCwd needs no explicitCwd branch to get this right:
+  // in that shape git reports git-dir === git-common-dir, so resolveWorktreeRoot
+  // returns 'main_worktree' with the caller's own cwd as the root. Measured on a
+  // real fixture (monorepo root with .planning/ + git, target libs/modules/norn):
+  //   resolveWorktreeRoot -> { root: <...>/libs/modules/norn, reason: 'main_worktree' }
+  // The re-rooting the flag guards against comes from findProjectRoot's
+  // "(4) nearest ancestor .planning/" heuristic in main(), which is where the
+  // explicitCwd skip lives — NOT from this function. Pinning that here keeps the
+  // two paths from growing a second, redundant special case.
+  test('a fresh bootstrap target resolves to itself, not the outer project root', () => {
+    const warnings = [];
+    const resolved = resolveMainWorktreeCwd('/repo/libs/modules/norn', {
+      explicitCwd: true,
+      existsSync: () => false,
+      resolveWorktreeRoot: () => ({ root: '/repo/libs/modules/norn', reason: 'main_worktree' }),
+      writeWarning: (msg) => warnings.push(msg),
+    });
+    assert.equal(resolved, '/repo/libs/modules/norn');
+    assert.deepEqual(warnings, [], 'a definitive main_worktree resolution must not warn');
+  });
+
+  // The companion invariant: an explicit --cwd must NOT suppress linked-worktree
+  // remapping. A linked worktree is distinguishable from a bootstrap target —
+  // git reports git-dir !== git-common-dir, so resolveWorktreeRoot returns
+  // 'linked_worktree' with the MAIN tree as the root — and the writer must follow
+  // it there, because the sentinel reader (a guard hook handed the raw data.cwd)
+  // derives that same root. Honouring --cwd verbatim here made the two disagree
+  // and broke tests/fix-3045-dispatch-isolation-resolver.test.cjs.
+  test('an explicit cwd in a linked worktree still resolves up to the main worktree', () => {
+    const resolved = resolveMainWorktreeCwd('/wt/linked', {
+      explicitCwd: true,
+      existsSync: () => false,
+      resolveWorktreeRoot: () => ({ root: '/repo/main', reason: 'linked_worktree' }),
+      writeWarning: () => {},
+    });
+    assert.equal(resolved, '/repo/main');
+  });
+
+  test('still auto-resolves the worktree root when cwd was NOT explicit and .planning is absent', () => {
+    const resolved = resolveMainWorktreeCwd('/repo/wt', {
+      existsSync: () => false,
+      resolveWorktreeRoot: () => ({ root: '/repo', reason: 'linked_worktree' }),
+      writeWarning: () => {},
+    });
+    assert.equal(resolved, '/repo');
+  });
 });
 
 // ─── #4055 — a merged-and-deleted phase branch must not be resurrected ──────
