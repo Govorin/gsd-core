@@ -30,7 +30,7 @@ disarmed it permanently.
 comes from the PRESENCE of the SUMMARY file and nothing else; the `done` write only disarms the
 in-progress flag. A reader that derives completion from `status` gives the two signals the ability
 to disagree, after which neither can be trusted. Pinned by
-`tests/plan-status-readers-regression.test.cjs`.
+`tests/plan-scan-status-readers.test.cjs`.
 
 ### `blocked` when you genuinely cannot proceed
 
