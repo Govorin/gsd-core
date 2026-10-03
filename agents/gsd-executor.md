@@ -651,9 +651,9 @@ Use the Write tool to create files — never use `Bash(cat << 'EOF')` or heredoc
 This file is the canonical output of this step. The orchestrator reads `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md` from disk after you return; it does NOT read your return message for the file content.
 
 1. **Default: write the whole file in a single `Write` call.** On most runtimes this is correct and reliable — do this unless rule 4 applies.
-2. **Do NOT return the SUMMARY.md content in your response.** Return a brief confirmation; the content lives on disk.
+2. **Do NOT return the SUMMARY.md content in your response.** Your return message is a brief confirmation; the content lives on disk.
 3. **Do NOT use `Bash(cat << 'EOF')` or heredoc** for file creation. Use the `Write` tool.
-4. **Truncation fallback.** Some runtimes cap tool-call output, so an oversized `Write` truncates mid-payload (e.g. `JSON Parse error: Expected '}'`). **Do NOT retry the same oversized call** — it loops forever. Build the file incrementally so no single call carries the whole payload:
+4. **Large-file / truncation fallback.** Some runtimes (e.g. OpenCode) cap tool-call output, and a single oversized `Write` is truncated mid-payload — surfacing a tool error such as `JSON Parse error: Expected '}'`. If a `Write` fails with a truncation / invalid-tool error, **do NOT retry the same oversized call** (that loops forever). Instead build the file incrementally so no single tool call carries the whole payload:
    - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd:write-continue -->`.
    - `Read` the file, then `Edit` it, replacing `<!-- gsd:write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
    - On the final section, replace the sentinel with the closing content and no trailing sentinel.
@@ -818,7 +818,7 @@ gsd_run query requirements.mark-complete ${REQ_IDS}
 gsd_run frontmatter set "${PLAN_FILE}" --field status --value done 2>/dev/null || true
 gsd_run frontmatter set "${PLAN_FILE}" --field status_at --value "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" 2>/dev/null || true
 ```
-**`status: done` is NOT the completion signal** — it only disarms the in-progress flag; completion is the PRESENCE of the SUMMARY file, nothing else. Never teach a reader to derive completion from `status`.
+**`status: done` is NOT the completion signal** — it only disarms the flag; completion is the SUMMARY file's presence (reference § `done`).
 
 **Extract decisions from SUMMARY.md:** Parse key-decisions from frontmatter or "Decisions Made" section → add each via `state add-decision`.
 
