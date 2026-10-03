@@ -300,6 +300,34 @@ After (Phase 2 shipped JWT auth, discovered rate limiting needed):
 
 </step>
 
+<step name="extract_phase_learnings">
+
+Extract this phase's learnings before the graduation scan below reads them.
+
+```
+Skill(skill="gsd-extract-learnings", args="${PHASE_NUM}")
+```
+
+Skip the call when `{phase_dir}/*-LEARNINGS.md` already exists — `execute-phase`'s `auto_copy_learnings` step writes it when `features.global_learnings` is on.
+
+That step is the only other caller, and it is off by default, so without this one the default loop never extracts. Two consumers wait for its output regardless: `plan-phase` reads LEARNINGS.md from the three most recent phases, and `graduation_scan` immediately below scans them for recurring patterns. Both skip silently when the file is absent, so the loop has been running with its learning channel disconnected — one repository shows 280 phase directories and zero LEARNINGS.md.
+
+Non-blocking: a phase that produced no notable decisions or surprises legitimately writes nothing. Continue to the graduation scan either way.
+
+**Then fold anything durable into `.planning/LEARNINGS-DIGEST.md`.** The recency window that feeds the planner is three phases wide no matter how long the project runs: on a short project it covers everything, on a hundred-phase one it discards most of the history. A lesson learned early is therefore guaranteed to expire before the work it warns about recurs, which is the opposite of what a lesson is for.
+
+Append to the digest only what stays true beyond its own phase — a constraint discovered the hard way, a tool that behaves differently than documented, a decision whose reasoning outlives the phase that made it. One line each, prefixed with the phase number. Phase-local detail belongs in LEARNINGS.md and stays there.
+
+Before appending, read what is already in the digest and skip anything it says. Two phases hitting the same wall should sharpen one entry, not add a second — an append-only list nobody prunes stops being read, and then the channel is disconnected again, this time invisibly.
+
+**If this project's `.planning/` is nested inside a larger repository, a lesson about shared ground goes one level up.** Detect it: `planning_root` pointing below the git root, or sibling `.planning/` directories under the repository. When that holds, and the lesson concerns something the neighbours also depend on — a shared library, the build system, a convention the whole tree follows, a tool that misbehaves — append it to `<repo-root>/.planning/CROSS-DOMAIN.md` as well, prefixed with the project it came from.
+
+Everything GSD carries forward flows along one project's timeline. Sibling projects sharing a repository have no channel at all: a constraint discovered in one is rediscovered in the next, at full cost, because nothing connects them. The nesting is the signal that they share ground worth telling each other about.
+
+Keep it narrow. A lesson about this project's own domain stays in this project's digest — a cross-domain file that accumulates local detail is one nobody reads, and an unread channel is the same as none.
+
+</step>
+
 <step name="graduation_scan">
 
 Scan LEARNINGS.md files from recent phases for recurring patterns and surface promotion candidates to the developer.

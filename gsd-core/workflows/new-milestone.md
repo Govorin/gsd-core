@@ -128,6 +128,28 @@ AskUserQuestion(
 - Selected seeds become additional context for requirement definition in step 9. Store them in an accumulator (e.g. `$SELECTED_SEEDS`) so step 9 can reference the ideas and their "Why This Matters" sections when defining requirements.
 - Unselected seeds remain untouched in `.planning/seeds/` — never delete or modify seed files during this workflow.
 
+## 2.7. Inherit From the Previous Milestone
+
+Nothing currently carries knowledge across a milestone boundary. This file mentions `RETROSPECTIVE`, `LEARNINGS` and `MILESTONE-AUDIT` zero times, and neither does `gsd-roadmapper` — so every milestone starts from PROJECT.md as if the previous one had taught nothing. Worse, `complete-milestone` runs `git rm REQUIREMENTS.md` after archiving, so a requirement that was left unsatisfied does not merely go unread: it leaves the working set entirely, surviving only in `milestones/vX-REQUIREMENTS.md`, which no workflow opens.
+
+Read what the last milestone left behind:
+
+```bash
+PREV=$(ls -d .planning/milestones/v*/ 2>/dev/null | sort -V | tail -1)
+sed -n '/^## Milestone: /,$p' .planning/RETROSPECTIVE.md 2>/dev/null | head -60
+sed -n '/### Known Gaps/,/^## /p' .planning/MILESTONES.md 2>/dev/null
+sed -n '/## Deferred Items/,/^## /p' .planning/STATE.md 2>/dev/null
+ls .planning/v*-MILESTONE-AUDIT.md 2>/dev/null | sort -V | tail -1
+```
+
+Two obligations, and they are obligations rather than suggestions because the failure they prevent is silent:
+
+**Unfinished requirements become candidates, not history.** Every REQ-ID appearing under `### Known Gaps` or carrying `unsatisfied`/`orphaned` status in the last audit MUST be offered in step 9 as a first-class candidate — labelled `carried from v{prev}: {why it did not land}`. The user may decline it; what must not happen is that it is never raised. A requirement that was cut for lack of time and one that was cut deliberately are indistinguishable once the file is gone.
+
+**Lessons reach the roadmapper.** `## What Was Inefficient` and `## Key Lessons` from RETROSPECTIVE.md, plus `decisions` and `surprises` from the milestone's `*-LEARNINGS.md`, MUST be passed into the roadmapper prompt in step 10 as `<inherited_constraints>`. Otherwise a retrospective noting "phase 7 was replanned three times because its success criterion was vague" changes nothing: the next roadmapper writes criteria exactly as before, and the loop repeats at full cost.
+
+**If no previous milestone exists** (first milestone of the project): skip silently.
+
 ## 3. Determine Milestone Version
 
 - Parse last version from MILESTONES.md

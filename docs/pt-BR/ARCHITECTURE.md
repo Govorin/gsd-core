@@ -237,10 +237,12 @@ O agente planner (`agents/gsd-planner.md`) foi decomposto de um único arquivo m
 
 ### Templates (`gsd-core/templates/`)
 
+> The authoritative roster is generated: `docs/TEMPLATE-REGISTRY.json` + the **Template Index** in `gsd-core/templates/README.md`, from each template's `gsd-template:` block (`docs/reference/template-registry.md`). The list below is a localized copy and may lag.
+
 Templates Markdown para todos os artefatos de planejamento. Usados por `gsd-tools.cjs template fill` / `phase.scaffold` (e `scaffold` de nível superior) para criar arquivos pré-estruturados:
 - `project.md`, `requirements.md`, `roadmap.md`, `state.md` — Arquivos principais do projeto
-- `phase-prompt.md` — Template de prompt de execução de fase
-- `summary.md` (+ `summary-minimal.md`, `summary-standard.md`, `summary-complex.md`) — Templates de resumo com granularidade ajustável
+- `plan.md` — Template de prompt de execução de fase
+- `summary.md` — Templates de resumo com granularidade ajustável
 - `DEBUG.md` — Template de acompanhamento de sessão de depuração
 - `UI-SPEC.md`, `UAT.md`, `VALIDATION.md` — Templates de verificação especializados
 - `discussion-log.md` — Template de trilha de auditoria de discussão

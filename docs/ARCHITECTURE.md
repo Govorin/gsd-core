@@ -270,15 +270,11 @@ The planner agent (`agents/gsd-planner.md`) was decomposed from a single monolit
 
 ### Templates (`gsd-core/templates/`)
 
-Markdown templates for all planning artifacts. Used by `gsd-tools.cjs template fill` / `phase.scaffold` (and top-level `scaffold`) to create pre-structured files:
-- `project.md`, `requirements.md`, `roadmap.md`, `state.md` — Core project files
-- `phase-prompt.md` — Phase execution prompt template
-- `summary.md` (+ `summary-minimal.md`, `summary-standard.md`, `summary-complex.md`) — Granularity-aware summary templates
-- `DEBUG.md` — Debug session tracking template
-- `UI-SPEC.md`, `UAT.md`, `VALIDATION.md` — Specialized verification templates
-- `discussion-log.md` — Discussion audit trail template
-- `codebase/` — Brownfield mapping templates (architecture, stack)
-- `research-project/` — Research output templates (SUMMARY, STACK, FEATURES, ARCHITECTURE, PITFALLS)
+Markdown templates for all planning artifacts. Used by `gsd-tools.cjs template fill` / `phase.scaffold` (and top-level `scaffold`) to create pre-structured files.
+
+**The roster is generated, not restated here.** Every shipped template declares a `gsd-template:` block (level · lifecycle · required · author · readers), specified in [`docs/reference/template-registry.md`](reference/template-registry.md). `scripts/gen-template-registry.cjs` compiles those blocks into [`docs/TEMPLATE-REGISTRY.json`](TEMPLATE-REGISTRY.json) and the **Template Index** region of [`gsd-core/templates/README.md`](../gsd-core/templates/README.md), and `npm run lint:generated-sync` fails if either drifts or a template loses its block. A bullet list here would be a fourth hand-maintained copy with nothing reconciling it — read the generated index instead.
+
+Note that templates and the artifacts they produce are **different sets**: several `.planning/` root artifact names in `CANONICAL_EXACT` have no template file at all, so absence from the index is not absence of the artifact. `gsd-core/templates/README.md` documents both sets and the distinction between them.
 
 ### Hooks (`hooks/`)
 

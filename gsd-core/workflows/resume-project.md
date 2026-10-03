@@ -39,22 +39,34 @@ Parse JSON for: `state_exists`, `roadmap_exists`, `project_exists`, `planning_ex
 
 <step name="load_state">
 
-Read and parse STATE.md, then PROJECT.md:
+Read execution state as structured fields, then PROJECT.md:
 
 ```bash
-cat .planning/STATE.md
+gsd_run query state.json
 cat .planning/PROJECT.md
 ```
 
-**From STATE.md extract:**
+`state.json` returns the resolved execution state — `milestone`, `milestone_name`,
+`current_phase`, `current_phase_name`, `current_plan`, `status`, `last_activity`,
+`last_activity_desc`, `stopped_at`, `paused_at`, and the `progress` block — rebuilt from the
+body and a disk scan, so its counters are current even when the last write predates newer
+SUMMARY files. **This is what you need to decide the next action.** Prefer it over reading the
+file: the rendered progress bar, the Performance Metrics table, and the velocity trend are
+reporting for the human and change no routing decision.
 
-- **Project Reference**: Core value and current focus
-- **Current Position**: Phase X of Y, Plan A of B, Status
-- **Progress**: Visual progress bar
+**To present status to the user** (not to route), read only the narrative sections that
+`state.json` does not carry:
+
+```bash
+sed -n '/^## Accumulated Context/,/^## Session/p' .planning/STATE.md 2>/dev/null || true
+```
+
 - **Recent Decisions**: Key decisions affecting current work
 - **Pending Todos**: Ideas captured during sessions
-- **Blockers/Concerns**: Issues carried forward
-- **Session Continuity**: Where we left off, any resume files
+- **Blockers/Concerns**: Issues carried forward — surface these before routing
+
+Read the whole file only when the user asks to see it, or when a section you need is missing
+from both seams above.
 
 **From PROJECT.md extract:**
 

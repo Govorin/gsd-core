@@ -146,14 +146,49 @@ For each REQ-ID, determine status using all three sources:
 | passed                 | listed              | `[ ]`           | **satisfied** (update checkbox) |
 | passed                 | missing             | any             | **partial** (verify manually) |
 | gaps_found             | any                 | any             | **unsatisfied** |
+| human_needed           | any                 | any             | **partial** (UAT outstanding — see below) |
+| stale                  | any                 | any             | **partial** (verification predates the code) |
 | missing                | listed              | any             | **partial** (verification gap) |
 | missing                | missing             | any             | **unsatisfied** |
+| *(any other value)*    | any                 | any             | **partial** (unrecognized — never assume pass) |
+
+> **Why `human_needed` is not `satisfied` (and not `unsatisfied`):** the verifier emits it when
+> automated checks passed but a truth needs a human to confirm — it is an abstention, not a verdict
+> (`references/honest-verifier.md`). Scoring it `satisfied` closes the milestone over UAT nobody ran;
+> scoring it `unsatisfied` fabricates a failure the evidence does not support. `partial` is the honest
+> reading: the work may well be correct, but no one has checked. The same logic covers `stale` —
+> the verdict was true for an older tree, so it is unconfirmed now rather than wrong.
+>
+> The final row exists because this matrix is consulted by an agent, not a parser: an unmatched status
+> must land somewhere explicit, or it gets pattern-matched to the nearest row — and the nearest row is
+> `passed`. Defaulting the unknown to `partial` makes a vocabulary drift surface as a visible TODO
+> instead of a silent pass.
 
 ### 5e. FAIL Gate and Orphan Detection
 
 **REQUIRED:** Any `unsatisfied` requirement MUST force `gaps_found` status on the milestone audit.
 
+**REQUIRED:** Any requirement whose status is `partial` because of `human_needed` MUST be listed in the
+audit output under an explicit "Awaiting human verification" heading, and MUST prevent a `passed`
+milestone verdict (`gaps_found` or `tech_debt`, never `passed`). A milestone cannot be honestly
+declared complete while a phase is still waiting on the human half of its verification.
+
 **Orphan detection:** Requirements present in REQUIREMENTS.md traceability table but absent from ALL phase VERIFICATION.md files MUST be flagged as orphaned. Orphaned requirements are treated as `unsatisfied` — they were assigned but never verified by any phase.
+
+### 5f. Reconcile REQUIREMENTS.md Checkboxes
+
+The matrix in 5d moves a checkbox one way (`[ ]` → `[x]` for `satisfied`). Move it the other way too:
+
+- For every requirement whose final status is **`unsatisfied`** (including orphaned) and whose
+  REQUIREMENTS.md checkbox is `[x]`, change it to `[ ]`.
+- Update the coverage count at the top of REQUIREMENTS.md to match.
+- Leave `partial` requirements as they are — unconfirmed is not the same as failed.
+
+**Why:** a requirement checked off by an earlier SUMMARY stays `[x]` after the audit has shown it
+unmet, so REQUIREMENTS.md keeps claiming coverage the audit just disproved. The gap-closure phases
+created below then target a requirement the file says is done. This reset used to live in the
+`plan-milestone-gaps` workflow, which nothing invoked after gap planning moved inline here — so it
+never ran.
 
 ## 5.5. Nyquist Compliance Discovery
 
@@ -373,6 +408,8 @@ Insert a closure phase using the standard chain:
 - [ ] Integration checker spawned with milestone requirement IDs
 - [ ] v{version}-MILESTONE-AUDIT.md created with structured requirement gap objects
 - [ ] FAIL gate enforced — any unsatisfied requirement forces gaps_found status
+- [ ] Unsatisfied requirement checkboxes reset (`[x]` → `[ ]`) and coverage count updated in REQUIREMENTS.md
+- [ ] `human_needed` phases surfaced under "Awaiting human verification" and blocked from a `passed` verdict
 - [ ] Nyquist compliance scanned for all milestone phases (if enabled)
 - [ ] Missing VALIDATION.md phases flagged with validate-phase suggestion
 - [ ] Results presented with actionable next steps

@@ -253,6 +253,23 @@ Phase ${TARGET_PHASE} selects ${N} commits (>50). Refusing to revert a partial p
 Use /gsd:undo --plan NN-MM per plan, or /gsd:undo --last N.
 ```
 
+**Surface what the scope parse cannot see.** Selection keeps only commits whose subject
+DECLARES this phase's scope. A commit made inside the phase's window without one — a
+hand-written `fix: typo`, an executor deviation committed ad hoc — is not selected and survives
+the undo, and a partial revert leaves the tree in a state that is neither before nor after the
+phase. Before the confirmation gate, list what the window holds that selection did not take:
+
+```bash
+# COMMITS lines are "<sha> <subject>"; keep window commits whose sha is not among them.
+UNSCOPED=$(git -C "${PROJECT_ROOT:-.}" log --format='%H %s' --no-merges ${UNDO_RANGE} \
+  | awk 'NR==FNR { if ($1 != "") sel[$1] = 1; next } !($1 in sel)' <(printf '%s\n' "$COMMITS") - \
+  | head -20)
+```
+
+If `UNSCOPED` is non-empty, display it under "⚠ Unscoped commits in this phase's window — NOT
+included in the revert" and require explicit confirmation that they should be left alone. If the
+user wants any of them reverted, add them to COMMITS by hash.
+
 ---
 
 **MODE=plan:**
@@ -621,6 +638,7 @@ Show next steps:
 - [ ] Arguments parsed correctly for all three modes
 - [ ] --phase mode anchors selection on the phase's own directory (find-phase -> PHASE_START), never a repository-wide commit-subject grep
 - [ ] --phase and --plan modes fail closed when no anchor resolves, never widening to an unbounded search
+- [ ] --phase mode surfaces unscoped commits in the window (UNDO_RANGE minus COMMITS) before the confirmation gate
 - [ ] Dependency check warns when downstream phases have started (MODE=phase)
 - [ ] Dependency check warns when later plans reference target plan outputs (MODE=plan)
 - [ ] Dirty-tree guard aborts if working tree has uncommitted changes

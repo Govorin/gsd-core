@@ -3,6 +3,13 @@
 // plan-phase.md is the deployed planning workflow contract; these checks lock
 // the SPEC path wiring and quality-gate that the edge-probe review (RR-01/02/03)
 // requires — assertions scope to extracted sub-blocks to avoid false positives.
+//
+// Guard history: the RR-02 regression guard below was originally pinned to
+// templates/planner-subagent-prompt.md, a file that was an orphan BY DESIGN — it existed so the
+// guard had something to point at. Phase 4 deleted it and generalized the guard to scan
+// gsd-core/templates/ recursively. The invariant survives the file: the Edge Coverage lift
+// instruction lives in plan-phase.md's <downstream_consumer>, never in a shipped template.
+// Do not narrow it back to a single path.
 
 'use strict';
 
@@ -14,16 +21,50 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const PLAN_PHASE_PATH = path.join(__dirname, '..', 'gsd-core', 'workflows', 'plan-phase.md');
-const PROMPT_PATH = path.join(__dirname, '..', 'gsd-core', 'templates', 'planner-subagent-prompt.md');
+const TEMPLATES_DIR = path.join(__dirname, '..', 'gsd-core', 'templates');
+
+// SPEC-artifact templates are exempt from the token scan. They are the PRODUCER side of the lift:
+// spec.md authors the `## Edge Coverage` section itself, and UI-SPEC.md cross-references that SPEC
+// rule by name to define the parallel UI-consideration lift. Naming the source section is not
+// relocating the planner instruction. Measured on this tree: these are the only two templates of 49
+// carrying the token, so the exemption is exactly as wide as the false positives require.
+const SPEC_ARTIFACT_TEMPLATES = new Set(['spec.md', 'UI-SPEC.md']);
 
 function readPlanPhase() {
   return fs.readFileSync(PLAN_PHASE_PATH, 'utf8');
 }
 
+// Every shipped template that could plausibly host a relocated planner instruction, as repo-relative
+// paths so a failure names the offending file instead of sending the reader through 47 of them.
+function scannableTemplates() {
+  return fs
+    .readdirSync(TEMPLATES_DIR, { recursive: true })
+    .filter((entry) => entry.endsWith('.md'))
+    .filter((entry) => !SPEC_ARTIFACT_TEMPLATES.has(path.basename(entry)))
+    .map((entry) => ({
+      rel: path.posix.join('gsd-core/templates', entry.split(path.sep).join('/')),
+      abs: path.join(TEMPLATES_DIR, entry),
+    }));
+}
+
+// Assert `pattern` appears in no scannable template, naming the offender when it does.
+function assertAbsentFromTemplates(pattern, message) {
+  const templates = scannableTemplates();
+  assert.ok(
+    templates.length > 0,
+    'sanity: gsd-core/templates/ must contain scannable .md templates for this guard to mean anything'
+  );
+  const offenders = templates
+    .filter(({ abs }) => pattern.test(fs.readFileSync(abs, 'utf8')))
+    .map(({ rel }) => rel);
+  assert.deepEqual(offenders, [], `${message} — found in: ${offenders.join(', ')}`);
+}
+
 // Extract the planner <downstream_consumer> block from plan-phase.md. The runtime planner is
 // spawned from plan-phase.md's own inline <planning_context>/<downstream_consumer>, so the
-// load-bearing lift instruction must live here — NOT in templates/planner-subagent-prompt.md,
-// which nothing loads at runtime (no @-import in agents/gsd-planner.md, no read in plan-phase.md).
+// load-bearing lift instruction must live here — NOT in a shipped template under
+// gsd-core/templates/, none of which the runtime loads as the planner's consumer contract
+// (no @-import in agents/gsd-planner.md, no read in plan-phase.md).
 function extractDownstreamConsumerBlock(content) {
   const start = content.indexOf('<downstream_consumer>');
   if (start === -1) return '';
@@ -124,10 +165,10 @@ test('RR-01 reachability: SPEC_FILE resolution is NOT gated inside the AI-SPEC a
 });
 
 // Test C (RR-02 consumer end): the lift instruction lives in the RUNTIME planner surface.
-// plan-phase.md spawns the planner from its own inline <planning_context>; the
-// templates/planner-subagent-prompt.md file is orphaned (loaded by nothing), so asserting the
-// contract there is false assurance — the test stays green even if the runtime never consumes it.
-// Pin the contract to the <downstream_consumer> block plan-phase.md actually sends the planner.
+// plan-phase.md spawns the planner from its own inline <planning_context>; templates under
+// gsd-core/templates/ are inert artifact scaffolding loaded by nothing as a planner contract, so
+// asserting the contract there is false assurance — the test stays green even if the runtime never
+// consumes it. Pin the contract to the <downstream_consumer> block plan-phase.md actually sends.
 test('RR-02 consumer: plan-phase.md downstream_consumer instructs lifting resolved edges into must_haves.truths', () => {
   const block = extractDownstreamConsumerBlock(readPlanPhase());
 
@@ -143,14 +184,12 @@ test('RR-02 consumer: plan-phase.md downstream_consumer instructs lifting resolv
     'plan-phase.md <downstream_consumer> must reference must_haves.truths as the lift target'
   );
 
-  // Regression guard against re-orphaning: the lift instruction must NOT be relocated back into
-  // templates/planner-subagent-prompt.md (which nothing loads) and presented as the consumer
+  // Regression guard against re-orphaning: the lift instruction must NOT be relocated into a
+  // shipped template (which nothing loads as the planner contract) and presented as the consumer
   // contract — that is exactly the false-assurance this retarget fixes.
-  const prompt = fs.readFileSync(PROMPT_PATH, 'utf8');
-  assert.doesNotMatch(
-    prompt,
+  assertAbsentFromTemplates(
     /Edge Coverage/,
-    'planner-subagent-prompt.md is not loaded at runtime — the Edge Coverage lift instruction must not live there'
+    'no shipped template is loaded as the planner consumer contract — the Edge Coverage lift instruction must live in plan-phase.md <downstream_consumer>'
   );
 });
 

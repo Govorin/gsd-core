@@ -172,6 +172,10 @@ build/
 /gsd-core/bin/lib/observability/event.cjs
 /gsd-core/bin/lib/workstream-inventory-builder.cjs
 /gsd-core/bin/lib/plan-scan.cjs
+/gsd-core/bin/lib/plan-status.cjs
+/gsd-core/bin/lib/feature-vocabulary.cjs
+/gsd-core/bin/lib/feature-view.cjs
+/gsd-core/bin/lib/files-modified-normalize.cjs
 /gsd-core/bin/lib/fallow-runner.cjs
 /gsd-core/bin/lib/project-root.cjs
 /gsd-core/bin/lib/installer-migration-authoring.cjs
@@ -328,6 +332,7 @@ build/
 /gsd-core/bin/lib/milestone.cjs
 /gsd-core/bin/lib/phase.cjs
 /gsd-core/bin/lib/verify.cjs
+/gsd-core/bin/lib/verify-gates.cjs
 /gsd-core/bin/lib/init.cjs
 /gsd-core/bin/lib/uat.cjs
 /gsd-core/bin/lib/coverage.cjs

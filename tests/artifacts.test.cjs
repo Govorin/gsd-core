@@ -22,8 +22,8 @@ describe('CANONICAL_EXACT', () => {
   test('contains all expected canonical files', () => {
     const expected = [
       'PROJECT.md', 'ROADMAP.md', 'STATE.md', 'REQUIREMENTS.md',
-      'MILESTONES.md', 'BACKLOG.md', 'LEARNINGS.md', 'THREADS.md',
-      'config.json', 'CLAUDE.md', 'RETROSPECTIVE.md', 'WINDOWS.md', 'state.json',
+      'MILESTONES.md', 'BACKLOG.md', 'LEARNINGS.md', 'LEARNINGS-DIGEST.md', 'CROSS-DOMAIN.md',
+      'THREADS.md', 'config.json', 'CLAUDE.md', 'RETROSPECTIVE.md', 'WINDOWS.md', 'state.json',
     ];
     for (const name of expected) {
       assert.ok(CANONICAL_EXACT.has(name), `expected ${name} in CANONICAL_EXACT`);
@@ -262,7 +262,13 @@ describe('gsd-health W019 — unrecognized .planning/ root files', () => {
       path.join(__dirname, '../gsd-core/templates/README.md'), 'utf-8'
     );
     assert.ok(readme.includes('W019'), 'README.md documents W019');
-    assert.ok(readme.includes('artifacts.cjs'), 'README.md references artifacts.cjs for adding new artifacts');
+    // The authoring source is `src/artifacts.cts`. The `.cjs` under gsd-core/bin/lib/
+    // is its tsc output and is gitignored (ADR-457), so pointing a contributor at it
+    // sends them to edit a build artifact that the next `npm run build` overwrites.
+    assert.ok(
+      readme.includes('src/artifacts.cts'),
+      'README.md points at src/artifacts.cts — the authoring source — for adding new artifacts',
+    );
     assert.ok(readme.includes('PROJECT.md'), 'README.md lists PROJECT.md as canonical');
   });
 });

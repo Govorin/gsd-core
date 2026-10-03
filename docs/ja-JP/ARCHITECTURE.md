@@ -195,10 +195,12 @@ eager なスキルリストはターンごとの 2 つの主要コストの一�
 
 ### テンプレート（`gsd-core/templates/`）
 
+> The authoritative roster is generated: `docs/TEMPLATE-REGISTRY.json` + the **Template Index** in `gsd-core/templates/README.md`, from each template's `gsd-template:` block (`docs/reference/template-registry.md`). The list below is a localized copy and may lag.
+
 すべてのプランニングアーティファクト用のMarkdownテンプレートです。`gsd-tools.cjs template fill` および `scaffold` コマンドにより、事前構造化されたファイルを作成するために使用されます：
 - `project.md`、`requirements.md`、`roadmap.md`、`state.md` — コアプロジェクトファイル
-- `phase-prompt.md` — フェーズ実行プロンプトテンプレート
-- `summary.md`（+ `summary-minimal.md`、`summary-standard.md`、`summary-complex.md`）— 粒度対応のサマリーテンプレート
+- `plan.md` — フェーズ実行プロンプトテンプレート
+- `summary.md` — 粒度対応のサマリーテンプレート
 - `DEBUG.md` — デバッグセッション追跡テンプレート
 - `UI-SPEC.md`、`UAT.md`、`VALIDATION.md` — 専門検証テンプレート
 - `discussion-log.md` — ディスカッション監査証跡テンプレート
