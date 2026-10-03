@@ -12,6 +12,11 @@
         "read": "gsd-core/workflows/autonomous/steps/converge-banner.md"
       },
       {
+        "id": "spec-phase",
+        "when": "always",
+        "read": "gsd-core/workflows/autonomous/steps/spec-phase.md"
+      },
+      {
         "id": "converge-dispatch-bg",
         "when": "state:plan-strategy-converge",
         "read": "gsd-core/workflows/autonomous/steps/converge-dispatch-bg.md"
@@ -25,6 +30,21 @@
         "id": "converge-loop",
         "when": "state:plan-strategy-converge",
         "read": "gsd-core/workflows/autonomous/steps/converge-loop.md"
+      },
+      {
+        "id": "blocking-gates",
+        "when": "always",
+        "read": "gsd-core/workflows/autonomous/steps/blocking-gates.md"
+      },
+      {
+        "id": "human-needed",
+        "when": "always",
+        "read": "gsd-core/workflows/autonomous/steps/human-needed.md"
+      },
+      {
+        "id": "gaps-found",
+        "when": "always",
+        "read": "gsd-core/workflows/autonomous/steps/gaps-found.md"
       }
     ],
     "code-review": [

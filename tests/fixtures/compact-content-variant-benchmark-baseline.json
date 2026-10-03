@@ -154,13 +154,13 @@
     },
     "gsd-core/templates/summary.md": {
       "offTokens": 3521,
-      "onTokens": 2299,
-      "reductionPct": 34.71
+      "onTokens": 2367,
+      "reductionPct": 32.77
     },
     "gsd-core/templates/user-setup.md": {
-      "offTokens": 2061,
-      "onTokens": 1363,
-      "reductionPct": 33.87
+      "offTokens": 2124,
+      "onTokens": 1426,
+      "reductionPct": 32.86
     },
     "gsd-core/workflows/help/modes/full.md": {
       "offTokens": 9933,
@@ -169,8 +169,8 @@
     }
   },
   "aggregate": {
-    "offTokens": 125776,
-    "onTokens": 97537,
-    "reductionPct": 22.45
+    "offTokens": 125839,
+    "onTokens": 97668,
+    "reductionPct": 22.39
   }
 }

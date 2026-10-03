@@ -1,0 +1,408 @@
+{
+  "templates": [
+    {
+      "path": "AI-SPEC.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-ai-integration-phase",
+        "gsd-planner",
+        "gsd-eval-review"
+      ]
+    },
+    {
+      "path": "BET.md",
+      "level": "milestone",
+      "lifecycle": "experimental",
+      "required": false,
+      "author": "human",
+      "readers": []
+    },
+    {
+      "path": "DEBUG.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-debug",
+        "gsd-debugger"
+      ]
+    },
+    {
+      "path": "DESIGN.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-system-architect",
+        "gsd-architect-reviewer"
+      ]
+    },
+    {
+      "path": "PRODUCT.md",
+      "level": "project",
+      "lifecycle": "experimental",
+      "required": false,
+      "author": "human",
+      "readers": []
+    },
+    {
+      "path": "SECURITY.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-secure-phase",
+        "gsd-security-auditor"
+      ]
+    },
+    {
+      "path": "UAT.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-verify-work",
+        "gsd-audit-uat"
+      ]
+    },
+    {
+      "path": "UI-SPEC.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-ui-phase",
+        "gsd-ui-researcher",
+        "gsd-ui-checker"
+      ]
+    },
+    {
+      "path": "VALIDATION.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-planner",
+        "gsd-validate-phase"
+      ]
+    },
+    {
+      "path": "codebase/architecture.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-codebase-mapper",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "codebase/stack.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-codebase-mapper",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "context.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-discuss-phase",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "continue-here.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-pause-work",
+        "gsd-resume-work",
+        "gsd-execute-phase"
+      ]
+    },
+    {
+      "path": "deferred-items.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-executor",
+        "gsd-audit-uat"
+      ]
+    },
+    {
+      "path": "discussion-log.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": []
+    },
+    {
+      "path": "host/copilot-instructions.md",
+      "level": "host",
+      "lifecycle": "active",
+      "required": false,
+      "author": "generated",
+      "readers": []
+    },
+    {
+      "path": "host/dev-preferences.md",
+      "level": "host",
+      "lifecycle": "active",
+      "required": false,
+      "author": "generated",
+      "readers": [
+        "gsd-dev-preferences"
+      ]
+    },
+    {
+      "path": "host/user-profile.md",
+      "level": "host",
+      "lifecycle": "active",
+      "required": false,
+      "author": "generated",
+      "readers": [
+        "gsd-profile-user"
+      ]
+    },
+    {
+      "path": "milestone-archive.md",
+      "level": "milestone",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-complete-milestone"
+      ]
+    },
+    {
+      "path": "milestone.md",
+      "level": "milestone",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-complete-milestone"
+      ]
+    },
+    {
+      "path": "plan.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-planner",
+        "gsd-executor"
+      ]
+    },
+    {
+      "path": "project.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-new-project",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "requirements.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-new-milestone",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "research-project/ARCHITECTURE.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-project-researcher",
+        "gsd-research-synthesizer"
+      ]
+    },
+    {
+      "path": "research-project/FEATURES.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-project-researcher",
+        "gsd-research-synthesizer"
+      ]
+    },
+    {
+      "path": "research-project/PITFALLS.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-project-researcher",
+        "gsd-research-synthesizer"
+      ]
+    },
+    {
+      "path": "research-project/STACK.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-project-researcher",
+        "gsd-research-synthesizer"
+      ]
+    },
+    {
+      "path": "research-project/SUMMARY.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-research-synthesizer",
+        "gsd-roadmapper"
+      ]
+    },
+    {
+      "path": "research.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-plan-phase",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "retrospective.md",
+      "level": "milestone",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-complete-milestone"
+      ]
+    },
+    {
+      "path": "roadmap.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-roadmapper",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "spec.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-spec-phase",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "state.md",
+      "level": "project",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-roadmapper",
+        "gsd-executor"
+      ]
+    },
+    {
+      "path": "summary.compact.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-executor",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "summary.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": true,
+      "author": "agent",
+      "readers": [
+        "gsd-executor",
+        "gsd-planner"
+      ]
+    },
+    {
+      "path": "user-setup.compact.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-executor"
+      ]
+    },
+    {
+      "path": "user-setup.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-executor"
+      ]
+    },
+    {
+      "path": "verification-report.md",
+      "level": "phase",
+      "lifecycle": "active",
+      "required": false,
+      "author": "agent",
+      "readers": [
+        "gsd-verifier",
+        "gsd-verify-work",
+        "gsd-audit-milestone"
+      ]
+    }
+  ],
+  "count": 38
+}
