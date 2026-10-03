@@ -133,7 +133,7 @@ describe('worktree provisioning', () => {
     assert.ok(decision.notes.some((n) => n.includes('left existing')));
   });
 
-  test('links node_modules by default, and reports when it cannot', () => {
+  test('links node_modules by default, and reports when it cannot', (t) => {
     fs.mkdirSync(path.join(main, 'node_modules'), { recursive: true });
     fs.writeFileSync(path.join(main, 'node_modules', '.marker'), 'x');
 
@@ -146,15 +146,12 @@ describe('worktree provisioning', () => {
 
     // Nothing to link: a note, not a failure — the phase may not need deps.
     const bare = createTempDir();
-    try {
-      const decision = provision.provisionWorktree(
-        { worktree_path: bare, cwd: main },
-        { measureBaseLag: fresh, copyToolConfig: () => ({ copied: [], skipped: [] }) }
-      );
-      assert.equal(decision.action, 'allow');
-    } finally {
-      cleanup(bare);
-    }
+    t.after(() => cleanup(bare));
+    const decision = provision.provisionWorktree(
+      { worktree_path: bare, cwd: main },
+      { measureBaseLag: fresh, copyToolConfig: () => ({ copied: [], skipped: [] }) }
+    );
+    assert.equal(decision.action, 'allow');
   });
 
   test('a failed install warns instead of refusing the worktree', () => {
@@ -188,75 +185,65 @@ describe('worktree provisioning', () => {
     assert.equal(provision.provisionWorktree(null).action, 'allow');
   });
 
-  test('a stale base reaches the runtime as exit 2, over real git history', () => {
+  test('a stale base reaches the runtime as exit 2, over real git history', (t) => {
     // The blocking path end-to-end, with no injection: two real repositories,
     // one deliberately left behind the other, driven through the hook's actual
     // stdin/exit-code contract. Anything less would pin the decision function
     // while leaving the thing the runtime actually consumes untested.
     const repoDir = createTempGitProject();
-    try {
-      fs.mkdirSync(path.join(repoDir, '.planning'), { recursive: true });
-      fs.writeFileSync(
-        path.join(repoDir, '.planning', 'config.json'),
-        JSON.stringify({ workflow: { worktree_provision: true, worktree_max_base_lag: 1 } })
-      );
+    t.after(() => cleanup(repoDir));
+    fs.mkdirSync(path.join(repoDir, '.planning'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, '.planning', 'config.json'),
+      JSON.stringify({ workflow: { worktree_provision: true, worktree_max_base_lag: 1 } })
+    );
 
-      // The worktree forks here…
-      const forkPoint = runGit(['rev-parse', 'HEAD'], { cwd: repoDir }).stdout.trim();
-      const stale = createTempDir();
-      runGit(['worktree', 'add', '--detach', stale, forkPoint], { cwd: repoDir });
+    // The worktree forks here…
+    const forkPoint = runGit(['rev-parse', 'HEAD'], { cwd: repoDir }).stdout.trim();
+    const stale = createTempDir();
+    t.after(() => cleanup(stale));
+    runGit(['worktree', 'add', '--detach', stale, forkPoint], { cwd: repoDir });
 
-      // …and the main checkout then moves three commits ahead of it.
-      for (const n of [1, 2, 3]) {
-        fs.writeFileSync(path.join(repoDir, `moved-${n}.txt`), String(n));
-        runGit(['add', '-A'], { cwd: repoDir });
-        runGit(['commit', '-m', `move ${n}`], { cwd: repoDir });
-      }
-
-      const result = runNode([HOOK], {
-        input: JSON.stringify({ worktree_path: stale, cwd: repoDir }),
-        cwd: repoDir,
-      });
-      assert.equal(result.outcome, OUTCOME.EXITED);
-      assert.equal(result.exitCode, 2, 'exit 2 is what refuses the creation');
-      const emitted = JSON.parse(result.stdout);
-      assert.equal(emitted.behind, 3, 'the distance is reported, not merely the refusal');
-      assert.equal(emitted.maxBaseLag, 1);
-
-      runGit(['worktree', 'remove', '--force', stale], { cwd: repoDir });
-      cleanup(stale);
-    } finally {
-      cleanup(repoDir);
+    // …and the main checkout then moves three commits ahead of it.
+    for (const n of [1, 2, 3]) {
+      fs.writeFileSync(path.join(repoDir, `moved-${n}.txt`), String(n));
+      runGit(['add', '-A'], { cwd: repoDir });
+      runGit(['commit', '-m', `move ${n}`], { cwd: repoDir });
     }
+
+    const result = runNode([HOOK], {
+      input: JSON.stringify({ worktree_path: stale, cwd: repoDir }),
+      cwd: repoDir,
+    });
+    assert.equal(result.outcome, OUTCOME.EXITED);
+    assert.equal(result.exitCode, 2, 'exit 2 is what refuses the creation');
+    const emitted = JSON.parse(result.stdout);
+    assert.equal(emitted.behind, 3, 'the distance is reported, not merely the refusal');
+    assert.equal(emitted.maxBaseLag, 1);
   });
 
-  test('a worktree within the limit is created and equipped', () => {
+  test('a worktree within the limit is created and equipped', (t) => {
     const repoDir = createTempGitProject();
-    try {
-      fs.mkdirSync(path.join(repoDir, '.planning'), { recursive: true });
-      fs.writeFileSync(
-        path.join(repoDir, '.planning', 'config.json'),
-        JSON.stringify({ workflow: { worktree_provision: true, worktree_max_base_lag: 50 } })
-      );
-      fs.writeFileSync(path.join(repoDir, '.mcp.json'), '{"servers":{}}');
+    t.after(() => cleanup(repoDir));
+    fs.mkdirSync(path.join(repoDir, '.planning'), { recursive: true });
+    fs.writeFileSync(
+      path.join(repoDir, '.planning', 'config.json'),
+      JSON.stringify({ workflow: { worktree_provision: true, worktree_max_base_lag: 50 } })
+    );
+    fs.writeFileSync(path.join(repoDir, '.mcp.json'), '{"servers":{}}');
 
-      const fresh_ = createTempDir();
-      runGit(['worktree', 'add', '--detach', fresh_, 'HEAD'], { cwd: repoDir });
+    const fresh_ = createTempDir();
+    t.after(() => cleanup(fresh_));
+    runGit(['worktree', 'add', '--detach', fresh_, 'HEAD'], { cwd: repoDir });
 
-      const result = runNode([HOOK], {
-        input: JSON.stringify({ worktree_path: fresh_, cwd: repoDir }),
-        cwd: repoDir,
-      });
-      assert.equal(result.exitCode, 0);
-      assert.ok(
-        fs.existsSync(path.join(fresh_, '.mcp.json')),
-        'the tools an agent expects must travel with the checkout'
-      );
-
-      runGit(['worktree', 'remove', '--force', fresh_], { cwd: repoDir });
-      cleanup(fresh_);
-    } finally {
-      cleanup(repoDir);
-    }
+    const result = runNode([HOOK], {
+      input: JSON.stringify({ worktree_path: fresh_, cwd: repoDir }),
+      cwd: repoDir,
+    });
+    assert.equal(result.exitCode, 0);
+    assert.ok(
+      fs.existsSync(path.join(fresh_, '.mcp.json')),
+      'the tools an agent expects must travel with the checkout'
+    );
   });
 });

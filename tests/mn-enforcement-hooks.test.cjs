@@ -575,16 +575,13 @@ describe('mn enforcement hooks — executor exit gate', () => {
     }
   });
 
-  test('is inert outside a GSD project and on a malformed payload', () => {
+  test('is inert outside a GSD project and on a malformed payload', (t) => {
     const bare = createTempDir();
-    try {
-      assert.equal(
-        exitGate.evaluateStop({ subagent_type: 'gsd-executor', cwd: bare }, { runner: red }).action,
-        'allow'
-      );
-    } finally {
-      cleanup(bare);
-    }
+    t.after(() => cleanup(bare));
+    assert.equal(
+      exitGate.evaluateStop({ subagent_type: 'gsd-executor', cwd: bare }, { runner: red }).action,
+      'allow'
+    );
     assert.equal(exitGate.evaluateStop(null).action, 'allow');
   });
 });
