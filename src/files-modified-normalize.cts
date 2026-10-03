@@ -49,10 +49,13 @@
  * explicitly sorted before iteration at EVERY level of the walk, because
  * `readdirSync` order is not guaranteed. Same input, byte-identical output.
  *
- * LEAF MODULE — imports nothing. The filesystem enters only through the injected
- * `FsProbe`, so the module is exercisable with no temp tree and a test can hand
- * it a deliberately reversed listing to prove the sort is load-bearing.
+ * LEAF MODULE — its only import is the pure regex-escape seam (`./pattern.cjs`,
+ * ADR-3212). The filesystem enters only through the injected `FsProbe`, so the
+ * module is exercisable with no temp tree and a test can hand it a deliberately
+ * reversed listing to prove the sort is load-bearing.
  */
+
+import { escapeRegex } from './pattern.cjs';
 
 /**
  * One of four kinds.
@@ -213,7 +216,7 @@ function globToRegExp(pattern: string): RegExp {
       i += 1;
     } else {
       // Everything else is literal, including `?`, `.` and `+`.
-      body += pattern[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      body += escapeRegex(pattern[i]);
       i += 1;
     }
   }
