@@ -89,6 +89,11 @@ const LARGE_AGENTS = new Set([
   'gsd-codebase-mapper',
   'gsd-project-researcher',
   'gsd-roadmapper',
+  // Outgrew DEFAULT by role, not by creep: #4223 turned a static screenshot
+  // reader into an operator that branches on config, dev server and Chrome and
+  // owns a chrome-devtools daemon's start/stop lifecycle (15606 → 24569 bytes,
+  // 7 under the DEFAULT cap). Same move as `review` in LARGE_WORKFLOWS (#1936).
+  'gsd-ui-auditor',
 ]);
 
 const ALL_AGENTS = fs.readdirSync(AGENTS_DIR)

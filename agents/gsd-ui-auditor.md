@@ -108,10 +108,20 @@ if [ "$DEV_STATUS" = "200" ]; then
   SCREENSHOT_DIR=".planning/ui-reviews/${PADDED_PHASE}-$(date +%Y%m%d-%H%M%S)"
   mkdir -p "$SCREENSHOT_DIR"
 
-  for v in desktop:1440,900 mobile:375,812 tablet:768,1024; do
-    npx playwright screenshot http://localhost:3000 \
-      "$SCREENSHOT_DIR/${v%%:*}.png" --viewport-size="${v#*:}" 2>/dev/null
-  done
+  # Desktop
+  npx playwright screenshot http://localhost:3000 \
+    "$SCREENSHOT_DIR/desktop.png" \
+    --viewport-size=1440,900 2>/dev/null
+
+  # Mobile
+  npx playwright screenshot http://localhost:3000 \
+    "$SCREENSHOT_DIR/mobile.png" \
+    --viewport-size=375,812 2>/dev/null
+
+  # Tablet
+  npx playwright screenshot http://localhost:3000 \
+    "$SCREENSHOT_DIR/tablet.png" \
+    --viewport-size=768,1024 2>/dev/null
 
   echo "Screenshots captured to $SCREENSHOT_DIR"
 else
