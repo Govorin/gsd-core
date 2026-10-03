@@ -1,5 +1,5 @@
 // allow-test-rule: source-text-is-the-product (see #3427)
-// Reads gsd-core/templates/phase-prompt.md — the template's deployed text IS
+// Reads gsd-core/templates/plan.md — the template's deployed text IS
 // what the planner loads, so testing its worked `depends_on` examples tests the
 // contract the wave DAG depends on.
 
@@ -16,7 +16,7 @@
  * documented convention (`depends_on: [] # e.g., ["01-01"]`) — the planner
  * template must only ever TEACH full-form ids in its worked `depends_on`
  * examples. This suite pins that: every non-empty `depends_on:` example in
- * templates/phase-prompt.md lists `NN-NN` full-form plan ids only.
+ * templates/plan.md lists `NN-NN` full-form plan ids only.
  */
 
 'use strict';
@@ -26,7 +26,7 @@ const assert = require('node:assert/strict');
 const fs = require('fs');
 const path = require('path');
 
-const TEMPLATE = path.join(__dirname, '..', 'gsd-core', 'templates', 'phase-prompt.md');
+const TEMPLATE = path.join(__dirname, '..', 'gsd-core', 'templates', 'plan.md');
 
 /** Full-form plan id: two-digit phase + two-digit plan, e.g. "03-01". */
 const FULL_FORM_ID = /^\d{2}-\d{2}$/;
@@ -69,7 +69,7 @@ function shortFormTokens(examples) {
   return bad;
 }
 
-describe('phase-prompt template teaches only full-form depends_on ids (#3427 / #3473 B8)', () => {
+describe('plan template (templates/plan.md, formerly phase-prompt.md) teaches only full-form depends_on ids (#3427 / #3473 B8)', () => {
   const body = fs.readFileSync(TEMPLATE, 'utf8');
   const examples = extractDependsOnExamples(body);
 

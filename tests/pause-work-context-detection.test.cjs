@@ -208,7 +208,7 @@ describe('regression #4112: pause-work.md Context Detection block', () => {
 });
 
 describe('regression #4954: phase detection matches the canonical plan file name', () => {
-  // GSD names plans {phase}-{plan}-PLAN.md (templates/phase-prompt.md,
+  // GSD names plans {phase}-{plan}-PLAN.md (templates/plan.md,
   // templates/roadmap.md, templates/README.md), and execute-phase.md already
   // enumerates them as {phase_dir}/*-PLAN.md. The shipped detect block globbed
   // a literal PLAN.md, matched nothing, and silently wrote the phase handoff to

@@ -1,3 +1,14 @@
+---
+# gsd-template: registry metadata about THIS TEMPLATE FILE.
+# Not part of the artifact this template produces. Agents: ignore this block.
+gsd-template:
+  level: phase
+  lifecycle: active
+  required: false
+  author: agent
+  readers: []
+---
+
 # Discussion Log Template
 
 Template for `.planning/phases/XX-name/{phase_num}-DISCUSSION-LOG.md` — audit trail of discuss-phase Q&A sessions.
