@@ -2845,7 +2845,7 @@ const capabilities = {
   "mn-verify-gate": {
     "id": "mn-verify-gate",
     "role": "feature",
-    "version": "1.9.1",
+    "version": "1.15.0",
     "title": "Verification enforcement gates",
     "description": "Blocks ship while the phase's own verification artifacts still say the work is unproven. Core GSD produces VERIFICATION.md and VALIDATION.md but no gate reads either — a phase with gaps_found reaches ship unopposed.",
     "tier": "full",
