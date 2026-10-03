@@ -49,6 +49,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
 
 const MODE_OFF = 'off';
 const MODE_ASK = 'ask';
@@ -287,10 +288,23 @@ function evaluateTestWrite(data, options = {}) {
   };
 }
 
+/**
+ * The ask path exits 0, where stderr is deny-only for terminateNow; the reason
+ * still goes to fd 2 as it always has, so the transcript shows why the user was
+ * asked. Best-effort: a failed write never changes the outcome.
+ */
+function emitAskReason(reason) {
+  try {
+    if (typeof reason === 'string' && reason) fs.writeSync(2, reason);
+  } catch {
+    /* the decision stands regardless */
+  }
+}
+
 /* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
 function main() {
   let input = '';
-  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  const stdinTimeout = setTimeout(() => allow(undefined), 3000);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     input += chunk;
@@ -301,9 +315,9 @@ function main() {
     try {
       decision = evaluateTestWrite(JSON.parse(input));
     } catch {
-      process.exit(0);
+      crash(HOOK_ON_CRASH.ALLOW, undefined);
     }
-    if (!decision || decision.action === 'allow') process.exit(0);
+    if (!decision || decision.action === 'allow') allow(undefined);
 
     const output = {
       hookSpecificOutput: {
@@ -319,13 +333,9 @@ function main() {
       skipsAfter: decision.skipsAfter,
       reason: decision.reason,
     };
-    try {
-      fs.writeSync(1, JSON.stringify(output));
-      fs.writeSync(2, decision.reason);
-    } catch {
-      /* the decision stands regardless */
-    }
-    process.exit(decision.action === 'deny' ? 2 : 0);
+    if (decision.action === 'deny') deny(output, decision.reason);
+    emitAskReason(decision.reason);
+    allow(output);
   });
 }
 

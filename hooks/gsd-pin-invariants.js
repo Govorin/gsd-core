@@ -42,6 +42,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { HOOK_ON_CRASH, allow, crash } = require('./lib/hook-exit.js');
 
 const DEFAULT_BUDGET = 2000;
 const PIN_OPEN = '<!-- gsd:pinned -->';
@@ -287,7 +288,7 @@ function buildPin(cwd) {
 /* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
 function main() {
   let input = '';
-  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  const stdinTimeout = setTimeout(() => allow(undefined), 3000);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     input += chunk;
@@ -300,20 +301,15 @@ function main() {
       const cwd = (data && typeof data.cwd === 'string' && data.cwd) || process.cwd();
       pin = buildPin(cwd);
     } catch {
-      process.exit(0); // a pin that cannot be built must never disturb a session
+      crash(HOOK_ON_CRASH.ALLOW, undefined); // a pin that cannot be built must never disturb a session
     }
-    if (!pin) process.exit(0);
+    if (!pin) allow(undefined);
 
     // The event name differs by host; PostCompact is the one that matters, and
     // SessionStart carries the same shape. Emitting both keys is not valid, so
     // the generic `additionalContext` field is used, which every current host
     // honours for context-injecting hooks.
-    try {
-      fs.writeSync(1, JSON.stringify({ additionalContext: pin.context }));
-    } catch {
-      /* nothing to do */
-    }
-    process.exit(0);
+    allow({ additionalContext: pin.context });
   });
 }
 

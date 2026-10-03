@@ -39,12 +39,19 @@
 // Inert unless `workflow.worktree_provision` is set. On runtimes without a
 // WorktreeCreate event the workflow's existing dispatch path is unchanged;
 // nothing here is required for a worktree to work, only for it to be equipped.
+//
+// NOT WIRED on Claude Code's WorktreeCreate. That event REPLACES `git worktree
+// add`: the host takes the path the hook prints on stdout and fails creation
+// when none is printed. This hook equips a worktree that already exists and
+// prints no path, so registering it there would fail every worktree spawn.
+// tests/plugin-manifest.test.cjs pins its absence from hooks/hooks.json.
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
 
 /** Files copied into a new worktree when they exist in the main checkout. */
 const TOOL_CONFIG_FILES = [
@@ -298,7 +305,7 @@ function provisionWorktree(data, options = {}) {
 /* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
 function main() {
   let input = '';
-  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  const stdinTimeout = setTimeout(() => allow(undefined), 3000);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     input += chunk;
@@ -309,9 +316,9 @@ function main() {
     try {
       decision = provisionWorktree(JSON.parse(input));
     } catch {
-      process.exit(0); // provisioning must never be the reason a session stops
+      crash(HOOK_ON_CRASH.ALLOW, undefined); // provisioning must never be the reason a session stops
     }
-    if (!decision) process.exit(0);
+    if (!decision) allow(undefined);
 
     if (decision.action === 'block') {
       const output = {
@@ -320,26 +327,14 @@ function main() {
         behind: decision.behind,
         maxBaseLag: decision.maxBaseLag,
       };
-      try {
-        fs.writeSync(1, JSON.stringify(output));
-        fs.writeSync(2, decision.reason);
-      } catch {
-        /* the decision stands regardless */
-      }
-      process.exit(2);
+      deny(output, decision.reason);
     }
 
-    if (decision.notes && decision.notes.length) {
-      try {
-        fs.writeSync(
-          1,
-          JSON.stringify({ systemMessage: `Worktree provisioning: ${decision.notes.join('; ')}` })
-        );
-      } catch {
-        /* nothing to do */
-      }
-    }
-    process.exit(0);
+    allow(
+      decision.notes && decision.notes.length
+        ? { systemMessage: `Worktree provisioning: ${decision.notes.join('; ')}` }
+        : undefined
+    );
   });
 }
 

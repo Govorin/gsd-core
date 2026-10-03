@@ -62,6 +62,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
+const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
 
 /** Default executor identity. Overridable per project. */
 const DEFAULT_AGENTS = ['gsd-executor'];
@@ -347,7 +348,7 @@ function evaluateStop(data, options = {}) {
 /* istanbul ignore next -- stdin adapter, exercised via the process seam in tests */
 function main() {
   let input = '';
-  const stdinTimeout = setTimeout(() => process.exit(0), 3000);
+  const stdinTimeout = setTimeout(() => allow(undefined), 3000);
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => {
     input += chunk;
@@ -358,9 +359,9 @@ function main() {
     try {
       decision = evaluateStop(JSON.parse(input));
     } catch {
-      process.exit(0); // malformed payload must never strand a session
+      crash(HOOK_ON_CRASH.ALLOW, undefined); // malformed payload must never strand a session
     }
-    if (!decision) process.exit(0);
+    if (!decision) allow(undefined);
 
     if (decision.action === 'block') {
       const output = {
@@ -371,25 +372,13 @@ function main() {
         maxRetries: decision.maxRetries,
         command: decision.command,
       };
-      try {
-        fs.writeSync(1, JSON.stringify(output));
-        fs.writeSync(2, decision.reason);
-      } catch {
-        /* emission failed; the decision still stands */
-      }
-      process.exit(2);
+      // JSON on fd 1, the plain reason on fd 2 (the host reads stderr on exit 2).
+      deny(output, decision.reason);
     }
 
     // Allowed, but worth saying so: an exhausted budget or an unrunnable gate is
     // information the session should carry into verification.
-    if (decision.reason) {
-      try {
-        fs.writeSync(1, JSON.stringify({ systemMessage: decision.reason }));
-      } catch {
-        /* nothing to do */
-      }
-    }
-    process.exit(0);
+    allow(decision.reason ? { systemMessage: decision.reason } : undefined);
   });
 }
 

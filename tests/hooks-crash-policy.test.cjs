@@ -363,6 +363,42 @@ const TABLE = [
     declaredOnCrash: null,
     allow: () => ({ payload: {} }),
   },
+  // mn fork enforcement hooks. Each fails open on a crash (a malformed payload
+  // must never strand a session or block a valid write). Their deny paths need
+  // a running plan / a configured gate / two git repos, and are driven through
+  // the same process seam in tests/mn-enforcement-hooks.test.cjs and
+  // tests/mn-worktree-provision.test.cjs — so no deny row here (the C2 count
+  // stays upstream's).
+  {
+    file: 'gsd-exit-gate.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { cwd: os.tmpdir() } }), // no .planning/ -> inert
+  },
+  {
+    file: 'gsd-pin-invariants.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { cwd: os.tmpdir() } }), // no running plan -> nothing to pin
+  },
+  {
+    file: 'gsd-prohibition-guard.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { tool_name: 'Read' } }),
+  },
+  {
+    file: 'gsd-test-tamper-guard.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { tool_name: 'Read' } }),
+  },
+  {
+    file: 'gsd-worktree-provision.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { cwd: os.tmpdir() } }), // workflow.worktree_provision unset -> inert
+  },
 ];
 
 // ---------------------------------------------------------------------------
