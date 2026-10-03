@@ -26,6 +26,8 @@ const os = require('node:os');
 const path = require('node:path');
 const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
 const { cleanup } = require('./helpers.cjs');
+const { extractFencedBlock } = require('../gsd-core/bin/lib/markdown-sectionizer.cjs');
+const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
 const SCRIPT = path.join(__dirname, '..', 'capabilities', 'mn-verify-gate', 'scripts', 'plan-graph.mjs');
 
@@ -38,14 +40,14 @@ const CANNOT_LOOK = 2;
 
 /** Parse the mermaid block into { subgraphs, nodes, edges, red }. */
 function parseGraph(stdout) {
-  const block = stdout.match(/```mermaid\n([\s\S]*?)\n```/);
-  assert.ok(block, `no mermaid block in output:\n${stdout}`);
+  const block = extractFencedBlock(stdout, 'mermaid');
+  assert.ok(block !== null, `no mermaid block in output:\n${stdout}`);
   const nodes = new Map();
   const edges = [];
   const red = [];
   const subgraphs = [];
   let current = null;
-  for (const line of block[1].split('\n')) {
+  for (const line of splitLines(block)) {
     let m;
     if ((m = line.match(/^\s+subgraph \w+\["(.*)"\]$/))) {
       current = m[1];
