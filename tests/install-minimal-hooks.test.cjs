@@ -2643,7 +2643,9 @@ describe('enh-770: Claude install is idempotent for the new hook events', () => 
     assert.strictEqual(count('PreToolUse', 'gsd-test-tamper-guard'), 1);
     assert.strictEqual(count('SubagentStop', 'gsd-exit-gate'), 1);
     assert.strictEqual(count('SessionStart', 'gsd-pin-invariants'), 1);
-    assert.strictEqual(count('PostCompact', 'gsd-pin-invariants'), 1);
+    // SessionStart re-fires with source "compact" after a compaction; PostCompact
+    // cannot add context, so the pin is never registered there.
+    assert.strictEqual(count('PostCompact', 'gsd-pin-invariants'), 0);
     // WorktreeCreate replaces creation; the provisioning hook must never claim it.
     assert.strictEqual(hooksForEvent(s2, 'WorktreeCreate').length, 0);
   });

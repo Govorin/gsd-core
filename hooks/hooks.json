@@ -80,13 +80,6 @@
         ]
       }
     ],
-    "PostCompact": [
-      {
-        "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/gsd-pin-invariants.js\"", "timeout": 5 }
-        ]
-      }
-    ],
     "FileChanged": [
       {
         "matcher": "config.json",

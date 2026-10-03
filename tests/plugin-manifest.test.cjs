@@ -143,14 +143,12 @@ describe('B: hooks/hooks.json', () => {
     if (!hooksConfig) { t.skip('hooks.json could not be parsed'); return; }
     // Complete set of Claude Code hook events as of #770 (SubagentStop, Stop,
     // PreCompact, FileChanged added in #770; prior set was SessionStart,
-    // PreToolUse, PostToolUse from #766). PostCompact carries the mn fork's
-    // gsd-pin-invariants; `claude plugin validate --strict` (CLI 2.1.288) accepts
-    // it and rejects an unknown event with "unknown hook event; entry ignored at
-    // runtime", so C2 backs this list with the host's own schema.
+    // PreToolUse, PostToolUse from #766). `claude plugin validate --strict`
+    // (CLI 2.1.288) rejects an unknown event with "unknown hook event; entry
+    // ignored at runtime", so C2 backs this list with the host's own schema.
     const validEvents = new Set([
       'SessionStart', 'PreToolUse', 'PostToolUse',
       'SubagentStop', 'Stop', 'PreCompact', 'FileChanged',
-      'PostCompact',
     ]);
     for (const eventName of Object.keys(hooksConfig.hooks)) {
       assert.ok(validEvents.has(eventName), `Unknown hook event: "${eventName}"`);
@@ -900,11 +898,12 @@ describe('D: always-on hook contract drift guard', () => {
     }
   });
 
-  test('mn fork: gsd-pin-invariants.js re-injects on SessionStart (last) and PostCompact, at timeout 5', () => {
+  test('mn fork: gsd-pin-invariants.js re-injects on SessionStart only (last, every source), at timeout 5', () => {
+    // An empty matcher covers source "compact": Claude Code re-fires
+    // SessionStart after a compaction, and PostCompact cannot add context.
     const map = buildHookMap();
     assert.deepEqual(wiringOf(map, 'gsd-pin-invariants.js'), [
       { event: 'SessionStart', matcher: '', timeout: PIN_INVARIANTS_BUDGET_S },
-      { event: 'PostCompact', matcher: '', timeout: PIN_INVARIANTS_BUDGET_S },
     ]);
     assert.equal(map.SessionStart[''].at(-1).script, 'gsd-pin-invariants.js', 'the pin runs after the canonical-path and update hooks');
     assert.ok(PIN_INVARIANTS_BUDGET_S < BLOCKING_GUARD_TIMEOUT_S, 'negative control: the pin is advisory, not held to the blocking budget');

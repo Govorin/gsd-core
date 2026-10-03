@@ -3025,8 +3025,10 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
     // Same shape as every registration above: only-if-absent (referencesHook
     // dedups a hand-registered entry), only when the file was installed, and
     // built through buildHookCommand(…, hookOpts) so the configured-entrypoint
-    // validation (#4154) covers them. Claude-only: PostCompact and the
-    // PreToolUse permissionDecision protocol the guards emit are Claude Code's.
+    // validation (#4154) covers them. Claude-only: the PreToolUse
+    // permissionDecision protocol the guards emit is Claude Code's. The pin is
+    // registered on SessionStart alone: Claude Code re-fires SessionStart with
+    // source "compact" after a compaction, and PostCompact cannot add context.
     // gsd-worktree-provision.js is deliberately absent — Claude's WorktreeCreate
     // replaces worktree creation and that hook does not create one.
     if (FORK_ENFORCEMENT_RUNTIMES.has(runtime)) {
@@ -3040,8 +3042,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
         { file: 'gsd-prohibition-guard.js', command: prohibitionGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'prohibition guard (writes outside files_modified)' },
         { file: 'gsd-test-tamper-guard.js', command: testTamperGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'test tamper guard (dropped assertions / new skips)' },
         { file: 'gsd-exit-gate.js', command: exitGateCommand, event: 'SubagentStop', timeout: FORK_EXIT_GATE_TIMEOUT_S, label: 'executor exit gate' },
-        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start)' },
-        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'PostCompact', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (after compaction)' },
+        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start and after compaction)' },
       ];
       for (const spec of forkHooks) {
         const hookName = spec.file.replace(/\.js$/, '');

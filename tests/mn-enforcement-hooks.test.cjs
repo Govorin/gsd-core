@@ -4,7 +4,7 @@
  * The mn fork's enforcement hooks — four guards that move a check the pipeline
  * already performs from AFTER the work to DURING it.
  *
- * Seams (all four are PreToolUse/SubagentStop/PostCompact hooks, driven here
+ * Seams (all four are PreToolUse/SubagentStop/SessionStart hooks, driven here
  * through their exported decision functions, and — for the two that can block
  * a tool call — also through the real stdin/exit-code contract via the process
  * seam, because the exit code IS the enforcement):
@@ -688,14 +688,40 @@ describe('mn enforcement hooks — invariant pin', () => {
     assert.equal(pin.buildPin(dir), null);
   });
 
-  test('emits additionalContext and never blocks', () => {
+  test('emits SessionStart hookSpecificOutput.additionalContext and never blocks', () => {
+    // Claude Code reads SessionStart context only from hookSpecificOutput; a
+    // top-level additionalContext is ignored. The compaction re-fire arrives as
+    // SessionStart with source "compact", so that is the shape that matters.
+    writePlan(dir, '05-alerts', '05-01', { prohibitions: ['rule A'] });
+    for (const source of ['startup', 'compact']) {
+      const result = runNode([path.join(HOOKS_DIR, 'gsd-pin-invariants.js')], {
+        input: JSON.stringify({ cwd: dir, hook_event_name: 'SessionStart', source }),
+        cwd: dir,
+      });
+      assert.equal(result.outcome, OUTCOME.EXITED);
+      assert.equal(result.exitCode, 0, 'a context hook must never fail a session');
+      const out = JSON.parse(result.stdout);
+      assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+      assert.ok(out.hookSpecificOutput.additionalContext.includes('rule A'), `source=${source}`);
+      assert.equal(out.additionalContext, undefined, 'no top-level field the host would not read');
+    }
+  });
+
+  test('stays silent on an event that cannot carry context', () => {
+    // An older install may still have the pin on PostCompact, which is
+    // observational: printing there reaches no one, so it prints nothing.
     writePlan(dir, '05-alerts', '05-01', { prohibitions: ['rule A'] });
     const result = runNode([path.join(HOOKS_DIR, 'gsd-pin-invariants.js')], {
-      input: JSON.stringify({ cwd: dir }),
+      input: JSON.stringify({ cwd: dir, hook_event_name: 'PostCompact' }),
       cwd: dir,
     });
     assert.equal(result.outcome, OUTCOME.EXITED);
-    assert.equal(result.exitCode, 0, 'a context hook must never fail a session');
-    assert.ok(JSON.parse(result.stdout).additionalContext.includes('rule A'));
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.stdout.trim(), '');
+    // A payload without an event name is treated as SessionStart (the only
+    // event the installer wires the pin to).
+    assert.equal(pin.pinOutput({}, 'x').hookSpecificOutput.additionalContext, 'x');
+    assert.equal(pin.pinOutput(null, 'x').hookSpecificOutput.hookEventName, 'SessionStart');
+    assert.equal(pin.pinOutput({ hook_event_name: 'PostCompact' }, 'x'), null);
   });
 });
