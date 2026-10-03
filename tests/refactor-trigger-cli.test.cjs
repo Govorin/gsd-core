@@ -941,8 +941,18 @@ describe('refactor-trigger: registry independence', () => {
     assert.deepEqual(cap.gates, []);
 
     const shipPre = registry.byLoopPoint['ship:pre'];
-    assert.strictEqual(shipPre.gates.length, 2);
-    assert.deepEqual(shipPre.gates.map((g) => g.capId).sort(), ['broken-windows', 'security']);
+    assert.ok(!shipPre.gates.some((g) => g.capId === 'refactor-trigger'),
+      'refactor-trigger must not gate ship:pre');
+
+    // The full ship:pre roster stays pinned: upstream's two gates, plus the
+    // fork's mn-verify-gate, whose count comes from its own manifest so a gate
+    // added or dropped there cannot slip past this assertion unnoticed.
+    const forkManifest = require('../capabilities/mn-verify-gate/capability.json');
+    const forkShipPre = forkManifest.gates.filter((g) => g.point === 'ship:pre').length;
+    assert.ok(forkShipPre > 0, 'mn-verify-gate declares its ship:pre gates');
+    const byCap = {};
+    for (const g of shipPre.gates) byCap[g.capId] = (byCap[g.capId] || 0) + 1;
+    assert.deepEqual(byCap, { 'broken-windows': 1, 'mn-verify-gate': forkShipPre, security: 1 });
   });
 });
 
