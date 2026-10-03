@@ -41,6 +41,9 @@ const SCRIPT = path.join(
   'orphan-plans.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
 const CLEAN = 0;
 const ORPHANED = 1;
 const CANNOT_LOOK = 2;
@@ -69,7 +72,7 @@ describe('orphan-plans gate', () => {
   }
 
   function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: 30000 });
+    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
   }
 
   // ── the state that cannot be reconstructed afterwards ─────────────────────
@@ -183,12 +186,12 @@ describe('orphan-plans gate', () => {
   // ── could-not-look is not success ─────────────────────────────────────────
 
   test('exits 2 when the phase directory does not exist', () => {
-    const r = runNode([SCRIPT, '--dir', path.join(phaseDir, 'nope')], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT, '--dir', path.join(phaseDir, 'nope')], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK, '"could not look" must differ from "found nothing"');
   });
 
   test('exits 2 when --dir is omitted', () => {
-    const r = runNode([SCRIPT], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK);
   });
 

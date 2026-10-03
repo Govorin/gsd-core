@@ -31,6 +31,9 @@ const SCRIPT = path.join(
   'blast-radius.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 60000;
+
 const MATCHED = 0;
 const DIVERGED = 1;
 const CANNOT_LOOK = 2;
@@ -68,7 +71,7 @@ describe('blast-radius gate', () => {
   }
 
   function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { cwd: repo, timeoutMs: 60000 });
+    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { cwd: repo, timeoutMs: RUN_TIMEOUT_MS });
   }
 
   // ── could-not-look is its own answer ──────────────────────────────────────
@@ -78,7 +81,7 @@ describe('blast-radius gate', () => {
   // directory or, worse, pass on one.
 
   test('exits 2 when the phase directory does not exist', () => {
-    const r = runNode([SCRIPT, '--dir', path.join(repo, 'nope')], { cwd: repo, timeoutMs: 60000 });
+    const r = runNode([SCRIPT, '--dir', path.join(repo, 'nope')], { cwd: repo, timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK, `a missing phase dir is unverifiable, not a failure: ${r.stderr}`);
   });
 
@@ -97,7 +100,7 @@ describe('blast-radius gate', () => {
       '---\nwave: 1\nfiles_modified:\n  - src/a.ts\n---\n',
     );
 
-    const r = runNode([SCRIPT, '--dir', phase], { cwd: notGit, timeoutMs: 60000 });
+    const r = runNode([SCRIPT, '--dir', phase], { cwd: notGit, timeoutMs: RUN_TIMEOUT_MS });
     // eslint-disable-next-line local/no-raw-rmsync-in-tests -- outside the repo fixture; cleanup() targets project trees
     fs.rmSync(notGit, { recursive: true, force: true });
     assert.equal(r.exitCode, CANNOT_LOOK, 'no git history means the diff cannot be computed');

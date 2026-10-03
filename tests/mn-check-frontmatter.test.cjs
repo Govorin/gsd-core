@@ -41,6 +41,9 @@ const SCRIPT = path.join(
   'check-frontmatter.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
 const MATCHED = 0;
 const MISMATCHED = 1;
 
@@ -62,7 +65,7 @@ describe('check-frontmatter gate helper', () => {
   function check(artifact, field, equals, extra = []) {
     return runNode(
       [SCRIPT, '--dir', phaseDir, '--artifact', artifact, '--field', field, '--equals', equals, ...extra],
-      { timeoutMs: 30000 },
+      { timeoutMs: RUN_TIMEOUT_MS },
     );
   }
 
@@ -140,7 +143,7 @@ describe('check-frontmatter gate helper', () => {
   // ── argument discipline ───────────────────────────────────────────────────
 
   test('reports usage when required arguments are missing', () => {
-    const r = runNode([SCRIPT, '--dir', phaseDir], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT, '--dir', phaseDir], { timeoutMs: RUN_TIMEOUT_MS });
     assert.notEqual(r.exitCode, MATCHED, 'an incomplete invocation must not read as a pass');
     assert.match(`${r.stdout}${r.stderr}`, /usage:/, 'it must say how to call it');
   });

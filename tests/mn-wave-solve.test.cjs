@@ -40,6 +40,9 @@ const SCRIPT = path.join(
   'wave-solve.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 30000;
+
 const AGREES = 0;
 const VIOLATION = 1;
 const CANNOT_LOOK = 2;
@@ -66,7 +69,7 @@ describe('wave-solve', () => {
   }
 
   function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: 30000 });
+    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
   }
 
   // ── the violation ─────────────────────────────────────────────────────────
@@ -193,12 +196,12 @@ describe('wave-solve', () => {
   });
 
   test('exits 2 when the phase directory does not exist', () => {
-    const r = runNode([SCRIPT, '--dir', path.join(phaseDir, 'nope')], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT, '--dir', path.join(phaseDir, 'nope')], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK);
   });
 
   test('exits 2 when --dir is omitted', () => {
-    const r = runNode([SCRIPT], { timeoutMs: 30000 });
+    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
     assert.equal(r.exitCode, CANNOT_LOOK);
   });
 

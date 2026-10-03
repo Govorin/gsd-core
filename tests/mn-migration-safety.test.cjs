@@ -31,6 +31,9 @@ const SCRIPT = path.join(
   'migration-safety.mjs',
 );
 
+/** Bounds one run of the gate script against a small temp fixture. */
+const RUN_TIMEOUT_MS = 60000;
+
 const SAFE = 0;
 const NEEDS_ATTENTION = 1;
 const CANNOT_LOOK = 2;
@@ -65,7 +68,7 @@ describe('migration-safety gate', () => {
   function run(extra = []) {
     return runNode([SCRIPT, '--dir', phaseDir, '--root', repo, ...extra], {
       cwd: repo,
-      timeoutMs: 60000,
+      timeoutMs: RUN_TIMEOUT_MS,
     });
   }
 
@@ -143,7 +146,7 @@ describe('migration-safety gate', () => {
   test('exits 2 when the phase directory does not exist', () => {
     const r = runNode([SCRIPT, '--dir', path.join(repo, 'nope'), '--root', repo], {
       cwd: repo,
-      timeoutMs: 60000,
+      timeoutMs: RUN_TIMEOUT_MS,
     });
     assert.equal(r.exitCode, CANNOT_LOOK);
   });

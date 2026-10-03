@@ -29,6 +29,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { runNode } = require('./helpers/process-seam.cjs');
 const { cleanup } = require('./helpers.cjs');
+const { GSD_TOOLS_CLI_MODERATE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const REPO = path.join(__dirname, '..');
 const CAPABILITY_DIR = path.join(REPO, 'capabilities', 'mn-expertise');
@@ -121,7 +122,7 @@ describe('mn-expertise portability', () => {
     return runNode([TOOLS, 'query', 'agent-skills', agentType], {
       cwd: projectDir,
       env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, GSD_HOME: fakeHome },
-      timeoutMs: 30000,
+      timeoutMs: GSD_TOOLS_CLI_MODERATE_TIMEOUT_MS,
     });
   }
 
