@@ -1,0 +1,74 @@
+{
+  "id": "architecture",
+  "role": "feature",
+  "version": "1.15.0",
+  "title": "Architecture design and review",
+  "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read.",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.6.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [],
+  "agents": [
+    "gsd-system-architect",
+    "gsd-architect-reviewer"
+  ],
+  "hooks": [],
+  "config": {
+    "workflow.architecture_design": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run the system architect before planning to produce DESIGN.md — layer placement, allowed dependencies, and the signatures that cross plan boundaries. Written at plan:pre because the planner's split of tasks across files IS the boundary decision; a design written afterwards narrates it instead of constraining it."
+    },
+    "workflow.architecture_review": {
+      "type": "boolean",
+      "default": false,
+      "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
+    }
+  },
+  "steps": [
+    {
+      "point": "plan:pre",
+      "ref": {
+        "agent": "gsd-system-architect"
+      },
+      "fragment": {
+        "path": "fragments/plan-pre.md"
+      },
+      "produces": [
+        "DESIGN.md"
+      ],
+      "consumes": [
+        "CONTEXT.md"
+      ],
+      "when": "workflow.architecture_design",
+      "onError": "skip"
+    },
+    {
+      "point": "verify:pre",
+      "ref": {
+        "agent": "gsd-architect-reviewer"
+      },
+      "fragment": {
+        "path": "fragments/verify-pre.md"
+      },
+      "produces": [
+        "ARCH-REVIEW.md"
+      ],
+      "consumes": [
+        "DESIGN.md"
+      ],
+      "when": "workflow.architecture_review",
+      "onError": "skip"
+    }
+  ],
+  "contributions": [],
+  "gates": []
+}

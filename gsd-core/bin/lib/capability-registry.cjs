@@ -255,6 +255,82 @@ const capabilities = {
       }
     }
   },
+  "architecture": {
+    "id": "architecture",
+    "role": "feature",
+    "version": "1.15.0",
+    "title": "Architecture design and review",
+    "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read.",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.6.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [],
+    "agents": [
+      "gsd-system-architect",
+      "gsd-architect-reviewer"
+    ],
+    "hooks": [],
+    "config": {
+      "workflow.architecture_design": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run the system architect before planning to produce DESIGN.md — layer placement, allowed dependencies, and the signatures that cross plan boundaries. Written at plan:pre because the planner's split of tasks across files IS the boundary decision; a design written afterwards narrates it instead of constraining it."
+      },
+      "workflow.architecture_review": {
+        "type": "boolean",
+        "default": false,
+        "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
+      }
+    },
+    "steps": [
+      {
+        "point": "plan:pre",
+        "ref": {
+          "agent": "gsd-system-architect"
+        },
+        "fragment": {
+          "path": "fragments/plan-pre.md",
+          "inline": "<architecture_design_context>\n**Phase:** {phase_number} - {phase_name}\n**Phase directory:** {phase_dir}\n**Padded phase:** {padded_phase}\n\n<required_reading>\n- {context_path} (USER DECISIONS from /gsd:discuss-phase)\n- {research_path} (Technical Research, when present)\n- `gsd-core/templates/DESIGN.md` (the output contract — read before writing)\n</required_reading>\n\n**Output file:** {phase_dir}/{padded_phase}-DESIGN.md\n\nFix the structural boundaries this phase introduces before the planner splits work\ninto plans: which layer owns each new artifact, which dependencies that placement\npermits, and which signatures cross a plan boundary.\n\nWrite the FULL return type for every declared signature. The abbreviated form is what\nlets one wave write `EitherAsync` while another calls it as a bare `Promise` — both\nverify green in isolated worktrees, and the mismatch surfaces at integration.\n\nIf the phase introduces no cross-plan signature, say so and leave `## Contracts` empty.\nAn invented contract becomes a fiction the `contract-drift` gate then grades the code against.\n</architecture_design_context>\n"
+        },
+        "produces": [
+          "DESIGN.md"
+        ],
+        "consumes": [
+          "CONTEXT.md"
+        ],
+        "when": "workflow.architecture_design",
+        "onError": "skip"
+      },
+      {
+        "point": "verify:pre",
+        "ref": {
+          "agent": "gsd-architect-reviewer"
+        },
+        "fragment": {
+          "path": "fragments/verify-pre.md",
+          "inline": "<architecture_review_context>\n**Phase:** {phase_number} - {phase_name}\n**Phase directory:** {phase_dir}\n**Padded phase:** {padded_phase}\n\n<required_reading>\n- {phase_dir}/{padded_phase}-DESIGN.md (the declared structure — if absent, stop with NO_DESIGN)\n- {phase_dir}/{padded_phase}-SUMMARY.md (what execution recorded, including deliberate departures)\n</required_reading>\n\n**Output file:** {phase_dir}/{padded_phase}-ARCH-REVIEW.md\n\nCheck whether the structure the phase declared survived the implementation: placements\nhonoured, dependencies legal, no rejected alternative silently adopted, nothing crossing\na plan boundary undeclared.\n\nA departure that the phase RECORDED is a revised design, not a finding. Check SUMMARY.md\nbefore reporting one.\n</architecture_review_context>\n"
+        },
+        "produces": [
+          "ARCH-REVIEW.md"
+        ],
+        "consumes": [
+          "DESIGN.md"
+        ],
+        "when": "workflow.architecture_review",
+        "onError": "skip"
+      }
+    ],
+    "contributions": [],
+    "gates": []
+  },
   "assumption-delta": {
     "id": "assumption-delta",
     "role": "feature",
@@ -4224,6 +4300,8 @@ const byAgent = {
   "gsd-ai-researcher": "ai-integration",
   "gsd-domain-researcher": "ai-integration",
   "gsd-eval-planner": "ai-integration",
+  "gsd-system-architect": "architecture",
+  "gsd-architect-reviewer": "architecture",
   "gsd-code-reviewer": "code-review",
   "gsd-code-fixer": "code-review",
   "gsd-dom-verifier": "live-dom-uat",
@@ -4291,6 +4369,25 @@ const byLoopPoint = {
           "CONTEXT.md"
         ],
         "when": "workflow.ai_integration_phase",
+        "onError": "skip"
+      },
+      {
+        "capId": "architecture",
+        "point": "plan:pre",
+        "ref": {
+          "agent": "gsd-system-architect"
+        },
+        "fragment": {
+          "path": "fragments/plan-pre.md",
+          "inline": "<architecture_design_context>\n**Phase:** {phase_number} - {phase_name}\n**Phase directory:** {phase_dir}\n**Padded phase:** {padded_phase}\n\n<required_reading>\n- {context_path} (USER DECISIONS from /gsd:discuss-phase)\n- {research_path} (Technical Research, when present)\n- `gsd-core/templates/DESIGN.md` (the output contract — read before writing)\n</required_reading>\n\n**Output file:** {phase_dir}/{padded_phase}-DESIGN.md\n\nFix the structural boundaries this phase introduces before the planner splits work\ninto plans: which layer owns each new artifact, which dependencies that placement\npermits, and which signatures cross a plan boundary.\n\nWrite the FULL return type for every declared signature. The abbreviated form is what\nlets one wave write `EitherAsync` while another calls it as a bare `Promise` — both\nverify green in isolated worktrees, and the mismatch surfaces at integration.\n\nIf the phase introduces no cross-plan signature, say so and leave `## Contracts` empty.\nAn invented contract becomes a fiction the `contract-drift` gate then grades the code against.\n</architecture_design_context>\n"
+        },
+        "produces": [
+          "DESIGN.md"
+        ],
+        "consumes": [
+          "CONTEXT.md"
+        ],
+        "when": "workflow.architecture_design",
         "onError": "skip"
       },
       {
@@ -4705,7 +4802,27 @@ const byLoopPoint = {
     ]
   },
   "verify:pre": {
-    "steps": [],
+    "steps": [
+      {
+        "capId": "architecture",
+        "point": "verify:pre",
+        "ref": {
+          "agent": "gsd-architect-reviewer"
+        },
+        "fragment": {
+          "path": "fragments/verify-pre.md",
+          "inline": "<architecture_review_context>\n**Phase:** {phase_number} - {phase_name}\n**Phase directory:** {phase_dir}\n**Padded phase:** {padded_phase}\n\n<required_reading>\n- {phase_dir}/{padded_phase}-DESIGN.md (the declared structure — if absent, stop with NO_DESIGN)\n- {phase_dir}/{padded_phase}-SUMMARY.md (what execution recorded, including deliberate departures)\n</required_reading>\n\n**Output file:** {phase_dir}/{padded_phase}-ARCH-REVIEW.md\n\nCheck whether the structure the phase declared survived the implementation: placements\nhonoured, dependencies legal, no rejected alternative silently adopted, nothing crossing\na plan boundary undeclared.\n\nA departure that the phase RECORDED is a revised design, not a finding. Check SUMMARY.md\nbefore reporting one.\n</architecture_review_context>\n"
+        },
+        "produces": [
+          "ARCH-REVIEW.md"
+        ],
+        "consumes": [
+          "DESIGN.md"
+        ],
+        "when": "workflow.architecture_review",
+        "onError": "skip"
+      }
+    ],
     "contributions": [],
     "gates": [
       {
@@ -4847,6 +4964,8 @@ const configKeys = {
   "review.models.agy": "antigravity",
   "review.max_prompt_tokens_per_reviewer.antigravity": "antigravity",
   "review.timeouts.antigravity": "antigravity",
+  "workflow.architecture_design": "architecture",
+  "workflow.architecture_review": "architecture",
   "workflow.assumption_delta": "assumption-delta",
   "workflow.windows_enforce": "broken-windows",
   "review.models.claude": "claude",
@@ -4960,6 +5079,18 @@ const configSchema = {
     "type": "number",
     "default": -1,
     "description": "Outer wall-clock timeout override (seconds) for the Antigravity reviewer lane. Unset is -1, a sentinel: 0 or a negative number is also treated as unset (a timeout has no legitimate zero/negative value), so no second sentinel is needed. Falls back to the lane's built-in timeoutFloorMs when unset."
+  },
+  "workflow.architecture_design": {
+    "owner": "architecture",
+    "type": "boolean",
+    "default": false,
+    "description": "Run the system architect before planning to produce DESIGN.md — layer placement, allowed dependencies, and the signatures that cross plan boundaries. Written at plan:pre because the planner's split of tasks across files IS the boundary decision; a design written afterwards narrates it instead of constraining it."
+  },
+  "workflow.architecture_review": {
+    "owner": "architecture",
+    "type": "boolean",
+    "default": false,
+    "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
   },
   "workflow.assumption_delta": {
     "owner": "assumption-delta",
@@ -8050,6 +8181,7 @@ const profileMembership = {
 const _requiresGraph = {
   "ai-integration": [],
   "antigravity": [],
+  "architecture": [],
   "assumption-delta": [],
   "audit": [],
   "augment": [],

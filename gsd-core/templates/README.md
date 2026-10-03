@@ -58,6 +58,8 @@ These files live inside a phase directory. They are NOT checked by W019 (which o
 | `NN-AI-SPEC.md` | `AI-SPEC.md` | `/gsd:ai-integration-phase` | AI integration spec with eval strategy |
 | `NN-DEBUG.md` | `DEBUG.md` | `/gsd:debug` | Debug session log |
 | `NN-REVIEWS.md` | *(inline)* | `/gsd:review` | Cross-AI review feedback |
+| `NN-DESIGN.md` | `DESIGN.md` | `/gsd:plan-phase` (`architecture` capability, `workflow.architecture_design`) | Layer placement, allowed dependencies and cross-plan signatures, fixed before planning |
+| `NN-ARCH-REVIEW.md` | *(inline)* | `/gsd:verify-work` (`architecture` capability, `workflow.architecture_review`) | Whether the declared structure survived implementation |
 
 ---
 
