@@ -20,6 +20,7 @@ module.exports = {
   "tests/broken-windows.test.cjs",
   "tests/capability-cli.test.cjs",
   "tests/capability-command-dispatch.test.cjs",
+  "tests/capability-command-step-dispatch.test.cjs",
   "tests/capability-consent.test.cjs",
   "tests/capability-ledger.test.cjs",
   "tests/capability-lifecycle.test.cjs",
