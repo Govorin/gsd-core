@@ -101,8 +101,7 @@ describe('blast-radius gate', () => {
     );
 
     const r = runNode([SCRIPT, '--dir', phase], { cwd: notGit, timeoutMs: RUN_TIMEOUT_MS });
-    // eslint-disable-next-line local/no-raw-rmsync-in-tests -- outside the repo fixture; cleanup() targets project trees
-    fs.rmSync(notGit, { recursive: true, force: true });
+    cleanup(notGit);
     assert.equal(r.exitCode, CANNOT_LOOK, 'no git history means the diff cannot be computed');
   });
 

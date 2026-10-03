@@ -159,7 +159,8 @@ describe('clean-state gate', () => {
   test('finds the operation marker inside a linked worktree, where .git is a file', () => {
     const linked = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-clean-state-wt-'));
     extra.push(linked);
-    fs.rmSync(linked, { recursive: true });
+    // Only the unique name is wanted: `git worktree add` creates the directory itself.
+    cleanup(linked);
     git(['worktree', 'add', '-q', '-b', 'linked-branch', linked]);
     const marker = git(['rev-parse', '--git-path', 'CHERRY_PICK_HEAD'], linked);
     const head = git(['rev-parse', 'HEAD'], linked);
