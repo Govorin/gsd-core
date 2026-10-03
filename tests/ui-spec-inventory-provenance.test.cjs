@@ -53,6 +53,8 @@ const ROOT = path.join(__dirname, '..');
 const SURFACE = Object.freeze({
   CHECKER: 'agents/gsd-ui-checker.md',
   RESEARCHER: 'agents/gsd-ui-researcher.md',
+  CHECKER_COMPACT: 'agents/gsd-ui-checker.compact.md',
+  RESEARCHER_COMPACT: 'agents/gsd-ui-researcher.compact.md',
   TEMPLATE: 'gsd-core/templates/UI-SPEC.md',
   WORKFLOW: 'gsd-core/workflows/ui-phase.md',
   FEATURES: 'docs/FEATURES.md',
@@ -360,8 +362,12 @@ describe('#2845 — cross-surface dimension-count parity (12 surfaces)', () => {
   // Every surface that states a UI-checker dimension count, in any shipped language.
   // ko-KR, pt-BR and the probe reference were MISSED on the first pass of #2845 and
   // shipped stale — a guard that omits a surface is exactly as blind as no guard.
+  // Fork (mn): the `.compact` variants are the opt-in payload of the same agents and
+  // state the same count; gsd-ui-researcher.compact.md kept "7" after Dimension 8
+  // landed because this list did not name it.
   const COUNT_SURFACES = [
     SURFACE.CHECKER, SURFACE.RESEARCHER, SURFACE.WORKFLOW, SURFACE.PROBE_REFERENCE,
+    SURFACE.CHECKER_COMPACT, SURFACE.RESEARCHER_COMPACT,
     SURFACE.FEATURES, SURFACE.HOWTO,
     SURFACE.FEATURES_JA, SURFACE.HOWTO_JA,
     SURFACE.FEATURES_ZH, SURFACE.HOWTO_ZH,

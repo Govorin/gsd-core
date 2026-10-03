@@ -51,7 +51,7 @@ dependency, a decision only a human can make), not what you tried.
 
 ## STATE.md: merge, never overwrite
 
-Every STATE.md write is a *field-level merge*. The `gsd-tools query state.*` handlers take a lock,
+Every STATE.md write is a *field-level merge*. The `gsd_run query state.*` handlers take a lock,
 re-read the file, change only the fields the flags name, and preserve every other key. That is the
 contract; do not work around it.
 

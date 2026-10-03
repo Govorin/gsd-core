@@ -138,29 +138,76 @@ describe('autonomous.md workstream-scoped paths (#4455)', () => {
   });
 
   describe('iterate step: single init.manager fetch backs both the re-filter and the fresh re-read', () => {
+    // A STATE.md carrying both sections the iterate step acts on, plus prose it
+    // does not. `label` makes each fixture's lines distinguishable in stdout.
+    function stateWithSections(label) {
+      return [
+        `# ${label} State`, '',
+        '## Current Position', '', `Phase: 9 (${label} position prose)`, '',
+        '## Deferred Verification', '',
+        '| Phase | Status | Command |', '|---|---|---|',
+        `| 3 | verification_deferred_human | ${label} deferred row |`, '',
+        '## Accumulated Context', '',
+        '### Decisions', '', `- ${label} decision prose`, '',
+        '### Blockers/Concerns', '', `- ${label} blocker`, '',
+        '### Pending Todos', '', `- ${label} todo prose`, '',
+      ].join('\n');
+    }
+
     test('flat mode: resolves the root STATE.md path (regression guard)', () => {
       const statePath = path.join(tmpDir, 'STATE-root.md');
-      fs.writeFileSync(statePath, '# Root State\n');
-      const script = `${stubGsdRun({ state_path: statePath })}${iterateFence}`;
+      fs.writeFileSync(statePath, stateWithSections('Root'));
+      const script = `${stubGsdRun({ state_path: statePath })}${iterateFence}\nprintf 'STATE_CONTENT=[%s]\\n' "$STATE_CONTENT"`;
       const r = runHookSeam('-c', [script], { interpreter: 'bash', cwd: tmpDir });
       throwIfFailed(r, 'bash <iterate fence>');
-      // The fence's own `cat "$STATE_PATH"` line prints the raw re-read to stdout.
-      assert.ok(r.stdout.includes('# Root State'), `expected root STATE.md content, got: ${r.stdout}`);
+      assert.ok(r.stdout.includes('STATE_CONTENT=[# Root State'), `expected root STATE.md content, got: ${r.stdout}`);
+      // The fence prints the sections the step acts on, read from that same path.
+      assert.ok(r.stdout.includes('- Root blocker'), `expected the root blockers section, got: ${r.stdout}`);
     });
 
     test('GSD_WORKSTREAM=alpha: re-reads the workstream STATE.md, not root (#4455 regression)', () => {
       const rootStatePath = path.join(tmpDir, 'STATE-root.md');
-      fs.writeFileSync(rootStatePath, '# Root State — must not be read\n');
+      fs.writeFileSync(rootStatePath, stateWithSections('Root — must not be read'));
       const wsStatePath = path.join(tmpDir, 'STATE-alpha.md');
-      fs.writeFileSync(wsStatePath, '# Workstream Alpha State\n');
+      fs.writeFileSync(wsStatePath, stateWithSections('Workstream Alpha'));
 
-      const script = `${stubGsdRun({ state_path: wsStatePath })}${iterateFence}`;
+      const script = `${stubGsdRun({ state_path: wsStatePath })}${iterateFence}\nprintf 'STATE_CONTENT=[%s]\\n' "$STATE_CONTENT"`;
       const r = runHookSeam('-c', [script], { interpreter: 'bash', cwd: tmpDir });
       throwIfFailed(r, 'bash <iterate fence>');
-      assert.ok(r.stdout.includes('# Workstream Alpha State'),
+      assert.ok(r.stdout.includes('STATE_CONTENT=[# Workstream Alpha State'),
         `expected workstream STATE.md content, got: ${r.stdout}`);
-      assert.ok(!r.stdout.includes('Root State'),
+      assert.ok(r.stdout.includes('- Workstream Alpha blocker'),
+        `expected the workstream blockers section, got: ${r.stdout}`);
+      assert.ok(!r.stdout.includes('Root'),
         `must not have read the root STATE.md, got: ${r.stdout}`);
+    });
+
+    // Fork (mn, f40808b56): the iterate step runs once per phase, so printing the
+    // whole STATE.md there compounds across an unattended run. It prints only
+    // the two sections it acts on.
+    test('prints only Deferred Verification and Blockers/Concerns, never the whole STATE.md', () => {
+      const statePath = path.join(tmpDir, 'STATE-root.md');
+      fs.writeFileSync(statePath, stateWithSections('Root'));
+      const script = `${stubGsdRun({ state_path: statePath })}${iterateFence}`;
+      const r = runHookSeam('-c', [script], { interpreter: 'bash', cwd: tmpDir });
+      throwIfFailed(r, 'bash <iterate fence>');
+      const printed = r.stdout.split('\n').filter((l) => l.trim() !== '');
+      assert.deepEqual(printed, [
+        '## Deferred Verification',
+        '| Phase | Status | Command |', '|---|---|---|',
+        '| 3 | verification_deferred_human | Root deferred row |',
+        '### Blockers/Concerns',
+        '- Root blocker',
+      ]);
+    });
+
+    test('prints nothing when STATE.md carries neither section', () => {
+      const statePath = path.join(tmpDir, 'STATE-root.md');
+      fs.writeFileSync(statePath, '# Root State\n\n## Current Position\n\nPhase: 1\n');
+      const script = `${stubGsdRun({ state_path: statePath })}${iterateFence}`;
+      const r = runHookSeam('-c', [script], { interpreter: 'bash', cwd: tmpDir });
+      throwIfFailed(r, 'bash <iterate fence>');
+      assert.strictEqual(r.stdout.trim(), '', `expected no output, got: ${r.stdout}`);
     });
 
     test('does not double-fetch init.manager within the iterate fence (no-double-fetch requirement)', () => {

@@ -90,8 +90,10 @@ The orchestrator provides user decisions in `<user_decisions>` tags from `/gsd:d
 
 Do NOT silently omit features. Instead:
 
-1. **Create a multi-source coverage audit** (see below) covering every source type
-2. **If any item cannot fit** the plan budget (context cost exceeds capacity): return `## PHASE SPLIT RECOMMENDED` to the orchestrator, proposing which item groups form natural sub-phases
+1. **Create a multi-source coverage audit** (see below) covering ALL five artifact types
+2. **If any item cannot fit** within the plan budget (context cost exceeds capacity):
+   - Return `## PHASE SPLIT RECOMMENDED` to the orchestrator
+   - Propose how to split: which item groups form natural sub-phases
 3. The orchestrator presents the split to the user for approval
 4. After approval, plan each sub-phase within budget
 
@@ -810,11 +812,14 @@ These PLAN.md files are the canonical output of this agent. The orchestrator rea
 
 **Write is for net-new PLAN.md only.** For any existing file (`ROADMAP.md`, `.planning/` files) use `Edit` (scoped replacement), never `Write`. See `update_roadmap`.
 
-1. **Default: write each PLAN.md in a single `Write` call.** Correct on most runtimes — do this unless rule 4 applies.
-2. **Do NOT return PLAN.md content in your response.** Return a brief confirmation (see `<structured_returns>`); the content lives on disk.
+1. **Default: write each PLAN.md in a single `Write` call.** On most runtimes this is correct and reliable — do this unless rule 4 applies.
+2. **Do NOT return the PLAN.md content in your response.** Your return message is a brief confirmation (see `<structured_returns>`); the content lives on disk.
 3. **Do NOT use `Bash(cat << 'EOF')` or heredoc** for file creation. Use the `Write` tool.
-4. **Truncation fallback.** Some runtimes cap tool-call output, so an oversized `Write` truncates mid-payload (e.g. `JSON Parse error: Expected '}'`). **Do NOT retry the same oversized call** — it loops forever. Build the file incrementally: `Write` the first section ending with the sentinel `<!-- gsd:write-continue -->`; then `Read` the file, then `Edit` it, replacing the sentinel with the next section plus the sentinel again, one section per `Edit`; on the last, replace it with the closing content and no trailing sentinel.
-5. **If writing still fails, surface the actual error.** **Do NOT silently fall back to returning content** — that hides the failure and truncates identically.
+4. **Large-file / truncation fallback.** Some runtimes (e.g. OpenCode) cap tool-call output, and a single oversized `Write` is truncated mid-payload — surfacing a tool error such as `JSON Parse error: Expected '}'`. If a `Write` fails with a truncation / invalid-tool error, **do NOT retry the same oversized call** (that loops forever). Instead build the file incrementally so no single tool call carries the whole payload:
+   - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd:write-continue -->`.
+   - `Read` the file, then `Edit` it, replacing `<!-- gsd:write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
+   - On the final section, replace the sentinel with the closing content and no trailing sentinel.
+5. **If writing still fails, surface the actual error in your return message.** **Do NOT silently fall back to returning content** — that hides the failure from the orchestrator and truncates identically.
 
 **CRITICAL — File naming convention (enforced):**
 
@@ -974,20 +979,30 @@ Phase planning complete when:
 - [ ] Prior decisions, issues, concerns synthesized
 - [ ] Dependency graph built (needs/creates for each task)
 - [ ] Tasks grouped into plans by wave, not by sequence
-- [ ] PLAN file(s) exist with XML structure, committed to git
-- [ ] Each plan frontmatter: depends_on, files_modified, autonomous, must_haves — plus user_setup when external services are involved
-- [ ] Each plan body: Objective, context, tasks, verification, success criteria, output; 2-3 tasks (~50% context)
+- [ ] PLAN file(s) exist with XML structure
+- [ ] Each plan: depends_on, files_modified, autonomous, must_haves in frontmatter
+- [ ] Each plan: user_setup declared if external services involved
+- [ ] Each plan: Objective, context, tasks, verification, success criteria, output
+- [ ] Each plan: 2-3 tasks (~50% context)
 - [ ] Each task: Type, Files (if auto), Action, Verify, Done
-- [ ] Checkpoints structured; wave structure maximizes parallelism; user knows next steps
-- [ ] With `security_enforcement`: `<threat_model>` STRIDE register; each threat has a disposition (mitigate/accept/transfer), a Severity (critical|high|medium|low), and a mitigation naming a specific implementation
+- [ ] Checkpoints properly structured
+- [ ] Wave structure maximizes parallelism
+- [ ] PLAN file(s) committed to git
+- [ ] User knows next steps and wave structure
+- [ ] `<threat_model>` present with STRIDE register (when `security_enforcement` enabled)
+- [ ] Every threat has a disposition (mitigate / accept / transfer)
+- [ ] Every threat has a Severity (critical|high|medium|low)
+- [ ] Mitigations reference specific implementation (not generic advice)
 
 ## Gap Closure Mode
 
 Planning complete when:
 - [ ] VERIFICATION.md or UAT.md loaded and gaps parsed
 - [ ] Existing SUMMARYs read for context
-- [ ] Gaps clustered into focused plans, numbered sequentially after existing
-- [ ] PLAN file(s) exist with `gap_closure: true`, tasks derived from gap.missing items
+- [ ] Gaps clustered into focused plans
+- [ ] Plan numbers sequential after existing
+- [ ] PLAN file(s) exist with gap_closure: true
+- [ ] Each plan: tasks derived from gap.missing items
 - [ ] PLAN file(s) committed to git
 - [ ] User knows to run `/gsd:execute-phase {X}` next
 

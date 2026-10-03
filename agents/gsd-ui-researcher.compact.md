@@ -52,7 +52,7 @@ If an upstream artifact already answers a design contract question, do NOT re-as
 </upstream_input>
 
 <downstream_consumer>
-UI-SPEC.md is consumed by: `gsd-ui-checker` (validates against 7 design quality dimensions), `gsd-planner` (design tokens/component inventory/copywriting in plan tasks), `gsd-executor` (visual source of truth during implementation), `gsd-ui-auditor` (compares implemented UI against the contract retroactively).
+UI-SPEC.md is consumed by: `gsd-ui-checker` (validates against 8 design quality dimensions), `gsd-planner` (design tokens/component inventory/copywriting in plan tasks), `gsd-executor` (visual source of truth during implementation), `gsd-ui-auditor` (compares implemented UI against the contract retroactively).
 
 **Be prescriptive, not exploratory.** "Use 16px body at 1.5 line-height" not "Consider 14-16px."
 </downstream_consumer>

@@ -154,7 +154,7 @@ For each REQ-ID, determine status using all three sources:
 
 > **Why `human_needed` is not `satisfied` (and not `unsatisfied`):** the verifier emits it when
 > automated checks passed but a truth needs a human to confirm — it is an abstention, not a verdict
-> (`references/honest-verifier.md`). Scoring it `satisfied` closes the milestone over UAT nobody ran;
+> (`gsd-core/references/honest-verifier.md`). Scoring it `satisfied` closes the milestone over UAT nobody ran;
 > scoring it `unsatisfied` fabricates a failure the evidence does not support. `partial` is the honest
 > reading: the work may well be correct, but no one has checked. The same logic covers `stale` —
 > the verdict was true for an older tree, so it is unconfirmed now rather than wrong.

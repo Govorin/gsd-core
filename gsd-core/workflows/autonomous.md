@@ -570,7 +570,7 @@ Read and execute: `$HOME/.claude/gsd-core/references/autonomous-smart-discuss.md
 
 Proceed to lifecycle step (partial completion skips audit/complete/cleanup). Exit cleanly.
 
-**Otherwise:** After each phase, re-read manager projection, then read STATE.md fresh (same fence — a single `gsd_run query init.manager` fetch backs both the JSON re-filter below and the raw re-read, no double-fetch):
+**Otherwise:** After each phase, re-read manager projection, then STATE.md fresh (same fence — a single `gsd_run query init.manager` fetch backs both the JSON re-filter below and the re-read, no double-fetch). Print only the two sections this step acts on, `## Deferred Verification` and `### Blockers/Concerns`, never the whole file: this step runs once per phase, so a full print compounds across an unattended run:
 
 ```bash
 GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
@@ -579,7 +579,7 @@ if [[ "$INIT_MANAGER" == @file:* ]]; then INIT_MANAGER=$(cat "${INIT_MANAGER#@fi
 _gsd_field() { node -e "const o=JSON.parse(process.argv[1]); const v=o[process.argv[2]]; process.stdout.write(v==null?'':String(v))" "$1" "$2"; }
 STATE_PATH=$(_gsd_field "$INIT_MANAGER" state_path)
 STATE_CONTENT=$(cat "$STATE_PATH" 2>/dev/null || true)
-cat "$STATE_PATH"
+printf '%s\n' "$STATE_CONTENT" | awk '/^## Deferred Verification|^### Blockers\/Concerns/ { p = 1; print; next } /^#+ / { p = 0 } p'
 ```
 
 Re-filter incomplete phases using discover_phases logic: keep phases where `phase_complete !== true` or `verification_status !== "passed"`, drop deferred phases from the autonomous queue, re-apply `--from` / `--to`, then sort by number ascending.

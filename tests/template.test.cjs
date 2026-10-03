@@ -160,6 +160,37 @@ describe('template fill command', () => {
     assert.ok(content.includes('Required Artifacts'), 'should have artifacts section');
   });
 
+  test('#5202: a filled verification template carries no status, so readers do not reject it', () => {
+    // Same defect class as `scaffold verification` (#5202): the verification
+    // vocabulary is closed (passed | gaps_found | human_needed), so a
+    // `status: pending` placeholder made every reader throw on a fresh fill.
+    // An absent status reads as "not yet verified".
+    const result = runGsdTools('template fill verification --phase 1', tmpDir);
+    assert.ok(result.success, `Failed: ${result.error}`);
+    const reportPath = path.join(tmpDir, JSON.parse(result.output).path);
+
+    const field = JSON.parse(runGsdTools(['frontmatter', 'get', reportPath, '--field', 'status'], tmpDir).output);
+    assert.strictEqual(field.field, 'status');
+    assert.ok(!('value' in field) && field.status === undefined, `template fill must not write a status; got: ${JSON.stringify(field)}`);
+
+    const read = runGsdTools(['verification', 'status', path.dirname(reportPath)], tmpDir);
+    assert.ok(read.success, `verification status must not reject a fresh fill: ${read.error}`);
+    const status = JSON.parse(read.output);
+    assert.ok(
+      ['passed', 'gaps_found', 'human_needed'].includes(status.status) === false,
+      `a filled template is not a verdict; got: ${JSON.stringify(status)}`,
+    );
+  });
+
+  test('an explicit --fields status still lands in a filled verification template', () => {
+    // Dropping the placeholder must not drop a status the caller asked for.
+    const result = runGsdTools(['template', 'fill', 'verification', '--phase', '1', '--fields', '{"status":"gaps_found"}'], tmpDir);
+    assert.ok(result.success, `Failed: ${result.error}`);
+    const reportPath = path.join(tmpDir, JSON.parse(result.output).path);
+    const field = JSON.parse(runGsdTools(['frontmatter', 'get', reportPath, '--field', 'status'], tmpDir).output);
+    assert.strictEqual(field.status, 'gaps_found', JSON.stringify(field));
+  });
+
   test('rejects existing file', () => {
     // Create the file first
     const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-setup');
