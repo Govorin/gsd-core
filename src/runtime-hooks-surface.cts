@@ -3015,6 +3015,50 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
     }
     // ── end SubagentStop / Stop / PreCompact / SubagentStart events ────────────
 
+    // ── mn fork enforcement hooks (Claude Code only) ───────────────────────────
+    // Same shape as every registration above: only-if-absent (referencesHook
+    // dedups a hand-registered entry), only when the file was installed, and
+    // built through buildHookCommand(…, hookOpts) so the configured-entrypoint
+    // validation (#4154) covers them. Claude-only: PostCompact and the
+    // PreToolUse permissionDecision protocol the guards emit are Claude Code's.
+    // gsd-worktree-provision.js is deliberately absent — Claude's WorktreeCreate
+    // replaces worktree creation and that hook does not create one.
+    if (FORK_ENFORCEMENT_RUNTIMES.has(runtime)) {
+      // One literal buildHookCommand line per hook: tests/workflow-guard-registration
+      // scans for exactly that shape.
+      const prohibitionGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-prohibition-guard.js', hookOpts) : localCmd('gsd-prohibition-guard.js');
+      const testTamperGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-test-tamper-guard.js', hookOpts) : localCmd('gsd-test-tamper-guard.js');
+      const exitGateCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-exit-gate.js', hookOpts) : localCmd('gsd-exit-gate.js');
+      const pinInvariantsCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-pin-invariants.js', hookOpts) : localCmd('gsd-pin-invariants.js');
+      const forkHooks: Array<{ file: string; command: string | null; event: string; matcher?: string; timeout: number; label: string }> = [
+        { file: 'gsd-prohibition-guard.js', command: prohibitionGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'prohibition guard (writes outside files_modified)' },
+        { file: 'gsd-test-tamper-guard.js', command: testTamperGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'test tamper guard (dropped assertions / new skips)' },
+        { file: 'gsd-exit-gate.js', command: exitGateCommand, event: 'SubagentStop', timeout: FORK_EXIT_GATE_TIMEOUT_S, label: 'executor exit gate' },
+        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start)' },
+        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'PostCompact', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (after compaction)' },
+      ];
+      for (const spec of forkHooks) {
+        const hookName = spec.file.replace(/\.js$/, '');
+        const command = spec.command;
+        if (!settings.hooks[spec.event]) settings.hooks[spec.event] = [];
+        const present = settings.hooks[spec.event].some((entry: HookGroup) =>
+          entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, hookName))
+        );
+        const file = path.join(targetDir, 'hooks', spec.file);
+        if (!present && fs.existsSync(file) && command) {
+          const group: { matcher?: string; hooks: Array<Record<string, unknown>> } = {
+            hooks: [{ type: 'command', command, timeout: spec.timeout }],
+          };
+          if (spec.matcher) group.matcher = spec.matcher;
+          settings.hooks[spec.event].push(group);
+          console.log(`  ${green}✓${reset} Configured ${spec.label} hook`);
+        } else if (!present && !fs.existsSync(file)) {
+          console.warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
+        }
+      }
+    }
+    // ── end mn fork enforcement hooks ──────────────────────────────────────────
+
     // ── Extended hook events (#776; Gemini runtime removed #1928) ──────────────
     // The Gemini-3-backend dialect exposes several hook events beyond
     // BeforeTool/AfterTool. These were added for the now-removed Gemini CLI
@@ -3362,6 +3406,15 @@ const BLOCKING_GUARD_NAMES: readonly string[] = [
 // buildKimiHooksTomlBlock doc). The divergence from the installer's set is
 // intentional and explicit, not an accident of two hand-kept lists.
 const KIMI_UNREGISTERED_BLOCKING_GUARDS: readonly string[] = ['gsd-agent-isolation-guard'];
+
+// mn fork enforcement hooks (applySettingsJsonHooks). The two write guards use
+// BLOCKING_GUARD_TIMEOUT_S but stay OUT of BLOCKING_GUARD_NAMES: that list also
+// drives Kimi's config.toml, where the fork guards are not registered.
+const FORK_ENFORCEMENT_RUNTIMES: ReadonlySet<string> = new Set(['claude']);
+// The exit gate runs the project's check under its own 600 s default cap.
+const FORK_EXIT_GATE_TIMEOUT_S = 620;
+// The pin only reads .planning/ files.
+const FORK_PIN_TIMEOUT_S = 5;
 
 const KIMI_BLOCKING_GUARD_NAMES: readonly string[] = BLOCKING_GUARD_NAMES.filter(
   (name) => !KIMI_UNREGISTERED_BLOCKING_GUARDS.includes(name),
