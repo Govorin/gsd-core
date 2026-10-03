@@ -1283,6 +1283,28 @@ describe('scaffold command', () => {
     assert.ok(content.includes('Goal-Backward Verification'), 'should have verification heading');
   });
 
+  test('#5202: a scaffolded verification report carries no status, so readers do not reject it', () => {
+    // The verification vocabulary is closed (passed | gaps_found | human_needed).
+    // A `status: pending` placeholder made every reader throw on a fresh scaffold;
+    // an absent status is "not yet verified" and must read as such.
+    const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    assert.ok(runGsdTools('scaffold verification --phase 3', tmpDir).success);
+
+    const reportPath = path.join(phaseDir, '03-VERIFICATION.md');
+    const field = JSON.parse(runGsdTools(['frontmatter', 'get', reportPath, '--field', 'status'], tmpDir).output);
+    assert.strictEqual(field.field, 'status');
+    assert.ok(!('value' in field) && field.status === undefined, `scaffold must not write a status; got: ${JSON.stringify(field)}`);
+
+    const read = runGsdTools(['verification', 'status', phaseDir], tmpDir);
+    assert.ok(read.success, `verification status must not reject a fresh scaffold: ${read.error}`);
+    const status = JSON.parse(read.output);
+    assert.ok(
+      ['passed', 'gaps_found', 'human_needed'].includes(status.status) === false,
+      `a scaffold is not a verdict; got: ${JSON.stringify(status)}`,
+    );
+  });
+
   test('scaffolds phase directory', () => {
     const result = runGsdTools('scaffold phase-dir --phase 5 --name User Dashboard', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
