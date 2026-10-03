@@ -32,9 +32,11 @@ const { output } = ioMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 import planningWorkspace = require('./planning-workspace.cjs');
 const { planningDir } = planningWorkspace;
-// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
-import phaseIdMod = require('./phase-id.cjs');
-const { comparePhaseNum } = phaseIdMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
+import phaseLocatorMod = require('./phase-locator.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
+import planningScopeMod = require('./planning-scope.cjs');
+const { SCOPE } = planningScopeMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
 import planScan = require('./plan-scan.cjs');
 const { isRootPlanFile } = planScan;
@@ -140,19 +142,19 @@ function deriveFeatureView(cwd: string): FeatureView {
 
   const phasesDir = path.join(planningDir(cwd), 'phases');
 
-  let phaseDirs: string[];
-  try {
-    phaseDirs = fs
-      .readdirSync(phasesDir, { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort((a, b) => comparePhaseNum(a, b));
-  } catch {
-    // Not an error: a project may legitimately have no phases yet. The caller
-    // learns which case this was from `phases_readable`, never by guessing
-    // from an empty result.
+  // Enumeration goes through the phase-locator owner (ADR-3180 Decision 1,
+  // guarded by lint-phase-enumeration-drift). Sentinel phases are included: a
+  // plan tagged in a backlog/999.x phase still carries its feature.
+  //
+  // Not an error when absent or unreadable: a project may legitimately have no
+  // phases yet. The caller learns which case this was from `phases_readable`,
+  // never by guessing from an empty result — and an absent directory reports
+  // `phases_readable: false` exactly as an unreadable one does, as before.
+  const listed = phaseLocatorMod.listAllPhaseDirs(phasesDir, { includeSentinels: true });
+  if (!fs.existsSync(phasesDir) || listed.scope !== SCOPE.COMPLETE) {
     return { features, untagged, invalid, unreadable, plan_count: 0, phases_readable: false };
   }
+  const phaseDirs: string[] = listed.value;
 
   for (const phase of phaseDirs) {
     const phaseDir = path.join(phasesDir, phase);
