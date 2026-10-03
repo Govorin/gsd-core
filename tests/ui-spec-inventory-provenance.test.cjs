@@ -322,18 +322,22 @@ const template = readShipped(SURFACE.TEMPLATE);
 const workflow = readShipped(SURFACE.WORKFLOW);
 
 const CANONICAL = parseDimensionHeadings(checker);
-const EXPECTED_DIMENSIONS = 7;
+const EXPECTED_DIMENSIONS = 8;
 const DIMENSION_7_LABEL = 'Inventory Provenance';
+// Fork (mn): the `.pen` design-contract check is its own Dimension 8, after upstream's
+// Dimension 7 — sync decision 3 (.plans/sync-conflict-decisions.md). N-A without a contract.
+const DIMENSION_8_LABEL = 'Design Contract';
 
 const featuresRegion = (rel) => sectionContaining(readShipped(rel), 'REQ-UI-03');
 
 // ─── Suites ───────────────────────────────────────────────────────────────────
 
 describe('#2845 — gsd-ui-checker dimension roster', () => {
-  test('the checker declares a contiguous 1..7 roster whose 7th is Inventory Provenance', () => {
+  test('the checker declares a contiguous 1..8 roster: 7th Inventory Provenance, 8th Design Contract', () => {
     assert.equal(CANONICAL.length, EXPECTED_DIMENSIONS);
-    assert.deepEqual(CANONICAL.map((d) => d.n), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(CANONICAL.map((d) => d.n), [1, 2, 3, 4, 5, 6, 7, 8]);
     assert.deepEqual(CANONICAL[6], { n: 7, label: DIMENSION_7_LABEL });
+    assert.deepEqual(CANONICAL[7], { n: 8, label: DIMENSION_8_LABEL });
   });
 
   test('the verdict block lists exactly the roster, same numbers and same labels', () => {
@@ -378,10 +382,10 @@ describe('#2845 — cross-surface dimension-count parity (12 surfaces)', () => {
     assert.deepEqual(violations, [], JSON.stringify(violations, null, 2));
   });
 
-  test('each FEATURES.md locale numbers its validation-dimension list 1..7', () => {
+  test('each FEATURES.md locale numbers its validation-dimension list 1..8', () => {
     for (const rel of [SURFACE.FEATURES, SURFACE.FEATURES_JA, SURFACE.FEATURES_ZH, SURFACE.FEATURES_KO]) {
       const list = parseNumberedDimensionList(featuresRegion(rel));
-      assert.deepEqual(list.map((d) => d.n), [1, 2, 3, 4, 5, 6, 7], `${rel} dimension list`);
+      assert.deepEqual(list.map((d) => d.n), [1, 2, 3, 4, 5, 6, 7, 8], `${rel} dimension list`);
     }
   });
 
@@ -527,17 +531,18 @@ describe('#2845 — a back-reference is not a count claim (regression: `next` re
 
   test('the exclusion is load-bearing on the real shipped how-to, not just on fixtures', () => {
     // Typed proof rather than a substring match on prose: run the matcher over the real
-    // file with the exclusion OFF and then ON. Off, it must report a 6 — that 6 is the
-    // back-reference, and is literally what turned `next` red. On, only 7s survive.
+    // file with the exclusion OFF and then ON. Off, it must report the back-reference
+    // count ("the other seven", once Dimension 8 landed) — literally what turned `next`
+    // red. On, only the roster count survives.
     // If the docs prose is ever reworded away, the first assertion fails loudly rather
     // than this guard quietly ceasing to exercise the path it exists for.
     const howto = readShipped(SURFACE.HOWTO);
     const withoutExclusion = [...new Set(parseDeclaredCounts(howto, { excludeBackReferences: false }))].sort();
     const withExclusion = [...new Set(parseDeclaredCounts(howto))].sort();
 
-    assert.deepEqual(withoutExclusion, [6, 7],
+    assert.deepEqual(withoutExclusion, [EXPECTED_DIMENSIONS - 1, EXPECTED_DIMENSIONS],
       'vacuous unless the how-to still carries the back-reference this guard exists for');
-    assert.deepEqual(withExclusion, [7]);
+    assert.deepEqual(withExclusion, [EXPECTED_DIMENSIONS]);
   });
 });
 
