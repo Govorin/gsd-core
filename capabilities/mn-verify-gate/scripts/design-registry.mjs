@@ -49,7 +49,7 @@
  *   2 — проверить не смог: нет входа, битый файл, пустой код
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
-import { join, relative, resolve, basename, extname } from 'node:path';
+import { join, relative, resolve, basename } from 'node:path';
 
 const argv = process.argv.slice(2);
 const arg = (n, d) => {

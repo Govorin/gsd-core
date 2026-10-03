@@ -1173,7 +1173,7 @@ describe('bug #3683 — workflow/reference colon-namespace leak (Claude local in
     'write-continue',           // <!-- gsd:write-continue … -->
     'ui-interaction-capture',   // <!-- gsd:ui-interaction-capture --> / <!-- /gsd:ui-interaction-capture -->
     'template-registry',        // fork (mn): <!-- gsd:template-registry --> / <!-- /gsd:template-registry --> (gen-template-registry region)
-    'feature-vocabulary',       // fork (mn): <!-- gsd:feature-vocabulary --> region in ROADMAP.md (gen-feature-vocabulary)
+    'feature-vocabulary',       // fork (mn): <!-- gsd:feature-vocabulary --> / <!-- /gsd:feature-vocabulary --> region in ROADMAP.md (gen-feature-vocabulary)
   ]);
   const BARE_MARKER_TOKENS = new Set([
     'guard',      // `# gsd:guard=orchestrator-cwd-drift`
@@ -1457,6 +1457,10 @@ describe('bug #3683 — workflow/reference colon-namespace leak (Claude local in
         '# gsd:guard=orchestrator-cwd-drift',
         '[gsd:dispatch phase="{phase_number}" plan="{plan_id}"]',
         '<!-- gsd:live-dom-families -->',
+        '<!-- gsd:template-registry -->',
+        '<!-- /gsd:template-registry -->',
+        '<!-- gsd:feature-vocabulary -->',
+        '<!-- /gsd:feature-vocabulary -->',
       ];
       for (const marker of markers) {
         assert.equal(

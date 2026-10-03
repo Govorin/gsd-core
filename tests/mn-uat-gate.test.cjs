@@ -130,7 +130,7 @@ describe('uat-open gate', () => {
     assert.equal(runGate(phase3, ['--all']).exitCode, BLOCK);
   });
 
-  test('refuses rather than passes when it cannot check', () => {
+  test('refuses rather than passes when it cannot check', (t) => {
     // Each of these is "the gate could not answer", which must never read as
     // "the answer is yes" — the rule autonomous.md already applies to loop
     // gates ("a gate that could not run is not a gate that passed").
@@ -144,10 +144,7 @@ describe('uat-open gate', () => {
     );
 
     const orphan = createTempDir();
-    try {
-      assert.equal(runGate(orphan).exitCode, CANNOT_CHECK, 'no .planning/ above the directory');
-    } finally {
-      cleanup(orphan);
-    }
+    t.after(() => cleanup(orphan));
+    assert.equal(runGate(orphan).exitCode, CANNOT_CHECK, 'no .planning/ above the directory');
   });
 });

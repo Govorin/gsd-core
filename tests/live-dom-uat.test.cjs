@@ -41,6 +41,24 @@ const POINT = 'execute:wave:post';
 /** The browser MCP families this capability grants — the single source of truth. */
 const BROWSER_GLOBS = ['mcp__chrome-devtools__*', 'mcp__claude-in-chrome__*'];
 
+/**
+ * Every browser/DOM family the executor must stay out of: the two this
+ * capability grants to gsd-dom-verifier, plus the pre-existing playwright path
+ * in verify-work (risk 2 above). Prefixes, so one tool of a family counts.
+ */
+const BROWSER_FAMILY_PREFIXES = [...BROWSER_GLOBS, 'mcp__playwright__*']
+  .map((g) => g.replace(/\*$/, ''));
+
+/**
+ * Code-navigation MCP families this fork grants every code-reading agent
+ * (CLAUDE.md "code navigation tools"; the same three as FORK_CODE_NAV_TOOLS in
+ * scripts/research-profiles.cjs). They read source text, the LSP and the code
+ * graph — no browser, no DOM, no page — so they leave the executor exactly as
+ * far from the UI as #2856 requires. The executor surface check admits them by
+ * name; any other non-context7 family still fails it.
+ */
+const CODE_NAV_GLOBS = ['mcp__atlas__*', 'mcp__codebase-memory-mcp__*', 'mcp__plugin_serena_serena__*'];
+
 const AGENT_PATH = path.join(REPO_ROOT, 'agents', `${AGENT}.md`);
 const EXECUTOR_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
 const UI_VERIFY_PATH = path.join(
@@ -405,12 +423,19 @@ describe('live-dom-uat: shipped agent and workflow text', () => {
     // Criterion 4 of the approved shape is an ABSENCE, observable only in the
     // deployed agent text. This is the guard against the shape that was refused.
     const tools = agentTools(EXECUTOR_PATH);
-    for (const glob of BROWSER_GLOBS) {
-      assert.ok(!tools.includes(glob),
-        `gsd-executor must never carry ${glob} — triage refused widening its surface`);
+    // Prefix match, so a single tool of a family (mcp__claude-in-chrome__navigate)
+    // is refused as firmly as the family glob.
+    for (const family of BROWSER_FAMILY_PREFIXES) {
+      assert.ok(!tools.some((t) => t.startsWith(family)),
+        `gsd-executor must never carry ${family}* — triage refused widening its surface`);
     }
-    assert.ok(!tools.some((t) => t.startsWith('mcp__') && !t.includes('context7')),
-      'gsd-executor may carry no MCP family beyond context7');
+    // Allowlist, not denylist: a family nobody has reviewed still fails here.
+    const unreviewed = tools
+      .filter((t) => t.startsWith('mcp__'))
+      .filter((t) => !t.includes('context7'))
+      .filter((t) => !CODE_NAV_GLOBS.includes(t));
+    assert.deepStrictEqual(unreviewed, [],
+      'gsd-executor may carry no MCP family beyond context7 and the code-navigation families');
   });
 
   test('browserGlobParityAcrossAgentAndWorkflowSurfaces', () => {

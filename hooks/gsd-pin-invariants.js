@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // gsd-hook-version: {{GSD_VERSION}}
-// GSD Invariant Pin — PostCompact / SessionStart hook (mn fork)
+// GSD Invariant Pin — SessionStart hook, re-fired after compaction (mn fork)
 //
 // Problem: compaction rewrites the conversation, and the standing rules of the
 // work in progress do not survive that rewrite. This is measured, not
@@ -314,22 +314,33 @@ function main() {
   });
   process.stdin.on('end', () => {
     clearTimeout(stdinTimeout);
-    let pin;
+    let output = null;
     try {
       const data = JSON.parse(input);
       const cwd = (data && typeof data.cwd === 'string' && data.cwd) || process.cwd();
-      pin = buildPin(cwd);
+      const pin = buildPin(cwd);
+      if (pin) output = pinOutput(data, pin.context);
     } catch {
       crash(HOOK_ON_CRASH.ALLOW, undefined); // a pin that cannot be built must never disturb a session
     }
-    if (!pin) allow(undefined);
-
-    // The event name differs by host; PostCompact is the one that matters, and
-    // SessionStart carries the same shape. Emitting both keys is not valid, so
-    // the generic `additionalContext` field is used, which every current host
-    // honours for context-injecting hooks.
-    allow({ additionalContext: pin.context });
+    allow(output || undefined);
   });
+}
+
+/**
+ * The stdout payload for a built pin, or null when the event cannot carry one.
+ *
+ * Claude Code takes context from a SessionStart hook only as
+ * `hookSpecificOutput.additionalContext` (a top-level `additionalContext` is
+ * not read), and after a compaction it fires SessionStart again with
+ * `source: "compact"` — that re-fire is the documented re-injection point.
+ * PostCompact is observational and cannot add context, so an entry left there
+ * by an older install stays silent instead of printing output nobody reads.
+ */
+function pinOutput(data, context) {
+  const event = data && typeof data.hook_event_name === 'string' ? data.hook_event_name : 'SessionStart';
+  if (event !== 'SessionStart') return null;
+  return { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: context } };
 }
 
 if (require.main === module) {
@@ -338,6 +349,7 @@ if (require.main === module) {
 
 module.exports = {
   buildPin,
+  pinOutput,
   findRunningPlan,
   readWaiting,
   readPinnedBlock,

@@ -40,6 +40,7 @@ const {
   BLOCKING_GUARD_NAMES,
   KIMI_BLOCKING_GUARD_NAMES,
   KIMI_UNREGISTERED_BLOCKING_GUARDS,
+  FORK_BLOCKING_GUARD_NAMES,
 } = require('../gsd-core/bin/lib/runtime-hooks-surface.cjs');
 
 // Advisory hook: negative control (must NOT be raised to the blocking budget).
@@ -106,6 +107,20 @@ describe('blocking guard host budgets agree with the installer (#5180)', () => {
     }
   });
 
+  test('mn fork write guards: installer and hooks.json both register them at the host budget', (t) => {
+    // They deny writes exactly like the shared guards, so a timeout below the
+    // host budget silently disables them (#3981). Kept in their own list
+    // because the shared one drives Kimi, which does not register them.
+    assert.ok(FORK_BLOCKING_GUARD_NAMES.length > 0, 'the fork guard list must not be empty');
+    const installer = installerTimeouts(t);
+    const plugin = pluginTimeouts();
+    for (const name of FORK_BLOCKING_GUARD_NAMES) {
+      assert.ok(!BLOCKING_GUARD_NAMES.includes(name), `${name} must stay out of the shared (Kimi-driving) list`);
+      assert.strictEqual(installer.get(name), HOST_BUDGET_SECONDS, `installer registers ${name} at ${installer.get(name)}s`);
+      assert.strictEqual(plugin.get(name), HOST_BUDGET_SECONDS, `hooks/hooks.json registers ${name} at ${plugin.get(name)}s`);
+    }
+  });
+
   test('negative control: an advisory hook is NOT held to the blocking budget', () => {
     const plugin = pluginTimeouts();
     for (const name of ADVISORY_PRETOOL) {
@@ -130,7 +145,7 @@ describe('blocking guard host budgets agree with the installer (#5180)', () => {
       BLOCKING_GUARD_NAMES.filter((name) => !KIMI_BLOCKING_GUARD_NAMES.includes(name)),
       [...KIMI_UNREGISTERED_BLOCKING_GUARDS],
     );
-    for (const name of KIMI_UNREGISTERED_BLOCKING_GUARDS) {
+    for (const name of [...KIMI_UNREGISTERED_BLOCKING_GUARDS, ...FORK_BLOCKING_GUARD_NAMES]) {
       assert.ok(!seen.has(name), `kimi config.toml must not register ${name}`);
     }
     for (const name of KIMI_BLOCKING_GUARD_NAMES) {

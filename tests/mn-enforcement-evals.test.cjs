@@ -166,21 +166,18 @@ const RUNNERS = {
     return asVerdict(decision.action);
   },
 
-  worktree(testCase, dir) {
+  worktree(testCase, dir, t) {
     writeProject(dir, testCase.config);
     const tree = createTempDir();
-    try {
-      const decision = worktree.provisionWorktree(
-        { worktree_path: tree, cwd: dir },
-        {
-          measureBaseLag: () => ({ behind: testCase.behind }),
-          provisionDeps: () => ({ mode: 'none', done: false, reason: 'disabled' }),
-        }
-      );
-      return asVerdict(decision.action);
-    } finally {
-      cleanup(tree);
-    }
+    t.after(() => cleanup(tree));
+    const decision = worktree.provisionWorktree(
+      { worktree_path: tree, cwd: dir },
+      {
+        measureBaseLag: () => ({ behind: testCase.behind }),
+        provisionDeps: () => ({ mode: 'none', done: false, reason: 'disabled' }),
+      }
+    );
+    return asVerdict(decision.action);
   },
 
   uat(testCase, dir) {
@@ -222,8 +219,8 @@ describe('enforcement evals — the situations that actually burned us', () => {
   });
 
   for (const testCase of CASES.cases) {
-    test(`${testCase.id} → ${testCase.verdict}`, () => {
-      const got = RUNNERS[testCase.hook](testCase, dir);
+    test(`${testCase.id} → ${testCase.verdict}`, (t) => {
+      const got = RUNNERS[testCase.hook](testCase, dir, t);
       assert.equal(
         got,
         testCase.verdict,

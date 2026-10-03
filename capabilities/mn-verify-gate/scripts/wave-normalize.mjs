@@ -290,7 +290,7 @@ function globToRegExp(pattern) {
       body += '[^/]*'; // одиночная `*`: внутри одного сегмента
       i += 1;
     } else {
-      body += pattern[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      body += pattern[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // allow-adhoc-regex-escape: standalone capability script run from $HOME/.gsd/mn-verify-gate, cannot reach the src/pattern.cts seam
       i += 1;
     }
   }

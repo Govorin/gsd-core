@@ -158,7 +158,7 @@ if (total === 0) {
 }
 
 if (orphaned.length === 0 && (!strict || unknown.length === 0)) {
-  let line = `orphan-plans: OK — ${done} done, ${superseded} superseded, ${unknown.length} unknown-state`;
+  const line = `orphan-plans: OK — ${done} done, ${superseded} superseded, ${unknown.length} unknown-state`;
   process.stdout.write(`${line}\n`);
   if (verbose && unknown.length > 0) {
     process.stdout.write(
