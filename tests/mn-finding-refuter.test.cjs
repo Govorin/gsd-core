@@ -183,4 +183,19 @@ describe('finding refuter — registration', () => {
     assert.match(CAPABILITY.config['workflow.refute_findings'].description, /27%/);
     assert.match(CAPABILITY.config['workflow.refute_findings'].description, /5\.11/);
   });
+
+  test('the key reaches the workflow through a hook, not an inline config read', () => {
+    // ADR-857 phase 6 (#1169): the host loop must not `config-get` a
+    // capability-owned key. The key gates a plan:pre contribution (into the
+    // checker, which is told its findings will be challenged); render-hooks
+    // resolves the `when`, and step 11b keys off that active hook.
+    const hook = CAPABILITY.contributions.find(
+      (c) => c.point === 'plan:pre' && c.into === 'checker' && c.when === 'workflow.refute_findings'
+    );
+    assert.ok(hook, 'mn-verify-gate must declare a plan:pre checker contribution gated by workflow.refute_findings');
+    const fragment = fs.readFileSync(path.join(ROOT, 'capabilities', 'mn-verify-gate', hook.fragment.path), 'utf8');
+    assert.match(fragment, /step 11b/);
+    assert.match(WORKFLOW, /PLAN_PRE_HOOKS_JSON` has an active hook with `when == "workflow\.refute_findings"`/);
+    assert.doesNotMatch(WORKFLOW, /config-get\s+workflow\.refute_findings/);
+  });
 });

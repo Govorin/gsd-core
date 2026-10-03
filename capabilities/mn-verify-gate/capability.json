@@ -261,11 +261,9 @@
     {
       "point": "verify:pre",
       "ref": {
-        "command": "gsd_run verify gates \"${PHASE_DIR}\" --raw"
+        "command": "verify gates"
       },
-      "produces": [
-        "{phase}-VERIFICATION.md"
-      ],
+      "produces": [],
       "consumes": [],
       "when": "workflow.verify_gates_record",
       "onError": "skip"
@@ -336,6 +334,17 @@
       "produces": [],
       "consumes": [],
       "when": "workflow.design_registry",
+      "onError": "skip"
+    },
+    {
+      "point": "plan:pre",
+      "into": "checker",
+      "fragment": {
+        "path": "fragments/plan-pre-refute-findings.md"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.refute_findings",
       "onError": "skip"
     }
   ],

@@ -15,6 +15,8 @@ import { tryWithinRootLexical } from './security.cjs';
 import planningWorkspace = require('./planning-workspace.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-gates.cjs is an export= CommonJS module
+import verifyGates = require('./verify-gates.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- state.cjs is an export= CommonJS module
 import stateMod = require('./state.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- model-profiles.cjs is an export= CommonJS module
@@ -2781,6 +2783,12 @@ export = {
   cmdVerifyCodebaseDrift,
   computeContextDrift,
   cmdVerifyContextDrift,
+  // Re-exported so `verify gates` reaches the router through the single
+  // `verify` module gsd-tools.cjs requires, without that file learning about a
+  // second import. The implementation lives in its own module because it is
+  // the only verify subcommand that WRITES, and mixing a recorder into a file
+  // of reporters is how a reporter grows a side effect nobody expects.
+  cmdVerifyGates: verifyGates.cmdVerifyGates,
   cmdStampCodebaseMap,
   STATE_HEAD_ADVISORY_COMMITS,
 };

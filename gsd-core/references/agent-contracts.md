@@ -47,7 +47,7 @@ This doc describes what IS, not what should be. Casing inconsistencies are docum
 | gsd-doc-synthesizer | Doc synthesis for `/gsd:ingest-docs` | No marker (SYNTHESIS.md and INGEST-CONFLICTS.md artifacts) | `.planning/intel/SYNTHESIS.md` and `.planning/INGEST-CONFLICTS.md` artifacts, read by `gsd-core/workflows/ingest-docs.md` | artifact+query |
 | gsd-system-architect | Pre-planning structural design | No marker (writes `{phase}-DESIGN.md` directly) | `{phase}-DESIGN.md` artifact, written by the `architecture` capability's `plan:pre` step dispatched from `gsd-core/workflows/plan-phase.md` | artifact+query |
 | gsd-architect-reviewer | Post-execution architecture review | No marker (writes `{phase}-ARCH-REVIEW.md` directly; the frontmatter `verdict` scalar carries the result) | `{phase}-ARCH-REVIEW.md` artifact, written by the `architecture` capability's `verify:pre` step dispatched from `gsd-core/workflows/verify-work.md` | artifact+query |
-| gsd-finding-refuter | Plan-checker finding refutation | `## REFUTATION COMPLETE` (unconsumed: the plan-phase refutation step that parses this header has not been ported onto this tree yet; it arrives with the `mn-verify-gate` capability and its finding-refutation reference) | `gsd-core/workflows/plan-phase.md` | sentinel-match |
+| gsd-finding-refuter | Plan-checker finding refutation | `## REFUTATION COMPLETE` | `gsd-core/workflows/plan-phase.md` (step 11b, via `gsd-core/references/finding-refutation.md`) | sentinel-match |
 
 ## Marker Rules
 
