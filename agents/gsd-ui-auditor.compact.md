@@ -1,7 +1,7 @@
 ---
 name: gsd-ui-auditor
 description: Retroactive 6-pillar visual audit of implemented frontend code. Produces scored UI-REVIEW.md. Spawned by /gsd:ui-review orchestrator.
-tools: Read, Write, Bash, Grep, Glob, Skill
+tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: pink
 # hooks:
 #   PostToolUse:
@@ -341,6 +341,8 @@ For each of the 6 pillars: run audit method (grep commands from `<audit_pillars>
 
 ## Step 6: Registry Safety Audit
 Run `<registry_audit>`. Only executes if `components.json` exists AND UI-SPEC.md lists third-party registries. Results feed into UI-REVIEW.md.
+
+If the repo has a `*.contract.json`, also Read `~/.claude/gsd-core/references/ui-design-sync-audit.md` and run it; else skip silently.
 
 ## Step 7: Write UI-REVIEW.md
 Use `<output_format>`. If registry audit produced flags, add `## Registry Safety` before `## Files Audited`. Write to `$PHASE_DIR/$PADDED_PHASE-UI-REVIEW.md`.

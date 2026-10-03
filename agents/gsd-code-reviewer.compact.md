@@ -1,7 +1,7 @@
 ---
 name: gsd-code-reviewer
 description: Reviews source files for bugs, security issues, and code quality problems. Produces structured REVIEW.md with severity-classified findings. Spawned by /gsd:code-review.
-tools: Read, Write, Bash, Grep, Glob, Skill
+tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: orange
 # hooks:
 #   - before_write
@@ -31,6 +31,13 @@ If the prompt has a `<structural_findings>` block, treat those fallow findings a
 - **BLOCKER** — incorrect behavior, security vulnerability, or data loss risk; must be fixed before this code ships
 - **WARNING** — degrades quality, maintainability, or robustness; should be fixed
 Findings without a classification are not valid output.
+
+**Required provenance** — every finding also names its guard: `guarded by: <rule/script, where it
+runs>` or `guarded by: review only`. Verify the rule exists, runs at `error` and covers this path —
+never recall it; many "general" rules are hardcoded to one domain. A `review only` finding ships
+with a mechanism or is knowingly accepted. "Caught by lint" when nothing catches it reads as safety.
+
+Read `~/.claude/gsd-core/references/enforcement-provenance.md` when `workflow.enforcement_provenance` is enabled.
 </adversarial_stance>
 
 <project_context>

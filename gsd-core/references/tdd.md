@@ -138,6 +138,15 @@ After completion, create SUMMARY.md with:
 **No implementation details:**
 - Good: Test public API, observable behavior
 - Bad: Mock internals, test private methods, assert on internal state
+
+**Fails when the behavior breaks (no tautologies):**
+- Good: Asserts a value the implementation computes; breaking the implementation turns the test red
+- Bad: Asserts the mock's own return value, or recomputes the expected value with the same logic the code uses
+- Check: Break the implementation on purpose. A test that stays green proves nothing. The RED-evidence gate (`unexpected_green`) only catches a test green before GREEN; a recomputed expected value fails red first and still proves nothing
+
+**One test, then its code (no horizontal slicing):**
+- Good: RED → GREEN for one behavior, then the next behavior
+- Bad: Write every test first, then all the code. Tests written in bulk pin imagined behavior and drift from what the code needs
 </test_quality>
 
 <framework_setup>

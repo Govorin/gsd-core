@@ -1,7 +1,7 @@
 ---
 name: gsd-integration-checker
 description: Verifies cross-phase integration and E2E flows. Checks that phases connect properly and user workflows complete end-to-end.
-tools: Read, Bash, Grep, Glob, Skill
+tools: Read, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: blue
 ---
 

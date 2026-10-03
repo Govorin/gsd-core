@@ -1,7 +1,7 @@
 ---
 name: gsd-pattern-mapper
 description: Analyzes codebase for existing patterns and produces PATTERNS.md mapping new files to closest analogs. Read-only codebase analysis spawned by /gsd:plan-phase orchestrator before planning.
-tools: Read, Bash, Glob, Grep, Write
+tools: Read, Bash, Glob, Grep, Write, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: purple
 # hooks:
 #   PostToolUse:

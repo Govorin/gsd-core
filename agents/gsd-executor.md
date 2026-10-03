@@ -1,7 +1,7 @@
 ---
 name: gsd-executor
 description: Executes GSD plans with atomic commits, deviation handling, checkpoint protocols, and state management. Spawned by execute-phase orchestrator or execute-plan command.
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill, mcp__context7__*, mcp__plugin_context7_context7__*
+tools: Read, Write, Edit, Bash, Grep, Glob, Skill, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: yellow
 # hooks:
 #   PostToolUse:
@@ -105,7 +105,10 @@ Parse: frontmatter (phase, plan, type, autonomous, wave, depends_on), objective,
 ```bash
 PLAN_START_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 PLAN_START_EPOCH=$(date +%s)
+gsd_run frontmatter set "${PLAN_FILE}" --field status --value in_progress 2>/dev/null || true
+gsd_run frontmatter set "${PLAN_FILE}" --field status_at --value "${PLAN_START_TIME}" 2>/dev/null || true
 ```
+Marks the plan started — a record, not a lock; you are this file's only writer, one flat field per call. Reasons for this and the later `done`/`blocked` writes: `~/.claude/gsd-core/references/executor-plan-status.md` (Read on demand).
 </step>
 
 <worktree_metadata_capture>
@@ -648,9 +651,9 @@ Use the Write tool to create files — never use `Bash(cat << 'EOF')` or heredoc
 This file is the canonical output of this step. The orchestrator reads `.planning/phases/XX-name/{phase}-{plan}-SUMMARY.md` from disk after you return; it does NOT read your return message for the file content.
 
 1. **Default: write the whole file in a single `Write` call.** On most runtimes this is correct and reliable — do this unless rule 4 applies.
-2. **Do NOT return the SUMMARY.md content in your response.** Your return message is a brief confirmation; the content lives on disk.
+2. **Do NOT return the SUMMARY.md content in your response.** Return a brief confirmation; the content lives on disk.
 3. **Do NOT use `Bash(cat << 'EOF')` or heredoc** for file creation. Use the `Write` tool.
-4. **Large-file / truncation fallback.** Some runtimes (e.g. OpenCode) cap tool-call output, and a single oversized `Write` is truncated mid-payload — surfacing a tool error such as `JSON Parse error: Expected '}'`. If a `Write` fails with a truncation / invalid-tool error, **do NOT retry the same oversized call** (that loops forever). Instead build the file incrementally so no single tool call carries the whole payload:
+4. **Truncation fallback.** Some runtimes cap tool-call output, so an oversized `Write` truncates mid-payload (e.g. `JSON Parse error: Expected '}'`). **Do NOT retry the same oversized call** — it loops forever. Build the file incrementally so no single call carries the whole payload:
    - `Write` the file with only the first section, ending with the sentinel line `<!-- gsd:write-continue -->`.
    - `Read` the file, then `Edit` it, replacing `<!-- gsd:write-continue -->` with the next section followed by the sentinel again. Repeat, one section per `Edit`.
    - On the final section, replace the sentinel with the closing content and no trailing sentinel.
@@ -764,6 +767,8 @@ Do NOT skip. Do NOT proceed to state updates if self-check fails.
 <state_updates>
 After SUMMARY.md, update STATE.md using `gsd-tools query` state handlers (named flags):
 
+**Merge, never overwrite — hard rule.** Every write below is a field-level merge through the handlers. Never `Write` or `Edit` STATE.md whole, never re-emit a field you were not asked to change, and carry every key forward — including ones you do not recognise. No handler fits → `state.add-blocker`, never a hand-edit. Key list and why: `~/.claude/gsd-core/references/executor-plan-status.md`.
+
 ```bash
 # Advance plan counter (handles edge cases automatically)
 gsd_run query state.advance-plan
@@ -808,12 +813,21 @@ gsd_run query requirements.mark-complete ${REQ_IDS}
 - `roadmap update-plan-progress`: Updates ROADMAP.md progress table row with PLAN vs SUMMARY counts
 - `requirements mark-complete`: Checks off requirement checkboxes and updates traceability table in REQUIREMENTS.md
 
+**Clear the in-progress flag — same writer that set it, never blocks:**
+```bash
+gsd_run frontmatter set "${PLAN_FILE}" --field status --value done 2>/dev/null || true
+gsd_run frontmatter set "${PLAN_FILE}" --field status_at --value "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" 2>/dev/null || true
+```
+**`status: done` is NOT the completion signal** — it only disarms the in-progress flag; completion is the PRESENCE of the SUMMARY file, nothing else. Never teach a reader to derive completion from `status`.
+
 **Extract decisions from SUMMARY.md:** Parse key-decisions from frontmatter or "Decisions Made" section → add each via `state add-decision`.
 
 **For blockers found during execution:**
 ```bash
 gsd_run query state.add-blocker --text "Blocker description"
 ```
+
+**When you genuinely cannot proceed, DECLARE it — never leave the plan at `in_progress`.** Read `~/.claude/gsd-core/references/executor-plan-status.md` § `blocked` and write `status: blocked`, a non-empty `blocked_reason` (under 2048 chars; name what is missing, not what you tried) and `status_at`, beside the `state.add-blocker` call above.
 </state_updates>
 
 <final_commit>
