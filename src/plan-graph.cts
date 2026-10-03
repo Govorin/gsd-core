@@ -254,7 +254,7 @@ const PLAN_CLASS_DEFS: readonly ClassDef[] = Object.freeze([
   { name: 'done', style: 'fill:#e6f4ea,stroke:#2e7d32' },
   { name: 'running', style: 'fill:#fff4e5,stroke:#ef6c00' },
   { name: 'blocked', style: 'fill:#fdecea,stroke:#b71c1c' },
-  { name: 'superseded', style: 'fill:#eee,stroke:#999,stroke-dasharray:4 3,color:#777' },
+  { name: 'superseded', style: 'fill:#eee,stroke:#999999,stroke-dasharray:4 3,color:#777' },
   { name: 'pending', style: 'fill:#fff,stroke:#555' },
   { name: 'missing', style: 'fill:#fdecea,stroke:#d33,stroke-dasharray:4 3' },
 ]);
