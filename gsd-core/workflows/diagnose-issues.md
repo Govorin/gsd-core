@@ -85,7 +85,7 @@ Spawning parallel debug agents to investigate root causes:
 | Delete removes comment | blocker |
 
 Each agent will:
-1. Create DEBUG-{slug}.md with symptoms pre-filled
+1. Create `.planning/debug/{slug}.md` with symptoms pre-filled
 2. Investigate autonomously (read code, form hypotheses, test)
 3. Return root cause
 
@@ -143,7 +143,37 @@ return before spawning the next. Fanning out unisolated debuggers is the outcome
 `orchestrator-worktree` degrade exists to avoid; degrading the flag while keeping the
 parallelism would announce sequential mode and then do the opposite.
 
-For each gap, fill the debug-subagent-prompt template and spawn:
+For each gap, fill this debug prompt (`filled_debug_prompt` in the `Agent()` call below) and
+spawn. The prompt lives here, not in a template: the template it came from was removed (#4139),
+so there is no separate file to read. The placeholders are documented below;
+the gsd-debugger agent carries the debugging expertise, so this prompt supplies problem context only.
+
+```markdown
+<objective>
+Investigate issue: {issue_id}
+
+**Summary:** {issue_summary}
+</objective>
+
+<symptoms>
+expected: {expected}
+actual: {actual}
+errors: {errors}
+reproduction: {reproduction}
+timeline: {timeline}
+</symptoms>
+
+<mode>
+symptoms_prefilled: true
+goal: {goal}
+</mode>
+
+<debug_file>
+Create: .planning/debug/{slug}.md
+</debug_file>
+```
+
+Spawn with the filled prompt:
 
 Print: `◆ Spawning diagnostics agent... (each runs in a subagent — no output until they return, ~1–5 min; expected, not a freeze)`
 
@@ -169,7 +199,15 @@ placeholder, not a shell variable.
 
 ```
 Agent(
-  prompt=filled_debug_subagent_prompt + "\n\n" + WORKTREE_GUARD + "\n\n<required_reading>\n- {phase_dir}/{phase_num}-UAT.md\n- {state_path}\n</required_reading>\n${AGENT_SKILLS_DEBUGGER}",
+  prompt=filled_debug_prompt + "
+
+" + WORKTREE_GUARD + "
+
+<required_reading>
+- {phase_dir}/{phase_num}-UAT.md
+- {state_path}
+</required_reading>
+${AGENT_SKILLS_DEBUGGER}",
   subagent_type="gsd-debugger",
   model="{DEBUGGER_MODEL}",
   {harnessFlag}
@@ -181,7 +219,10 @@ Agent(
 
 **All agents spawn in a single message (parallel execution) ONLY when `ISOLATION = "harness-worktree"`.** When `ISOLATION = "none"`, spawn one agent per message and wait for each to return — see the fan-out rule above (#2652).
 
-Template placeholders:
+Prompt placeholders (`symptoms_prefilled` is always `true` here — UAT already gathered the
+symptoms, so the debugger must not re-ask for them):
+- `{issue_id}`: Orchestrator-assigned id for the gap (e.g. the slug, or `UAT-{test_num}`)
+- `{issue_summary}`: One line — the `{truth}` that failed
 - `{truth}`: The expected behavior that failed
 - `{expected}`: From UAT test
 - `{actual}`: Verbatim user description from reason field
@@ -294,7 +335,7 @@ Agents only diagnose—plan-phase --gaps handles fixes (no fix application).
 - Report incomplete diagnosis
 
 **Agent times out:**
-- Check DEBUG-{slug}.md for partial progress
+- Check `.planning/debug/{slug}.md` for partial progress
 - Can resume with /gsd:debug
 
 **All agents fail:**
