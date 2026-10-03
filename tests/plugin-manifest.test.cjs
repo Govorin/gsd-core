@@ -26,7 +26,7 @@ const pkg = require(path.join(ROOT, 'package.json'));
 const { MANAGED_HOOKS } = require(path.join(ROOT, 'hooks', 'managed-hooks-registry.cjs'));
 const { cleanup, TEST_ENV_BASE } = require('./helpers.cjs');
 const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
-const { BLOCKING_GUARD_TIMEOUT_S, BLOCKING_GUARD_NAMES } = require(path.join(ROOT, 'gsd-core', 'bin', 'lib', 'runtime-hooks-surface.cjs'));
+const { BLOCKING_GUARD_TIMEOUT_S, BLOCKING_GUARD_NAMES, FORK_BLOCKING_GUARD_NAMES } = require(path.join(ROOT, 'gsd-core', 'bin', 'lib', 'runtime-hooks-surface.cjs'));
 
 // Host budget (seconds) a BLOCKING guard script is registered with (#3981,
 // #5180): the installer's single source, not a number restated here. Throws for
@@ -890,7 +890,8 @@ describe('D: always-on hook contract drift guard', () => {
 
   test('mn fork: the two denying write guards carry the blocking-guard host budget', () => {
     const map = buildHookMap();
-    for (const script of ['gsd-prohibition-guard.js', 'gsd-test-tamper-guard.js']) {
+    assert.equal(FORK_BLOCKING_GUARD_NAMES.length, 2, 'the installer names the two fork write guards');
+    for (const script of FORK_BLOCKING_GUARD_NAMES.map((n) => `${n}.js`)) {
       assert.deepEqual(
         wiringOf(map, script),
         [{ event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S }],

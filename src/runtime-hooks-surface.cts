@@ -2517,14 +2517,20 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
 
     // #3981: raise existing managed blocking-guard entries still on the old
     // 5 s budget to BLOCKING_GUARD_TIMEOUT_S (module-level; rationale there).
-    // Registration below uses the same constant.
+    // Registration below uses the same constant. On the runtimes that carry the
+    // mn fork's write guards, those are blocking guards too: registration skips
+    // an entry that is already present, so without this an install that has
+    // them at 5 s keeps 5 s across every reinstall.
+    const migratedGuardNames: readonly string[] = FORK_ENFORCEMENT_RUNTIMES.has(runtime)
+      ? [...BLOCKING_GUARD_NAMES, ...FORK_BLOCKING_GUARD_NAMES]
+      : BLOCKING_GUARD_NAMES;
     for (const entries of Object.values(settings.hooks as Record<string, HookGroup[]>)) {
       if (!Array.isArray(entries)) continue;
       for (const entry of entries) {
         if (!entry || !Array.isArray(entry.hooks)) continue;
         for (const h of entry.hooks) {
           if (
-            BLOCKING_GUARD_NAMES.some((name) => referencesHook(h as Record<string, unknown>, name)) &&
+            migratedGuardNames.some((name) => referencesHook(h as Record<string, unknown>, name)) &&
             h.timeout === 5
           ) {
             h.timeout = BLOCKING_GUARD_TIMEOUT_S;
@@ -3407,13 +3413,19 @@ const BLOCKING_GUARD_NAMES: readonly string[] = [
 // intentional and explicit, not an accident of two hand-kept lists.
 const KIMI_UNREGISTERED_BLOCKING_GUARDS: readonly string[] = ['gsd-agent-isolation-guard'];
 
-// mn fork enforcement hooks (applySettingsJsonHooks). The two write guards use
-// BLOCKING_GUARD_TIMEOUT_S but stay OUT of BLOCKING_GUARD_NAMES: that list also
-// drives Kimi's config.toml, where the fork guards are not registered.
+// mn fork enforcement hooks (applySettingsJsonHooks). The two write guards are
+// blocking guards held to BLOCKING_GUARD_TIMEOUT_S, but they stay OUT of
+// BLOCKING_GUARD_NAMES: that list also drives Kimi's config.toml, where the
+// fork guards are not registered. FORK_BLOCKING_GUARD_NAMES is their own list,
+// joined to the shared one by the settings.json 5 s → 120 s migration on the
+// runtimes in FORK_ENFORCEMENT_RUNTIMES.
 const FORK_ENFORCEMENT_RUNTIMES: ReadonlySet<string> = new Set(['claude']);
+const FORK_BLOCKING_GUARD_NAMES: readonly string[] = ['gsd-prohibition-guard', 'gsd-test-tamper-guard'];
 // The exit gate runs the project's check under its own 600 s default cap.
 const FORK_EXIT_GATE_TIMEOUT_S = 620;
-// The pin only reads .planning/ files.
+// The pin only reads .planning/ files and never blocks: a timed-out pin costs
+// one missing reminder, not a bypassed gate, so it keeps an advisory budget
+// rather than BLOCKING_GUARD_TIMEOUT_S.
 const FORK_PIN_TIMEOUT_S = 5;
 
 const KIMI_BLOCKING_GUARD_NAMES: readonly string[] = BLOCKING_GUARD_NAMES.filter(
@@ -3630,6 +3642,7 @@ export = {
   BLOCKING_GUARD_NAMES,
   KIMI_UNREGISTERED_BLOCKING_GUARDS,
   KIMI_BLOCKING_GUARD_NAMES,
+  FORK_BLOCKING_GUARD_NAMES,
 
   // Shared
   stageTransitiveHookLibs,

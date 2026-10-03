@@ -3454,6 +3454,49 @@ describe('bug #3981: blocking-guard timeout budget + migration', () => {
     }
   });
 
+  test('mn fork write guards at timeout:5 are migrated to 120 where they are registered', () => {
+    // Registration skips an entry that is already present, so only the
+    // migration can lift an existing 5 s fork guard — and a timed-out guard
+    // does not block (#3981). Kimi never registers them (its config.toml is
+    // driven by the shared list), so the fork list is separate from it.
+    const { FORK_BLOCKING_GUARD_NAMES, BLOCKING_GUARD_NAMES } = require('../gsd-core/bin/lib/runtime-hooks-surface.cjs');
+    assert.deepEqual([...FORK_BLOCKING_GUARD_NAMES], ['gsd-prohibition-guard', 'gsd-test-tamper-guard']);
+    assert.ok(FORK_BLOCKING_GUARD_NAMES.every((n) => !BLOCKING_GUARD_NAMES.includes(n)),
+      'the fork guards must stay out of the shared list that drives Kimi');
+    const localCmd = (hookFile) => `node ${path.join(targetDir, 'hooks', hookFile)}`;
+    const migrate = (runtime, guard, timeout) => {
+      const settings = {
+        hooks: {
+          PreToolUse: [{
+            matcher: 'Write|Edit|MultiEdit',
+            hooks: [{ type: 'command', command: localCmd(`${guard}.js`), timeout }],
+          }],
+        },
+      };
+      captureConsole(() => {
+        applySettingsJsonHooks(settings, {
+          runtime, isGlobal: false, targetDir,
+          postToolEvent: 'PostToolUse', hookEvents: 'claude', extendedHookEvents: [],
+          hooksSurface: 'settings-json', updateCheckCommand: null, contextMonitorCommand: null,
+          promptGuardCommand: null, readGuardCommand: null, readInjectionScannerCommand: null,
+          configReloadCommand: null, hookOpts: { portableHooks: false, runtime },
+          localCmd, localShellCmd: localCmd,
+        });
+      });
+      return settings.hooks.PreToolUse[0].hooks[0].timeout;
+    };
+    for (const guard of FORK_BLOCKING_GUARD_NAMES) {
+      assert.equal(migrate('claude', guard, FIXTURE_HOOK_TIMEOUT_SECONDS), 120,
+        `an existing ${guard} entry at timeout:5 must be migrated to 120 on Claude`);
+      // Only the managed 5 s value moves; a budget the user chose stays theirs.
+      assert.equal(migrate('claude', guard, 30), 30, `${guard} at a user-chosen 30 s must be left alone`);
+      // Negative control: a runtime that never registers the fork guards does
+      // not adopt them into its migration.
+      assert.equal(migrate('qwen', guard, FIXTURE_HOOK_TIMEOUT_SECONDS), FIXTURE_HOOK_TIMEOUT_SECONDS,
+        `${guard} is not a managed guard on a runtime outside FORK_ENFORCEMENT_RUNTIMES`);
+    }
+  });
+
   test('non-managed timeout:5 entries are left alone (#3981)', () => {
     const mine = { type: 'command', command: 'node /usr/local/bin/my-own-hook.js', timeout: FIXTURE_HOOK_TIMEOUT_SECONDS };
     const settings = { hooks: { PreToolUse: [{ matcher: 'Write', hooks: [mine] }] } };
