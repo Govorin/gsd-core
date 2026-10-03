@@ -53,6 +53,9 @@ Full roster at `agents/gsd-*.md`. The "Primary doc" column flags whether [`docs/
 | gsd-doc-classifier | Classifies a single planning document as ADR, PRD, SPEC, DOC, or UNKNOWN; spawned in parallel to process the doc corpus. | `/gsd-ingest-docs` | advanced stub |
 | gsd-doc-synthesizer | Synthesizes classified planning docs into a single consolidated context with precedence rules, cycle detection, and three-bucket conflicts report. | `/gsd-ingest-docs` | advanced stub |
 | gsd-mempalace-curator | Ship-time MemPalace curation — diary entry, cross-project tunnel proposals, wing-scoped sync pruning, and extract-learnings → KG mirroring with provenance. | MemPalace capability at `ship:post` | advanced stub |
+| gsd-system-architect | Fixes layer placement, allowed dependencies and cross-plan signatures before the split; writes DESIGN.md. | `/gsd-plan-phase` (plan:pre, `workflow.architecture_design`) | inventory only |
+| gsd-finding-refuter | Tries to refute each plan-checker finding; only those that survive, with evidence, reach the planner. | `/gsd-plan-phase` (step 11b, `workflow.refute_findings`) | inventory only |
+| gsd-architect-reviewer | Checks the declared structure survived implementation; writes ARCH-REVIEW.md. | `/gsd-verify-work` (verify:pre, `workflow.architecture_review`) | inventory only |
 
 ### Compact Payload Variants (#4407)
 

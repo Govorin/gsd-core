@@ -152,6 +152,7 @@
   "gsd-core/references/worktree-path-safety.md",
   "gsd-core/templates/AI-SPEC.md",
   "gsd-core/templates/DEBUG.md",
+  "gsd-core/templates/DESIGN.md",
   "gsd-core/templates/README.md",
   "gsd-core/templates/SECURITY.md",
   "gsd-core/templates/UAT.md",

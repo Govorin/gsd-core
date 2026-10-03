@@ -1560,6 +1560,12 @@ describe('bug #1243: plugin-namespaced agent skills', () => {
       'gsd-ui-checker',
       'gsd-ui-researcher',
       'gsd-verifier',
+      // ── mn fork agents: the architect and the reviewer load the project's
+      // skills through project-skills-discovery to judge layer placement; the
+      // refuter declares Skill so it can invoke one while checking a finding.
+      'gsd-architect-reviewer',
+      'gsd-finding-refuter',
+      'gsd-system-architect',
     ]);
 
     // allow-test-rule: source-text-is-the-product (#1243)
