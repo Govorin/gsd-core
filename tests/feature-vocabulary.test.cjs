@@ -187,6 +187,17 @@ test('a token with an illegal character fails loudly', (t) => {
   assertBuildReason(fixture, REASON.FAIL_TOKEN_NOT_NORMALIZED);
 });
 
+test('a gloss that would close the generated module comment fails loudly (T-05-01)', (t) => {
+  // The gloss lands inside a JSDoc comment in src/feature-vocabulary.cts, where
+  // JSON.stringify does not protect it: `*/` would end the comment and emit code.
+  const fixture = makeFixture(t, roadmapWith('- dispatch — routed */ globalThis.pwned = 1; /*'));
+  assertBuildReason(fixture, REASON.FAIL_ENTRY_MALFORMED);
+  const result = runGenerator(fixture, ['--write']);
+  assert.equal(result.outcome, OUTCOME.EXITED);
+  assert.equal(result.exitCode, 1);
+  assert.equal(fs.existsSync(fixture.modulePath), false, 'nothing may be emitted for an injecting gloss');
+});
+
 test('building without a roadmap fails loudly and distinctly from an empty block', (t) => {
   const dir = createTempDir('feature-vocab-absent-');
   t.after(() => cleanup(dir));
@@ -220,26 +231,70 @@ test('--write without a roadmap is a hard error, never an empty vocabulary', (t)
 
 // ─── The gitignored-source carve-out (clean clone / CI) ───────────────────────
 
-test('--check skips when the roadmap is absent, since .planning/ is gitignored', (t) => {
+/**
+ * A clean-clone fixture: artifacts generated from a real roadmap, then the
+ * roadmap removed — the shape every CI checkout has (.planning/ is gitignored).
+ */
+function makeCleanCloneFixture(t) {
+  const fixture = makeFixture(t, WELL_FORMED);
+  assert.equal(runGenerator(fixture, ['--write']).exitCode, 0);
+  // Point the generator at a roadmap that does not exist, keeping the artifacts.
+  return { ...fixture, roadmapPath: path.join(fixture.dir, 'absent-ROADMAP.md') };
+}
+
+test('--check skips the ROADMAP drift check when the roadmap is absent, since .planning/ is gitignored', (t) => {
   // A fresh clone and every CI checkout have the committed artifacts but not
-  // .planning/ROADMAP.md. There is no drift to detect against a file that is not
-  // there, and failing would break CI on every PR while proving nothing.
-  const dir = createTempDir('feature-vocab-clean-clone-');
+  // .planning/ROADMAP.md. There is no ROADMAP drift to detect against a file that
+  // is not there, and failing would break CI on every PR while proving nothing.
+  const fixture = makeCleanCloneFixture(t);
+
+  const { report, exitCode } = checkJson(fixture);
+  assert.equal(report.ok, true);
+  assert.equal(report.reason, REASON.OK_ROADMAP_ABSENT);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(report.features, ['dispatch', 'lifecycle', 'validation'], 'the vocabulary is read from the committed manifest');
+  // Skipped-because-absent is NOT "the vocabulary is up to date", and NOT "the
+  // vocabulary is empty". All three are distinct codes.
+  assert.notEqual(REASON.OK_ROADMAP_ABSENT, REASON.OK_UP_TO_DATE);
+  assert.notEqual(REASON.OK_ROADMAP_ABSENT, REASON.FAIL_BLOCK_EMPTY);
+});
+
+test('the absence carve-out does not excuse a missing manifest', (t) => {
+  // The committed manifest is the vocabulary's only definition in a clean clone;
+  // a tree without it has no vocabulary at all, and that must not read as ok.
+  const dir = createTempDir('feature-vocab-clean-clone-empty-');
   t.after(() => cleanup(dir));
   const fixture = {
     roadmapPath: path.join(dir, 'nonexistent-ROADMAP.md'),
     manifestPath: path.join(dir, 'FEATURE-VOCABULARY.json'),
     modulePath: path.join(dir, 'feature-vocabulary.cts'),
   };
-
   const { report, exitCode } = checkJson(fixture);
-  assert.equal(report.ok, true);
-  assert.equal(report.reason, REASON.OK_ROADMAP_ABSENT);
-  assert.equal(exitCode, 0);
-  // Skipped-because-absent is NOT "the vocabulary is up to date", and NOT "the
-  // vocabulary is empty". All three are distinct codes.
-  assert.notEqual(REASON.OK_ROADMAP_ABSENT, REASON.OK_UP_TO_DATE);
-  assert.notEqual(REASON.OK_ROADMAP_ABSENT, REASON.FAIL_BLOCK_EMPTY);
+  assert.equal(report.ok, false);
+  assert.equal(report.reason, REASON.FAIL_MANIFEST_MISSING);
+  assert.equal(exitCode, 1);
+});
+
+test('the absence carve-out still catches a module hand-edited away from the manifest', (t) => {
+  const fixture = makeCleanCloneFixture(t);
+  fs.appendFileSync(fixture.modulePath, '// hand edit\n');
+  const { report, exitCode } = checkJson(fixture);
+  assert.equal(report.ok, false);
+  assert.equal(report.reason, REASON.FAIL_STALE_MODULE);
+  assert.equal(exitCode, 1);
+});
+
+test('--write without a roadmap keeps consistent committed artifacts untouched and exits 0', (t) => {
+  // `npm run regen:derived` runs --write on every clone; with no ROADMAP there is
+  // nothing to regenerate from, and consistent artifacts already ARE the vocabulary.
+  const fixture = makeCleanCloneFixture(t);
+  const manifestBefore = fs.readFileSync(fixture.manifestPath, 'utf8');
+  const moduleBefore = fs.readFileSync(fixture.modulePath, 'utf8');
+  const result = runGenerator(fixture, ['--write']);
+  assert.equal(result.outcome, OUTCOME.EXITED);
+  assert.equal(result.exitCode, 0);
+  assert.equal(fs.readFileSync(fixture.manifestPath, 'utf8'), manifestBefore);
+  assert.equal(fs.readFileSync(fixture.modulePath, 'utf8'), moduleBefore);
 });
 
 test('the absence carve-out does not extend to an unreadable roadmap', (t) => {
@@ -427,9 +482,24 @@ test('isFeature rejects non-members and non-strings', () => {
 });
 
 test('the committed repo tree passes --check', () => {
-  const result = runNode([GENERATOR, '--check', '--json'], { cwd: REPO_ROOT });
+  // Pinned to the clean-clone shape (no ROADMAP) so the answer does not depend on
+  // whether this checkout happens to carry the gitignored .planning/: the
+  // committed manifest and module must exist and agree with each other.
+  const absentRoadmap = path.join(REPO_ROOT, '.planning', 'nonexistent-ROADMAP-for-test.md');
+  const result = runNode([GENERATOR, '--check', '--json', '--roadmap-path', absentRoadmap], { cwd: REPO_ROOT });
   assert.equal(result.outcome, OUTCOME.EXITED);
   const report = JSON.parse(result.stdout);
-  assert.equal(report.ok, true, `committed artifacts are stale: ${report.reason}`);
-  assert.equal(report.reason, REASON.OK_UP_TO_DATE);
+  assert.equal(report.ok, true, `committed artifacts are missing or disagree: ${report.reason}`);
+  assert.equal(report.reason, REASON.OK_ROADMAP_ABSENT);
+  assert.ok(report.count > 0, 'the committed vocabulary is non-empty');
 });
+
+test('the committed repo tree agrees with the local ROADMAP when one is present',
+  { skip: !fs.existsSync(gen.ROADMAP_PATH) && 'no .planning/ROADMAP.md in this checkout (gitignored)' },
+  () => {
+    const result = runNode([GENERATOR, '--check', '--json'], { cwd: REPO_ROOT });
+    assert.equal(result.outcome, OUTCOME.EXITED);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.ok, true, `committed artifacts are stale: ${report.reason}`);
+    assert.equal(report.reason, REASON.OK_UP_TO_DATE);
+  });
