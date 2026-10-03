@@ -38,7 +38,6 @@
   "agents/gsd-ui-researcher.md",
   "agents/gsd-user-profiler.md",
   "agents/gsd-verifier.md",
-  "agents/unifier.md",
   "commands/gsd-add-tests.md",
   "commands/gsd-ai-integration-phase.md",
   "commands/gsd-audit-fix.md",

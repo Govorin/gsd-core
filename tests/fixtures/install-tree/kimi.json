@@ -147,7 +147,6 @@
   "gsd-core/agents/gsd-user-profiler.compact.md",
   "gsd-core/agents/gsd-user-profiler.md",
   "gsd-core/agents/gsd-verifier.md",
-  "gsd-core/agents/unifier.md",
   "gsd-core/bin/check-latest-version.cjs",
   "gsd-core/bin/ensure-runtime-build.cjs",
   "gsd-core/bin/gsd-tools.cjs",
