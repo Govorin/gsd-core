@@ -521,7 +521,7 @@ function factFragmentsFor(atom) {
 
 describe('every when= atom is satisfiable by some InvocationFacts (#2994 matrix rows A1/A2/A5)', () => {
   // A5 anti-vacuity: the atom set this describe block iterates must be
-  // non-empty AND exactly equal to WHEN_VOCABULARY's full 29-entry set — an
+  // non-empty AND exactly equal to WHEN_VOCABULARY's full 30-entry set — an
   // A1/A2 loop over an empty or partial collection would be a green test
   // proving nothing (ADR-1671 eval-gate rot, named explicitly in the design).
   test('atom satisfiability set is non-empty and equals the full frozen WHEN_VOCABULARY (row A5)', () => {
@@ -535,7 +535,7 @@ describe('every when= atom is satisfiable by some InvocationFacts (#2994 matrix 
       assert.doesNotThrow(() => factFragmentsFor(atom), `factFragmentsFor must resolve "${atom}"`);
     }
     assert.deepEqual(coveredAtoms, [...WHEN_VOCABULARY].sort(), 'the covered atom set must be exactly WHEN_VOCABULARY');
-    assert.equal(WHEN_VOCABULARY.length, 29, 'sanity: the frozen vocabulary is expected at 29 entries for #2994 — update this literal alongside a deliberate vocabulary widening');
+    assert.equal(WHEN_VOCABULARY.length, 30, 'sanity: the frozen vocabulary is expected at 30 entries (#2994 + the fork\'s flag:--graph amendment) — update this literal alongside a deliberate vocabulary widening');
   });
 
   for (const atom of WHEN_VOCABULARY) {

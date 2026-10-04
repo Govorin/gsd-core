@@ -292,6 +292,7 @@ export const WHEN_PREDICATES: Readonly<Record<string, (facts: InvocationFacts) =
     'flag:--discuss': (facts: InvocationFacts) => hasFlag(facts, '--discuss'),
     'flag:--fix': (facts: InvocationFacts) => hasFlag(facts, '--fix'),
     'flag:--forensic': (facts: InvocationFacts) => hasFlag(facts, '--forensic'),
+    'flag:--graph': (facts: InvocationFacts) => hasFlag(facts, '--graph'),
     'flag:--ingest': (facts: InvocationFacts) => hasFlag(facts, '--ingest'),
     'flag:--prd': (facts: InvocationFacts) => hasFlag(facts, '--prd'),
     'flag:--research': (facts: InvocationFacts) => hasFlag(facts, '--research'),

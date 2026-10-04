@@ -46,7 +46,7 @@ gap fragment and composes back byte-identical to its source.
 
 ## The frozen `when=` vocabulary
 
-`when=` takes exactly one of 29 atoms (widened from 4 to 14 via the ADR-1671
+`when=` takes exactly one of 30 atoms (widened from 4 to 14 via the ADR-1671
 amendment for #2992, epic #1671 Phase 6.1, then from 14 to 19 via the
 ADR-1671 amendment for #2993, epic #1671 Phase 6.2, then from 19 to 20 via
 the ADR-1671 amendment for #2994, epic #1671 Phase 6.3, then from 20 to 23
@@ -61,7 +61,9 @@ ADR-1671 — then from 30 to 29 via a dead-vocabulary cleanup: `flag:--full`
 was removed (no `when=` marker ever consumed it — `quick.md` folds `--full`
 into the `--discuss`/`--research`/`--validate` facts before evaluation) and
 `state:needs-codebase-map` gained its first real consumer,
-`new-project.md`'s `codebase-map-offer` section):
+`new-project.md`'s `codebase-map-offer` section — then from 29 to 30 via a
+fork-local ADR-1671 amendment admitting `flag:--graph` for `progress.md`'s
+`graphs` section):
 
 | Value | Meaning |
 |---|---|
@@ -73,6 +75,7 @@ into the `--discuss`/`--research`/`--validate` facts before evaluation) and
 | `flag:--discuss` | Applicable when the workflow runs with `--discuss`. |
 | `flag:--fix` | Applicable when the workflow runs with `--fix` (`code-review.md`'s resolved fix decision — `--fix` itself, or `--all`/`--auto` implying it via `code-review-flags.cjs`). |
 | `flag:--forensic` | Applicable when the workflow runs with `--forensic`. |
+| `flag:--graph` | Applicable when the workflow runs with `--graph`. |
 | `flag:--ingest` | Applicable when the workflow runs with `--ingest <path-or-glob>`. |
 | `flag:--prd` | Applicable when the workflow runs with `--prd <file>`. |
 | `flag:--research` | Applicable when the workflow runs with `--research`. |
@@ -406,8 +409,10 @@ across any future workflow file, but no further rollout is scheduled.
 `RESEARCH_ONLY` condition, so they include/exclude together), and
 `chunked-planning-mode` (`state:chunked-mode`).
 
-`progress.md` marks two sections: `forensic-audit` (`flag:--forensic`, #2994
-forensic audit) and `mvp-display` (`state:phase-mvp-mode`). `mvp-display`'s
+`progress.md` marks three sections: `forensic-audit` (`flag:--forensic`, #2994
+forensic audit), `graphs` (`flag:--graph` — the `roadmap graph` / `plan graph`
+mermaid documents, shown only on request) and `mvp-display`
+(`state:phase-mvp-mode`). `mvp-display`'s
 own body used to re-resolve its own gating fact via a `gsd_run query
 phase.mvp-mode` call — circular, since a section's body re-deriving the exact
 condition that gated its own inclusion is self-disabling the moment the init
