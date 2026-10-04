@@ -364,6 +364,33 @@ describe('roadmap analyze command', () => {
     assert.strictEqual(output.phases[1].depends_on, 'Phase 1', 'colon-outside depends_on works');
   });
 
+  // ADR-4910: depends_on is read through the PlanningDoc seam, one line and only
+  // its value. The regex it replaced let `\s*` cross an EMPTY field's line break
+  // and reported the next field line as the dependency.
+  test('an empty Depends on field reads as null, never as the next line', () => {
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'ROADMAP.md'),
+      `# Roadmap
+
+### Phase 1: Alpha
+**Goal:** First
+**Depends on:**
+**Requirements:** R1
+
+### Phase 2: Beta
+**Goal:** Second
+**Depends on:** Phase 1 — blocks release until 1 ships
+`
+    );
+
+    const result = runGsdTools('roadmap analyze', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.phases[0].depends_on, null, 'empty field is null, not the Requirements line');
+    assert.strictEqual(output.phases[1].depends_on, 'Phase 1', 'a " — " annotation is prose, not the value');
+  });
+
   // #4478: collectAnalyzePhases's phase-heading regex had no line anchor —
   // #{2,4} could match a `### Phase N:`-shaped mention ANYWHERE the global
   // regex scan reached: mid-sentence prose, inside a blockquote, inside an

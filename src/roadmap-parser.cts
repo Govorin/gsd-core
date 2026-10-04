@@ -594,6 +594,10 @@ interface MilestoneSection {
   end: number;
   version: string | null;
   milestoneInt: number | null;
+  /** The heading text (without `#`s), or a collapsed archive's `<summary>` text. */
+  heading: string;
+  /** Shipped/closed: the closed-marker rule of `listMilestoneHeadings`; a collapsed archive always is. */
+  closed: boolean;
 }
 
 /**
@@ -623,6 +627,8 @@ function milestoneSections(content: string): MilestoneSection[] {
       end: computeMilestoneSectionEnd(content, fullLine, heading.offset, undefined, headings),
       version,
       milestoneInt: milestoneInt !== null && Number.isSafeInteger(milestoneInt) ? milestoneInt : null,
+      heading: heading.text.trim(),
+      closed: isClosedMilestoneHeading(heading.text),
     });
   }
 
@@ -640,6 +646,9 @@ function milestoneSections(content: string): MilestoneSection[] {
       end: detailsMatch.index + detailsMatch[0].length,
       version,
       milestoneInt: milestoneInt !== null && Number.isSafeInteger(milestoneInt) ? milestoneInt : null,
+      heading: summary,
+      // A collapsed `<details>` archive is a shipped milestone by construction.
+      closed: true,
     });
   }
 

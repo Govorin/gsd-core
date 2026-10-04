@@ -29,7 +29,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { createIdRegistry, derivedMarker, fence, flowchart } from './mermaid.cjs';
+import { DEFECT_CLASS_DEFS, DEFECT_LINK_STYLE, createIdRegistry, derivedMarker, fence, flowchart } from './mermaid.cjs';
 import { locateFrontmatterFence } from './frontmatter-fence.cjs';
 import { normalizeEol, splitLines } from './text-lines.cjs';
 import type { ClassDef, FlowEdge, FlowNode, FlowSubgraph } from './mermaid.cjs';
@@ -266,10 +266,8 @@ const PLAN_CLASS_DEFS: readonly ClassDef[] = Object.freeze([
   { name: 'blocked', style: 'fill:#fdecea,stroke:#b71c1c' },
   { name: 'superseded', style: 'fill:#eee,stroke:#999999,stroke-dasharray:4 3,color:#777' },
   { name: 'pending', style: 'fill:#fff,stroke:#555' },
-  { name: 'missing', style: 'fill:#fdecea,stroke:#d33,stroke-dasharray:4 3' },
+  DEFECT_CLASS_DEFS.missing,
 ]);
-
-const DEFECT_LINK_STYLE = 'stroke:#d33,stroke-width:2px';
 
 /** The source name in the derived marker; `gsd-tools plan graph` regenerates it. */
 export const PLAN_GRAPH_SOURCE = 'plan-graph';

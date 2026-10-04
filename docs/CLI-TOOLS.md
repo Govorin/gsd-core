@@ -570,6 +570,21 @@ handled states and are not refused here. Pass `--force --confirm` to override, t
 affordance the unstarted-phase guard uses (`--confirm` is required for any mutating run —
 #3726; `--force` alone does not imply it).
 
+### `roadmap graph`
+
+```bash
+node gsd-tools.cjs roadmap graph [--all] [--out <file>] [--strict] [--no-gantt] [--raw]
+node gsd-tools.cjs query roadmap.graph      # dotted canonical form — identical output
+```
+
+Draws ROADMAP's phases as a mermaid flowchart — dependencies, status, milestone — built from data, never from a model's memory. The nodes are exactly the phases `roadmap analyze` reports (one shared collection); an edge is a phase reference in the phase's `**Depends on:**` value (`Phase 3`, `Phases 1 and 2`, a range gives its endpoints; dates, shas and ledger ids are not references). A node's colour is its disk status; a closed milestone's phase whose directory was archived reads as archived. `--all` draws every milestone, closed ones included; by default only the current one, with references into other milestones drawn as grey outside nodes.
+
+Defects are drawn rather than hidden: a reference to a phase that exists nowhere — not in ROADMAP, not as a phase directory — is a red dashed edge to a `missing` node; a cycle and a complete phase whose dependency is not complete are red; a dependency on a later-numbered phase is amber (a warning: a decimal insertion makes it legal); a `Depends on` that names no phase gets an `unparsed` note; a ROADMAP checkbox that disagrees with disk gets a red outline.
+
+When the Progress table records completion dates, a gantt follows: one point per phase on its `Completed` day. No start date is recorded anywhere, so there are no bars and no durations; a date that is not a real `YYYY-MM-DD` day is a `bad-date` defect and stays off the chart.
+
+The JSON result carries `phase_count`, `edge_count`, `defect_count`, `error_count`, `defects[]` (`type`, `severity`, `phase`, `ref`, `message`), `gantt`, `written` and the `markdown` document; `--raw` prints the document (or the one-line `OK: …` summary when `--out` wrote it). Defects never fail the command unless `--strict` is given, and then only `error`-severity ones. `--out` must lie inside the project. No ROADMAP, no phases, or a refused verification report is a failure to look (`phase_not_found`), not an empty graph.
+
 ---
 
 ## Config Commands
