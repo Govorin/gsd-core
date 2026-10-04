@@ -1,0 +1,118 @@
+{
+  "id": "retro",
+  "role": "feature",
+  "version": "1.15.0",
+  "title": "Environment retrospective",
+  "description": "Retrospective on a coding session that proposes changes to the agent's ENVIRONMENT, not to the product: a deterministic pass reads the Claude Code transcript, the planning record and git history into friction signals (retro-signals) and an inventory of the checks already in place (retro-inventory); only when the weighted signal sum reaches retro.signal_threshold is a fresh gsd-retro-analyst worth running. Candidates are laid out by kind — mechanical → a check (project lint rule, hook, gate, verify_gates), judgement → reviewer skills (agent_skills.*), never CLAUDE.md, environment → settings — each tied to a signal and checked against the inventory. Nothing is applied automatically: the report is written to .planning/retro/ and a human routes each candidate. Accepted checks are journaled in .planning/retro/CHECKS.json so a check that never fires becomes a removal candidate. Claude Code only; every other runtime is degraded to git and .planning evidence and says so (ADR-5209).",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.15.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [
+    "retro"
+  ],
+  "agents": [
+    "gsd-retro-analyst"
+  ],
+  "activationKey": "retro.enabled",
+  "config": {
+    "retro.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable the retro capability: the `gsd-tools retro` commands and /gsd-retro. Every read is local and read-only, and nothing a retro produces is applied without a human (ADR-5209), so it is on by default; set false to keep transcripts out of GSD entirely."
+    },
+    "retro.auto": {
+      "type": "enum",
+      "values": [
+        "suggest",
+        "auto",
+        "off"
+      ],
+      "default": "suggest",
+      "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
+    },
+    "retro.signal_threshold": {
+      "type": "number",
+      "default": 8,
+      "description": "Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights."
+    },
+    "retro.repeat_call_min": {
+      "type": "number",
+      "default": 3,
+      "description": "Identical tool calls in one session before they count as a repeated-call signal (at least this many)."
+    },
+    "retro.repeat_error_min": {
+      "type": "number",
+      "default": 2,
+      "description": "Occurrences of the same tool error before it counts as a repeated-tool-error signal."
+    },
+    "retro.reread_min": {
+      "type": "number",
+      "default": 3,
+      "description": "Reads of one file with no edit to it in between before they count as a reread signal."
+    },
+    "retro.edit_churn_min": {
+      "type": "number",
+      "default": 6,
+      "description": "Edits of one file in one session before they count as an edit-churn signal."
+    },
+    "retro.nav_streak_min": {
+      "type": "number",
+      "default": 8,
+      "description": "Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal."
+    },
+    "retro.checker_loop_min": {
+      "type": "number",
+      "default": 2,
+      "description": "Plan-checker spawns in one session before they count as a plan-checker revision loop."
+    },
+    "retro.checkpoint_min": {
+      "type": "number",
+      "default": 2,
+      "description": "Checkpoints reached in one session before they count as a repeated-checkpoint signal."
+    },
+    "retro.hook_block_min": {
+      "type": "number",
+      "default": 1,
+      "description": "Blocks by the same hook before they count as a hook-block signal."
+    },
+    "retro.excerpt_window": {
+      "type": "number",
+      "default": 6,
+      "description": "Transcript events on either side of a signal that the analyst is shown instead of the transcript."
+    },
+    "retro.max_signals": {
+      "type": "number",
+      "default": 40,
+      "description": "Signals listed in a report; the rest are enumerated by id in `omitted`, never dropped silently. Caps the list, never the score."
+    },
+    "retro.excerpt_chars": {
+      "type": "number",
+      "default": 160,
+      "description": "Maximum length of a redacted excerpt that leaves the transcript reader."
+    },
+    "retro.check_stale_days": {
+      "type": "number",
+      "default": 30,
+      "description": "A check journaled in .planning/retro/CHECKS.json that has not fired in the transcripts of this many days (and was accepted at least this long ago) is offered as a removal candidate. Removal, like acceptance, is a human decision."
+    }
+  },
+  "commands": [
+    {
+      "family": "retro",
+      "module": "retro-command-router.cjs",
+      "router": "routeRetroCommand"
+    }
+  ],
+  "hooks": [],
+  "steps": [],
+  "contributions": [],
+  "gates": []
+}
