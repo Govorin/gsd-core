@@ -6236,6 +6236,29 @@ describe('gsd-tools.cjs dispatch/help/skip-list parity (DEFECT.GENERATIVE-FIX, #
     );
   });
 
+  // 3.12c: capability command families (`gsd_run mn …`, `refactor`, the
+  // profile pipeline) dispatch through the registry's `commandFamilies`, not
+  // HOST_COMMAND_ROUTERS — `--help` had listed ten of fifteen and silently
+  // dropped `mn`, `refactor`, `claude-orchestration`, `scan-sessions` and
+  // `write-profile`. Compared structurally with the registry built from
+  // capabilities/*/capability.json.
+  test('every first-party capability command family is listed in the --help command string', () => {
+    const { commandFamilies } = require('../gsd-core/bin/lib/capability-registry.cjs');
+    const families = Object.keys(commandFamilies);
+    assert.ok(families.includes('mn'), 'the registry carries the mn-verify-gate family');
+    const helpNames = new Set(parseHelpCommandNames(TOP_LEVEL_USAGE));
+    const missing = families.filter((name) => !helpNames.has(name));
+    assert.deepEqual(missing, [], `capability command families missing from TOP_LEVEL_USAGE: ${missing.join(', ')}`);
+  });
+
+  test('every --help command name dispatches: a host router or a capability command family', () => {
+    const { commandFamilies } = require('../gsd-core/bin/lib/capability-registry.cjs');
+    const unknown = parseHelpCommandNames(TOP_LEVEL_USAGE).filter(
+      (name) => !Object.prototype.hasOwnProperty.call(HOST_COMMAND_ROUTERS, name) && !Object.prototype.hasOwnProperty.call(commandFamilies, name),
+    );
+    assert.deepEqual(unknown, [], `--help names commands nothing dispatches: ${unknown.join(', ')}`);
+  });
+
   test('context-predicates is registered in all three hand-maintained sites', () => {
     // Concrete regression pin for the command this parity test was added
     // alongside (#2928 S9) — a generic diff-based assertion alone would not

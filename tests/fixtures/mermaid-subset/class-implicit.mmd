@@ -1,0 +1,8 @@
+classDiagram
+  class Repository {
+    <<interface>>
+    +findById(id) Thing
+  }
+  Repository <|.. DrizzleRepository
+  DrizzleRepository : +db Database
+  DrizzleRepository --> Database : uses

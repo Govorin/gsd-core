@@ -1023,7 +1023,14 @@ node --test tests/core.test.cjs
 
 # Run with coverage
 npm run test:coverage
+
+# Before merging: lint:ci, the real-mermaid conformance suite, then npm test
+npm run check:pre-merge
 ```
+
+`npm test` does not run the real mermaid parser; `npm run test:mermaid-real`
+(part of `check:pre-merge`) does, with its own pinned dependencies under
+`tools/mermaid-check/`. See [docs/TESTING-SUITES.md](docs/TESTING-SUITES.md#before-merging-a-branch-npm-run-checkpre-merge).
 
 For examples of required negative matrices, parser fixtures, filesystem fault injection, security abuse tests, generated-file checks, and runtime/SDK parity tests, see [`TEST-EXAMPLES.md`](./TEST-EXAMPLES.md).
 

@@ -319,6 +319,25 @@ working-tree diff. CI does not use it — CI selection is the rule table in
 `scripts/ci-test-scope.cjs`, which is the authoritative mapping. If the two
 disagree, trust (and fix) the rule table.
 
+### Before merging a branch: `npm run check:pre-merge`
+
+```bash
+npm run check:pre-merge     # lint:ci, then test:mermaid-real, then npm test
+```
+
+The local pre-merge chain. It runs the same lint gate CI would (`lint:ci`), then
+`test:mermaid-real`, then the full suite. `test:mermaid-real` is the one check
+`npm test` deliberately leaves out: it parses every builder output, every
+`tests/fixtures/mermaid-subset/*.mmd` fixture and every mermaid block under
+`docs/reference/` with the **real** mermaid parser (mermaid + jsdom, pinned in
+`tools/mermaid-check/package.json`, never a core dependency), and fails on any
+block the real parser rejects — in particular one GSD's own subset parser
+accepts (drift). It installs those pinned dependencies itself
+(`npm --prefix tools/mermaid-check ci`), so the first run needs the network.
+Run the chain when a change touches `src/mermaid*.cts`, `src/diagrams-check.cts`,
+a diagram generator or the corpus; on a fork developed without CI, run it before
+every merge. `tests/check-pre-merge.test.cjs` pins the chain's steps.
+
 Unknown suites exit non-zero with the list of valid suites. Empty suites (e.g. `--suite security` before any security-tagged file exists) exit `0` with a `no tests in suite "..."` notice on stderr so CI lanes don't go red while a suite is being populated.
 
 ## The live-config hermeticity guard

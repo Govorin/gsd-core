@@ -43,7 +43,7 @@ Template for `.planning/phases/XX-name/{phase_num}-DESIGN.md` — fixes structur
 
 **Derived means:** produced by running a command against the repository, and reproducible by the reader with that same command. Paste the command next to the output. A derived section that a human edited by hand stops being derived — mark it authored or regenerate it.
 
-**Every identifier a diagram draws exists.** Each class, participant, call, state and entity is declared in the code or introduced by this document (a Layer Placement row, a Contracts declaration). Diagrams keep to the checked Mermaid subset in `~/.claude/gsd-core/references/mermaid-authoring.md`: declare every class and state, mark outside parties `%% gsd:external`, name a state diagram's enum or route table with `%% gsd:source path#Symbol`. `gsd_run diagrams check --file <this file>` enforces it; the architecture gate blocks planning on an `absent` name.
+**Every identifier a diagram draws exists.** Each class, participant, call, state and entity is declared in the code or introduced by this document (a Layer Placement row, a Contracts declaration). Diagrams keep to the checked Mermaid subset in `~/.claude/gsd-core/references/mermaid-authoring.md`: mark outside parties `%% gsd:external`, name a state diagram's enum or route table with `%% gsd:source path#Symbol`. `gsd_run diagrams check --file <this file>` enforces it; the architecture gate blocks planning on an `absent` name, a block outside the subset, and a derived block it cannot regenerate.
 
 ---
 

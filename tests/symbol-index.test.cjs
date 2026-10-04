@@ -296,7 +296,9 @@ describe('symbol-index: symbolMembers (%% gsd:source)', () => {
     write(root, 'd.sql', "CREATE TYPE mood AS ENUM ('sad', 'ok');\n");
     write(root, 'e.go', 'package e\nconst (\n\tOn Switch = "on"\n\tOff Switch = "off"\n)\n');
     const members = (file, sym) => si.symbolMembers(root, file, sym);
-    assert.deepEqual(members('a.ts', 'OrderStatus'), { ok: true, members: ['Pending', 'pending', 'Paid', 'paid'], at: 'a.ts:1' });
+    assert.deepEqual(members('a.ts', 'OrderStatus'), {
+      ok: true, members: ['Pending', 'pending', 'Paid', 'paid'], groups: [['Pending', 'pending'], ['Paid', 'paid']], at: 'a.ts:1',
+    });
     assert.deepEqual(members('a.ts', 'Phase').members, ['draft', 'final']);
     assert.deepEqual(members('a.ts', 'Level').members, ['Low', 'low', 'High', 'high']);
     assert.deepEqual(members('a.ts', 'Mode').members, ['fast', 'slow']);
@@ -304,6 +306,13 @@ describe('symbol-index: symbolMembers (%% gsd:source)', () => {
     assert.deepEqual(members('c.prisma', 'Role').members, ['ADMIN', 'USER']);
     assert.deepEqual(members('d.sql', 'mood').members, ['sad', 'ok']);
     assert.deepEqual(members('e.go', 'Switch').members, ['On', 'on', 'Off', 'off']);
+    // `groups`: one entry per member, holding every spelling of it — what a
+    // derived diagram's completeness check counts (5.7b).
+    assert.deepEqual(members('a.ts', 'Phase').groups, [['draft'], ['final']]);
+    assert.deepEqual(members('a.ts', 'Level').groups, [['Low', 'low'], ['High', 'high']]);
+    assert.deepEqual(members('b.py', 'Color').groups, [['RED', 'red'], ['BLUE', 'blue']]);
+    assert.deepEqual(members('c.prisma', 'Role').groups, [['ADMIN'], ['USER']]);
+    assert.deepEqual(members('e.go', 'Switch').groups, [['On', 'on'], ['Off', 'off']]);
   });
 
   test('a missing file, a missing symbol and an unsupported language are distinct failures', () => {

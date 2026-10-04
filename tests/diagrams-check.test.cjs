@@ -164,25 +164,22 @@ describe('gsd-tools diagrams check', () => {
     ]);
   });
 
-  test('a block outside the subset is a WARNING at its document line; flowcharts and derived blocks are not id-checked', () => {
+  test('a block outside the subset is a WARNING at its document line in docs mode; flowcharts are not id-checked', () => {
     write('docs/mixed.md', [
       '# Mixed',
       fence('flowchart LR', '  A --> B & C'),
       fence('flowchart LR', '  Ghost --> Phantom'),
-      '<!-- gsd:derived source=plan-graph — regenerated, do not hand-edit -->',
-      fence('classDiagram', '  class NotInCode'),
       fence('pie', '  "a": 1'),
     ].join('\n'));
     const json = check('docs/mixed.md');
     assert.deepEqual(json.diagrams.map((d) => [d.line, d.type, d.derived, d.syntax, d.ids.length]), [
       [2, null, false, 'unsupported_construct', 0],
       [6, 'flowchart', false, 'ok', 0],
-      [11, 'classDiagram', true, 'ok', 0],
-      [15, null, false, 'unsupported_type', 0],
+      [10, null, false, 'unsupported_type', 0],
     ]);
     assert.deepEqual(brief(json).map((f) => f.slice(0, 4)), [
       [4, 'WARNING', 'diagram_syntax', 'unsupported_construct'],
-      [16, 'WARNING', 'diagram_syntax', 'unsupported_type'],
+      [11, 'WARNING', 'diagram_syntax', 'unsupported_type'],
     ]);
     assert.equal(json.blocker_count, 0);
   });
@@ -195,15 +192,123 @@ describe('gsd-tools diagrams check', () => {
       '|---|---|',
       '| a | string |',
       '',
-      fence('erDiagram', '  CreateThingDto_address'),
+      fence('erDiagram', '  users'),
       '## Hand-drawn',
       fence('classDiagram', '  class HandInvented'),
     ].join('\n'));
     const json = check('docs/er.md');
-    assert.deepEqual(json.diagrams.map((d) => [d.type, d.derived]), [['erDiagram', true], ['classDiagram', false]]);
-    assert.deepEqual(json.findings.map((f) => [f.reason, f.claim]), [['absent', 'HandInvented']]);
-    write('docs/gen.md', ['<!-- gsd:derived source=x — regenerated, do not hand-edit -->', '# Generated', fence('classDiagram', '  class Whatever')].join('\n'));
+    assert.deepEqual(json.diagrams.map((d) => [d.type, d.derived, d.freshness]), [['erDiagram', true, 'unverifiable'], ['classDiagram', false, undefined]]);
+    write('docs/gen.md', ['<!-- gsd:derived source=x — regenerated, do not hand-edit -->', '# Generated', fence('flowchart LR', '  A --> B')].join('\n'));
     assert.deepEqual(check('docs/gen.md').diagrams.map((d) => d.derived), [true]);
+  });
+
+  // Review M5: a marker is text the checked author can write. It grants
+  // nothing unless the block can be regenerated: the names are looked up as
+  // written AND the marker is itself a BLOCKER — in docs mode too.
+  test('M5: a derived marker that nothing can regenerate is a BLOCKER and its names are still checked', () => {
+    write('docs/c.md', [
+      '<!-- gsd:derived -->',
+      fence('classDiagram', '  class TotallyInventedClass'),
+      '## Second',
+      '<!-- DERIVED. trust me -->',
+      fence('classDiagram', '  class AnotherInvention', '  class Unrelated'),
+      '## Third',
+      '<!-- gsd:derived source=plan-graph — regenerated, do not hand-edit -->',
+      fence('classDiagram', '  class Unrelated'),
+      '## Layer graph from a project command',
+      '<!-- DERIVED. Regenerate, do not edit. -->',
+      fence('flowchart TD', '  ui --> services'),
+    ].join('\n'));
+    const json = check('docs/c.md');
+    assert.deepEqual(json.diagrams.map((d) => [d.type, d.derived, d.freshness]), [
+      ['classDiagram', true, 'unverifiable'],
+      ['classDiagram', true, 'unverifiable'],
+      ['classDiagram', true, 'unverifiable'],
+      ['flowchart', true, 'unverifiable'],
+    ]);
+    assert.deepEqual(json.findings.map((f) => [f.severity, f.category, f.reason, f.claim]), [
+      ['BLOCKER', 'diagram_derived', 'derived_unverifiable', 'derived marker'],
+      ['BLOCKER', 'diagram_identifier', 'absent', 'TotallyInventedClass'],
+      ['BLOCKER', 'diagram_derived', 'derived_unverifiable', 'derived marker'],
+      ['BLOCKER', 'diagram_identifier', 'absent', 'AnotherInvention'],
+      ['BLOCKER', 'diagram_derived', 'derived_unverifiable', 'source=plan-graph'],
+    ]);
+    assert.deepEqual(verdicts(json, 2), [['class', 'Unrelated', 'declared']], 'a real name under an unverifiable marker still resolves');
+  });
+
+  // Plan 5.7b: a derived block whose marker records its inputs is regenerated
+  // and compared. The JSON Schema form of zod-fieldtable runs no project
+  // runtime, so the round trip is the real command's own output.
+  test('5.7b: a zod-fieldtable block is regenerated from the source its marker records — fresh passes, a stale or hand-edited one is a BLOCKER', () => {
+    const schema = (extra) => JSON.stringify({
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        address: { type: 'object', properties: { city: { type: 'string' }, ...extra }, required: ['city'] },
+      },
+      required: ['name', 'address'],
+    });
+    write('schemas/thing.json', schema({}));
+    const gen = runGsdTools(['mn', 'zod-fieldtable', '--json-schema', 'schemas/thing.json', '--export', 'Thing'], root);
+    assert.equal(gen.success, true, gen.error);
+    const emitted = JSON.parse(gen.output).markdown;
+    write('docs/thing.md', `# Thing\n\n${emitted}`);
+    const fresh = check('docs/thing.md');
+    assert.deepEqual(fresh.diagrams.map((d) => [d.type, d.derived, d.freshness]), [['erDiagram', true, 'fresh']]);
+    assert.deepEqual(fresh.findings, [], 'generated entity ids are not looked up in the code once the block is proven fresh');
+
+    write('schemas/thing.json', schema({ zip: { type: 'string' } }));
+    const stale = check('docs/thing.md');
+    assert.deepEqual(stale.diagrams.map((d) => d.freshness), ['stale']);
+    assert.deepEqual(stale.findings.map((f) => [f.severity, f.category, f.reason]), [['BLOCKER', 'diagram_derived', 'derived_stale']]);
+
+    write('schemas/thing.json', schema({}));
+    write('docs/thing.md', `# Thing\n\n${emitted.replace('erDiagram', 'erDiagram\n  Invented')}`);
+    assert.deepEqual(check('docs/thing.md').findings.map((f) => f.reason), ['derived_stale'], 'a hand edit is caught the same way');
+
+    write('docs/thing.md', `# Thing\n\n${emitted.replace(/source=zod-fieldtable [^—]+—/, 'source=zod-fieldtable —')}`);
+    const bare = check('docs/thing.md');
+    assert.deepEqual(bare.diagrams.map((d) => d.freshness), ['unverifiable']);
+    assert.ok(bare.findings.some((f) => f.reason === 'derived_unverifiable'), JSON.stringify(bare.findings));
+  });
+
+  test('5.7b: a derived stateDiagram with %% gsd:source must draw exactly its source\'s members; an authored one may draw a subset', () => {
+    const marker = '<!-- gsd:derived source=state-vocabulary — regenerated, do not hand-edit -->';
+    write('docs/s.md', [
+      '## Complete', marker, fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  [*] --> Pending', '  Pending --> Paid'),
+      '## Missing a member', marker, fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  [*] --> Pending'),
+      '## Authored subset', fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  [*] --> Pending'),
+    ].join('\n'));
+    const json = check('docs/s.md');
+    assert.deepEqual(json.diagrams.map((d) => [d.derived, d.freshness]), [[true, 'fresh'], [true, 'stale'], [false, undefined]]);
+    assert.deepEqual(json.findings.map((f) => [f.severity, f.reason, f.claim]), [['BLOCKER', 'derived_stale', 'Paid']]);
+  });
+
+  // Review M4: the probe — implicit states with one that is not in the enum.
+  test('M4: implicit states are looked up — an invented one is absent', () => {
+    write('docs/m4.md', fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  [*] --> Pending', '  Pending --> Deleted'));
+    const json = check('docs/m4.md');
+    assert.deepEqual(json.findings.map((f) => [f.severity, f.reason, f.claim]), [['BLOCKER', 'absent', 'Deleted']]);
+  });
+
+  test('M4: in design mode a block outside the subset, a stateDiagram without a source and a non-identifier participant are BLOCKERs', () => {
+    write('.planning/phases/01-x/01-DESIGN.md', [
+      '---', 'contracts_superseded: false', '---',
+      '# Design',
+      fence('flowchart LR', '  A --> B & C'),
+      fence('stateDiagram-v2', '  [*] --> Draft'),
+      fence('sequenceDiagram', '  participant X as Payment Provider'),
+      '```mermaid',
+      'classDiagram',
+    ].join('\n'));
+    const json = check('.planning/phases/01-x/01-DESIGN.md');
+    assert.equal(json.mode, 'design');
+    assert.deepEqual(json.findings.map((f) => [f.severity, f.reason]), [
+      ['BLOCKER', 'unsupported_construct'],
+      ['BLOCKER', 'unverifiable'],
+      ['BLOCKER', 'unverifiable'],
+      ['BLOCKER', 'unterminated'],
+    ]);
   });
 
   test('design mode: a name the DESIGN.md introduces is planned — until contracts_superseded', () => {

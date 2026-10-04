@@ -11,8 +11,9 @@
  * real. That needs the diagram as STRUCTURE (classes, participants, calls,
  * states, entities), and only a grammar we own yields structure we can trust.
  * So the grammar here is exactly what the builders can express — plus the
- * shorthand people write in flowcharts (unquoted labels, a node declared by
- * the edge that first names it) — and every other construct is reported, with
+ * shorthand people write (unquoted flowchart labels; a node, state, class,
+ * entity or participant declared by the line that first names it) — and
+ * every other construct is reported, with
  * line and column, as `unsupported_construct`: "leave the subset or rewrite".
  *
  * ── The builders are the oracle ──
@@ -123,7 +124,7 @@ export interface ParseSuccess {
    * `state:<id>`, `entity:<id>`, `attr:<id>:<i>`, `node:<id>`.
    */
   lines: Record<string, number>;
-  /** Ids the diagram declared only by naming them in an edge/message (flowchart, ER, sequence). */
+  /** Ids the diagram declared only by naming them in an edge/message/transition/relation (every type). */
   implicit: string[];
 }
 
@@ -323,10 +324,10 @@ export function parseMermaid(text: string): ParseResult {
         diagram = { type, spec: parseFlowchart(header, headerMatch[1], body, lines, implicit) };
         break;
       case 'stateDiagram':
-        diagram = { type, spec: parseStateDiagram(body, lines) };
+        diagram = { type, spec: parseStateDiagram(body, lines, implicit) };
         break;
       case 'classDiagram':
-        diagram = { type, spec: parseClassDiagram(body, lines) };
+        diagram = { type, spec: parseClassDiagram(body, lines, implicit) };
         break;
       case 'erDiagram':
         diagram = { type, spec: parseErDiagram(body, lines, implicit) };
@@ -717,7 +718,7 @@ function parseFlowchart(header: Line, dirWord: string | undefined, body: Line[],
 const STATE_REF = String.raw`([A-Za-z0-9_]+|\[\*\])`;
 const STATE_TRANSITION_RE = new RegExp(String.raw`^${STATE_REF}\s*-->\s*${STATE_REF}(?:\s*:\s*(.*))?$`);
 
-function parseStateDiagram(body: Line[], lines: Record<string, number>): StateDiagramSpec {
+function parseStateDiagram(body: Line[], lines: Record<string, number>, implicit: string[]): StateDiagramSpec {
   let direction: FlowDirection | undefined;
   const states = new Map<string, StateNode & { block: string }>();
   const groups: StateGroup[] = [];
@@ -805,6 +806,22 @@ function parseStateDiagram(body: Line[], lines: Record<string, number>): StateDi
   }
   if (block !== '') refuse('syntax', body.at(-1)?.no ?? 1, 1, `composite state ${block} is never closed with "}"`);
 
+  /**
+   * A transition may introduce a state by naming it (`[*] --> Active`), as
+   * mermaid allows: the state is declared, unlabelled, in the block the
+   * transition is written in, and reported in `implicit`. Refusing it instead
+   * put the most common way of writing a state diagram outside the subset,
+   * where none of its names were checked (review M4). A group id is never a
+   * state, and notes / class assignments still need a declared state.
+   */
+  const implicitly = (id: string, p: { ln: Line; block: string }): void => {
+    if (states.has(id) || groupIds.has(id)) return;
+    checkId(id, p.ln.no, p.ln.col, 'state id');
+    states.set(id, { id, block: p.block });
+    lines[`state:${id}`] = p.ln.no;
+    if (p.block !== '') groups.find((g) => g.id === p.block)?.states.push(id);
+    implicit.push(id);
+  };
   /** A state named on a line must be declared, and declared in the block that line is written in. */
   const inBlock = (id: string, p: { ln: Line; block: string }): void => {
     const st = states.get(id);
@@ -819,7 +836,11 @@ function parseStateDiagram(body: Line[], lines: Record<string, number>): StateDi
   const notes: StateNote[] = [];
   for (const p of pending) {
     if (p.kind === 'transition') {
-      for (const end of [p.from, p.to]) if (end !== STATE_TERMINAL) inBlock(end, p);
+      for (const end of [p.from, p.to]) {
+        if (end === STATE_TERMINAL) continue;
+        implicitly(end, p);
+        inBlock(end, p);
+      }
       transitions.push({ from: p.from, to: p.to, ...(p.label !== undefined ? { label: p.label } : {}) });
     } else if (p.kind === 'note') {
       inBlock(p.state, p);
@@ -873,7 +894,7 @@ const CLASS_ARROW_RE = /^([A-Za-z0-9_]+)(?:\s+"([^"]*)")?\s+([<|*o.\-]*(?:--|\.\
 
 const MEMBER_FORBIDDEN = /[{}"`;<>]/;
 
-function parseClassDiagram(body: Line[], lines: Record<string, number>): ClassDiagramSpec {
+function parseClassDiagram(body: Line[], lines: Record<string, number>, implicit: string[]): ClassDiagramSpec {
   let direction: FlowDirection | undefined;
   const classes = new Map<string, ClassNode & { members: string[]; methods: string[] }>();
   const relations: Array<{ ln: Line; rel: ClassRelation }> = [];
@@ -971,16 +992,25 @@ function parseClassDiagram(body: Line[], lines: Record<string, number>): ClassDi
   }
   if (open !== null) refuse('syntax', body.at(-1)?.no ?? 1, 1, `class ${open.id} body is never closed with "}"`);
 
-  for (const { ln, id, apply } of later) {
-    const c = classes.get(id);
-    if (c === undefined) refuse('undeclared_id', ln.no, ln.col, `class ${id} is used but never declared (class ${id})`);
-    apply(c);
-  }
-  for (const { ln, rel } of relations) {
-    for (const end of [rel.from, rel.to]) {
-      if (!classes.has(end)) refuse('undeclared_id', ln.no, ln.col, `class ${end} is related but never declared (class ${end})`);
+  // A class may be introduced by naming it — in a relation (`A <|-- B`), a
+  // member line (`A : +x()`) or an annotation — as mermaid allows. It is
+  // declared at its first use, in document order, and reported in `implicit`,
+  // so its name is checked like any other (review M4: refusing it put the
+  // whole block outside the subset, where nothing was checked).
+  const uses = [
+    ...later.map((u) => ({ ln: u.ln, ids: [u.id] })),
+    ...relations.map((r) => ({ ln: r.ln, ids: [r.rel.from, r.rel.to] })),
+  ].sort((a, z) => a.ln.no - z.ln.no);
+  for (const { ln, ids } of uses) {
+    for (const id of ids) {
+      if (classes.has(id)) continue;
+      checkId(id, ln.no, ln.col, 'class id');
+      classes.set(id, { id, members: [], methods: [] });
+      lines[`class:${id}`] = ln.no;
+      implicit.push(id);
     }
   }
+  for (const { id, apply } of later) apply(classes.get(id) as ClassNode & { members: string[]; methods: string[] });
   relations.forEach(({ ln }, i) => {
     lines[`relation:${i}`] = ln.no;
   });
@@ -1018,6 +1048,43 @@ const ER_RIGHT_MARK: Readonly<Record<string, ErCardinality>> = Object.freeze({
 const ER_REL_RE = /^([A-Za-z0-9_]+)\s*(\S{2})(--|\.\.)(\S{2})\s*([A-Za-z0-9_]+)\s*:\s*(.+)$/;
 const ER_WORD = /^[A-Za-z_][A-Za-z0-9_()[\]]*$/;
 
+/**
+ * `<type> <name> [PK|FK|UK[, …]] ["comment"]` → its parts, or `null` when the
+ * line is not that shape. Tokenized, never one regex with a repeated group:
+ * `(?:\s+KEY\s*,?)*\s*` splits a run of spaces two ways per key, so a line
+ * that does NOT match (a long key list ending in junk) backtracks 2^n — the
+ * diagram text comes from a model and the check sits on a blocking gate.
+ * Every step here is a single pass over the line.
+ */
+function parseErAttributeLine(b: string): { type: string; name: string; keys: ErKey[]; comment: string | undefined } | null {
+  let head = b;
+  let comment: string | undefined;
+  const quoted = /"([^"]*)"$/.exec(b);
+  if (quoted !== null) {
+    comment = quoted[1];
+    head = b.slice(0, quoted.index);
+  }
+  const tokens = head.trim().split(/\s+/);
+  if (tokens.length < 2 || tokens[0] === '') return null;
+  const [type, name, ...rest] = tokens;
+  // Keys: each a separate word, optionally followed by a comma — attached
+  // (`PK,`) or as its own word (`PK ,`) — exactly what the subset allows.
+  const keys: ErKey[] = [];
+  let commaAllowed = false;
+  for (const t of rest) {
+    if (t === ',') {
+      if (!commaAllowed) return null;
+      commaAllowed = false;
+      continue;
+    }
+    const k = /^(PK|FK|UK)(,?)$/.exec(t);
+    if (k === null) return null;
+    keys.push(k[1] as ErKey);
+    commaAllowed = k[2] === '';
+  }
+  return { type, name, keys, comment };
+}
+
 function parseErDiagram(body: Line[], lines: Record<string, number>, implicit: string[]): ErDiagramSpec {
   const entities = new Map<string, ErEntity & { attributes: ErAttribute[]; declared: boolean }>();
   const relationships: ErRelationship[] = [];
@@ -1044,13 +1111,12 @@ function parseErDiagram(body: Line[], lines: Record<string, number>, implicit: s
         open = null;
         continue;
       }
-      m = /^(\S+)\s+(\S+)((?:\s+(?:PK|FK|UK)\s*,?)*)\s*(?:"([^"]*)")?$/.exec(b);
-      if (m === null) refuse('syntax', ln.no, ln.col, `attribute ${JSON.stringify(b)} is outside the subset (<type> <name> [PK|FK|UK] ["comment"])`);
-      const [, type, name, keyText, comment] = m;
+      const parsedAttr = parseErAttributeLine(b);
+      if (parsedAttr === null) refuse('syntax', ln.no, ln.col, `attribute ${JSON.stringify(b)} is outside the subset (<type> <name> [PK|FK|UK] ["comment"])`);
+      const { type, name, keys, comment } = parsedAttr;
       for (const [word, what] of [[type, 'type'], [name, 'name']] as const) {
         if (!ER_WORD.test(word)) refuse('unsupported_construct', ln.no, ln.col, `attribute ${what} ${JSON.stringify(word)} is outside the subset`);
       }
-      const keys = keyText.split(/[\s,]+/).filter(Boolean) as ErKey[];
       const attr: ErAttribute = { type, name };
       if (keys.length > 0) attr.keys = keys;
       if (comment !== undefined && comment.trim() !== '') attr.comment = comment;

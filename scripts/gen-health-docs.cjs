@@ -9,7 +9,7 @@
  * documentation gap structurally").
  *
  * Sources:
- *   - The 31 real rules in the compiled `RULES` array
+ *   - Every real rule in the compiled `RULES` array
  *     (`gsd-core/bin/lib/health-diagnostic.cjs`, built from
  *     `src/health-diagnostic.cts` + `src/health-diagnostic-rules/*.cts`),
  *     each carrying a static `description`/`repairable` (see
@@ -22,7 +22,7 @@
  *     never appear in `RULES`, so they are a small, static, clearly-labeled
  *     list merged in here instead.
  *   - `REMEDY_ACTION_METADATA` below — the Effect/Risk prose for each of the
- *     6 real repair actions (`REMEDY_ACTION`, excluding `ADVISE`, which never
+ *     7 real repair actions (`REMEDY_ACTION`, excluding `ADVISE`, which never
  *     acts). Static because the compiled module carries no Effect/Risk text
  *     of its own — only the action identifier.
  *
@@ -122,6 +122,13 @@ const REMEDY_ACTION_METADATA = new Map([
       risk: 'None — additive only; triggered by `--backfill` flag',
     },
   ],
+  [
+    'normalizeVerificationStatus',
+    {
+      effect: 'Rewrite a VERIFICATION report\'s frontmatter `status` from an unambiguous legacy synonym (`verified`) to its closed-set value (`passed`); other keys and the body are untouched',
+      risk: 'None — same verdict, closed-set spelling; a value with more than one meaning stays a W030 finding',
+    },
+  ],
 ]);
 
 /** Order the Effect/Risk table renders in — matches `REMEDY_ACTION`'s own declaration order. */
@@ -132,6 +139,7 @@ const REMEDY_ACTION_ORDER = [
   'addNyquistKey',
   'addAiIntegrationPhaseKey',
   'backfillMilestones',
+  'normalizeVerificationStatus',
 ];
 
 /**
@@ -203,7 +211,7 @@ function compareCodes(a, b) {
 }
 
 /**
- * Combine the 31 real rules + the 3 static pre-checks into one sorted row
+ * Combine every real rule + the 3 static pre-checks into one sorted row
  * list for the `<error_codes>` table.
  *
  * @param {Array<{code: string, severity: string, description: string, repairable: boolean}>} rules

@@ -42,6 +42,7 @@
  */
 
 import fs from 'node:fs';
+import path from 'node:path';
 import childProcess from 'node:child_process';
 import { createIdRegistry, derivedMarker, erDiagram, fence } from './mermaid.cjs';
 import type { ErAttribute, ErCardinality, ErDiagramSpec, ErEntity, ErKey, ErRelationship } from './mermaid.cjs';
@@ -346,6 +347,43 @@ export function buildErSpec(schema: JsonSchema, exportName: string): ErBuild {
 
 export const ZOD_FIELDTABLE_SOURCE = 'zod-fieldtable';
 
+/**
+ * The derived marker's `source=` for one run: the command name plus what it
+ * read, `zod-fieldtable <kind>=<target> export=<Name>` (a file or JSON Schema
+ * path relative to the project root, or a module specifier). It is what lets
+ * `diagrams check` regenerate the block and compare (plan 5.7b) instead of
+ * trusting the marker. Values are percent-encoded where the marker forbids or
+ * the word split would break them (whitespace, `%`, `>`, a `-` before `-`).
+ */
+export function zodFieldtableOrigin(source: ZodFieldtableSource, exportName: string, cwd: string): string {
+  const enc = (v: string): string =>
+    v.replace(/[%\s>]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`).replace(/-(?=-)/g, '%2D');
+  const target = source.kind === 'json-schema' ? source.path : source.target;
+  const shown = source.kind === 'module' ? target : path.relative(cwd, target).split(path.sep).join('/');
+  return `${ZOD_FIELDTABLE_SOURCE} ${source.kind}=${enc(shown)} export=${enc(exportName)}`;
+}
+
+/** `zodFieldtableOrigin`'s inverse; `null` when `origin` is not one (a bare `zod-fieldtable` included). */
+export function parseZodFieldtableOrigin(origin: string): { kind: ZodFieldtableSource['kind']; target: string; exportName: string } | null {
+  const [name, ...words] = origin.trim().split(/\s+/);
+  if (name !== ZOD_FIELDTABLE_SOURCE || words.length !== 2) return null;
+  const pair = (w: string): [string, string] | null => {
+    const at = w.indexOf('=');
+    if (at <= 0) return null;
+    try {
+      return [w.slice(0, at), decodeURIComponent(w.slice(at + 1))];
+    } catch {
+      return null;
+    }
+  };
+  const first = pair(words[0]);
+  const second = pair(words[1]);
+  if (first === null || second === null || second[0] !== 'export' || second[1] === '') return null;
+  const kind = first[0];
+  if ((kind !== 'file' && kind !== 'module' && kind !== 'json-schema') || first[1] === '') return null;
+  return { kind, target: first[1], exportName: second[1] };
+}
+
 function cell(text: string): string {
   return text.replace(/\|/g, '\\|');
 }
@@ -355,17 +393,17 @@ function cell(text: string): string {
  * one-line reminder of what the schema does NOT decide, and — when the schema
  * nests — the fenced erDiagram plus any ER defects.
  */
-export function renderFieldTable(exportName: string, table: FieldTable, er: ErBuild | null): string {
+export function renderFieldTable(exportName: string, table: FieldTable, er: ErBuild | null, origin: string = ZOD_FIELDTABLE_SOURCE): string {
   const out: string[] = [];
   if (table.kind === 'enum') {
-    out.push(`### Value set — \`${exportName}\``, '', derivedMarker(ZOD_FIELDTABLE_SOURCE), '');
+    out.push(`### Value set — \`${exportName}\``, '', derivedMarker(origin), '');
     out.push(`${table.values.length} values: ${table.values.map((v) => `\`${String(v)}\``).join(' · ')}`, '');
     out.push(
       '_Control choice follows from the count: a handful fits radio buttons, a long list needs search. That call is a design decision, not schema data._',
     );
     return `${out.join('\n')}\n`;
   }
-  out.push(`### Field table — \`${exportName}\``, '', derivedMarker(ZOD_FIELDTABLE_SOURCE), '');
+  out.push(`### Field table — \`${exportName}\``, '', derivedMarker(origin), '');
   out.push('| Field | Type | Required | Bounds | Values | Default |');
   out.push('|-------|------|----------|--------|--------|---------|');
   for (const f of table.fields) {
@@ -615,6 +653,6 @@ export function runZodFieldtable(opts: ZodFieldtableOptions): ZodFieldtableResul
     values: built.table.kind === 'enum' ? built.table.values : [],
     er: er !== null && (er.spec.relationships ?? []).length > 0 ? er.spec : null,
     defects: er?.defects ?? [],
-    markdown: renderFieldTable(opts.exportName, built.table, er),
+    markdown: renderFieldTable(opts.exportName, built.table, er, zodFieldtableOrigin(opts.source, opts.exportName, opts.cwd)),
   };
 }

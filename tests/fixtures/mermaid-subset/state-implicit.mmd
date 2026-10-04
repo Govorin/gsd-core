@@ -1,0 +1,9 @@
+stateDiagram-v2
+  state "Deck list" as DeckList
+  [*] --> Active
+  Active --> DeckList : open
+  DeckList --> Archived
+  state Saving {
+    [*] --> Pending
+  }
+  Archived --> [*]

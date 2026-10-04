@@ -6,10 +6,12 @@
  * The `architecture` capability's blocking gate at `plan:post`. The system architect drew the
  * phase's DESIGN.md before planning; this gate runs the same deterministic check as
  * `gsd_run diagrams check --file <phase>/<N>-DESIGN.md` (src/diagrams-check.cts, `design` mode)
- * over every `*DESIGN.md` in the phase directory, and blocks when a diagram names an identifier
- * that is neither declared in the code nor introduced by the design itself (`absent`). Warnings
- * (a block outside the mermaid subset, an ambiguous name) never block — they are returned for
- * the dispatch to surface.
+ * over every `*DESIGN.md` in the phase directory, and blocks on every BLOCKER finding: a diagram
+ * naming an identifier that is neither declared in the code nor introduced by the design itself
+ * (`absent`), and — because `design` mode cannot let an unchecked block pass as checked (review
+ * M4/M5) — a block outside the mermaid subset, a stateDiagram with no `%% gsd:source`, and a
+ * derived block that is stale or that nothing can regenerate. Warnings (an ambiguous name) never
+ * block — they are returned for the dispatch to surface.
  *
  * No DESIGN.md → `skip`, not a block: the design step is optional (`workflow.architecture_design`)
  * and a phase without one has nothing to check. A phase directory that cannot be read (missing,
@@ -109,14 +111,15 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
   }
   const blockers = findings.filter((f) => f.severity === 'BLOCKER');
   const block = blockers.length > 0;
+  const onlyIdentifiers = blockers.every((f) => f.reason === 'absent' || f.reason === 'relation_absent');
   return gateVerdict(block ? 'block' : 'pass', block, {
     block,
     passed: !block,
-    status: block ? 'absent_identifiers' : 'ok',
+    status: !block ? 'ok' : onlyIdentifiers ? 'absent_identifiers' : 'diagram_blockers',
     files,
     findings,
     message: block
       ? blockers.map((f) => `${f.file}:${f.line} ${f.message}`).join('\n')
-      : `${files.reduce((n, f) => n + f.diagram_count, 0)} diagram(s) checked, no absent identifiers`,
+      : `${files.reduce((n, f) => n + f.diagram_count, 0)} diagram(s) checked, no blockers`,
   });
 }

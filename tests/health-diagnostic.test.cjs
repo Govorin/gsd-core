@@ -84,16 +84,17 @@ function setupHealthyProject(tmpDir) {
   fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01-setup'), { recursive: true });
 }
 
-// ─── Row 9 — REMEDY_ACTION locks exactly 7 members ─────────────────────────
+// ─── Row 9 — REMEDY_ACTION locks exactly 8 members ─────────────────────────
 
 describe('REMEDY_ACTION', () => {
-  test('row 9: locks exactly 7 members (6 real repair actions + ADVISE)', () => {
+  test('row 9: locks exactly 8 members (7 real repair actions — incl. the fork\'s W031 normalizeVerificationStatus — + ADVISE)', () => {
     assert.deepEqual(Object.keys(REMEDY_ACTION).sort(), [
       'ADD_AI_INTEGRATION_PHASE_KEY',
       'ADD_NYQUIST_KEY',
       'ADVISE',
       'BACKFILL_MILESTONES',
       'CREATE_CONFIG',
+      'NORMALIZE_VERIFICATION_STATUS',
       'REGENERATE_STATE',
       'RESET_CONFIG',
     ]);
@@ -105,6 +106,7 @@ describe('REMEDY_ACTION', () => {
         'advise',
         'backfillMilestones',
         'createConfig',
+        'normalizeVerificationStatus',
         'regenerateState',
         'resetConfig',
       ],
@@ -274,24 +276,25 @@ describe('evaluateRuleTable — duplicate-code guard (row 13)', () => {
 
 // ─── RULES — the fully wired table ──────────────────────────────────────────
 //
-// 34 rule entries. Counted directly from each rule-group file's own exported
+// 35 rule entries. Counted directly from each rule-group file's own exported
 // `RULES` array: root-existence (4: E002/E003/E004/W001) + state-consistency
 // (5: W024/W002/W011/W021/W026) + config-validation (11: W003/E005/W004/
-// W008/W016/W012/W013/W014/W015/W022/W029) + phase-structure (5: W005/W023/
-// I001/W009/W030 — W030 is #5118's out-of-set verification report status) +
+// W008/W016/W012/W013/W014/W015/W022/W029) + phase-structure (6: W005/W023/
+// I001/W009/W030/W031 — W030 is #5118's out-of-set verification report
+// status, W031 the fork's unambiguous legacy synonym of one) +
 // agent-install (1: W010) + roadmap-disk-consistency (2: W006/
 // W007) + worktree-health (3: W020/W017/W027) + milestone-archive-hygiene
 // (2: W018/W019) + install-surface-shadowing (1: W028, #2873 epic #2866
-// Phase 4a) = 34. config-validation.cts's W029 (#3586, epic #2292) is
+// Phase 4a) = 35. config-validation.cts's W029 (#3586, epic #2292) is
 // registered there per this batch's brief even though its subject
 // (`.planning/` tracked-but-ignored) is not config.json-sourced. E001 and
 // the home-directory guard (E010/I010) are deliberately NOT rows (design
 // doc, "Two guards that stay OUTSIDE the rule table entirely").
 
 describe('RULES', () => {
-  test('is the full, frozen 34-rule table with every code unique', () => {
+  test('is the full, frozen 35-rule table with every code unique', () => {
     assert.equal(Array.isArray(RULES), true);
-    assert.equal(RULES.length, 34);
+    assert.equal(RULES.length, 35);
     const codes = RULES.map((r) => r.code);
     assert.equal(new Set(codes).size, codes.length, 'every rule code must be unique');
   });
@@ -607,5 +610,151 @@ describe('health repair — GSD_PROJECT scoping (#3749)', () => {
       'the documented root-vs-workstream split keeps config.json at the workstream PARENT');
     assert.ok(!fs.existsSync(path.join(tmpDir, '.planning', 'workstreams', 'alpha', 'config.json')),
       'config.json must not move into the workstream dir');
+  });
+});
+
+// ─── W031 / W030 — legacy verification statuses under --repair (fork 3.4a) ──
+//
+// Detection is proved per rule in tests/health-diagnostic-rules/
+// phase-structure.test.cjs; here the REAL diagnostics from a REAL snapshot go
+// through `applyRepairs` and the `validate health` command. MECHANICAL
+// MUTATION of the healthy fixture: its phase gets a plan, a summary and a
+// report whose `status` is a legacy value from the live-projects census.
+
+function writeLegacyReport(tmpDir, phaseDir, status) {
+  const dir = path.join(tmpDir, '.planning', 'phases', phaseDir);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '01-01-PLAN.md'), '# Plan\n');
+  fs.writeFileSync(path.join(dir, '01-01-SUMMARY.md'), '# Summary\n');
+  const report = path.join(dir, '01-VERIFICATION.md');
+  // Keys around `status`, a comment and a body line that also says `status:`
+  // — the repair may change the one frontmatter scalar and nothing else.
+  fs.writeFileSync(report, [
+    '---',
+    'phase: 01-setup',
+    `status: ${status}  # set by the old verifier`,
+    'score: 5/5',
+    '---',
+    '',
+    '# Verification',
+    '',
+    `status: ${status} (body text, not frontmatter)`,
+    '',
+  ].join('\n'));
+  return report;
+}
+
+describe('W031 — normalizeVerificationStatus repair (fork 3.4a)', () => {
+  test('W031: --repair rewrites `status: verified` to `passed` — only that scalar; the comment, other keys and body are byte-identical', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const report = writeLegacyReport(tmpDir, '01-setup', 'verified');
+    const before = fs.readFileSync(report, 'utf-8');
+
+    const diagnostics = evaluateRules(buildPlanningSnapshot(tmpDir));
+    assert.deepEqual(diagnostics.filter((d) => ['W030', 'W031'].includes(d.code)).map((d) => d.code), ['W031']);
+
+    const result = applyRepairs(tmpDir, diagnostics, true, false);
+    assert.ok(result.applied.includes('W031'), JSON.stringify(result.details));
+    const detail = result.details.find((d) => d.code === 'W031');
+    assert.deepEqual(
+      { action: detail.action, success: detail.success, path: detail.path, detail: detail.detail },
+      { action: 'normalizeVerificationStatus', success: true, path: '.planning/phases/01-setup/01-VERIFICATION.md', detail: 'status: verified -> passed' },
+    );
+    assert.equal(
+      fs.readFileSync(report, 'utf-8'),
+      before.replace('status: verified  # set by the old verifier', 'status: passed  # set by the old verifier'),
+    );
+    const after = evaluateRules(buildPlanningSnapshot(tmpDir));
+    assert.deepEqual(after.filter((d) => ['W030', 'W031'].includes(d.code)), [], 'the report now reads as passed');
+  });
+
+  test('W031: without --repair nothing is written', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const report = writeLegacyReport(tmpDir, '01-setup', 'verified');
+    const before = fs.readFileSync(report, 'utf-8');
+    const result = applyRepairs(tmpDir, evaluateRules(buildPlanningSnapshot(tmpDir)), false, false);
+    assert.deepEqual(result.details, []);
+    assert.equal(fs.readFileSync(report, 'utf-8'), before);
+  });
+
+  test('W030: an ambiguous legacy value is never rewritten by --repair — the report stays byte-identical', (t) => {
+    for (const status of ['passed-degraded', 'passed_with_human_verification', 'passed_with_open_checkpoint', 'PASS-WITH-FLAGS', 'Verified']) {
+      const tmpDir = createTempProject();
+      t.after(() => cleanup(tmpDir));
+      setupHealthyProject(tmpDir);
+      const report = writeLegacyReport(tmpDir, '01-setup', status);
+      const before = fs.readFileSync(report, 'utf-8');
+
+      const diagnostics = evaluateRules(buildPlanningSnapshot(tmpDir));
+      const codes = diagnostics.filter((d) => ['W030', 'W031'].includes(d.code)).map((d) => d.code);
+      assert.deepEqual(codes, ['W030'], status);
+      const result = applyRepairs(tmpDir, diagnostics, true, false);
+      assert.equal(result.details.some((d) => d.code === 'W030'), false, `${status}: ADVISE is never dispatched`);
+      assert.equal(fs.readFileSync(report, 'utf-8'), before, `${status}: untouched`);
+    }
+  });
+
+  test('W031: a report edited between the check and the repair is left alone', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const report = writeLegacyReport(tmpDir, '01-setup', 'verified');
+    const diagnostics = evaluateRules(buildPlanningSnapshot(tmpDir));
+    const edited = fs.readFileSync(report, 'utf-8').replace('status: verified', 'status: gaps_found');
+    fs.writeFileSync(report, edited);
+
+    const result = applyRepairs(tmpDir, diagnostics, true, false);
+    assert.equal(result.applied.includes('W031'), false);
+    const detail = result.details.find((d) => d.code === 'W031');
+    assert.equal(detail.success, false);
+    assert.match(detail.error, /status is now "gaps_found", not "verified"/);
+    assert.equal(fs.readFileSync(report, 'utf-8'), edited);
+  });
+
+  test('W031: a remedy naming a file outside the planning directory is refused before any read or write', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const outside = path.join(tmpDir, 'NOT-PLANNING-VERIFICATION.md');
+    fs.writeFileSync(outside, '---\nstatus: verified\n---\n');
+    const diagnostics = [{
+      code: 'W031', severity: SEVERITY.WARNING, message: 'fabricated',
+      remedy: { action: REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS, risk: REMEDY_RISK.NONE, args: { file: outside, from: 'verified', to: 'passed' } },
+    }];
+    const result = applyRepairs(tmpDir, diagnostics, true, false);
+    assert.deepEqual(result.applied, []);
+    assert.match(result.details[0].error, /outside the planning directory/);
+    assert.equal(fs.readFileSync(outside, 'utf-8'), '---\nstatus: verified\n---\n');
+  });
+
+  test('W031: validate health reports it repairable with a --repair fix; --repair performs it and the next run is clean', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    writeLegacyReport(tmpDir, '01-setup', 'verified');
+
+    // Typed assertions on the RETURNED payload (what `--json` prints).
+    const run = (options) => {
+      let result;
+      captureConsole(() => { result = cmdValidateHealth(tmpDir, options, true); });
+      return result;
+    };
+    const report = run({});
+    const w031 = report.warnings.find((w) => w.code === 'W031');
+    assert.ok(w031, JSON.stringify(report.warnings));
+    assert.equal(w031.repairable, true);
+    assert.match(w031.fix, /--repair to rewrite the report's status/);
+
+    const repaired = run({ repair: true });
+    assert.ok(
+      repaired.repairs_performed.some((r) => r.action === 'normalizeVerificationStatus' && r.success === true),
+      JSON.stringify(repaired.repairs_performed),
+    );
+    const again = run({});
+    assert.equal(again.warnings.some((w) => w.code === 'W031' || w.code === 'W030'), false);
   });
 });

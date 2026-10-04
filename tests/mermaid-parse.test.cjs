@@ -150,8 +150,24 @@ describe('stateDiagram-v2', () => {
     assert.equal(spec.direction, 'LR');
   });
 
-  test('a state used by a transition but never declared is undeclared_id, not an implicit node', () => {
-    assert.deepEqual(refused('stateDiagram-v2\n  [*] --> DeckList'), { reason: 'undeclared_id', line: 2, col: 3 });
+  // Review M4: refusing an implicit state put the most common way of writing a
+  // state diagram outside the subset, where none of its names were checked.
+  test('a state introduced by a transition is declared there, unlabelled, and reported implicit', () => {
+    const r = ok(lines('stateDiagram-v2', '  state "Deck list" as DeckList', '  [*] --> Active', '  Active --> DeckList', '  DeckList --> Gone'));
+    assert.deepEqual(r.diagram.spec.states, [{ id: 'DeckList', label: 'Deck list' }, { id: 'Active' }, { id: 'Gone' }]);
+    assert.deepEqual(r.implicit, ['Active', 'Gone']);
+    assert.equal(r.lines['state:Active'], 3);
+    assert.equal(r.lines['state:Gone'], 5);
+  });
+
+  test('a transition inside a composite state introduces the state in that group', () => {
+    const r = ok(lines('stateDiagram-v2', '  state Saving {', '    [*] --> Pending', '  }'));
+    assert.deepEqual(r.diagram.spec.groups, [{ id: 'Saving', states: ['Pending'] }]);
+    assert.deepEqual(r.implicit, ['Pending']);
+  });
+
+  test('a note or class assignment naming an undeclared state is still undeclared_id', () => {
+    assert.deepEqual(refused('stateDiagram-v2\n  note left of Ghost : x'), { reason: 'undeclared_id', line: 2, col: 3 });
   });
 
   test('a line naming a state of another block is refused (mermaid would duplicate the state)', () => {
@@ -214,9 +230,17 @@ describe('classDiagram', () => {
     assert.equal(r.lines['relation:2'], 14);
   });
 
+  // Review M4: a class named only by a relation or a member line is declared
+  // at its first use (as mermaid does), so its name reaches the identifier check.
+  test('a class named only by a relation or a member line is declared at first use and reported implicit', () => {
+    const r = ok(lines('classDiagram', '  class A', '  A --> Ghost', '  Other : +x()', '  Ghost <|-- Other'));
+    assert.deepEqual(r.diagram.spec.classes, [{ id: 'A' }, { id: 'Ghost' }, { id: 'Other', methods: ['+x()'] }]);
+    assert.deepEqual(r.implicit, ['Ghost', 'Other']);
+    assert.equal(r.lines['class:Ghost'], 3);
+    assert.equal(r.lines['class:Other'], 4);
+  });
+
   for (const [name, text, reason, line] of [
-    ['a relation to an undeclared class', 'classDiagram\n  class A\n  A --> Ghost', 'undeclared_id', 3],
-    ['a member of an undeclared class', 'classDiagram\n  Ghost : +x()', 'undeclared_id', 2],
     ['a generic class id', 'classDiagram\n  class List~T~', 'unsupported_construct', 2],
     ['angle-bracket generics in a member', 'classDiagram\n  class A {\n    +items() List<T>\n  }', 'unsupported_construct', 3],
     ['a namespace', 'classDiagram\n  namespace x {\n  }', 'unsupported_construct', 2],
@@ -235,6 +259,31 @@ describe('classDiagram', () => {
 // ─── erDiagram ───────────────────────────────────────────────────────────────
 
 describe('erDiagram', () => {
+  // Review M3: the attribute line used one regex with a repeated
+  // `\s+KEY\s*,?` group; on a NON-matching line every run of spaces split
+  // two ways per key, so n keys cost 2^n steps (n=24 ≈ 1 s, n=30 > 1 min).
+  // These lines carry thousands of keys: a backtracking parser never returns
+  // (the runner's per-test timeout fails it); a single-pass one answers at
+  // once. No wall clock is read.
+  test('a long key list ending in junk is refused in one pass, not by exponential backtracking', () => {
+    for (const tail of ['  x', '  "unterminated', ' ,,']) {
+      const text = lines('erDiagram', '  E {', `    string id${'  PK'.repeat(5000)}${tail}`, '  }');
+      assert.deepEqual(refused(text), { reason: 'syntax', line: 3, col: 5 }, JSON.stringify(tail));
+    }
+    const long = ok(lines('erDiagram', '  E {', `    string id${'  PK,'.repeat(5000)} "c"`, '  }'));
+    assert.equal(long.diagram.spec.entities[0].attributes[0].keys.length, 5000);
+  });
+
+  test('attribute keys: separate words, each optionally followed by a comma, attached or alone', () => {
+    const keysOf = (attr) => ok(lines('erDiagram', '  E {', `    ${attr}`, '  }')).diagram.spec.entities[0].attributes[0];
+    assert.deepEqual(keysOf('string id PK, FK "the key"'), { type: 'string', name: 'id', keys: ['PK', 'FK'], comment: 'the key' });
+    assert.deepEqual(keysOf('string id PK , UK'), { type: 'string', name: 'id', keys: ['PK', 'UK'] });
+    assert.deepEqual(keysOf('string id"c"'), { type: 'string', name: 'id', comment: 'c' });
+    for (const bad of ['string id PK,,FK', 'string id , PK', 'string id PKX', 'string']) {
+      assert.equal(refused(lines('erDiagram', '  E {', `    ${bad}`, '  }')).reason, 'syntax', bad);
+    }
+  });
+
   test('attribute blocks, keys, comments and relationships; an entity named only by a relationship is implicit', () => {
     const r = ok(lines(
       'erDiagram',

@@ -138,8 +138,10 @@ interface PhaseSnapshot {
    * one — `isPhaseComplete` absorbed its VerificationStatusError (scope
    * UNREADABLE) and the snapshot CARRIES it. Diagnostic surfaces report it as
    * the W030 finding; a query surface built on the snapshot fails with it.
+   * `rawStatus` is the value the report carried (trimmed when a string), so a
+   * diagnostic can propose a replacement for a known legacy value (W031).
    */
-  verificationStatusError: { file: string; message: string } | null;
+  verificationStatusError: { file: string; message: string; rawStatus: unknown } | null;
   planCount: number;
   summaryCount: number;
   scope: Scope;
@@ -330,7 +332,9 @@ function buildPhaseSnapshot(phasesDir: string, dir: string, convention: string |
     dir,
     complete: completionResult.value.complete,
     verificationStatus: completionResult.value.verification.status,
-    verificationStatusError: statusError ? { file: statusError.file, message: statusError.message } : null,
+    verificationStatusError: statusError
+      ? { file: statusError.file, message: statusError.message, rawStatus: statusError.rawStatus }
+      : null,
     planCount: scanResult.planCount,
     summaryCount: scanResult.summaryCount,
     scope: worstScope(completionResult.scope, scanResult.scope),

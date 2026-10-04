@@ -35,7 +35,7 @@
     "workflow.architecture_diagrams_gate": {
       "type": "boolean",
       "default": false,
-      "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement; a name it cannot resolve for certain is a warning, never a block."
+      "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement. It also blocks on a diagram whose names could not be checked — a block outside the subset, a state diagram without %% gsd:source, a derived block nothing can regenerate or that is stale; a name it cannot resolve for certain (ambiguous) is a warning, never a block."
     }
   },
   "steps": [

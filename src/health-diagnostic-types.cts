@@ -36,7 +36,8 @@ type Severity = (typeof SEVERITY)[keyof typeof SEVERITY];
 
 // ─── Remedy action / risk ───────────────────────────────────────────────────
 
-// Harvested from health.md's published table + the corrected 6-action
+// Harvested from health.md's published table + the corrected 6-action (7 with
+// the fork's W031 `normalizeVerificationStatus`)
 // implementation (`src/verify.cts:2405-2553`) — not 5; `addAiIntegrationPhaseKey`
 // (verify.cts:1860/2481-2502) was live in code, missing from docs (design
 // doc, "Ground truth vs. issue #3309's claims" section).
@@ -47,6 +48,11 @@ const REMEDY_ACTION = Object.freeze({
   ADD_NYQUIST_KEY: 'addNyquistKey',
   ADD_AI_INTEGRATION_PHASE_KEY: 'addAiIntegrationPhaseKey',
   BACKFILL_MILESTONES: 'backfillMilestones',
+  // W031: rewrite one VERIFICATION report's frontmatter `status` from a legacy
+  // synonym to its closed-set value (`args: {file, from, to}`). Only a value
+  // with exactly one meaning gets this action; any other out-of-set value is
+  // W030 and stays ADVISE.
+  NORMALIZE_VERIFICATION_STATUS: 'normalizeVerificationStatus',
   // §8.3 rule 5 — every non-repairable finding's `fix` string becomes an
   // ADVISE payload; ADVISE never acts, only describes.
   ADVISE: 'advise',

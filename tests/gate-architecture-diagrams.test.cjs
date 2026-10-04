@@ -3,7 +3,8 @@
 /**
  * `check architecture.diagrams` — the architecture capability's blocking gate
  * at plan:post (phase 5.7). The gate runs `diagrams check` in design mode over
- * the phase's DESIGN.md and blocks only on an `absent` identifier.
+ * the phase's DESIGN.md and blocks on every BLOCKER: an `absent` identifier, a
+ * block outside the subset, an unverifiable or stale derived block.
  *
  * Assertions read the gate payload (the JSON the plan:post dispatch reads:
  * `block`, `status`, `files`, `findings`) and the capability manifest as data.
@@ -69,10 +70,23 @@ describe('check architecture.diagrams', () => {
     ]);
   });
 
-  test('a warning (a block outside the subset) does not block', () => {
+  // Review M4/M5: in design mode a block whose names were not looked up must
+  // not pass as checked — outside the subset, or under a derived marker that
+  // nothing can regenerate.
+  test('a block outside the subset blocks, as does an unverifiable derived block', () => {
     fs.writeFileSync(path.join(root, phase, '03-DESIGN.md'), '```mermaid\nflowchart LR\n  A --> B & C\n```\n');
     const out = gate(phase);
-    assert.deepEqual([out.block, out.findings.map((f) => f.severity)], [false, ['WARNING']]);
+    assert.deepEqual([out.block, out.status, out.findings.map((f) => [f.severity, f.reason])], [true, 'diagram_blockers', [['BLOCKER', 'unsupported_construct']]]);
+    fs.writeFileSync(path.join(root, phase, '03-DESIGN.md'), '<!-- gsd:derived -->\n```mermaid\nclassDiagram\n  class IThingRepository\n```\n');
+    const derived = gate(phase);
+    assert.deepEqual([derived.block, derived.status, derived.findings.map((f) => f.reason)], [true, 'diagram_blockers', ['derived_unverifiable']]);
+  });
+
+  test('a warning (an ambiguous name) does not block', () => {
+    fs.writeFileSync(path.join(root, 'src', 'tables.ts'), "export const users = pgTable('users', { id: serial('id') });\n");
+    fs.writeFileSync(path.join(root, phase, '03-DESIGN.md'), '```mermaid\nerDiagram\n  USER\n```\n');
+    const out = gate(phase);
+    assert.deepEqual([out.block, out.status, out.findings.map((f) => [f.severity, f.reason])], [false, 'ok', [['WARNING', 'ambiguous']]]);
   });
 
   test('a missing phase argument or a path outside the project is a usage failure', () => {
