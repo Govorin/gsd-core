@@ -446,3 +446,22 @@ describe('#2912: progress report step has explicit context-authority directive',
 });
   });
 }
+
+describe('phase 5.2: the progress report embeds the roadmap phase graph', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'workflows', 'progress.md'), 'utf-8');
+  const reportStart = workflow.indexOf('<step name="report">');
+  const report = workflow.slice(reportStart, workflow.indexOf('</step>', reportStart));
+  const { ROADMAP_SUBCOMMANDS } = require('../gsd-core/bin/lib/command-aliases.cjs');
+
+  test('the report step calls a real roadmap subcommand for the graph, as a document (--raw), never writing a file', () => {
+    const call = report.match(/^ROADMAP_GRAPH=\$\(gsd_run roadmap (\S{1,40})([^)\n]{0,200})\)/m);
+    assert.ok(call, 'report step assigns ROADMAP_GRAPH from gsd_run roadmap …');
+    assert.ok(ROADMAP_SUBCOMMANDS.includes(call[1]), `${call[1]} is a roadmap subcommand`);
+    assert.ok(call[2].includes('--raw'), 'the document, not the JSON envelope');
+    assert.ok(!call[2].includes('--out'), 'the graph is derived state: embedded, not saved under .planning/');
+  });
+
+  test('the presented report prints the graph verbatim', () => {
+    assert.ok(report.includes('{ROADMAP_GRAPH}'), 'the template has a slot for the graph');
+  });
+});
