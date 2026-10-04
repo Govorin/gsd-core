@@ -170,6 +170,14 @@ describe('ci-test-scope.cjs', () => {
       'expected full_matrix=true for a changed test file (rescinded #494 carve-out, see #4421)');
   });
 
+  test('the shared test-env module is scoped like the runner that applies it', () => {
+    const runner = scopeFor(['scripts/run-tests.cjs']);
+    const testEnv = scopeFor(['scripts/test-env.cjs']);
+    assert.strictEqual(testEnv.full_matrix, true,
+      `expected full_matrix=true for scripts/test-env.cjs, got: ${JSON.stringify(testEnv)}`);
+    assert.deepStrictEqual(testEnv.targeted_tests, runner.targeted_tests);
+  });
+
   test('installer-sensitive changes request full matrix and install tests', () => {
     const result = scopeFor(['bin/gsd']);
     assert.strictEqual(result.code_changed, true);

@@ -93,7 +93,9 @@ const RULES = [
   },
   {
     name: 'test harness',
-    match: path => path === 'scripts/run-tests.cjs',
+    // scripts/test-env.cjs is the hermetic env every test child inherits from
+    // run-tests.cjs — a change there moves every suite, exactly like the runner.
+    match: path => path === 'scripts/run-tests.cjs' || path === 'scripts/test-env.cjs',
     fullMatrix: true,
     tests: [
       'tests/run-tests-harness.test.cjs',

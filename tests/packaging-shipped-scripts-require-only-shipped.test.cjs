@@ -151,9 +151,10 @@ describe('#2858 — shipped scripts require only shipped paths', () => {
   });
 
   test('#2665: the test-instrumentation chain does not ship', () => {
-    // These four are one closed require chain of test instrumentation
-    // (run-tests -> live-config-guard, affected-tests-lib -> run-tests,
-    // run-affected-tests -> affected-tests-lib). Excluding a strict subset
+    // These five are one closed require chain of test instrumentation
+    // (run-tests -> live-config-guard, run-tests + affected-tests-lib ->
+    // test-env, affected-tests-lib -> run-tests, run-affected-tests ->
+    // affected-tests-lib). Excluding a strict subset
     // re-trips the shipped-requires-only-shipped gate above on whichever links
     // still ship, so the exclusion set and this assertion cover the chain.
     const TEST_INSTRUMENTATION = [
@@ -161,6 +162,7 @@ describe('#2858 — shipped scripts require only shipped paths', () => {
       'scripts/run-tests.cjs',
       'scripts/affected-tests-lib.cjs',
       'scripts/run-affected-tests.cjs',
+      'scripts/test-env.cjs',
     ];
     for (const f of TEST_INSTRUMENTATION) {
       assert.ok(

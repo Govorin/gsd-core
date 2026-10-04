@@ -17,9 +17,13 @@ const {
   PR_FULL_SUITES,
   buildTransitiveReverseIndex,
   resolveRelativeDependency,
+  runNodeTestFiles,
+  changedFilesSinceBase,
 } = require('../scripts/affected-tests-lib.cjs');
+const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/test-env.cjs');
+const { ExitError } = require('../scripts/lib/cli-exit.cjs');
 
-const { cleanup } = require('./helpers.cjs');
+const { cleanup, createTempDir, createTempGitProject } = require('./helpers.cjs');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -732,4 +736,100 @@ test('listTestFiles: subdir test files are included and selectable by pickAffect
     selected.includes('tests/dispatch/agent-dispatch.test.cjs'),
     `Directly-changed subdir test must be selected; got: ${JSON.stringify(selected)}`,
   );
+});
+
+// ---------------------------------------------------------------------------
+// runNodeTestFiles: the affected runner hands tests the SAME hermetic env as
+// run-tests.cjs (scripts/test-env.cjs). Without it a developer's real
+// ~/.gsd/defaults.json leaked a #3532 warning into child stderr and turned
+// tests/refactor-trigger-cli.test.cjs red only under test:affected.
+// ---------------------------------------------------------------------------
+
+/** A fake execFileSync that records each call's env and whether its GSD_HOME existed then. */
+function recordingExec(outcome = () => {}) {
+  const calls = [];
+  const execFile = (_bin, args, opts) => {
+    calls.push({ args, env: opts.env, homeExisted: fs.existsSync(opts.env.GSD_HOME) });
+    outcome(calls.length);
+  };
+  return { calls, execFile };
+}
+
+function ambientEnv(extra = {}) {
+  const env = { PATH: process.env.PATH, KEEP_ME: 'kept', GSD_HOME: '/developer/real/home', ...extra };
+  for (const key of AMBIENT_VARS_STRIPPED) env[key] = `ambient-${key}`;
+  return env;
+}
+
+test('runNodeTestFiles: children get a fresh GSD_HOME sandbox and no ambient GSD_* routing vars', () => {
+  const env = ambientEnv();
+  const before = { ...env };
+  const { calls, execFile } = recordingExec();
+
+  runNodeTestFiles('/repo', ['tests/a.test.cjs'], { env, execFile });
+
+  assert.strictEqual(calls.length, 1);
+  const childEnv = calls[0].env;
+  assert.ok(path.basename(childEnv.GSD_HOME).startsWith(GSD_HOME_SANDBOX_PREFIX),
+    `child GSD_HOME must be a test sandbox, got ${childEnv.GSD_HOME}`);
+  assert.strictEqual(calls[0].homeExisted, true, 'the sandbox exists while the chunk runs');
+  for (const key of AMBIENT_VARS_STRIPPED) {
+    assert.ok(!Object.hasOwn(childEnv, key), `${key} must be stripped from the child env`);
+  }
+  assert.strictEqual(childEnv.KEEP_ME, 'kept', 'unrelated vars pass through');
+  assert.deepStrictEqual(env, before, 'the caller env is copied, never mutated');
+  assert.strictEqual(fs.existsSync(childEnv.GSD_HOME), false, 'a sandbox this run created is removed afterwards');
+});
+
+test('runNodeTestFiles: every chunk shares the one sandbox', (t) => {
+  const { calls, execFile } = recordingExec();
+  const files = ['tests/a.test.cjs', 'tests/b.test.cjs', 'tests/c.test.cjs'];
+  const saved = process.env.RUN_TESTS_MAX_CMDLINE_CHARS;
+  t.after(() => {
+    if (saved === undefined) delete process.env.RUN_TESTS_MAX_CMDLINE_CHARS;
+    else process.env.RUN_TESTS_MAX_CMDLINE_CHARS = saved;
+  });
+  // Budget small enough that every file lands in its own chunk.
+  process.env.RUN_TESTS_MAX_CMDLINE_CHARS = '1';
+
+  runNodeTestFiles('/repo', files, { env: ambientEnv(), execFile });
+
+  assert.strictEqual(calls.length, files.length);
+  const homes = new Set(calls.map(c => c.env.GSD_HOME));
+  assert.strictEqual(homes.size, 1, `all chunks must share one GSD_HOME, got ${[...homes].join(', ')}`);
+  assert.ok(calls.every(c => c.homeExisted), 'the sandbox survives until the last chunk has run');
+});
+
+test('runNodeTestFiles: an inherited sandbox is reused and left in place', (t) => {
+  const inherited = createTempDir(GSD_HOME_SANDBOX_PREFIX);
+  t.after(() => cleanup(inherited));
+  const { calls, execFile } = recordingExec();
+
+  runNodeTestFiles('/repo', ['tests/a.test.cjs'], { env: ambientEnv({ GSD_HOME: inherited }), execFile });
+
+  assert.strictEqual(calls[0].env.GSD_HOME, inherited);
+  assert.strictEqual(fs.existsSync(inherited), true, 'a sandbox the caller owns is not removed');
+});
+
+test('runNodeTestFiles: a failing chunk still exits non-zero and still removes the sandbox', () => {
+  const { calls, execFile } = recordingExec(() => {
+    throw Object.assign(new Error('chunk failed'), { status: 3 });
+  });
+
+  assert.throws(
+    () => runNodeTestFiles('/repo', ['tests/a.test.cjs'], { env: ambientEnv(), execFile }),
+    (err) => err instanceof ExitError && err.code === 3,
+  );
+  assert.strictEqual(fs.existsSync(calls[0].env.GSD_HOME), false);
+});
+
+test('changedFilesSinceBase: an unresolvable base ref is a user-facing exit, not a git stack trace', (t) => {
+  const dir = createTempGitProject('gsd-affected-base-');
+  t.after(() => cleanup(dir));
+
+  assert.throws(
+    () => changedFilesSinceBase(dir, 'origin/no-such-branch'),
+    (err) => err instanceof ExitError && err.code === 1 && err.hasUserMessage === true,
+  );
+  assert.deepStrictEqual(changedFilesSinceBase(dir, 'HEAD'), [], 'a resolvable base still diffs normally');
 });
