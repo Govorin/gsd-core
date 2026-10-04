@@ -157,7 +157,7 @@ describe('window-scope.md — the shipped step', () => {
   });
 
   test('[happy] lens prompts forbid recursion and commits', () => {
-    assert.ok(WINDOW_STEP.includes('Do NOT commit, do NOT spawn agents, do NOT run /gsd-code-review.'));
+    assert.ok(WINDOW_STEP.includes('Do NOT commit, do NOT spawn agents, do NOT run /gsd:code-review.'));
     for (const agent of [STANDARDS, SPEC]) {
       assert.ok(agent.includes('Never spawn agents and never run `/gsd:code-review`'));
       assert.ok(agent.includes('Never commit'));
