@@ -1,7 +1,7 @@
 @~/.claude/gsd-core/references/response-language-directive.md
 
 <purpose>
-Review source files changed during a phase for bugs, security issues, and code quality problems. Computes file scope (--files override > SUMMARY.md > phase evaluation scope), checks config gate, spawns gsd-code-reviewer agent, commits REVIEW.md, and presents results to user. When --fix is passed, delegates to code-review-fix.md after review to auto-apply findings via gsd-code-fixer.
+Review source files changed during a phase for bugs, security issues, and code quality problems. Computes file scope (--files override > SUMMARY.md > phase evaluation scope), checks config gate, spawns gsd-code-reviewer agent, commits REVIEW.md, and presents results to user. When --fix is passed, delegates to code-review-fix.md after review to auto-apply findings via gsd-code-fixer. With --since instead of a phase it reviews the work that landed in a window (ADR-5208, step `window_review`).
 </purpose>
 
 <required_reading>
@@ -11,6 +11,9 @@ Read all files referenced by the invoking prompt's execution_context before star
 <available_agent_types>
 - gsd-code-reviewer: Reviews source files for bugs and quality issues
 - gsd-code-fixer: Applies fixes to code review findings (used via dispatch_fix → code-review-fix.md when --fix is passed)
+- gsd-standards-reviewer: Window review standards and simplify lenses (window-scope step)
+- gsd-spec-reviewer: Window review spec lens (window-scope step)
+- gsd-finding-refuter: Refutes window review findings before they are reported (window-scope step)
 </available_agent_types>
 
 <process>
@@ -20,7 +23,23 @@ Parse arguments and load project state:
 
 ```bash
 _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
-PHASE_ARG="${1}"
+# ADR-5208: a phase review or a window review (--since). resolveCodeReviewInvocation refuses a
+# phase together with --since, --until/--lens without --since, a malformed --since or an unknown
+# lens with the registry's USAGE exit — never a silent precedence. The phase is the first
+# positional argument wherever it sits among the flags.
+INVOCATION_JSON=$(node -e "
+  const { resolveCodeReviewInvocation } = require('./gsd-core/bin/lib/code-review-flags.cjs');
+  const r = resolveCodeReviewInvocation(process.argv.slice(1));
+  process.stdout.write(JSON.stringify(r));
+  if (!r.ok) process.exitCode = r.exitCode;
+" -- "$@")
+INVOCATION_EXIT=$?
+if [ "$INVOCATION_EXIT" -ne 0 ]; then
+  printf '%s' "$INVOCATION_JSON" | node -e "process.stderr.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).message + '\n')"
+  exit "$INVOCATION_EXIT"
+fi
+REVIEW_MODE=$(printf '%s' "$INVOCATION_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).mode)")
+PHASE_ARG=$(printf '%s' "$INVOCATION_JSON" | node -e "const r = JSON.parse(require('fs').readFileSync(0, 'utf-8')); process.stdout.write(r.mode === 'phase' ? r.phase : '')")
 
 # Parse all code-review flags into a structured IR via code-review-flags.cjs.
 # This is the canonical flag-parsing surface — do not replicate inline bash parsing
@@ -48,13 +67,17 @@ FIX_PARAM=""
 if [ "$FIX_FLAG" = "true" ]; then FIX_PARAM="--fix"; fi
 
 GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
-INIT=$(gsd_run query init.code-review ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}" $FIX_PARAM)
-if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
+if [ "$REVIEW_MODE" = "phase" ]; then
+  INIT=$(gsd_run query init.code-review ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}" $FIX_PARAM)
+  if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
+fi
 AGENT_SKILLS_REVIEWER=$(gsd_run query agent-skills gsd-code-reviewer ${GSD_WS:+--ws=${GSD_WS##* }})
 # #2072: resolve the routed model so model_overrides / models.verification are honored
 # (the resolver maps gsd-code-reviewer → phaseType "verification"); thread it below.
 REVIEWER_MODEL=$(gsd_run query resolve-model gsd-code-reviewer --raw)
 ```
+
+**Window mode (`REVIEW_MODE=window`):** there is no phase, so skip the init parse, the sanitization and the phase validation below; continue at `check_config_gate`.
 
 Parse from init JSON: `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `padded_phase`, `commit_docs`, `fallow_enabled`, `fallow_scope`, `fallow_profile`, `fallow_mcp`, `fallow_max_crap`.
 
@@ -98,6 +121,10 @@ Code review skipped (code-review capability inactive)
 Exit workflow.
 
 Default is active (`workflow.code_review` schema default is `true`) — only skip when explicitly disabled. This check runs AFTER phase validation so invalid phase errors are shown first.
+</step>
+
+<step name="window_review">
+Only when `REVIEW_MODE` is `window` (ADR-5208): read and execute `gsd-core/workflows/code-review/steps/window-scope.md`. It owns the rest of a window review — pre-pass, lens agents, verification, REVIEW.md, the `--since last` marker and `--fix` — and exits the workflow. In phase mode skip this step — do not read the file.
 </step>
 
 <step name="compute_file_scope">

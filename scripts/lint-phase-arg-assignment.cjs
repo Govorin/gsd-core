@@ -35,9 +35,10 @@
  *
  * Requiring *an* assignment would be satisfied by a seventh hand-rolled sed
  * pipeline, which is how the two grammars in this tree already drifted apart.
- * The rule therefore pins the exact text. There are three legitimate ways a
- * workflow learns its phase — `$ARGUMENTS` positional, `--phase N`, and a
- * positional `$1` passed by a skill dispatch — and each has exactly one
+ * The rule therefore pins the exact text. There are four legitimate ways a
+ * workflow learns its phase — `$ARGUMENTS` positional, `--phase N`, a
+ * positional `$1` passed by a skill dispatch, and `/gsd:code-review`'s
+ * validated invocation IR (phase or `--since` window) — and each has exactly one
  * spelling. A new grammar is a deliberate one-line addition here, reviewed
  * once, rather than a copy that diverges silently.
  *
@@ -99,6 +100,13 @@ const CANONICAL_FORMS = Object.freeze({
     'PHASE_ARG=$(echo "$ARGUMENTS" | sed -nE \'s/.*--phase[[:space:]]+([A-Za-z0-9._-]+).*/\\1/p\')',
   /** Skill dispatch passes the phase as `$1` (`Skill(skill="gsd-code-review", args="4")`). */
   firstPositional: 'PHASE_ARG="${1}"',
+  /**
+   * `/gsd:code-review` (ADR-5208): the phase is the first positional of the validated invocation IR
+   * `resolveCodeReviewInvocation` returns — empty for a `--since` window review, never `$1` (which
+   * is `--since` or a flag when the phase follows one).
+   */
+  codeReviewInvocation:
+    'PHASE_ARG=$(printf \'%s\' "$INVOCATION_JSON" | node -e "const r = JSON.parse(require(\'fs\').readFileSync(0, \'utf-8\')); process.stdout.write(r.mode === \'phase\' ? r.phase : \'\')")',
 });
 
 /**
@@ -111,7 +119,7 @@ const CANONICAL_FORMS = Object.freeze({
 const EXEMPT = new Map([
   [
     'code-review/steps/dispatch-fix.md',
-    'step fragment of code-review.md, which assigns PHASE_ARG="${1}" before dispatching it',
+    'step fragment of code-review.md, which assigns PHASE_ARG from the invocation IR before dispatching it',
   ],
 ]);
 

@@ -307,6 +307,12 @@ text (unstable).
 |------|-------------|
 | `diagrams_source_unavailable` | `diagrams check` when the `--file` document cannot be read or `--root` is not a directory — the check could not look |
 
+### Window review errors
+
+| Code | When emitted |
+|------|-------------|
+| `window_review_unresolvable` | `review window-*` when the window does not resolve (`--since last` with no `LAST-WINDOW.json`, an unknown ref, git unavailable) or a step's input (`prepass.json`, the window `REVIEW.md`) is missing — the window review could not look |
+
 ### Hook / security errors
 
 | Code | When emitted |

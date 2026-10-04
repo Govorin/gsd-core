@@ -1,7 +1,7 @@
 @~/.claude/gsd-core/references/response-language-directive.md
 
 <purpose>
-Auto-fix issues from REVIEW.md. Validates phase, checks config gate, verifies REVIEW.md exists and has fixable issues, spawns gsd-code-fixer agent, handles --auto iteration loop (capped at 3), commits REVIEW-FIX.md once at the end, and presents results.
+Auto-fix issues from REVIEW.md. Validates phase, checks config gate, verifies REVIEW.md exists and has fixable issues, spawns gsd-code-fixer agent, handles --auto iteration loop (capped at 3), commits REVIEW-FIX.md once at the end, and presents results. `--review <path>` fixes a window review's REVIEW.md instead of a phase's (ADR-5208).
 </purpose>
 
 <required_reading>
@@ -21,15 +21,37 @@ Parse arguments and load project state:
 ```bash
 _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 PHASE_ARG="${1}"
+# ADR-5208: `--review <path>` fixes a window review's REVIEW.md (`.planning/reviews/<date>-window/`)
+# instead of a phase's; the window-scope step of code-review.md passes it. No phase is resolved then.
+REVIEW_OVERRIDE=""
+_PREV_ARG=""
+for arg in "$@"; do
+  if [ "$_PREV_ARG" = "--review" ]; then REVIEW_OVERRIDE="$arg"; fi
+  case "$arg" in --review=*) REVIEW_OVERRIDE="${arg#--review=}" ;; esac
+  _PREV_ARG="$arg"
+done
 GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
-INIT=$(gsd_run query init.phase-op ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}")
-if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
+if [ -z "$REVIEW_OVERRIDE" ]; then
+  INIT=$(gsd_run query init.phase-op ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}")
+  if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
+fi
 AGENT_SKILLS_FIXER=$(gsd_run query agent-skills gsd-code-fixer ${GSD_WS:+--ws=${GSD_WS##* }})
 AGENT_SKILLS_REVIEWER=$(gsd_run query agent-skills gsd-code-reviewer ${GSD_WS:+--ws=${GSD_WS##* }})
 # #2072: resolve the routed models so model_overrides / models.<phaseType> are honored
 # (gsd-code-reviewer → "verification", gsd-code-fixer → "execution"); thread them below.
 REVIEWER_MODEL=$(gsd_run query resolve-model gsd-code-reviewer --raw)
 FIXER_MODEL=$(gsd_run query resolve-model gsd-code-fixer --raw)
+```
+
+**Window review (`REVIEW_OVERRIDE` set):** validate the path and take the window directory as the review's home — there is no phase, so skip the init parse, the sanitization and the phase validation below:
+
+```bash
+if [ -n "$REVIEW_OVERRIDE" ]; then
+  TARGET_JSON=$(gsd_run review window-paths ${GSD_WS:+--ws=${GSD_WS##* }} --review "$REVIEW_OVERRIDE") || exit $?
+  PHASE_DIR=$(printf '%s' "$TARGET_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).dir)")
+  PADDED_PHASE="window"
+  COMMIT_DOCS=$(gsd_run query config-get commit_docs --raw 2>/dev/null || echo "true")
+fi
 ```
 
 Parse from init JSON: `phase_found`, `phase_dir`, `phase_number`, `phase_name`, `padded_phase`, `commit_docs`.
@@ -61,6 +83,11 @@ for arg in "$@"; do
   if [[ "$arg" == "--all" ]]; then FIX_ALL=true; fi
   if [[ "$arg" == "--auto" ]]; then AUTO_MODE=true; fi
 done
+# A window review has one fix pass: re-reviewing a window is a new window review (every lens).
+if [ -n "$REVIEW_OVERRIDE" ] && [ "$AUTO_MODE" = "true" ]; then
+  echo "Note: --auto does not apply to a window review; running one fix pass."
+  AUTO_MODE=false
+fi
 ```
 
 Compute scope variable:
@@ -78,6 +105,10 @@ Compute review and fix report paths:
 ```bash
 REVIEW_PATH="${PHASE_DIR}/${PADDED_PHASE}-REVIEW.md"
 FIX_REPORT_PATH="${PHASE_DIR}/${PADDED_PHASE}-REVIEW-FIX.md"
+if [ -n "$REVIEW_OVERRIDE" ]; then
+  REVIEW_PATH=$(printf '%s' "$TARGET_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).review)")
+  FIX_REPORT_PATH=$(printf '%s' "$TARGET_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).fixReport)")
+fi
 ```
 </step>
 
@@ -447,6 +478,8 @@ This commit happens ONCE at the end of the workflow, after all iterations (if --
 </step>
 
 <step name="record_disposition">
+**Window review (`REVIEW_OVERRIDE` set): skip this step.** The disposition ledger is per phase; a window's surviving findings are tracked in WINDOWS.md by the window-scope step of `code-review.md`, which reads this run's REVIEW-FIX.md after it returns.
+
 **Reconcile the per-finding disposition ledger, now that REVIEW-FIX.md exists.** Read and execute
 `gsd-core/workflows/execute-phase/steps/code-review-disposition.md`. It consumes `PHASE_DIR` and
 `PHASE_NUMBER` and derives everything else, and it is advisory throughout: it never blocks.

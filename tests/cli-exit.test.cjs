@@ -642,7 +642,10 @@ describe('regressions', () => {
       // #5118 legitimately added a 27th code — VERIFICATION_STATUS_INVALID —
       // for a *-VERIFICATION.md status outside the closed VerificationStatus
       // set (ADR-5057 Phase 4), the same kind of documented growth.
-      assert.strictEqual(seen.reasonCount, 28, 'ERROR_REASON must keep all 28 members (26 + #5118 VERIFICATION_STATUS_INVALID + DIAGRAMS_SOURCE_UNAVAILABLE)');
+      //
+      // ADR-5208 added WINDOW_REVIEW_UNRESOLVABLE — a window review that could not look
+      // (`review window-*`), the same kind of documented growth.
+      assert.strictEqual(seen.reasonCount, 29, 'ERROR_REASON must keep all 29 members (26 + #5118 VERIFICATION_STATUS_INVALID + DIAGRAMS_SOURCE_UNAVAILABLE + WINDOW_REVIEW_UNRESOLVABLE)');
       assert.ok(
         seen.keys.includes('SDK_FAIL_FAST'),
         `ERROR_REASON must still include SDK_FAIL_FAST, got: ${JSON.stringify(seen.keys)}`,

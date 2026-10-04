@@ -355,6 +355,9 @@ const { routeDiagramsCommand } = require('./lib/diagrams-command-router.cjs');
 // Phase 4.5 (upstream-sync plan): `discuss tree` — discuss-phase decisions as a
 // dependency tree: grill mode's next question and the mermaid picture.
 const { routeDiscussCommand } = require('./lib/discuss-command-router.cjs');
+// ADR-5208: `review window-*` — the deterministic steps of a window review
+// (`/gsd-code-review --since`): pre-pass, compose, deferred, marker, paths.
+const { routeReviewCommand } = require('./lib/review-command-router.cjs');
 // #3676 (Phase 4, epic #3344): quick-batch is a first-party, always-on
 // command family (like `/gsd:quick`) — wired directly into
 // HOST_COMMAND_ROUTERS, not the opt-in capability-registry/`activationKey`
@@ -4791,6 +4794,7 @@ const HOST_COMMAND_ROUTERS = {
     'from-gsd2': routeFromGsd2,
     'prompt-budget': routePromptBudget,
     'context-predicates': routeContextPredicates,
+    'review': routeReviewCommand,
     'review-lane': routeReviewLane,
     'update-context': routeUpdateContext,
     'classify-confidence': routeClassifyConfidence,
@@ -5070,7 +5074,7 @@ const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <fiel
   'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, mn, package-legitimacy, phase, phase-plan-index, phases, plan, planning, profile-questionnaire, ' +
   'profile-sample, progress, project-instruction-file, prompt-budget, quick-batch, quick-tasks-append, quick-tasks-migrate, refactor, requirements, research-plan, research-store, resolve-granularity, resolve-model, restore-custom-files, roadmap, runtime-identity, scaffold, smart-entry, state, ' +
   'config-set-model-profile, dispatch-capacity, dispatch-isolation, dispatch-should-flatten, inspect-dispatch-isolation, record-dispatch-isolation, estimate-calibrate, estimate-calibration, estimate-check, resolve-agent, resolve-dispatch-type, ' +
-  'resolve-execution, review-lane, scan-sessions, select-revert-commits, skill-manifest, skills-root, stamp-codebase-map, state-snapshot, stats, summary-extract, teams-status, todo, uat, update-context, verification, websearch, windows, ' +
+  'resolve-execution, review, review-lane, scan-sessions, select-revert-commits, skill-manifest, skills-root, stamp-codebase-map, state-snapshot, stats, summary-extract, teams-status, todo, uat, update-context, verification, websearch, windows, ' +
   'task, template, user-story, validate, verify, verify-path-exists, verify-summary, eval, workstream, worktree, write-profile\n\n' +
   'Global flags:\n' +
   '  --raw              Emit raw output without post-processing\n' +

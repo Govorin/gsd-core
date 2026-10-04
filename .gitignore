@@ -395,6 +395,8 @@ build/
 /gsd-core/bin/lib/mn-assertion-count.cjs
 /gsd-core/bin/lib/code-graph.cjs
 /gsd-core/bin/lib/git-history.cjs
+/gsd-core/bin/lib/window-review.cjs
+/gsd-core/bin/lib/review-command-router.cjs
 __pycache__/
 *.pyc
 .venv/
