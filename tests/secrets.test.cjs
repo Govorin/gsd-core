@@ -11,7 +11,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { maskSecret, isSecretKey, maskIfSecret } = require('../gsd-core/bin/lib/secrets.cjs');
+const { maskSecret, isSecretKey, maskIfSecret, redactSecretText, REDACTED } = require('../gsd-core/bin/lib/secrets.cjs');
 
 describe('maskSecret — unset triad', () => {
   test('maskSecretReturnsUnsetForNull', () => {
@@ -100,5 +100,55 @@ describe('maskIfSecret — wiring', () => {
   test('maskIfSecretPassesThroughNonSecretNonString', () => {
     // Passthrough must preserve type — not coerce to string.
     assert.equal(maskIfSecret('not_a_secret', 42), 42);
+  });
+});
+
+// Credential fixtures are assembled at runtime so the repo's own commit-time
+// scanner (scripts/secret-scan.sh) never sees a literal key in this file.
+const fake = {
+  anthropic: 'sk-' + 'ant-' + 'a1B2'.repeat(6),
+  openai: 'sk-' + 'Z9y8'.repeat(6),
+  github: 'gh' + 'p_' + 'A'.repeat(36),
+  aws: 'AK' + 'IA' + 'ABCDEFGHIJKLMNOP',
+  jwt: 'ey' + 'JhbGciOiJIUzI1NiJ9' + '.eyJzdWIiOiIxMjM0NTY3ODkwIn0' + '.dozjgNryP4J3jVmNHl0w5N',
+  pem: '-----BEGIN ' + 'RSA PRIVATE KEY-----\nMIIEow\n-----END ' + 'RSA PRIVATE KEY-----',
+};
+
+describe('redactSecretText — free-text credential redaction', () => {
+  test('each token shape is replaced and counted', () => {
+    for (const [name, value] of Object.entries(fake)) {
+      const { text, redactions } = redactSecretText(`before ${value} after`);
+      assert.equal(text.includes(value), false, `${name} survived`);
+      assert.ok(text.includes(REDACTED), `${name} not marked`);
+      assert.equal(redactions, 1, `${name} counted once`);
+    }
+  });
+
+  test('anthropic key is redacted whole, not left with an sk- tail', () => {
+    assert.equal(redactSecretText(fake.anthropic).text, REDACTED);
+  });
+
+  test('assignment keeps the key name and drops the value', () => {
+    const { text } = redactSecretText('export API_KEY="hunter2hunter2" DB_PASSWORD=swordfish9');
+    assert.equal(text, `export API_KEY="${REDACTED}" DB_PASSWORD=${REDACTED}`);
+  });
+
+  test('URL credentials keep scheme and user, drop the password', () => {
+    const { text } = redactSecretText('psql postgres://admin:s3cretpass@db.local:5432/app');
+    assert.equal(text, `psql postgres://admin:${REDACTED}@db.local:5432/app`);
+  });
+
+  test('bearer header keeps the scheme word', () => {
+    const { text } = redactSecretText('curl -H "Authorization: Bearer abcdef123456789"');
+    assert.equal(text, `curl -H "Authorization: Bearer ${REDACTED}"`);
+  });
+
+  test('ordinary text passes through with zero redactions', () => {
+    const input = 'npm run lint && git status --short — token budget is fine';
+    assert.deepEqual(redactSecretText(input), { text: input, redactions: 0 });
+  });
+
+  test('a short assignment value (under 6 chars) is not treated as a secret', () => {
+    assert.equal(redactSecretText('token=abc').redactions, 0);
   });
 });
