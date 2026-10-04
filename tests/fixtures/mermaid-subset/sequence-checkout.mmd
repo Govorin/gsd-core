@@ -1,0 +1,24 @@
+sequenceDiagram
+  %% gsd:external C, P
+  autonumber
+  actor C as Client
+  participant A as ThingController
+  participant S as ThingService
+  participant P as PaymentProvider
+  C->>A: POST /things
+  A->>S: create(dto)
+  alt card accepted
+    S->>P: charge(amount)
+    P-->>S: right(receipt)
+    loop until stored
+      S-xS: persist(thing)
+    end
+  else declined
+    P--xS: left(ChargeDeclined)
+    Note over S,P: the Thing is never persisted
+  end
+  opt audit enabled
+    Note left of A: audit#58; on
+  end
+  S-->>A: right(Thing)
+  A-->>C: 201 + ThingResponseDto

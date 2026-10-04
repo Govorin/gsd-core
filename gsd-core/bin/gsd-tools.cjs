@@ -349,6 +349,9 @@ const { routeRoadmapCommand } = require('./lib/roadmap-command-router.cjs');
 // Phase 5.3 (upstream-sync plan): `plan graph` — a phase's plans as mermaid,
 // built from wave/depends_on (src/plan-graph.cts over src/mermaid.cts).
 const { routePlanCommand } = require('./lib/plan-command-router.cjs');
+// Phase 5.7 (upstream-sync plan): `diagrams check` — mermaid blocks of a document
+// kept to the builder subset, every identifier declared in the code.
+const { routeDiagramsCommand } = require('./lib/diagrams-command-router.cjs');
 // #3676 (Phase 4, epic #3344): quick-batch is a first-party, always-on
 // command family (like `/gsd:quick`) — wired directly into
 // HOST_COMMAND_ROUTERS, not the opt-in capability-registry/`activationKey`
@@ -4754,6 +4757,9 @@ const HOST_COMMAND_ROUTERS = {
     // Phase 5.3: `plan graph --dir <phase> [--out] [--strict]`. The router
     // imports its own deps and confines --dir/--out to the project root.
     'plan': routePlanCommand,
+    // Phase 5.7: `diagrams check --file <md> [--root] [--mode] [--strict]`. The
+    // router imports its own deps and confines --file/--root to the project root.
+    'diagrams': routeDiagramsCommand,
     'assumption-delta': routeAssumptionDelta,
     'requirements': routeRequirements,
     'gap-analysis': routeGapAnalysis,
@@ -5046,7 +5052,7 @@ function runWithTimeout(argv) {
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
   'Commands: agent, agent-skills, assumption-delta, audit-open, audit-uat, check, check-commit, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
   'config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, ' +
-  'context-predicates, current-timestamp, detect-custom-files, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
+  'context-predicates, current-timestamp, detect-custom-files, diagrams, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +
   'generate-dev-preferences, generate-slug, graphify, history-digest, init, intel, ' +
   'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, package-legitimacy, phase, phase-plan-index, phases, plan, planning, profile-questionnaire, ' +

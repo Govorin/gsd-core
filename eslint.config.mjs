@@ -137,6 +137,12 @@ export default tseslint.config(
       'gsd-core/bin/lib/roadmap-graph.cjs',
       'gsd-core/bin/lib/loop-hooks-map.cjs',
       'gsd-core/bin/lib/workflow-map.cjs',
+      // Phase 5.7 (mermaid UML check): tsc-generated — lint the src/*.cts sources.
+      'gsd-core/bin/lib/mermaid-parse.cjs',
+      'gsd-core/bin/lib/symbol-index.cjs',
+      'gsd-core/bin/lib/diagrams-check.cjs',
+      'gsd-core/bin/lib/diagrams-command-router.cjs',
+      'gsd-core/bin/lib/gate-architecture-diagrams.cjs',
       // #4917 (epic #4906 Phase 1, ADR-4910): lint src/planning-document.cts, not this.
       'gsd-core/bin/lib/planning-document.cjs',
       // #2401: tsc-generated runtime artifact — lint the src/verify-command-grounding.cts source.
@@ -822,6 +828,20 @@ export default tseslint.config(
       }],
       'no-empty': ['warn', { allowEmptyCatch: true }],
       'n/no-path-concat': 'error',
+    },
+  },
+
+  // ── isolated dev suites: tools/**/*.mjs (phase 5.7) ─────────────────────────
+  // Self-contained Node ESM checks with their own package.json/lock (e.g.
+  // tools/mermaid-check, the real-mermaid conformance run). Never installed,
+  // never part of npm test; the generic Node quality rules apply.
+  {
+    files: ['tools/**/*.mjs'],
+    languageOptions: { sourceType: 'module', globals: { ...globals.node } },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-var': 'error',
+      'prefer-const': 'warn',
     },
   },
 

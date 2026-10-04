@@ -1,0 +1,13 @@
+erDiagram
+  USER {
+    string id PK "the id"
+    varchar(255) email UK
+    string org_id FK
+  }
+  ORDER {
+    string id PK
+    int[] line_ids
+  }
+  USER ||--o{ ORDER : places
+  ORDER }|..|| PRODUCT : "contains many"
+  USER |o--|{ ADDRESS : has

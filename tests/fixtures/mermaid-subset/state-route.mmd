@@ -1,0 +1,18 @@
+stateDiagram-v2
+  direction LR
+  %% gsd:source src/app/routes.ts#Routes
+  state "Deck list" as DeckList
+  AddWord : Add a word
+  state "Login" as Login
+  state "Saving" as Saving {
+    state "Pending" as Pending
+    Failed : Failed to save
+    [*] --> Pending
+    Pending --> Failed : left(Network)
+    note right of Failed : retry offered
+  }
+  [*] --> DeckList
+  DeckList --> AddWord : tap «Add»
+  AddWord --> Login : left(Unauthorized)
+  classDef bad fill:#fee
+  class Login bad

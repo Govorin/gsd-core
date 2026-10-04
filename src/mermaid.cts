@@ -1,6 +1,7 @@
 /**
  * Mermaid Module — deterministic builders for the diagrams GSD derives from
- * data: flowchart, stateDiagram-v2, gantt, classDiagram, erDiagram.
+ * data: flowchart, stateDiagram-v2, gantt, classDiagram, erDiagram,
+ * sequenceDiagram.
  *
  * ── Why the diagram is built, never drawn ──
  *
@@ -103,7 +104,9 @@ const ESCAPE_RE = /-{2,}|[#";<>|`:{}]/g;
 const LINE_BREAK = '<br/>';
 
 /**
- * Normalise arbitrary input into one logical text: CRLF/CR → LF, tab → space,
+ * Normalise arbitrary input into one logical text: CRLF/CR and the Unicode
+ * line/paragraph separators (U+2028/U+2029 — a regex `.` does not cross them,
+ * so a reader would see a line end mermaid may not) → LF, tab → space,
  * every other C0/C1 control and the bidi/zero-width format characters dropped
  * (they can disguise what a label says), surrounding whitespace trimmed.
  */
@@ -114,7 +117,7 @@ function normalizeText(text: unknown): string {
   else if (text === null || text === undefined) s = '';
   else throw new TypeError(`mermaid: label text must be a string, number or boolean, got ${typeof text}`);
   return s
-    .replace(/\r\n?/g, '\n')
+    .replace(/\r\n?|[\u2028\u2029]/g, '\n')
     .replace(/\t/g, ' ')
     .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
     .trim();
@@ -168,6 +171,22 @@ const GANTT_RESERVED_IDS: ReadonlySet<string> = new Set([
   'excludes', 'includes', 'todaymarker', 'tickinterval', 'weekday', 'weekend',
 ]);
 
+/**
+ * sequenceDiagram's lexer is case-insensitive and reads these as statements
+ * wherever a participant id could stand (`end` and `note` are already above).
+ */
+const SEQUENCE_RESERVED_IDS: ReadonlySet<string> = new Set([
+  'participant', 'actor', 'alt', 'else', 'opt', 'loop', 'over', 'left', 'right', 'of', 'autonumber',
+  'activate', 'deactivate', 'par', 'and', 'rect', 'critical', 'option', 'break', 'box', 'title', 'create',
+  'destroy', 'links', 'link', 'properties', 'details', 'sequencediagram', 'acctitle', 'accdescr',
+]);
+
+/** True when `id` is a word sequenceDiagram reads as a statement (case-insensitive). */
+export function isSequenceKeyword(id: string): boolean {
+  const lower = id.toLowerCase();
+  return SEQUENCE_RESERVED_IDS.has(lower) || RESERVED_IDS.has(lower);
+}
+
 /** The id grammar every builder enforces: an ASCII identifier that is not a keyword. */
 const SAFE_ID = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -207,8 +226,9 @@ export interface IdRegistry {
  * DIFFERENT raw string (`02.1-01` vs `02-1-01`), the later one gets `_2`, `_3`,
  * … — so the result depends only on the order of first requests, which the
  * caller controls. A spelling that starts with a digit (or is empty) gets an
- * `n_` lead, and one that collides with any keyword (gantt's included, so a
- * registry id is valid in every diagram type) gets a trailing `_`.
+ * `n_` lead, and one that collides with any keyword (gantt's and
+ * sequenceDiagram's included, so a registry id is valid in every diagram type)
+ * gets a trailing `_`.
  */
 export function createIdRegistry(prefix = ''): IdRegistry {
   if (prefix !== '' && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(prefix)) {
@@ -222,7 +242,8 @@ export function createIdRegistry(prefix = ''): IdRegistry {
       if (known !== undefined) return known;
       let base = prefix + spellId(String(raw));
       if (!/^[A-Za-z_]/.test(base)) base = `n_${base}`;
-      if (RESERVED_IDS.has(base.toLowerCase()) || GANTT_RESERVED_IDS.has(base.toLowerCase())) base = `${base}_`;
+      const lower = base.toLowerCase();
+      if (RESERVED_IDS.has(lower) || GANTT_RESERVED_IDS.has(lower) || SEQUENCE_RESERVED_IDS.has(lower)) base = `${base}_`;
       let candidate = base;
       for (let n = 2; taken.has(candidate); n++) candidate = `${base}_${n}`;
       taken.add(candidate);
@@ -270,8 +291,13 @@ export interface ClassDef {
 /** A style list may hold only what CSS property/value pairs need — no newline, `;` or quote. */
 const STYLE_RE = /^[A-Za-z0-9#:,.%\- ()]+$/;
 
+/** True when `style` is a style list every builder accepts (`classDef` / `linkStyle`). */
+export function isPlainStyle(style: unknown): style is string {
+  return typeof style === 'string' && STYLE_RE.test(style);
+}
+
 function assertStyle(style: unknown, where: string): asserts style is string {
-  if (typeof style !== 'string' || !STYLE_RE.test(style)) {
+  if (!isPlainStyle(style)) {
     throw new TypeError(`${where}: style ${JSON.stringify(style)} is not a plain mermaid style list`);
   }
 }
@@ -890,5 +916,150 @@ export function erDiagram(spec: ErDiagramSpec): string {
     const line = r.identifying === false ? '..' : '--';
     lines.push(`  ${r.left} ${left}${line}${right} ${r.right} : "${sanitizeErComment(r.label)}"`);
   });
+  return lines.join('\n');
+}
+
+// ─── sequenceDiagram ─────────────────────────────────────────────────────────
+
+export type SequenceParticipantKind = 'participant' | 'actor';
+
+export interface SequenceParticipant {
+  id: string;
+  /** Free text shown instead of the id (`participant S as ThingService`). */
+  label?: string;
+  /** Box (default) or stick figure. */
+  kind?: SequenceParticipantKind;
+}
+
+/** Line and head of a message: `->>` solid, `-->>` dotted (a reply), `-x` / `--x` with a cross (lost). */
+export type SequenceArrow = 'solid' | 'dotted' | 'solid-cross' | 'dotted-cross';
+
+const SEQUENCE_ARROW: Readonly<Record<SequenceArrow, string>> = Object.freeze({
+  solid: '->>',
+  dotted: '-->>',
+  'solid-cross': '-x',
+  'dotted-cross': '--x',
+});
+
+export interface SequenceMessage {
+  kind: 'message';
+  from: string;
+  to: string;
+  /** Default `solid`. */
+  arrow?: SequenceArrow;
+  /** Free text; must not be empty (mermaid requires message text). */
+  text: string;
+}
+
+export interface SequenceNote {
+  kind: 'note';
+  /** `over` (default) spans one or two participants; `left` / `right` sit beside exactly one. */
+  side?: 'over' | 'left' | 'right';
+  participants: string[];
+  text: string;
+}
+
+export interface SequenceBranch {
+  label?: string;
+  steps: SequenceStep[];
+}
+
+export interface SequenceBlock {
+  kind: 'alt' | 'opt' | 'loop';
+  label?: string;
+  steps: SequenceStep[];
+  /** `alt` only: the `else` branches, in order. */
+  else?: SequenceBranch[];
+}
+
+export type SequenceStep = SequenceMessage | SequenceNote | SequenceBlock;
+
+export interface SequenceDiagramSpec {
+  participants: SequenceParticipant[];
+  steps?: SequenceStep[];
+  autonumber?: boolean;
+}
+
+/** `alt`/`opt`/`loop` may nest this deep; deeper is a diagram nobody reads. */
+export const SEQUENCE_MAX_DEPTH = 3;
+
+/**
+ * Build a sequenceDiagram. Every participant is declared, in input order,
+ * before the first step — mermaid would otherwise create a participant the
+ * first time a message names it (an invented node), so a message, note or
+ * block that names an undeclared participant THROWS.
+ */
+export function sequenceDiagram(spec: SequenceDiagramSpec): string {
+  const where = 'sequenceDiagram';
+  for (const p of spec.participants) {
+    assertId(p.id, `${where} participant`);
+    if (isSequenceKeyword(p.id)) {
+      throw new TypeError(`${where}: participant id ${JSON.stringify(p.id)} is a sequenceDiagram keyword`);
+    }
+  }
+  const ids = assertUnique(
+    spec.participants.map((p) => p.id),
+    `${where} participants`,
+  );
+  const lines = ['sequenceDiagram'];
+  if (spec.autonumber === true) lines.push('  autonumber');
+  for (const p of spec.participants) {
+    const kind = p.kind ?? 'participant';
+    if (kind !== 'participant' && kind !== 'actor') {
+      throw new TypeError(`${where}: participant ${p.id} has unknown kind ${JSON.stringify(kind)}`);
+    }
+    const label = p.label !== undefined ? escapeLabel(p.label) : '';
+    lines.push(label === '' ? `  ${kind} ${p.id}` : `  ${kind} ${p.id} as ${label}`);
+  }
+
+  const text = (raw: unknown, what: string): string => {
+    const t = escapeLabel(raw);
+    if (t === '') throw new TypeError(`${where}: ${what} needs text`);
+    return t;
+  };
+  const blockLabel = (raw: string | undefined): string => {
+    const t = raw === undefined ? '' : escapeLabel(raw);
+    return t === '' ? '' : ` ${t}`;
+  };
+  const renderSteps = (steps: readonly SequenceStep[], depth: number, path: string): void => {
+    const indent = '  '.repeat(depth + 1);
+    steps.forEach((step, i) => {
+      const at = `${path}${i}`;
+      if (step.kind === 'message') {
+        assertKnown(step.from, ids, `${where} message ${at}`);
+        assertKnown(step.to, ids, `${where} message ${at}`);
+        const arrow = SEQUENCE_ARROW[step.arrow ?? 'solid'];
+        if (arrow === undefined) throw new TypeError(`${where}: message ${at} has unknown arrow ${JSON.stringify(step.arrow)}`);
+        lines.push(`${indent}${step.from}${arrow}${step.to}: ${text(step.text, `message ${at}`)}`);
+      } else if (step.kind === 'note') {
+        const side = step.side ?? 'over';
+        const max = side === 'over' ? 2 : 1;
+        if (step.participants.length < 1 || step.participants.length > max) {
+          throw new TypeError(`${where}: note ${at} (${side}) takes 1${max === 2 ? ' or 2' : ''} participants`);
+        }
+        step.participants.forEach((p) => assertKnown(p, ids, `${where} note ${at}`));
+        const place = side === 'over' ? 'over' : side === 'left' ? 'left of' : side === 'right' ? 'right of' : null;
+        if (place === null) throw new TypeError(`${where}: note ${at} has unknown side ${JSON.stringify(side)}`);
+        lines.push(`${indent}Note ${place} ${step.participants.join(',')}: ${text(step.text, `note ${at}`)}`);
+      } else if (step.kind === 'alt' || step.kind === 'opt' || step.kind === 'loop') {
+        if (depth + 1 > SEQUENCE_MAX_DEPTH) {
+          throw new TypeError(`${where}: block ${at} nests deeper than ${SEQUENCE_MAX_DEPTH}`);
+        }
+        if (step.else !== undefined && step.kind !== 'alt') {
+          throw new TypeError(`${where}: block ${at} is ${step.kind}; only alt has else branches`);
+        }
+        lines.push(`${indent}${step.kind}${blockLabel(step.label)}`);
+        renderSteps(step.steps, depth + 1, `${at}.`);
+        (step.else ?? []).forEach((branch, b) => {
+          lines.push(`${indent}else${blockLabel(branch.label)}`);
+          renderSteps(branch.steps, depth + 1, `${at}.else${b}.`);
+        });
+        lines.push(`${indent}end`);
+      } else {
+        throw new TypeError(`${where}: step ${at} has unknown kind ${JSON.stringify((step as { kind?: unknown }).kind)}`);
+      }
+    });
+  };
+  renderSteps(spec.steps ?? [], 0, '');
   return lines.join('\n');
 }

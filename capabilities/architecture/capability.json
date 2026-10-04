@@ -3,7 +3,7 @@
   "role": "feature",
   "version": "1.15.0",
   "title": "Architecture design and review",
-  "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read.",
+  "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read. At plan:post a blocking gate checks the design's mermaid diagrams: every identifier they draw is declared in the code or introduced by the design itself.",
   "tier": "full",
   "requires": [],
   "engines": {
@@ -31,6 +31,11 @@
       "type": "boolean",
       "default": false,
       "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
+    },
+    "workflow.architecture_diagrams_gate": {
+      "type": "boolean",
+      "default": false,
+      "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement; a name it cannot resolve for certain is a warning, never a block."
     }
   },
   "steps": [
@@ -70,5 +75,15 @@
     }
   ],
   "contributions": [],
-  "gates": []
+  "gates": [
+    {
+      "point": "plan:post",
+      "check": {
+        "query": "architecture.diagrams"
+      },
+      "when": "workflow.architecture_diagrams_gate",
+      "blocking": true,
+      "onError": "halt"
+    }
+  ]
 }

@@ -163,6 +163,7 @@
     "test:security": "node scripts/run-tests.cjs --suite security",
     "test:slow": "node scripts/run-tests.cjs --suite slow",
     "test:qa": "node scripts/run-tests.cjs --suite qa",
+    "test:mermaid-real": "npm run build:lib && npm --prefix tools/mermaid-check ci --no-audit --no-fund && node tools/mermaid-check/check.mjs",
     "test:affected": "node scripts/run-affected-tests.cjs",
     "test:coverage": "c8 --check-coverage --lines 70 --branches 60 --reporter text --include 'gsd-core/bin/lib/**/*.cjs' --exclude 'tests/**' --all node scripts/run-tests.cjs",
     "test:coverage:scripts-floor": "c8 report --check-coverage --lines 55 --merge-async --include 'scripts/**/*.cjs' --exclude 'tests/**' --all",

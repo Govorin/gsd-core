@@ -952,6 +952,20 @@ The JSON result carries `plan_count`, `edge_count`, `defect_count`, `defects[]`,
 
 ---
 
+## Diagram Commands
+
+### `diagrams check`
+
+```bash
+node gsd-tools.cjs diagrams check --file <doc.md> [--root <dir>] [--mode docs|design] [--strict] [--raw]
+```
+
+Checks every mermaid block of one markdown document, deterministically. (a) The block must keep to the subset GSD's own builders emit (`flowchart`, `stateDiagram-v2`, `classDiagram`, `erDiagram`, `sequenceDiagram` — grammar in `gsd-core/references/mermaid-authoring.md`); a block outside it is a `diagram_syntax` WARNING with line and column. (b) Every identifier the block draws must exist in the code under `--root` (default: the project): classes, methods and fields by owner, `extends`/`implements` for `<|--`/`<|..`, sequence participants and the receiver's member for each call, ER entities and attributes, and states against the enum named by `%% gsd:source path#Symbol`. Identifiers come from a declaration index (TS/JS, Python, Go, Prisma, SQL; comments and strings excluded; `.gitignore` honoured), not a text search: `absent` (spelled nowhere in the code) is a BLOCKER, `ambiguous` (another kind/owner, a mention only, an unsupported language) a WARNING. Ids marked `%% gsd:external` are not looked up; blocks under a `<!-- gsd:derived … -->` / `<!-- DERIVED. … -->` marker are not re-checked by name. `--mode design` (the default for `*DESIGN.md`) accepts names the document itself introduces (Layer Placement rows, `## Contracts` declarations) as `planned` until frontmatter sets `contracts_superseded: true`.
+
+The JSON result carries `diagram_count`, `blocker_count`, `warning_count`, `diagrams[]` (type, syntax, per-identifier verdicts) and `findings[]` (`line`, `severity`, `category`, `reason`, `claim`, `message`). Findings never fail the command unless `--strict` is given and a BLOCKER exists. The same check runs as the `architecture` capability's blocking `plan:post` gate (`check architecture.diagrams <phase-dir>`, config `workflow.architecture_diagrams_gate`).
+
+---
+
 ## Planning Snapshot Commands
 
 ### `planning inspect`

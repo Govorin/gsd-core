@@ -1,0 +1,18 @@
+flowchart LR
+  %% components, written the way people write them
+  A[Client] --> B{Auth?}
+  B -->|yes| C(("API"))
+  B -- no --> D([Login])
+  C -.-> E[[Worker]] ==> F[(Postgres)]
+  F --- G{{Cache}} -.- H(Queue)
+  G === A
+  subgraph core["Core services"]
+    direction TB
+    I[Billing]
+    J[Ledger]
+  end
+  I --> J
+  classDef hot fill:#fee,stroke:#d33
+  class I,J hot
+  K:::hot
+  linkStyle 0 stroke:#d33,stroke-width:2px

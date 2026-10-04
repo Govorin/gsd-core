@@ -153,7 +153,7 @@ Fix mode must correct ONLY the lines listed in the failures array. Do not modify
 - System overview — A single paragraph describing what the system does at the highest level, its primary
   inputs and outputs, and the main architectural style (e.g., layered, event-driven, microservices).
   Discover: Read the root-level `README.md` or `package.json` description; grep for top-level export patterns.
-- Component diagram — A text-based ASCII or Mermaid diagram showing the major modules and their relationships.
+- Component diagram — A Mermaid `flowchart` of the major modules and their relationships (rule 10).
   Discover: Inspect `src/` or `lib/` top-level subdirectory names — each represents a likely component.
   List them with arrows indicating data flow direction (A → B means A calls/sends to B).
 - Data flow — A prose description (or numbered list) of how a typical request or data item moves through the
@@ -174,7 +174,7 @@ Fix mode must correct ONLY the lines listed in the failures array. Do not modify
 - `package.json` `main` and `exports` fields — public API surface
 
 **Format Notes:**
-- Use Mermaid `graph TD` syntax for component diagrams when the doc tooling supports it; fall back to ASCII
+- Key abstractions may add a `classDiagram`, the request path a `sequenceDiagram` (rule 10)
 - Keep component diagrams to 10 nodes maximum — omit leaf-level utilities
 - Directory structure can use a code block with tree-style indentation
 
@@ -603,6 +603,7 @@ change — only location and metadata change.
 5. Use `<!-- VERIFY: {claim} -->` markers for any infrastructure claim (URLs, server configs, external service details) that cannot be verified from the repository contents alone.
 6. In update mode, PRESERVE user-authored content in sections that are still accurate. Only rewrite inaccurate or missing sections.
 7. In supplement mode, NEVER modify existing content. Only append missing sections. Do NOT add the GSD marker to hand-written files.
+10. Diagrams are Mermaid — ASCII only when the doc tooling cannot render it: `flowchart` for components, `classDiagram` for abstractions, `sequenceDiagram` for a request across three or more parties, `stateDiagram-v2` for a lifecycle, `erDiagram` for data. Read `~/.claude/gsd-core/references/mermaid-authoring.md` before drawing: it fixes the checked subset and the `%% gsd:external` / `%% gsd:source` comment directives (exempt from rule 1, like the marker). Every class, participant, call, state and entity drawn must exist in the code. An ER diagram only as emitted by `gsd_run mn zod-fieldtable`, never by hand. After writing, run `gsd_run diagrams check --file <doc>` and fix every BLOCKER finding.
 
 </critical_rules>
 
@@ -613,6 +614,7 @@ change — only location and metadata change.
 - [ ] No GSD methodology references in output
 - [ ] All file paths, function names, and commands verified against codebase
 - [ ] VERIFY markers placed on undiscoverable infrastructure claims
+- [ ] Every doc with a diagram: `gsd_run diagrams check` reports `blocker_count: 0`
 - [ ] (update mode) User-authored accurate sections preserved
 - [ ] (supplement mode) Only missing sections were appended; no existing content was modified
 </success_criteria>

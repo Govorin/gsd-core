@@ -744,9 +744,10 @@ describe('resolveLoopHooks plan:post — pure function against real registry', (
     // mn-verify-gate now registers two here (wave_collision and wave_solve).
     // What this pins is WHICH capabilities own plan:post, so a gate vanishing
     // still fails; counting instances would fail every time one is added.
+    // Fork (phase 5.7): architecture registers its opt-in DESIGN.md diagram gate here.
     const gateCapIds = [...new Set(entry.gates.map((g) => g.capId))].sort();
-    assert.deepStrictEqual(gateCapIds, ['gap-analysis', 'mn-verify-gate'],
-      `plan:post gates must be gap-analysis + mn-verify-gate; got ${gateCapIds.join(',')}`);
+    assert.deepStrictEqual(gateCapIds, ['architecture', 'gap-analysis', 'mn-verify-gate'],
+      `plan:post gates must be architecture + gap-analysis + mn-verify-gate; got ${gateCapIds.join(',')}`);
   });
 });
 

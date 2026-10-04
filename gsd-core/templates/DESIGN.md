@@ -43,6 +43,8 @@ Template for `.planning/phases/XX-name/{phase_num}-DESIGN.md` — fixes structur
 
 **Derived means:** produced by running a command against the repository, and reproducible by the reader with that same command. Paste the command next to the output. A derived section that a human edited by hand stops being derived — mark it authored or regenerate it.
 
+**Every identifier a diagram draws exists.** Each class, participant, call, state and entity is declared in the code or introduced by this document (a Layer Placement row, a Contracts declaration). Diagrams keep to the checked Mermaid subset in `~/.claude/gsd-core/references/mermaid-authoring.md`: declare every class and state, mark outside parties `%% gsd:external`, name a state diagram's enum or route table with `%% gsd:source path#Symbol`. `gsd_run diagrams check --file <this file>` enforces it; the architecture gate blocks planning on an `absent` name.
+
 ---
 
 ## File Template
@@ -90,8 +92,10 @@ If the project has no layer graph, delete this section and say so in `layer_grap
 classDiagram
   class IThingRepository {
     <<interface>>
-    +findById(id) ...
+    +findById(id) ThingEntity
   }
+  class DrizzleThingRepository
+  class FakeThingRepository
   IThingRepository <|.. DrizzleThingRepository
   IThingRepository <|.. FakeThingRepository
 ```
@@ -128,8 +132,9 @@ template teaches the reader to skim every section.
 
 ```mermaid
 sequenceDiagram
+  %% gsd:external C, P
   participant C as Client
-  participant A as API
+  participant A as ThingController
   participant S as ThingService
   participant P as PaymentProvider
 
@@ -171,6 +176,10 @@ transition, so an arrow nobody decided cannot be drawn without noticing.
 
 ```mermaid
 stateDiagram-v2
+  state "Deck list" as DeckList
+  state "Add word" as AddWord
+  state "Saving" as Saving
+  state "Login" as Login
   [*] --> DeckList
   DeckList --> AddWord: tap «Add»
   AddWord --> Saving: submit

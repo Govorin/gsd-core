@@ -1,0 +1,20 @@
+classDiagram
+  direction LR
+  class IThingRepository {
+    <<interface>>
+    +findById(id) ThingEntity
+    +save(thing) void
+  }
+  class DrizzleThingRepository["Drizzle repository"]
+  class FakeThingRepository
+  class ThingService {
+    -IThingRepository repo
+    +create(dto) Thing
+    +List~Thing~ recent()
+  }
+  ThingService : +remove(id) void
+  <<service>> ThingService
+  IThingRepository <|.. DrizzleThingRepository
+  IThingRepository <|.. FakeThingRepository
+  ThingService "1" --> "1" IThingRepository : uses
+  DrizzleThingRepository ..> ThingService

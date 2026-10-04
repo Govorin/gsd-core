@@ -211,6 +211,11 @@ build/
 /gsd-core/bin/lib/plan-command-router.cjs
 /gsd-core/bin/lib/roadmap-graph.cjs
 /gsd-core/bin/lib/loop-hooks-map.cjs
+/gsd-core/bin/lib/mermaid-parse.cjs
+/gsd-core/bin/lib/symbol-index.cjs
+/gsd-core/bin/lib/diagrams-check.cjs
+/gsd-core/bin/lib/diagrams-command-router.cjs
+/gsd-core/bin/lib/gate-architecture-diagrams.cjs
 /gsd-core/bin/lib/verification-command-router.cjs
 /gsd-core/bin/lib/command-aliases.cjs
 /gsd-core/bin/lib/config-schema.cjs
