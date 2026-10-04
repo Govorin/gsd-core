@@ -190,6 +190,16 @@ non-git project directory`, `validate health command`, `runtime-launcher-parity`
 манифест) — это след переустановки форка, выполненной во время прогона (те же числа, что в выводе
 установщика), а не запись тестами в живую среду.
 
+## Эталон 0.5 (2026-10-04, `next` после фазы 4 и `fix-git-locale`, Node v24.11.0)
+
+Полный `npm test`: **44 823 теста, 44 786 pass, 5 fail, 31 skipped, 1 todo** (29 чанков). Лог:
+`/Users/govorin/forks/gsd-sync-backups/2026-10-04-install/p4-fulltest.log`. Пятое падение
+(`ADR-15 ... --converge`) внесла интеграция, его чинит `742f419bd`, после фикса проверено точечно.
+Остаются 4 падения из-за устаревшего `origin/next`: `compact-content partition guard`, `quick-batch ... byte-identical`,
+`differential attribution over the real tree` (против `origin/next` чтение `%B` переполняет
+буфер; против `upstream/next` тест зелёный) и `removed-but-needed lint ... against origin/next`.
+Git-тесты эталона 0.4 закрыты веткой `fix-git-locale`.
+
 ## Фаза 5. Mermaid везде, где реализуемо (добавлено 2026-10-04)
 
 Принцип (из `upstream-1.15-what-to-take.md` и arXiv 2508.00255/2601.20476): схема строится

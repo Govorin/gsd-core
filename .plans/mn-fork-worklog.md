@@ -633,7 +633,11 @@ absent = enabled applies, so the defaults below are the effective ones.
   only an earlier, still-live ack of the same kind and key can be withdrawn; a
   withdrawal acknowledges nothing. Rules: ADR-3942 fork amendment, CONTEXT.md
   `RULESET.EMITTED_ATTRIBUTION.withdraw`. The executor ack is withdrawn by the
-  commit that records this entry.
+  commit that records this entry (`dffd79c59`).
+- **`fix-git-locale` merged** (`562a7c2ae`): git's locale pinned in `execGit`,
+  `ls-remote --symref` for the base branch. Full `npm test` afterwards: 44 823 tests,
+  only the four stale-`origin/next` failures remain (sync plan, "Эталон 0.5");
+  `742f419bd` fixed the one failure the integration had added.
 
 ### Long-lived state
 
