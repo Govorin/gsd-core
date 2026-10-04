@@ -261,7 +261,7 @@ phase. Before the confirmation gate, list what the window holds that selection d
 
 ```bash
 # COMMITS lines are "<sha> <subject>"; keep window commits whose sha is not among them.
-UNSCOPED=$(git -C "${PROJECT_ROOT:-.}" log --format='%H %s' --no-merges ${UNDO_RANGE} \
+UNSCOPED=$(git -C "${PROJECT_ROOT:-.}" log --format='%H %s' --no-merges "${UNDO_RANGE}" \
   | awk 'NR==FNR { if ($1 != "") sel[$1] = 1; next } !($1 in sel)' <(printf '%s\n' "$COMMITS") - \
   | head -20)
 ```

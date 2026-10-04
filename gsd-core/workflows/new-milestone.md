@@ -135,11 +135,12 @@ Nothing currently carries knowledge across a milestone boundary. This file menti
 Read what the last milestone left behind:
 
 ```bash
-PREV=$(ls -d .planning/milestones/v*/ 2>/dev/null | sort -V | tail -1)
+PREV=$(find .planning/milestones -mindepth 1 -maxdepth 1 -type d -name 'v*' 2>/dev/null | sort -V | tail -1)
+echo "previous milestone archive: ${PREV:-none}"
 sed -n '/^## Milestone: /,$p' .planning/RETROSPECTIVE.md 2>/dev/null | head -60
 sed -n '/### Known Gaps/,/^## /p' .planning/MILESTONES.md 2>/dev/null
 sed -n '/## Deferred Items/,/^## /p' .planning/STATE.md 2>/dev/null
-ls .planning/v*-MILESTONE-AUDIT.md 2>/dev/null | sort -V | tail -1
+find .planning -maxdepth 1 -type f -name 'v*-MILESTONE-AUDIT.md' 2>/dev/null | sort -V | tail -1
 ```
 
 Two obligations, and they are obligations rather than suggestions because the failure they prevent is silent:
