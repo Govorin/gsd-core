@@ -26,7 +26,7 @@ const { SCOPE } = planningScopeMod;
 type Scope = planningScopeMod.Scope;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import roadmapParserModule = require('./roadmap-parser.cjs');
-const { stripShippedMilestones, extractCurrentMilestone, extractCurrentMilestoneScoped, replaceInCurrentMilestone, listMilestoneHeadings, scanMilestonePhaseIds, collectTablePhaseRows, hasPhaseListingTableHeader } = roadmapParserModule;
+const { stripShippedMilestones, extractCurrentMilestone, extractCurrentMilestoneScoped, replaceInCurrentMilestone, listMilestoneHeadings, scanMilestonePhaseIds, collectTablePhaseRows, hasPhaseListingTableHeader, milestoneSections, isClosedMilestoneHeading } = roadmapParserModule;
 import { tokenizeHeadings } from './markdown-sectionizer.cjs';
 import { escapeCell, updateTableCell } from './markdown-table.cjs';
 import { clampPercent } from './phase-lifecycle.cjs';
@@ -430,6 +430,12 @@ const PHASES_WITH_CHECKBOX = new WeakSet<AnalyzePhase>();
 
 type PhaseStatusError = ReturnType<typeof phaseStatus>['value']['statusError'];
 
+/**
+ * A phase field the PlanningDoc seam could not read (ADR-4910): reported, never
+ * read as "no value". `span` is relative to the phase's own section text.
+ */
+type FieldReadError = { phase: string; field: string; reason: string; span: { start: number; end: number } };
+
 type AnalyzePhaseCollection = {
   phases: AnalyzePhase[];
   detailKeys: Set<string>;
@@ -440,7 +446,36 @@ type AnalyzePhaseCollection = {
    * over a report the owner refused.
    */
   statusError: PhaseStatusError;
+  fieldErrors: FieldReadError[];
 };
+
+/** The `**Depends on:**` label, compared case-insensitively as the regex it replaced did. */
+const DEPENDS_ON_LABEL = 'depends on';
+
+/**
+ * A phase section's `**Depends on:**` value, read through the PlanningDoc seam
+ * (ADR-4910) — the one reading `roadmap analyze` and `roadmap graph` share.
+ *
+ * The regex this replaces (`\*\*Depends on(?::\*\*|\*\*:)\s*([^\n]+)`) let
+ * `\s*` cross the line break of an EMPTY field and returned the next line —
+ * `**Depends on:**` followed by `**Requirements:** R1` read as a dependency
+ * on "**Requirements:** R1". The seam reads one line, and only its value: a
+ * hand-written ` — ` annotation after the value is prose (the seam's
+ * `trailingSpan`), not part of the field. An empty field is `null`, like an
+ * absent one.
+ */
+function readDependsOnField(
+  section: string,
+): { ok: true; value: string | null } | { ok: false; reason: string; span: { start: number; end: number } } {
+  const parsed = parsePlanningDoc(section, 'ROADMAP.md');
+  if (!parsed.ok) return { ok: false, reason: parsed.reason, span: { start: 0, end: section.length } };
+  const field = parsed.value.nodes.find((n) => n.kind === 'boldField' && n.label.trim().toLowerCase() === DEPENDS_ON_LABEL);
+  if (field === undefined) return { ok: true, value: null };
+  const read = readNode(parsed.value, field.id);
+  if (!read.ok) return read;
+  const value = read.value.trim();
+  return { ok: true, value: value === '' ? null : value };
+}
 
 // #612 composes the convention-qualified sentinel reading with upstream's
 // canonical legacy sentinel owner. A reserved bracket milestone OR a reserved
@@ -511,6 +546,7 @@ function collectAnalyzePhases(
   // built `phases`; returning them together also keeps fallback rescans atomic.
   const detailKeys = new Set<string>();
   let statusError: PhaseStatusError;
+  const fieldErrors: FieldReadError[] = [];
   while ((match = phasePattern.exec(content)) !== null) {
     const bracketId = G ? match[1] : undefined;
     const phaseNum = match[1 + G];
@@ -539,8 +575,11 @@ function collectAnalyzePhases(
     const modeMatch = section.match(/\*\*Mode(?::\*\*|\*\*:)\s*([^\n]+)/i);
     const mode = modeMatch ? modeMatch[1].trim().toLowerCase() : null;
 
-    const dependsMatch = section.match(/\*\*Depends on(?::\*\*|\*\*:)\s*([^\n]+)/i);
-    const depends_on = dependsMatch ? dependsMatch[1].trim() : null;
+    const dependsRead = readDependsOnField(section);
+    const depends_on = dependsRead.ok ? dependsRead.value : null;
+    if (!dependsRead.ok) {
+      fieldErrors.push({ phase: phaseNum, field: 'Depends on', reason: dependsRead.reason, span: dependsRead.span });
+    }
 
     // Check completion on disk
     const normalized = normalizePhaseName(phaseNum);
@@ -706,16 +745,47 @@ function collectAnalyzePhases(
       context_scope: tContextScope,
     });
   }
-  return { phases, detailKeys, statusError };
+  return { phases, detailKeys, statusError, fieldErrors };
 }
 
-function cmdRoadmapAnalyze(cwd: string, raw: boolean): void {
+/** What `roadmap analyze` reports — the JSON shape of `cmdRoadmapAnalyze`. */
+type RoadmapAnalysis = {
+  milestones: Array<{ heading: string; version: string }>;
+  phases: AnalyzePhase[];
+  phase_count: number;
+  completed_phases: number;
+  total_plans: number;
+  total_summaries: number;
+  progress_percent: number | null;
+  progress_scope: Scope;
+  current_phase: string | null;
+  next_phase: string | null;
+  checkbox_conflict: Array<{ number: string; roadmap_complete: boolean; disk_status: string; plan_count: number; summary_count: number }>;
+  missing_phase_details: string[] | null;
+  scope: Scope;
+};
+
+type AnalyzeRoadmapResult =
+  | { ok: false; reason: 'not_found' }
+  | {
+      ok: true;
+      analysis: RoadmapAnalysis;
+      /** #5118: a refused verification report — the caller fails with it rather than print `analysis`. */
+      statusError: PhaseStatusError;
+      /** Phase fields the PlanningDoc seam could not read (reported, never read as absent). */
+      fieldErrors: FieldReadError[];
+    };
+
+/**
+ * The current milestone's phases with their on-disk status, exactly as
+ * `roadmap analyze` reports them — the ONE collection `roadmap analyze` and
+ * `roadmap graph` read (so the graph can never draw a phase set analyze would
+ * not report). Pure over the files: prints nothing, never exits.
+ */
+function analyzeRoadmap(cwd: string): AnalyzeRoadmapResult {
   const roadmapPath = planningPaths(cwd).roadmap;
 
-  if (!fs.existsSync(roadmapPath)) {
-    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw, undefined);
-    return;
-  }
+  if (!fs.existsSync(roadmapPath)) return { ok: false, reason: 'not_found' };
 
   const rawContent = fs.readFileSync(roadmapPath, 'utf-8');
   // #3184/#3165: use the scoped variant so a truncated window is a
@@ -976,7 +1046,7 @@ function cmdRoadmapAnalyze(cwd: string, raw: boolean): void {
       summary_count: p.summary_count,
     }));
 
-  const result = {
+  const result: RoadmapAnalysis = {
     milestones,
     phases,
     phase_count: phases.length,
@@ -1014,10 +1084,81 @@ function cmdRoadmapAnalyze(cwd: string, raw: boolean): void {
     scope,
   };
 
+  return { ok: true, analysis: result, statusError, fieldErrors: collected.fieldErrors };
+}
+
+function cmdRoadmapAnalyze(cwd: string, raw: boolean): void {
+  const analyzed = analyzeRoadmap(cwd);
+  if (!analyzed.ok) {
+    output({ error: 'ROADMAP.md not found', milestones: [], phases: [], current_phase: null }, raw, undefined);
+    return;
+  }
   // #5118: a read-only aggregate over a refused report prints nothing and
   // fails with the error's own reason.
-  if (statusError) failOnVerificationStatusError(statusError);
-  output(result, raw, undefined);
+  if (analyzed.statusError) failOnVerificationStatusError(analyzed.statusError);
+  output(analyzed.analysis, raw, undefined);
+}
+
+/** One milestone section of ROADMAP.md with its phases, as `analyzeRoadmap` enriches them. */
+type MilestonePhases = {
+  /** The heading (or `<summary>`) text the section starts with. */
+  heading: string;
+  version: string | null;
+  /** True for a shipped/closed milestone (the closed-marker rule `listMilestoneHeadings` uses). */
+  closed: boolean;
+  phases: AnalyzePhase[];
+};
+
+type AnalyzeMilestonesResult =
+  | { ok: false; reason: 'not_found' }
+  | { ok: true; milestones: MilestonePhases[]; statusError: PhaseStatusError; fieldErrors: FieldReadError[] };
+
+/**
+ * Every milestone section's phases — the whole document, closed milestones
+ * included — through the SAME enrichment (`collectAnalyzePhases`) as
+ * `analyzeRoadmap`'s current window. A section nested in another (a collapsed
+ * `<details>` archive inside a heading's range) owns its phases; the outer
+ * section does not count them again. Phases outside every milestone section
+ * are not listed here — `analyzeRoadmap` owns the current window.
+ */
+function analyzeMilestoneSections(cwd: string): AnalyzeMilestonesResult {
+  const roadmapPath = planningPaths(cwd).roadmap;
+  if (!fs.existsSync(roadmapPath)) return { ok: false, reason: 'not_found' };
+  const rawContent = fs.readFileSync(roadmapPath, 'utf-8');
+  const phasesDir = planningPaths(cwd).phases;
+  const convention = resolvePhaseIdConvention(cwd);
+  const phaseDirNames = listAllPhaseDirs(phasesDir, { includeSentinels: true }).value;
+  const sections = milestoneSections(rawContent);
+  const milestones: MilestonePhases[] = [];
+  let statusError: PhaseStatusError;
+  const fieldErrors: FieldReadError[] = [];
+  for (const s of sections) {
+    // Blank out every section nested inside this one, so each phase heading is
+    // read by exactly the innermost section that contains it. Blanking keeps
+    // offsets (and so line structure) intact.
+    let own = rawContent.slice(s.start, s.end);
+    for (const inner of sections) {
+      if (inner === s || inner.start < s.start || inner.end > s.end) continue;
+      if (inner.start === s.start && inner.end === s.end) continue;
+      const a = inner.start - s.start;
+      const b = inner.end - s.start;
+      own = own.slice(0, a) + own.slice(a, b).replace(/[^\n]/g, ' ') + own.slice(b);
+    }
+    const firstLine = rawContent.slice(s.start).split('\n', 1)[0];
+    const summary = /<summary[^>]*>([^<]*)<\/summary>/i.exec(rawContent.slice(s.start, s.end));
+    const heading = (firstLine.startsWith('#') ? firstLine.replace(/^#{1,3}\s+/, '') : summary?.[1] ?? firstLine).trim();
+    const collected = collectAnalyzePhases(own, phasesDir, phaseDirNames, convention);
+    statusError = firstStatusError(statusError, collected.statusError);
+    fieldErrors.push(...collected.fieldErrors);
+    milestones.push({
+      heading,
+      version: s.version,
+      // A collapsed `<details>` archive is a shipped milestone by construction.
+      closed: !firstLine.startsWith('#') || isClosedMilestoneHeading(heading),
+      phases: collected.phases,
+    });
+  }
+  return { ok: true, milestones, statusError, fieldErrors };
 }
 
 // ─── cmdRoadmapMilestoneScope ────────────────────────────────────────────────
@@ -1983,6 +2124,8 @@ function cmdRoadmapAnnotateDependencies(cwd: string, phaseNum: string | null | u
 export = {
   cmdRoadmapGetPhase,
   getRoadmapPhaseWithFallback,
+  analyzeRoadmap,
+  analyzeMilestoneSections,
   cmdRoadmapAnalyze,
   cmdRoadmapMilestoneScope,
   cmdRoadmapUpdatePlanProgress,

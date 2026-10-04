@@ -2413,6 +2413,9 @@ export = {
   // this instead of composing locate+select+section-end itself.
   sliceMilestoneWindow,
   milestoneSections,
+  // The closed-marker rule `listMilestoneHeadings` applies, for a reader that
+  // already holds a section's heading text (`roadmap graph --all`).
+  isClosedMilestoneHeading,
   hasVersionedMilestones,
   hasMilestoneSectioning,
   // #3642: the >=1 sibling buildStateFrontmatter's unbounded branch consumes.
