@@ -210,8 +210,25 @@ export function projectManagedHookCommand({ absoluteRunner, scriptPath, runtime 
 });
 }
 
+/**
+ * The mn fork's own settings.json hooks (registered by runtime-hooks-surface's
+ * fork block). They are GSD-managed like every other entry here: outside these
+ * sets, isManagedHookCommand never recognized them, so uninstall deleted the
+ * scripts and left the registrations behind — a WorktreeCreate entry pointing
+ * at a deleted script fails every worktree creation — and the #338
+ * settings.json → settings.local.json migration left them in the shared file.
+ */
+const FORK_MANAGED_SETTINGS_HOOK_BASENAMES = [
+  'gsd-prohibition-guard.js',
+  'gsd-test-tamper-guard.js',
+  'gsd-exit-gate.js',
+  'gsd-pin-invariants.js',
+  'gsd-worktree-provision.js',
+];
+
 const MANAGED_HOOK_BASENAMES_BY_SURFACE: Record<string, Set<string>> = {
   'settings-json': new Set([
+    ...FORK_MANAGED_SETTINGS_HOOK_BASENAMES,
     'gsd-check-update.js',
     'gsd-config-reload.js',
     'gsd-statusline.js',
@@ -238,6 +255,7 @@ const MANAGED_HOOK_BASENAMES_BY_SURFACE: Record<string, Set<string>> = {
 
 const MANAGED_HOOK_COMMAND_BASENAMES_BY_SURFACE: Record<string, Set<string>> = {
   'settings-json': new Set([
+    ...FORK_MANAGED_SETTINGS_HOOK_BASENAMES,
     'gsd-check-update.js',
     'gsd-config-reload.js',
     'gsd-statusline.js',
