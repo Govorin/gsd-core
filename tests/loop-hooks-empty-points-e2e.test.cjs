@@ -5,10 +5,12 @@
  * Hook points tested: discuss:pre, discuss:post, execute:pre, execute:wave:pre,
  *                     verify:pre, ship:post
  *
- * 5 of these points have zero hooks in the real registry by design.
+ * 4 of these points have zero hooks in the real registry by design.
  * verify:pre graduated out of the empty set in #1562 (it now carries the
  * ai-integration `api-coverage.verify-pre` blocking gate); SECTION 5 pins the
  * new contract + retains synthetic extension-point-mechanics coverage.
+ * ship:post graduated when the retro capability registered its lifecycle stage
+ * there (ADR-5209); SECTION 6 pins that contract the same way.
  * Tests pin: exact envelope shape, placeholder string contract (Hyrum's Law),
  * resolver-filter mechanics (schema default / config-override / capabilityStatesById),
  * CLI contract (missing-arg, invalid-point), and Postel-leniency (malformed config).
@@ -607,16 +609,21 @@ describe('verify:pre — real registry carries the api-coverage gate (#1562); sy
 // SECTION 6: ship:post
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('ship:post — real registry empty-resolution + resilience to registry edge-cases', () => {
-  it('[happy] ship:post E2E subprocess returns typed envelope: point=\'ship:post\', activeHooks=[], rendered=placeholder, no extra keys', () => {
+describe('ship:post — the retro stage is its only default hook; resilience to registry edge-cases', () => {
+  // ship:post left the empty set when the retro capability registered its lifecycle stage there
+  // (`retro stage`, when: retro.enabled — default true, ADR-5209). The mempalace curator stays
+  // off by default (mempalace.enabled false); no other capability reaches this point.
+  const RETRO_STAGE = { capId: 'retro', kind: 'step', ref: { command: 'retro stage' } };
+  const shape = (h) => ({ capId: h.capId, kind: h.kind, ref: h.ref });
+
+  it('[happy] ship:post E2E subprocess returns typed envelope: point=\'ship:post\', the retro stage only, no extra keys', () => {
     const tmpDir = makeTempProject();
     try {
       const result = spawnGsd(['loop', 'render-hooks', 'ship:post', '--raw', '--cwd', tmpDir], tmpDir);
       assert.strictEqual(result.status, 0, `expected exit 0. stderr: ${result.stderr}`);
       const envelope = JSON.parse(result.stdout.trim());
       assert.strictEqual(envelope.point, 'ship:post');
-      assert.deepEqual(envelope.activeHooks, []);
-      assert.strictEqual(envelope.rendered, '_No active hooks at ship:post._');
+      assert.deepEqual(envelope.activeHooks.map(shape), [RETRO_STAGE]);
       assert.deepEqual(Object.keys(envelope).sort(), ['activeHooks', 'point', 'rendered']);
       assert.ok(!Object.prototype.hasOwnProperty.call(envelope, 'warnings'), 'must not have warnings key');
     } finally {
@@ -624,41 +631,51 @@ describe('ship:post — real registry empty-resolution + resilience to registry 
     }
   });
 
-  it('[bva] ship:post returns empty activeHooks regardless of any capability config being enabled — no config leaks hooks into this point', () => {
+  it('[bva] ship:post with every phase-loop capability enabled still carries only the retro stage — no config leaks hooks into this point', () => {
     const allOnDir = makeTempProjectWithConfig(ALL_CAPS_ON_CONFIG);
     try {
       const result = spawnGsd(['loop', 'render-hooks', 'ship:post', '--raw', '--cwd', allOnDir], allOnDir);
       assert.strictEqual(result.status, 0);
       const envelope = JSON.parse(result.stdout.trim());
-      assert.deepEqual(envelope.activeHooks, [], 'Maximum capability activation must still produce zero hooks at ship:post');
+      assert.deepEqual(envelope.activeHooks.map(shape), [RETRO_STAGE], 'Maximum phase-loop activation must not add hooks at ship:post');
     } finally {
       cleanup(allOnDir);
     }
   });
 
-  it('[happy] resolveLoopHooks with real capability-registry at ship:post returns empty activeHooks (mempalace step inactive by default) and well-formed byLoopPoint entry with 1 step', () => {
-    // mempalace.enabled defaults to false → step not activated with empty config
+  it('[bva] retro.enabled false empties ship:post again (the placeholder contract still holds)', () => {
+    const offDir = makeTempProjectWithConfig({ retro: { enabled: false } });
+    try {
+      const result = spawnGsd(['loop', 'render-hooks', 'ship:post', '--raw', '--cwd', offDir], offDir);
+      assert.strictEqual(result.status, 0);
+      const envelope = JSON.parse(result.stdout.trim());
+      assert.deepEqual(envelope.activeHooks, []);
+      assert.strictEqual(envelope.rendered, '_No active hooks at ship:post._');
+    } finally {
+      cleanup(offDir);
+    }
+  });
+
+  it('[happy] resolveLoopHooks with real capability-registry at ship:post returns the retro stage (mempalace step inactive by default); byLoopPoint holds both steps', () => {
+    // mempalace.enabled defaults to false; retro.enabled defaults to true.
     const resolved = resolveLoopHooks({ point: 'ship:post', registry: realRegistry, config: {} });
     assert.strictEqual(resolved.point, 'ship:post');
-    assert.ok(Array.isArray(resolved.activeHooks));
-    assert.strictEqual(resolved.activeHooks.length, 0);
+    assert.deepEqual(resolved.activeHooks.map(shape), [RETRO_STAGE]);
 
     const entry = realRegistry.byLoopPoint['ship:post'];
     assert.ok(entry, 'ship:post must be present in real registry byLoopPoint');
-    assert.strictEqual(entry.steps.length, 1, 'ship:post must have 1 step (mempalace curator)');
-    assert.strictEqual(entry.steps[0].capId, 'mempalace', 'ship:post step must be from mempalace');
+    assert.deepEqual(entry.steps.map((st) => st.capId).sort(), ['mempalace', 'retro'], 'ship:post steps: the mempalace curator and the retro stage');
     assert.strictEqual(entry.contributions.length, 0, 'ship:post must have 0 contributions');
     assert.strictEqual(entry.gates.length, 0, 'ship:post must have 0 gates');
   });
 
-  it('[negative] ship:post E2E exits 0 and returns empty envelope when project has no .planning directory at all', () => {
+  it('[negative] ship:post E2E exits 0 with no .planning directory at all, and carries nothing but the default retro stage', () => {
     const bareDir = makeBareDir();
     try {
       const result = spawnGsd(['loop', 'render-hooks', 'ship:post', '--raw', '--cwd', bareDir], bareDir);
       assert.strictEqual(result.status, 0, `expected exit 0 even with no .planning dir. stderr: ${result.stderr}`);
       const envelope = JSON.parse(result.stdout.trim());
-      assert.strictEqual(envelope.activeHooks.length, 0);
-      assert.strictEqual(envelope.rendered, '_No active hooks at ship:post._');
+      assert.deepEqual(envelope.activeHooks.map(shape), [RETRO_STAGE]);
     } finally {
       cleanup(bareDir);
     }
@@ -698,14 +715,13 @@ describe('ship:post — real registry empty-resolution + resilience to registry 
     assert.strictEqual(resolved.activeHooks.length, 0, 'missing arrays in byLoopPoint entry must not throw');
   });
 
-  it('[bva] ship:post returns empty activeHooks even when security_enforcement=true — security gate lives at ship:pre not ship:post', () => {
+  it('[bva] ship:post carries no security gate even when security_enforcement=true — security gate lives at ship:pre not ship:post', () => {
     const securityOnDir = makeTempProjectWithConfig({ workflow: { security_enforcement: true } });
     try {
-      // ship:post must be empty
       const postResult = spawnGsd(['loop', 'render-hooks', 'ship:post', '--raw', '--cwd', securityOnDir], securityOnDir);
       assert.strictEqual(postResult.status, 0);
       const postEnvelope = JSON.parse(postResult.stdout.trim());
-      assert.deepEqual(postEnvelope.activeHooks, [], 'ship:post must be empty even with security_enforcement=true');
+      assert.deepEqual(postEnvelope.activeHooks.map(shape), [RETRO_STAGE], 'ship:post must not gain a security hook with security_enforcement=true');
 
       // ship:pre must have the security gate (proves the config actually works and the difference is real)
       const preResult = spawnGsd(['loop', 'render-hooks', 'ship:pre', '--raw', '--cwd', securityOnDir], securityOnDir);
@@ -716,15 +732,6 @@ describe('ship:post — real registry empty-resolution + resilience to registry 
     } finally {
       cleanup(securityOnDir);
     }
-  });
-
-  it('[happy] ship:post byLoopPoint entry exists in the real registry with 1 step (mempalace), 0 contributions, 0 gates', () => {
-    const entry = realRegistry.byLoopPoint['ship:post'];
-    assert.ok(entry, 'ship:post must be present in real registry byLoopPoint');
-    assert.strictEqual(entry.steps.length, 1, 'ship:post must have 1 step (mempalace curator step)');
-    assert.strictEqual(entry.steps[0].capId, 'mempalace', 'ship:post step must be from mempalace capability');
-    assert.strictEqual(entry.contributions.length, 0, 'ship:post must have 0 contributions');
-    assert.strictEqual(entry.gates.length, 0, 'ship:post must have 0 gates');
   });
 });
 

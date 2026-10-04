@@ -77,6 +77,11 @@
       "default": 0.25,
       "description": "Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%."
     },
+    "architecture.metrics_at_milestone": {
+      "type": "boolean",
+      "default": true,
+      "description": "Measure the architecture when a milestone closes (complete-milestone, milestone:post): gsd-tools arch stage runs arch metrics --compare-last over the configured scope and window and writes .planning/architecture/metrics-<date>.json, the baseline the next close compares against. Deterministic and model-free; whether a survey follows is architecture.survey_at_milestone's call. Off: nothing runs at the close."
+    },
     "architecture.survey_at_milestone": {
       "type": "enum",
       "values": [
@@ -85,7 +90,7 @@
         "off"
       ],
       "default": "suggest",
-      "description": "What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt."
+      "description": "What complete-milestone does (after the architecture.metrics_at_milestone measurement) when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt."
     }
   },
   "steps": [
@@ -121,6 +126,16 @@
         "DESIGN.md"
       ],
       "when": "workflow.architecture_review",
+      "onError": "skip"
+    },
+    {
+      "point": "milestone:post",
+      "ref": {
+        "command": "arch stage"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "architecture.metrics_at_milestone",
       "onError": "skip"
     }
   ],

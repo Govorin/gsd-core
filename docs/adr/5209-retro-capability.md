@@ -56,7 +56,7 @@ A retro writes a report, a candidates file and proposed patches. A human picks a
 
 ### 6. The lifecycle decision is a command, not a loop step (yet)
 
-`gsd-tools retro signals --decide` answers `skip | suggest | auto`: `skip` when the capability is off, when `retro.auto` is `off` (no transcript is read), or when the score is below `retro.signal_threshold`; otherwise `retro.auto`'s mode, with the `/gsd-retro --session <id>` command and, for `suggest`, the one line to print. A smooth session stays silent. Wiring it into `ship:post` and the end of `execute-phase` is a capability contribution (ADR-857/959) left to integration.
+`gsd-tools retro signals --decide` answers `skip | suggest | auto`: `skip` when the capability is off, when `retro.auto` is `off` (no transcript is read), or when the score is below `retro.signal_threshold`; otherwise `retro.auto`'s mode, with the `/gsd-retro --session <id>` command and, for `suggest`, the one line to print. A smooth session stays silent. The capability wires it into the loop as two command steps, `retro stage` at `execute:post` (the end of `execute-phase`) and at `ship:post` (`when: retro.enabled`); the step's JSON carries the stage answer of `gsd-core/references/loop-hook-dispatch.md` (`decision`, `message`, `next: {skill: retro, args: --session <id>}`), so the host prints a suggestion or, on `auto`, starts `/gsd-retro` — whose candidates are still never applied.
 
 ### 7. The removal loop: `.planning/retro/CHECKS.json`
 
@@ -66,7 +66,7 @@ A check a human accepted is journaled — `id`, `kind`, the literal it prints wh
 
 - `retro.*` keys are declared on the capability (`retro.signal_threshold` and the `*_min` thresholds that `resolveRetroThresholds` reads, `retro.excerpt_window`, `retro.max_signals`, `retro.excerpt_chars`, `retro.auto`, `retro.check_stale_days`), so `config-set retro.*` accepts them. An invalid value in `config.json` keeps the default and is named in the report's `reasons`, never silently replaced.
 - The CLI router is synchronous at the edge, as `dispatchCapabilityCommand` requires: argument and session validation run before anything is read, and the streamed transcript read finishes after the router returns (the profile-pipeline precedent).
-- `gsd-finding-refuter` gains a `retro` mode and `ship:post` gains a contribution in the integration wave; until then `/gsd-retro` is complete except for the refuter's dry run.
+- `gsd-finding-refuter` carries a `retro` mode (integration wave, 2026-10-05), and the lifecycle stage runs at `execute:post` and `ship:post`.
 
 ## Alternatives rejected
 

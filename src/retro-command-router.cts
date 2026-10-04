@@ -9,6 +9,8 @@
  *
  *   signals     friction report for one session (retro-signals), or with
  *               `--decide` the lifecycle answer skip | suggest | auto
+ *   stage       `signals --decide` as a loop-point command step (ship:post,
+ *               execute:post): the stage answer of loop-hook-dispatch.md
  *   inventory   what the environment already enforces (retro-inventory)
  *   prepare     the analyst's input bundle + this retro's artifact paths
  *   candidates  validate the analyst's candidates against that bundle
@@ -178,6 +180,8 @@ interface RetroDecision {
   command: string | null;
   /** The one line a suggest prints; null otherwise. */
   message: string | null;
+  /** What the host dispatches on `auto` (loop-hook-dispatch.md stage answer); null on skip. */
+  next: { skill: 'retro'; args: string } | null;
   problems: string[];
 }
 
@@ -203,18 +207,20 @@ function decideRetro(input: {
     status: r ? r.status : null,
     problems: [...(input.problems ?? [])],
   };
-  const skip = (reason: RetroDecision['reason']): RetroDecision => ({ ...base, decision: 'skip', reason, command: null, message: null });
+  const skip = (reason: RetroDecision['reason']): RetroDecision => ({ ...base, decision: 'skip', reason, command: null, message: null, next: null });
   if (!input.active) return skip('capability-disabled');
   if (input.mode === 'off') return skip('retro-auto-off');
   if (!r || r.score < r.threshold) return skip('below-threshold');
   const slash = input.slash ?? '/gsd-retro';
-  const command = r.session ? `${slash} --session ${r.session}` : slash;
+  const args = r.session ? `--session ${r.session}` : '';
+  const command = args === '' ? slash : `${slash} ${args}`;
   return {
     ...base,
     decision: input.mode,
     reason: 'threshold-reached',
     command,
     message: input.mode === 'suggest' ? `This session struggled (friction ${r.score} >= ${r.threshold}): run ${command}` : null,
+    next: { skill: 'retro', args },
   };
 }
 
@@ -440,10 +446,10 @@ interface Env {
   now: Date;
 }
 
-function handleSignals(env: Env): Invalid | undefined {
+function handleSignals(env: Env, stage = false): Invalid | undefined {
   const sel = parseSelection(env.args, env.now);
   if (isInvalid(sel)) return sel;
-  const decide = env.args.includes('--decide');
+  const decide = stage || env.args.includes('--decide');
   const cfg = readRetroConfig(env.cwd);
   if (!cfg.active || (decide && cfg.mode === 'off')) {
     // Nothing is read when the answer cannot depend on it.
@@ -667,13 +673,16 @@ function routeRetroCommand({ args, cwd, raw, error, _now }: RouteRetroCommandOpt
     family: 'retro',
     args,
     // Alphabetical for a stable unknown-subcommand message.
-    subcommands: ['candidates', 'checks', 'inventory', 'prepare', 'signals'],
+    subcommands: ['candidates', 'checks', 'inventory', 'prepare', 'signals', 'stage'],
     handlers: {
       candidates: () => handleCandidates(env),
       checks: () => handleChecks(env),
       inventory: () => handleInventory(env),
       prepare: () => handlePrepare(env),
       signals: () => handleSignals(env),
+      // A loop-point command step is `retro stage --phase N`: the phase is the
+      // host's, the session is still the newest one, so `--phase` is ignored.
+      stage: () => handleSignals(env, true),
     },
     unknownMessage: (subcommand: string, available: string[]) =>
       `Unknown retro subcommand. Available: ${available.join(', ')}`,

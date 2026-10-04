@@ -4,14 +4,15 @@
  * Tests for arch-command-router.cjs (built from src/arch-command-router.cts) — `gsd-tools arch`,
  * the CLI steps of `/gsd:arch-survey` (pocock-practices design, D1).
  *
- * The router is driven in-process through its `_output` / `_clock` seams: the `arch` family is
- * dispatched once the architecture capability registers it (`commands[]`), which is outside this
- * change. Assertions read the typed results each step emits and the typed readers of the files it
+ * The router is driven in-process through its `_output` / `_clock` seams (the architecture
+ * capability registers the `arch` family through `commands[]`). Assertions read the typed results each step emits and the typed readers of the files it
  * writes; a written report is checked by size against what the renderer produces, never by content.
  *
  * Pinned here:
  *   - `metrics` writes `metrics-<date>.json`; `--compare-last` compares with the latest earlier
  *     run and applies `architecture.survey_at_milestone` from the project config;
+ *   - `stage` (the `milestone:post` command step) measures with `--compare-last` over the
+ *     configured scope, always, and answers skip / suggest / auto with the survey as `next`;
  *   - bad flags and paths outside the project are `usage`; a step run before its input exists is
  *     `arch_input_unavailable`;
  *   - the whole flow — metrics, cards, refutation, report, decide — and a rejection excluding the
@@ -123,6 +124,79 @@ describe('arch metrics', () => {
       assert.equal(arch(['metrics', ...args]).reason, ERROR_REASON.USAGE);
     });
   }
+});
+
+describe('arch stage (milestone:post)', () => {
+  function growA() {
+    write('src/a.ts', `${fs.readFileSync(path.join(root, 'src/a.ts'), 'utf-8')}export function more(y) { if (y) { if (y > 1) { return 2; } } return 1; }\n`);
+    gitOrThrow(['commit', '-qam', 'grow a'], { cwd: root });
+  }
+
+  test('the first run writes metrics and skips: no baseline, nothing to compare', () => {
+    const r = arch(['stage', '--milestone', 'v1.0', '--date', '2026-09-01']);
+    assert.equal(r.value.path, '.planning/architecture/metrics-2026-09-01.json');
+    assert.deepEqual([r.value.milestone.reason, r.value.decision, r.value.next], ['no-baseline', 'skip', null]);
+  });
+
+  test('growth under suggest names the survey scoped to the zone directories, and dispatches nothing', () => {
+    arch(['stage', '--date', '2026-09-01']);
+    growA();
+    const r = arch(['stage', '--milestone', 'v1.1', '--date', DATE]);
+    assert.equal(r.value.decision, 'suggest');
+    assert.deepEqual(r.value.next, { skill: 'arch-survey', args: '--paths src' });
+    assert.equal(typeof r.value.message, 'string');
+  });
+
+  test('growth under auto dispatches the survey with no message', () => {
+    write('.planning/config.json', JSON.stringify({ architecture: { survey_at_milestone: 'auto' } }));
+    arch(['stage', '--date', '2026-09-01']);
+    growA();
+    const r = arch(['stage', '--date', DATE]);
+    assert.deepEqual([r.value.decision, r.value.message], ['auto', null]);
+    assert.equal(r.value.next.skill, 'arch-survey');
+  });
+
+  test('off still measures and skips', () => {
+    write('.planning/config.json', JSON.stringify({ architecture: { survey_at_milestone: 'off' } }));
+    arch(['stage', '--date', '2026-09-01']);
+    growA();
+    const r = arch(['stage', '--date', DATE]);
+    assert.equal(r.value.path, '.planning/architecture/metrics-2026-10-05.json');
+    assert.deepEqual([r.value.milestone.action, r.value.decision], ['off', 'skip']);
+  });
+
+  test('--raw (how a loop point runs it) prints the stage answer as JSON', () => {
+    let rawText = null;
+    routeArchCommand({
+      args: ['arch', 'stage', '--date', DATE],
+      cwd: root,
+      raw: true,
+      error: (message) => { throw new Error(message); },
+      _output: (_value, _raw, text) => { rawText = text; },
+      _clock: { localToday: () => DATE },
+    });
+    assert.deepEqual(Object.keys(JSON.parse(rawText)).filter((k) => ['decision', 'message', 'next'].includes(k)), ['decision', 'message', 'next']);
+  });
+
+  test('the user flags of metrics do not reach the stage', () => {
+    const r = arch(['stage', '--paths', '../elsewhere', '--top', '0']);
+    assert.equal(r.value.decision, 'skip');
+    assert.deepEqual(r.value.scope, arch(['metrics']).value.scope, 'the configured scope, not --paths');
+  });
+});
+
+describe('milestoneStageAnswer', () => {
+  const zone = (id, label) => ({ id, label, seed: `${label}/x.ts`, score: 1, files: [], signals: {} });
+  test('a zone at the root runs the survey unscoped; labels are deduplicated and sorted', () => {
+    const d = { mode: 'auto', action: 'auto', reason: 'growth', zones: ['z1', 'z2', 'z3'] };
+    assert.equal(am.milestoneStageAnswer(d, [zone('z1', 'src/b'), zone('z2', 'src/a'), zone('z3', 'src/a')]).next.args, '--paths src/a,src/b');
+    assert.equal(am.milestoneStageAnswer(d, [zone('z1', '.'), zone('z2', 'src')]).next.args, '');
+  });
+  test('none and off are skip', () => {
+    for (const action of ['none', 'off']) {
+      assert.deepEqual(am.milestoneStageAnswer({ mode: 'suggest', action, reason: 'no-growth', zones: [] }, []), { decision: 'skip', message: null, next: null });
+    }
+  });
 });
 
 describe('arch steps out of order', () => {

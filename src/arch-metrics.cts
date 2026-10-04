@@ -690,3 +690,28 @@ export function milestoneDecision(comparison: Comparison, mode: MilestoneMode): 
   if (!comparison.signal) return { mode, action: 'none', reason: 'no-growth', zones: [] };
   return { mode, action: mode, reason: 'growth', zones: comparison.zones };
 }
+
+/**
+ * The stage answer of `arch stage` (loop-hook-dispatch.md): what `complete-milestone` does at
+ * `milestone:post` with a milestone decision. The survey is scoped to the directories of the
+ * zones that grew (`--paths`); a zone labelled `.` covers the root, so the survey runs unscoped.
+ */
+export interface MilestoneStageAnswer {
+  decision: 'skip' | 'suggest' | 'auto';
+  message: string | null;
+  next: { skill: 'arch-survey'; args: string } | null;
+}
+
+export function milestoneStageAnswer(decision: MilestoneDecision, zones: readonly Zone[], slash = '/gsd-arch-survey'): MilestoneStageAnswer {
+  if (decision.action !== 'suggest' && decision.action !== 'auto') return { decision: 'skip', message: null, next: null };
+  const flagged = zones.filter((z) => decision.zones.includes(z.id));
+  const labels = [...new Set(flagged.map((z) => z.label))].sort(cmp);
+  const args = labels.length === 0 || labels.includes('.') ? '' : `--paths ${labels.join(',')}`;
+  const command = args === '' ? slash : `${slash} ${args}`;
+  const where = labels.length === 0 ? '' : ` in ${labels.join(', ')}`;
+  return {
+    decision: decision.action,
+    message: decision.action === 'suggest' ? `Hot spots grew since the last architecture survey${where}: run ${command}` : null,
+    next: { skill: 'arch-survey', args },
+  };
+}

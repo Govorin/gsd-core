@@ -58,6 +58,11 @@
       "type": "number",
       "default": 40,
       "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
+    },
+    "code_review.window_at_milestone": {
+      "type": "boolean",
+      "default": true,
+      "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
     }
   },
   "steps": [
@@ -89,6 +94,16 @@
       "supportsReviewerLanes": true,
       "when": "workflow.code_review",
       "pointFrom": "workflow.code_review_point",
+      "onError": "skip"
+    },
+    {
+      "point": "milestone:pre",
+      "ref": {
+        "command": "review stage"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.code_review",
       "onError": "skip"
     }
   ],

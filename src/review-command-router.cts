@@ -22,8 +22,12 @@
  *   review window-paths --review <path to a window REVIEW.md>
  *       Validate a window REVIEW.md path for `code-review-fix.md --review`.
  *
- * A milestone-boundary stage reviews the milestone's range through the same entry point:
- * `review window-prepass --since last` (or `--since <previous milestone tag>`).
+ *   review stage [--milestone vX.Y] [--date YYYY-MM-DD]
+ *       The code-review capability's `milestone:pre` command step: resolve the milestone's window
+ *       (`last`, else the previous `v*` tag), run the pre-pass over it (written like
+ *       window-prepass), and answer per loop-hook-dispatch.md — `auto` with `/gsd-code-review
+ *       --since <since>` as `next` when `code_review.window_at_milestone` is on, `suggest` when it
+ *       is off, `skip` for an empty window. The deterministic pre-pass always runs.
  *
  * Failure mapping (ADR-3889, through io.error's reason → outcome): bad argv or a path outside
  * `<planning>/reviews` → `usage`; a window git cannot resolve (`no-last-window-marker`, an unknown
@@ -53,10 +57,12 @@ import { parseWindowSince, isSafeRefArgument } from './gate-evaluation-scope.cjs
 import { CODE_REVIEW_LENSES } from './code-review-flags.cjs';
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
-  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
+  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
+  reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
   REVIEWS_DIR, WINDOW_FILES,
 } from './window-review.cjs';
-import type { WindowPrepass } from './window-review.cjs';
+import type { GitRunner, WindowPrepass } from './window-review.cjs';
+import { formatGsdSlashFor } from './runtime-slash.cjs';
 
 const { output, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -65,7 +71,7 @@ const { loadConfig } = configLoaderMod;
 const { planningDir } = planningWorkspaceMod;
 
 export const REVIEW_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
+  'stage', 'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
 ]);
 
 const USAGE = Object.freeze({
@@ -74,6 +80,7 @@ const USAGE = Object.freeze({
   'window-deferred': 'Usage: gsd-tools review window-deferred --dir <window dir> [--raw]',
   'window-mark': 'Usage: gsd-tools review window-mark --dir <window dir>',
   'window-paths': 'Usage: gsd-tools review window-paths --review <window REVIEW.md>',
+  stage: 'Usage: gsd-tools review stage [--milestone vX.Y] [--date YYYY-MM-DD]',
 });
 
 interface RouteReviewCommandOptions {
@@ -83,6 +90,8 @@ interface RouteReviewCommandOptions {
   error: (message: string, reason?: string) => void;
   /** Test seam: the clock `--since 7d` and the window date are measured from. */
   _clock?: { now(): number };
+  /** Test seam: the git runner of `stage` (window start lookup and pre-pass). */
+  _execGit?: GitRunner;
 }
 
 class UsageError extends Error {}
@@ -136,6 +145,7 @@ function readConfig(cwd: string) {
   return {
     lenses: get('code_review.window_lenses'),
     batchSize: get('code_review.window_max_files_per_batch'),
+    atMilestone: get('code_review.window_at_milestone'),
     threshold: get('refactor.complexity_threshold'),
     jumpDelta: get('refactor.complexity_jump_delta'),
   };
@@ -225,6 +235,52 @@ function handlePrepass(args: string[], cwd: string, raw: boolean, clock: { now()
   output({ ...prepass, prepass: rel(cwd, file), reviewedAlready, warnings }, raw, `${rel(cwd, file)}\n`);
 }
 
+function handleStage(args: string[], cwd: string, raw: boolean, clock: { now(): number } | undefined, execGit: GitRunner | undefined): void {
+  const milestone = flagValue(args, 'milestone');
+  if (milestone !== null && !isSafeRefArgument(milestone)) throw new UsageError(`--milestone must be a version like v1.2, got ${milestone}`);
+  const date = flagValue(args, 'date');
+  if (date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new UsageError(`--date must be YYYY-MM-DD, got ${date}`);
+  const config = readConfig(cwd);
+  // Absent = enabled: only an explicit false turns the model review off.
+  const atMilestone = config.atMilestone !== false;
+  const slashOut = formatGsdSlashFor(cwd, 'code-review');
+  const slash = typeof slashOut === 'string' ? slashOut : undefined;
+  const since = milestoneWindowSince(cwd, milestone, execGit);
+  if (since === null) {
+    output({ since, window: null, ...milestoneReviewAnswer(null, null, atMilestone, slash) }, raw);
+    return;
+  }
+  const parsedLenses = parseLenses(typeof config.lenses === 'string' ? config.lenses : '');
+  const prepass = computeWindowPrepass(cwd, {
+    since,
+    ...(date !== null ? { date } : {}),
+    ...(clock !== undefined ? { clock } : {}),
+    ...(execGit !== undefined ? { execGit } : {}),
+    lenses: parsedLenses.lenses.length > 0 ? parsedLenses.lenses : [...CODE_REVIEW_LENSES],
+    batchSize: configInt(config.batchSize),
+    threshold: typeof config.threshold === 'number' ? config.threshold : undefined,
+    jumpDelta: typeof config.jumpDelta === 'number' ? config.jumpDelta : undefined,
+  });
+  const answer = milestoneReviewAnswer(prepass, since, atMilestone, slash);
+  let written: string | null = null;
+  if (prepass.status !== 'unresolvable' && prepass.files.length > 0) {
+    const file = path.join(cwd, prepass.dir, WINDOW_FILES.prepass);
+    writeTextAtomic(file, `${JSON.stringify(prepass, null, 2)}\n`);
+    written = rel(cwd, file);
+  }
+  output({
+    since,
+    status: prepass.status,
+    reason: prepass.reason,
+    window: prepass.window,
+    files: prepass.files.length,
+    commits: prepass.commits,
+    classes: prepass.classes,
+    prepass: written,
+    ...answer,
+  }, raw);
+}
+
 function handleCompose(args: string[], cwd: string, raw: boolean, clock: { now(): number } | undefined): void {
   const dir = windowDirArg(args, cwd, USAGE['window-compose']);
   const prepass = readPrepass(dir);
@@ -303,7 +359,7 @@ function handlePaths(args: string[], cwd: string, raw: boolean): void {
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
-function routeReviewCommand({ args, cwd, raw, error, _clock }: RouteReviewCommandOptions): void {
+function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit }: RouteReviewCommandOptions): void {
   const guarded = (run: () => void) => (): void => {
     try {
       run();
@@ -318,6 +374,7 @@ function routeReviewCommand({ args, cwd, raw, error, _clock }: RouteReviewComman
     args,
     subcommands: [...REVIEW_SUBCOMMANDS],
     handlers: {
+      stage: guarded(() => handleStage(args, cwd, raw, _clock, _execGit)),
       'window-prepass': guarded(() => handlePrepass(args, cwd, raw, _clock)),
       'window-compose': guarded(() => handleCompose(args, cwd, raw, _clock)),
       'window-deferred': guarded(() => handleDeferred(args, cwd, raw)),

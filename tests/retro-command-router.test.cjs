@@ -248,6 +248,22 @@ describe('retro signals --decide', () => {
     assert.deepEqual([r.json.decision, r.json.reason], ['skip', 'capability-disabled']);
   });
 
+  test('retro stage is the loop-point form: same answer, --phase ignored, next names the skill', () => {
+    writeConfig(project, { retro: { auto: 'auto' } });
+    writeSession(sessions, project, 'sess-e2e', strugglingRecords());
+    const r = retro(['stage', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.equal(r.success, true, r.error);
+    assert.deepEqual([r.json.decision, r.json.reason], ['auto', 'threshold-reached']);
+    assert.deepEqual(r.json.next, { skill: 'retro', args: '--session sess-e2e' });
+  });
+
+  test('retro stage below the threshold skips with no next', () => {
+    writeConfig(project, { retro: { signal_threshold: 11 } });
+    writeSession(sessions, project, 'sess-e2e', strugglingRecords());
+    const r = retro(['stage', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.next, r.json.message], ['skip', null, null]);
+  });
+
   test('an invalid retro.auto keeps suggest and is named', () => {
     // Written straight to config.json: config-set would refuse the value.
     writeConfig(project, { retro: { auto: 'always' } });
@@ -280,6 +296,11 @@ describe('decideRetro', () => {
   });
   test('no session id → the bare command', () => {
     assert.equal(router.decideRetro({ active: true, mode: 'auto', report: { ...report(9), session: null } }).command, '/gsd-retro');
+  });
+  test('next is set exactly when the answer is not skip', () => {
+    assert.deepEqual(router.decideRetro({ active: true, mode: 'suggest', report: report(8) }).next, { skill: 'retro', args: '--session s1' });
+    assert.deepEqual(router.decideRetro({ active: true, mode: 'auto', report: { ...report(8), session: null } }).next, { skill: 'retro', args: '' });
+    assert.equal(router.decideRetro({ active: true, mode: 'auto', report: report(7) }).next, null);
   });
 });
 

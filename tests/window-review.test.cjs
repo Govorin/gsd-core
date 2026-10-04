@@ -30,6 +30,8 @@ const {
   fixedWindowEntryIds,
   findingFingerprint,
   lensReports,
+  milestoneReviewAnswer,
+  milestoneWindowSince,
   reviewMatchesWindow,
   windowDirFor,
   windowMarkerFor,
@@ -378,5 +380,27 @@ describe('layout and the LAST-WINDOW marker', () => {
       version: 1, tip: 'e'.repeat(40), since: '7d', until: 'HEAD', reviewedAt: '2026-10-05T00:00:00.000Z', review: `${dir}/REVIEW.md`,
     });
     assert.throws(() => windowDirFor(repo.dir, '2026-10-5'), RangeError);
+  });
+});
+
+describe('milestone stage answer', () => {
+  const prepass = (over) => ({ status: 'resolved', reason: null, files: ['a.js'], commits: 2, classes: [{ class: 'churn', status: 'checked', reason: null }], dir: '.planning/reviews/d-window', ...over });
+  test('an unresolvable window is a suggest naming why, never a silent skip', () => {
+    const a = milestoneReviewAnswer(prepass({ status: 'unresolvable', reason: 'unknown-ref' }), 'v1.0', true);
+    assert.deepEqual([a.decision, a.next], ['suggest', null]);
+    assert.match(a.message, /unknown-ref/);
+  });
+  test('an empty window skips whatever the switch says', () => {
+    for (const on of [true, false]) assert.deepEqual(milestoneReviewAnswer(prepass({ files: [] }), 'v1.0', on), { decision: 'skip', message: null, next: null });
+  });
+  test('on is auto with the review as next; off is suggest; the slash form is the runtime\'s', () => {
+    assert.deepEqual(milestoneReviewAnswer(prepass(), 'last', true).next, { skill: 'code-review', args: '--since last' });
+    assert.match(milestoneReviewAnswer(prepass(), 'last', false, '$gsd-code-review').message, /\$gsd-code-review --since last$/);
+  });
+  test('a git failure while listing tags is no start, not an exception', (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wr-stage-'));
+    t.after(() => cleanup(dir));
+    const failing = () => ({ exitCode: 128, stdout: '', stderr: 'fatal', signal: null, error: null, timedOut: false });
+    assert.equal(milestoneWindowSince(dir, 'v1.0', failing), null);
   });
 });

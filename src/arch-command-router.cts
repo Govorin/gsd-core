@@ -8,6 +8,7 @@
  *   arch report  [--date YYYY-MM-DD] [--refutation <file>]
  *   arch decide  --id arch-<hash> --disposition accepted|rejected|deferred [--reason <text>] [--route <text>] [--date YYYY-MM-DD]
  *   arch status
+ *   arch stage   [--milestone vX.Y] [--date YYYY-MM-DD]
  *
  * Each subcommand is one deterministic step of the survey; the workflow runs
  * the model steps (surveyors, refuter, the user's choice) between them:
@@ -20,6 +21,11 @@
  * comparison with the latest earlier run over the same scope and the
  * `complete-milestone` decision under `architecture.survey_at_milestone`.
  * `--date` on the later steps defaults to the latest metrics run.
+ *
+ * `stage` is the architecture capability's `milestone:post` command step: `metrics
+ * --compare-last` over the configured scope, always, plus the stage answer of
+ * loop-hook-dispatch.md (`decision`, `message`, `next`) from that decision —
+ * the survey itself is model work and only follows on `auto`.
  *
  * Paths: `--paths` and `--refutation` are typed by a user, so they are
  * confined to the project (`tryWithinRoot`, AbsoluteInsideRoot); the code
@@ -43,6 +49,7 @@ import * as path from 'node:path';
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
 import { platformWriteSync } from './shell-command-projection.cjs';
 import { projectRoots } from './project-root.cjs';
+import { formatGsdSlashFor } from './runtime-slash.cjs';
 import { realClock } from './clock.cjs';
 import type { Clock } from './clock.cjs';
 import type { GitRunner } from './git-history.cjs';
@@ -72,13 +79,14 @@ const { planningDir } = planningWorkspaceMod;
 /** Where a project keeps its ADRs: a rejection there is offered as an ADR. */
 export const ADR_DIRECTORY = path.join('docs', 'adr');
 
-export const ARCH_SUBCOMMANDS: readonly string[] = Object.freeze(['cards', 'decide', 'metrics', 'report', 'status']);
+export const ARCH_SUBCOMMANDS: readonly string[] = Object.freeze(['cards', 'decide', 'metrics', 'report', 'stage', 'status']);
 
 const USAGE = Object.freeze({
   metrics: 'Usage: gsd-tools arch metrics [--paths p1,p2] [--since 90d|<date>|<ref>] [--top N] [--date YYYY-MM-DD] [--compare-last] [--json]',
   cards: 'Usage: gsd-tools arch cards [--date YYYY-MM-DD]',
   report: 'Usage: gsd-tools arch report [--date YYYY-MM-DD] [--refutation <file>]',
   decide: 'Usage: gsd-tools arch decide --id arch-<hash> --disposition accepted|rejected|deferred [--reason <text>] [--route <text>] [--date YYYY-MM-DD]',
+  stage: 'Usage: gsd-tools arch stage [--milestone vX.Y] [--date YYYY-MM-DD]',
 });
 
 const CONFIG_KEYS = Object.freeze([
@@ -208,7 +216,35 @@ function loadCandidates(ctx: Ctx, date: string): CandidateSet {
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
+interface MetricsRun {
+  summary: Record<string, unknown>;
+  text: string;
+  metrics: ArchMetrics;
+  milestone: archMetrics.MilestoneDecision | undefined;
+}
+
 function handleMetrics(args: string[], ctx: Ctx, out: (v: unknown, rawText: string) => void, execGit: GitRunner | undefined): void {
+  const run = runMetrics(args, ctx, execGit, args.includes('--compare-last'));
+  out(run.summary, run.text);
+}
+
+function handleStage(args: string[], ctx: Ctx, out: (v: unknown, rawText: string) => void, execGit: GitRunner | undefined): void {
+  // A loop-point command step: the configured scope and window, never the user's flags.
+  const date = requireDate(flagValue(args, 'date'), USAGE.stage) ?? ctx.today;
+  const run = runMetrics(['arch', 'stage', '--date', date], ctx, execGit, true);
+  const slash = formatGsdSlashFor(ctx.cwd, 'arch-survey');
+  const answer = archMetrics.milestoneStageAnswer(
+    run.milestone as archMetrics.MilestoneDecision,
+    run.metrics.zones,
+    typeof slash === 'string' ? slash : undefined,
+  );
+  // `--raw` is how a loop point runs a command step, and the host reads the stage answer from
+  // JSON (loop-hook-dispatch.md), so the raw form of `stage` is the JSON itself.
+  const result = { ...run.summary, ...answer };
+  out(result, `${JSON.stringify(result, null, 2)}\n`);
+}
+
+function runMetrics(args: string[], ctx: Ctx, execGit: GitRunner | undefined, compareLast: boolean): MetricsRun {
   const pathsArg = flagValue(args, 'paths');
   const sinceArg = flagValue(args, 'since');
   const topArg = flagValue(args, 'top');
@@ -246,7 +282,7 @@ function handleMetrics(args: string[], ctx: Ctx, out: (v: unknown, rawText: stri
   });
   let comparison: archMetrics.Comparison | undefined;
   let milestone: archMetrics.MilestoneDecision | undefined;
-  if (args.includes('--compare-last')) {
+  if (compareLast) {
     const baseline = archMetrics.findBaseline(ctx.archDir, metrics);
     comparison = archMetrics.compareMetrics(baseline?.metrics ?? null, metrics, config.growthThreshold);
     milestone = archMetrics.milestoneDecision(comparison, config.atMilestone);
@@ -277,7 +313,7 @@ function handleMetrics(args: string[], ctx: Ctx, out: (v: unknown, rawText: stri
     ...metrics.zones.map((z) => `${z.id} ${z.label} seed=${z.seed} files=${z.files.length} score=${z.score}`),
     ...(milestone !== undefined ? [`milestone: ${milestone.action} (${milestone.reason})${milestone.zones.length > 0 ? ` zones=${milestone.zones.join(',')}` : ''}`] : []),
   ].join('\n');
-  out(summary, `${text}\n`);
+  return { summary, text: `${text}\n`, metrics, milestone };
 }
 
 function handleCards(args: string[], ctx: Ctx, out: (v: unknown, rawText: string) => void): void {
@@ -444,6 +480,7 @@ function routeArchCommand({ args, cwd, raw, error, _output, _clock, _execGit }: 
       cards: run((ctx) => handleCards(args, ctx, out)),
       report: run((ctx) => handleReport(args, ctx, out)),
       decide: run((ctx) => handleDecide(args, ctx, out)),
+      stage: run((ctx) => handleStage(args, ctx, out, _execGit)),
       status: run((ctx) => handleStatus(ctx, out)),
     },
     unknownMessage: (_subcommand: string, available: string[]) =>

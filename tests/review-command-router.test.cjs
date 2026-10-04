@@ -176,3 +176,60 @@ describe('review window-compose / window-deferred / window-mark', () => {
     });
   });
 });
+
+describe('review stage (milestone:pre)', () => {
+  const STAGE = ['stage', '--date', '2026-10-05'];
+
+  test('[happy] no marker: the window starts at the previous v* tag; the pre-pass is written and the review follows', () => {
+    const repo = makeRepo();
+    repo.git('tag', 'v1.0', repo.base);
+    const r = run(repo, [...STAGE, '--milestone', 'v1.1']);
+    assert.equal(r.success, true, r.error);
+    const out = json(r);
+    assert.deepEqual([out.since, out.files, out.decision], ['v1.0', 3, 'auto']);
+    assert.deepEqual(out.next, { skill: 'code-review', args: '--since v1.0' });
+    assert.equal(out.prepass, `${DIR}/prepass.json`);
+    assert.ok(fs.existsSync(path.join(repo.dir, out.prepass)));
+  });
+
+  test('[happy] a recorded window wins over the tag: since is last', () => {
+    const repo = makeRepo();
+    repo.git('tag', 'v1.0', repo.tip);
+    const marker = { tip: repo.base, since: repo.base, until: 'HEAD', reviewedAt: '2026-10-01T00:00:00.000Z', review: '.planning/reviews/2026-10-01-window/REVIEW.md' };
+    write(repo.dir, '.planning/reviews/LAST-WINDOW.json', `${JSON.stringify({ version: 1, ...marker }, null, 2)}\n`);
+    const out = json(run(repo, [...STAGE, '--milestone', 'v1.1']));
+    assert.deepEqual([out.since, out.files, out.decision], ['last', 3, 'auto']);
+  });
+
+  test('[boundary] the tag of the milestone being closed is not its own start (a re-run after tagging)', () => {
+    const repo = makeRepo();
+    repo.git('tag', 'v1.0', repo.base);
+    repo.git('tag', 'v1.1', repo.tip);
+    assert.equal(json(run(repo, [...STAGE, '--milestone', 'v1.1'])).since, 'v1.0');
+    // Without --milestone the newest tag is the start, and the window is empty.
+    const empty = json(run(repo, STAGE));
+    assert.deepEqual([empty.since, empty.files, empty.decision, empty.next, empty.prepass], ['v1.1', 0, 'skip', null, null]);
+  });
+
+  test('[degraded] no marker and no earlier tag: suggest a baseline review, measure nothing', () => {
+    const repo = makeRepo();
+    repo.git('tag', 'v1.1', repo.tip);
+    const out = json(run(repo, [...STAGE, '--milestone', 'v1.1']));
+    assert.deepEqual([out.since, out.window, out.decision, out.next], [null, null, 'suggest', null]);
+    assert.equal(typeof out.message, 'string');
+    assert.equal(fs.existsSync(path.join(repo.dir, DIR)), false);
+  });
+
+  test('[config] code_review.window_at_milestone false: the pre-pass still runs; the review is only named', () => {
+    const repo = makeRepo({ code_review: { window_at_milestone: false } });
+    repo.git('tag', 'v1.0', repo.base);
+    const out = json(run(repo, [...STAGE, '--milestone', 'v1.1']));
+    assert.deepEqual([out.decision, out.next, out.prepass], ['suggest', null, `${DIR}/prepass.json`]);
+  });
+
+  test('[unhappy] a --milestone that reads as an option, or a bad --date, is usage', () => {
+    const repo = makeRepo();
+    assert.equal(reason(run(repo, ['stage', '--milestone=-x'])), 'usage');
+    assert.equal(reason(run(repo, ['stage', '--date', '05-10-2026'])), 'usage');
+  });
+});

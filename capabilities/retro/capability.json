@@ -36,7 +36,7 @@
         "off"
       ],
       "default": "suggest",
-      "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
+      "description": "What the retro stage at the end of execute-phase (execute:post) and after ship (ship:post) — `gsd-tools retro stage`, the same answer as `retro signals --decide` — answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
     },
     "retro.signal_threshold": {
       "type": "number",
@@ -112,7 +112,28 @@
     }
   ],
   "hooks": [],
-  "steps": [],
+  "steps": [
+    {
+      "point": "execute:post",
+      "ref": {
+        "command": "retro stage"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "retro.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "ship:post",
+      "ref": {
+        "command": "retro stage"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "retro.enabled",
+      "onError": "skip"
+    }
+  ],
   "contributions": [],
   "gates": []
 }

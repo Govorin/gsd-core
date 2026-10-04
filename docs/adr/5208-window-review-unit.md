@@ -80,6 +80,10 @@ The tip of the previous window review lives in `<planningDir>/reviews/LAST-WINDO
 
 `resolveCodeReviewInvocation(argv)` (`src/code-review-flags.cts`) decides phase-or-window. The phase is optional when `--since` is given. These are refused with a usage error carrying the registered `USAGE` exit code ([ADR-3889](3889-process-exit-contract.md), 64) — never resolved by a silent precedence: a phase **and** `--since`; neither; `--files` with `--since` (two scope choices); `--until` or `--lens` without `--since`; a malformed `--since`/`--until`; an unknown lens (`correctness`, `standards`, `spec`, `simplify`); a value flag with no value. Whether `--since last` has a marker to start from is the resolver's answer, not argv's. Value flags accept `--flag=value` and `--flag value`; the documented `--files a,b` space form now parses instead of being read as the phase.
 
+### 9. The milestone stage (2026-10-05)
+
+A milestone is the accumulation point the window review exists for, so the code-review capability registers `review stage` at the `milestone:pre` loop point (ADR-857 amendment of the same date). The window starts at `last` when a marker exists, otherwise at the latest `v*` tag merged into `HEAD` that is not the milestone being closed; with neither, the stage says so rather than reviewing all of history. The pre-pass always runs and is written like `window-prepass`; `code_review.window_at_milestone` (default on) decides whether the model review follows (`auto`, `next: /gsd-code-review --since <since>`) or is only named (`suggest`). An empty window is `skip`. The marker is still written only by the review itself, after its REVIEW.md exists (§7).
+
 ## Consequences
 
 - One owner still answers every scope question; the window-review workflow and its lenses call `check evaluation-scope --window <since> [--until <ref>]` (or the resolver) and never compute a range.

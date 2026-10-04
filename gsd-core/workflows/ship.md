@@ -613,6 +613,7 @@ Read the `activeHooks` array directly from `SHIP_POST_HOOKS_JSON` in-context (do
 
   `Agent(subagent_type=ref.agent, prompt="Ship-time capability hook for phase ${PHASE_NUMBER}. Phase dir: ${PHASE_DIR}. Consume: ${consumed_files}. Follow your agent instructions.")`
 - If `ref.skill` is set, dispatch with `Skill(skill="gsd-${ref.skill}", args="${PHASE_NUMBER} --auto ${GSD_WS}")` (prepend `gsd-` to `ref.skill`).
+- If `ref.command` is set (retro's friction stage is one), dispatch that `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md § `step`: validate it in-context, run it with `--phase "${PHASE_NUMBER}"`, and honour its stage answer (`decision`, `message`, `next`).
 
 Each dispatch is best-effort: if it errors, record a warning and continue — never re-raise (`onError: skip`).
 </step>

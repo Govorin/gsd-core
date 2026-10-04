@@ -969,3 +969,52 @@ export function windowMarkerFor(
   const { tip, since, until } = prepass.window;
   return { ok: true, path: lastWindowMarkerPath(projectDir), text: formatLastWindowMarker({ tip, since, until, reviewedAt, review: prepass.review }) };
 }
+
+// ─── Milestone stage (code-review capability, `milestone:pre`) ───────────────
+
+/**
+ * Where a milestone's window starts: the last window review (`last`) when one was recorded,
+ * otherwise the latest `v*` tag merged into HEAD that is not the milestone being closed (a re-run
+ * after tagging must not review an empty window). `null` when neither exists — the stage then has
+ * no window to measure and says so instead of reviewing the whole history.
+ */
+export function milestoneWindowSince(projectDir: string, milestone: string | null, runner: GitRunner = execGitSeam): string | null {
+  if (fs.existsSync(lastWindowMarkerPath(projectDir))) return 'last';
+  const r = runner(['tag', '--merged', 'HEAD', '--list', 'v*', '--sort=-v:refname'], { cwd: projectDir, timeout: DEFAULTS.timeoutMs });
+  if (r.exitCode !== 0) return null;
+  const tags = splitLines(r.stdout).map((t) => t.trim()).filter((t) => t !== '' && t !== milestone);
+  return tags[0] ?? null;
+}
+
+/** The stage answer of `review stage` (loop-hook-dispatch.md). */
+export interface MilestoneReviewAnswer {
+  decision: 'skip' | 'suggest' | 'auto';
+  message: string | null;
+  next: { skill: 'code-review'; args: string } | null;
+}
+
+/**
+ * What `complete-milestone` does with a milestone window's pre-pass: an empty window is skip;
+ * otherwise the pre-pass is summarised and the model review follows when
+ * `code_review.window_at_milestone` is on (`auto`), or is only named when it is off (`suggest`).
+ * A window that could not be resolved is a `suggest` naming why — never a silent skip.
+ */
+export function milestoneReviewAnswer(
+  prepass: Pick<WindowPrepass, 'status' | 'reason' | 'files' | 'commits' | 'classes' | 'dir'> | null,
+  since: string | null,
+  atMilestone: boolean,
+  slash = '/gsd-code-review',
+): MilestoneReviewAnswer {
+  if (since === null) {
+    return { decision: 'suggest', message: `No window review yet and no earlier milestone tag to start from: run ${slash} --since <ref> once to set the baseline`, next: null };
+  }
+  const command = `${slash} --since ${since}`;
+  if (prepass === null || prepass.status === 'unresolvable') {
+    return { decision: 'suggest', message: `The milestone window --since ${since} did not resolve (${prepass?.reason ?? 'unknown'}): run ${command} by hand`, next: null };
+  }
+  if (prepass.files.length === 0) return { decision: 'skip', message: null, next: null };
+  const checked = prepass.classes.filter((c) => c.status === 'checked').length;
+  const summary = `Milestone window --since ${since}: ${prepass.files.length} file(s), ${prepass.commits} commit(s); pre-pass checked ${checked} of ${prepass.classes.length} classes → ${prepass.dir}/${PREPASS_FILE}`;
+  if (atMilestone) return { decision: 'auto', message: summary, next: { skill: 'code-review', args: `--since ${since}` } };
+  return { decision: 'suggest', message: `${summary}. Model review is off (code_review.window_at_milestone): run ${command}`, next: null };
+}
