@@ -452,9 +452,11 @@ describe('phase 5.2: the progress report embeds the roadmap phase graph', () => 
   const reportStart = workflow.indexOf('<step name="report">');
   const report = workflow.slice(reportStart, workflow.indexOf('</step>', reportStart));
   const { ROADMAP_SUBCOMMANDS } = require('../gsd-core/bin/lib/command-aliases.cjs');
+  const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
   test('the report step calls a real roadmap subcommand for the graph, as a document (--raw), never writing a file', () => {
-    const call = report.match(/^ROADMAP_GRAPH=\$\(gsd_run roadmap (\S{1,40})([^)\n]{0,200})\)/m);
+    const assignment = /^ROADMAP_GRAPH=\$\(gsd_run roadmap (\S{1,40})([^)]{0,200})\)/;
+    const call = splitLines(report).map((line) => line.match(assignment)).find((m) => m !== null);
     assert.ok(call, 'report step assigns ROADMAP_GRAPH from gsd_run roadmap …');
     assert.ok(ROADMAP_SUBCOMMANDS.includes(call[1]), `${call[1]} is a roadmap subcommand`);
     assert.ok(call[2].includes('--raw'), 'the document, not the JSON envelope');
