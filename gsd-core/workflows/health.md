@@ -22,7 +22,7 @@ Check if `--repair`, `--backfill`, `--only`, or `--context` flags are present in
 ```
 REPAIR_FLAG=""
 BACKFILL_FLAG=""
-ONLY_FLAG=""
+ONLY_CODES=""
 CONTEXT_MODE=""
 if arguments contain "--repair"; then
   REPAIR_FLAG="--repair"
@@ -31,7 +31,7 @@ if arguments contain "--backfill"; then
   BACKFILL_FLAG="--backfill"
 fi
 if arguments contain "--only <CODES>"; then
-  ONLY_FLAG="--only <CODES>"
+  ONLY_CODES="<CODES>"
 fi
 if arguments contain "--context"; then
   CONTEXT_MODE="true"
@@ -80,7 +80,7 @@ health output, the two modes are independent diagnostics.
 **Run health validation:**
 
 ```bash
-gsd_run query validate.health $REPAIR_FLAG $BACKFILL_FLAG $ONLY_FLAG
+gsd_run query validate.health $REPAIR_FLAG $BACKFILL_FLAG ${ONLY_CODES:+--only "$ONLY_CODES"}
 ```
 
 Parse JSON output:
