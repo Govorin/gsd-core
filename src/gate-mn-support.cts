@@ -130,6 +130,15 @@ export function resolveMnPhase(
 }
 
 /**
+ * The phase as a gate's remedy line should hand it to a recorder: `--phase <N>` for a phase token,
+ * the quoted directory for a path (ship.md and verify-work.md dispatch with `"${PHASE_DIR}"`, and
+ * `--phase /abs/dir` would not resolve).
+ */
+export function mnPhaseCliArg(phaseArg: string): string {
+  return looksLikePath(phaseArg) ? JSON.stringify(phaseArg) : `--phase ${phaseArg}`;
+}
+
+/**
  * Run an mn gate body against its resolved phase. Owns the two ways a gate ends without an answer:
  * a usage failure passes through, and an unresolved phase or a body that THROWS becomes an
  * `unresolvable` verdict — never a pass, never a finding (a crash is "could not check").

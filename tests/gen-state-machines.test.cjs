@@ -2,8 +2,9 @@
 
 /**
  * gen-state-machines.cjs — docs/reference/state-machines.md is generated from
- * the status constants in src/plan-status.cts, src/verification.cts and
- * src/phase-status.cts (phase 5.4).
+ * the status constants in src/plan-status.cts, src/verification.cts,
+ * src/phase-status.cts (phase 5.4) and the check-outcome classifier in
+ * src/verify-gates.cts.
  *
  * The acceptance criterion is "a vocabulary change without regeneration fails
  * the sync check". The CLI tests below reproduce that directly: a document
@@ -30,6 +31,7 @@ const m = require('../gsd-core/bin/lib/mermaid.cjs');
 const planStatus = require('../gsd-core/bin/lib/plan-status.cjs');
 const verification = require('../gsd-core/bin/lib/verification.cjs');
 const phaseStatus = require('../gsd-core/bin/lib/phase-status.cjs');
+const verifyGates = require('../gsd-core/bin/lib/verify-gates.cjs');
 
 const SCRIPT = path.join(__dirname, '..', 'scripts', 'gen-state-machines.cjs');
 
@@ -53,7 +55,11 @@ function runGen(args) {
   return runNode([SCRIPT, ...args], { timeoutMs: GENERATOR_SCRIPT_TIMEOUT_MS });
 }
 
-/** Each `## heading` section → { states: [{id,label,group}], transitions: [[from,to]], notes: [[state,text]] }. */
+/**
+ * Each `## heading` section → { states: [{id,label,group}], transitions: [[from,to]],
+ * labelled: [[from,to,label]], notes: [[state,text]] }. A labelled transition (`a --> b : text`)
+ * goes to `labelled` only, so the unlabelled lifecycles keep their exact shape.
+ */
 function readDoc(markdown) {
   const sections = new Map();
   const parts = markdown.split(/^## /m).slice(1);
@@ -61,7 +67,7 @@ function readDoc(markdown) {
     const title = splitLines(part)[0].trim();
     const [block] = mermaidBlocks(part);
     assert.ok(block !== undefined, `section ${title} has no mermaid block`);
-    const model = { states: [], transitions: [], notes: [] };
+    const model = { states: [], transitions: [], labelled: [], notes: [] };
     let group = null;
     for (const line of splitLines(block).slice(1)) {
       let mm;
@@ -69,6 +75,7 @@ function readDoc(markdown) {
       else if (/^ {2}\}$/.test(line)) group = null;
       else if ((mm = line.match(/^ +state "(.*)" as (\w+)$/))) model.states.push({ id: mm[2], label: m.unescapeLabel(mm[1]), group });
       else if ((mm = line.match(/^ +(\w+) --> (\w+)$/))) model.transitions.push([mm[1], mm[2]]);
+      else if ((mm = line.match(/^ +(\w+|\[\*\]) --> (\w+) : (.*)$/))) model.labelled.push([mm[1], mm[2], m.unescapeLabel(mm[3])]);
       else if ((mm = line.match(/^ +note right of (\w+) : (.*)$/))) model.notes.push([mm[1], m.unescapeLabel(mm[2])]);
       else if (!/^ {2}direction \w+$/.test(line)) assert.fail(`unrecognised line in ${title}: ${JSON.stringify(line)}`);
     }
@@ -81,9 +88,14 @@ describe('gen-state-machines: the document says what the code says', () => {
   const doc = gen.renderStateMachinesDoc(gen.loadSources());
   const sections = readDoc(doc);
 
-  test('starts with the derived marker and has the three lifecycles', () => {
+  test('starts with the derived marker and has the three lifecycles and the check classifier', () => {
     assert.equal(doc.split('\n')[0], m.derivedMarker('scripts/gen-state-machines.cjs'));
-    assert.deepEqual([...sections.keys()], ['Plan status', 'VerificationStatus', 'PhaseStatus']);
+    assert.deepEqual([...sections.keys()], [
+      'Plan status',
+      'VerificationStatus',
+      'PhaseStatus',
+      'Check outcome (`verify gates`, `verify baseline`)',
+    ]);
   });
 
   test('plan status: every value is a state and every arrow is a row of PLAN_STATUS_TRANSITIONS', () => {
@@ -121,6 +133,30 @@ describe('gen-state-machines: the document says what the code says', () => {
     const s = sections.get('PhaseStatus');
     assert.deepEqual(s.transitions, []);
     assert.deepEqual(s.states.map((st) => st.label), Object.values(phaseStatus.PHASE_STATUS));
+  });
+
+  test('check outcome: one arrow from the start per classifier rule, in order, labelled with what it observes', () => {
+    const s = sections.get('Check outcome (`verify gates`, `verify baseline`)');
+    const labelOf = new Map(s.states.map((st) => [st.id, st.label]));
+    assert.deepEqual(s.states.map((st) => st.label), Object.values(verifyGates.CHECK_STATUS));
+    assert.deepEqual(s.transitions, [], 'a classifier has no state-to-state transitions');
+    assert.deepEqual(
+      s.labelled.map(([from, to, label]) => [from, labelOf.get(to), label]),
+      verifyGates.CHECK_OUTCOME_RULES.map((r) => ['[*]', r.status, r.observed]),
+    );
+    assert.deepEqual(
+      s.notes.map(([id, text]) => [labelOf.get(id), text]),
+      Object.values(verifyGates.CHECK_STATUS).map((st) => [st, `gate verdict: ${verifyGates.CHECK_STATUS_VERDICT[st]}`]),
+    );
+  });
+
+  test('a classifier rule to a status outside CHECK_STATUS, or a status no rule reaches, is refused', () => {
+    const outside = gen.loadSources();
+    outside.check.rules.push({ id: 'bogus', observed: 'x', status: 'flaky' });
+    assert.throws(() => gen.renderStateMachinesDoc(outside), /outside CHECK_STATUS/);
+    const unreached = gen.loadSources();
+    unreached.check.rules = unreached.check.rules.filter((r) => r.status !== 'timeout');
+    assert.throws(() => gen.renderStateMachinesDoc(unreached), /reached by no CHECK_OUTCOME_RULES rule/);
   });
 
   test('a transition to a value outside the vocabulary is refused, not drawn', () => {

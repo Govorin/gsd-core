@@ -1,23 +1,28 @@
 'use strict';
 
 /**
- * mn-verify-gate's five frontmatter gates — the built-in `artifact-frontmatter-equals` predicate as
+ * mn-verify-gate's four frontmatter gates — the built-in `artifact-frontmatter-equals` predicate as
  * the capability DECLARES it.
  *
  *   nyquist_enforce       VALIDATION.md    nyquist_compliant == true
  *   verify_enforce        VERIFICATION.md  truths_unproven   == 0
- *   verify_gates_enforce  VERIFICATION.md  gates.all_passed  == true   (nested field)
  *   mn_security_enforce   SECURITY.md      threats_open      == 0      optional
  *   mn_windows_enforce    WINDOWS.md       open_count        == 0      optional
+ *
+ * verify_gates_enforce used to be a fifth, on the nested `gates.all_passed`. It is now
+ * `check mn-verify-gates` (tests/mn-verify-gates.test.cjs), because the predicate could only say
+ * "all_passed is false" — the same words for a red suite and a command that no longer exists. The
+ * nested-field reading it relied on is still pinned below with a literal predicate: other gates
+ * may declare a dotted field.
  *
  * These gates used to run `check-frontmatter.mjs` from `$HOME/.gsd` through `command-exit-zero`,
  * because the published 1.9.1 evaluator did not know `artifact-frontmatter-equals`. The built-in
  * predicate now carries both things the script added: a dotted `field` into a nested map and
- * `optional: true`. Each test below takes the predicate object straight out of capability.json, so
- * what is pinned is the shipped declaration, not a hand-copied one.
+ * `optional: true`. Each declared-gate test below takes the predicate object straight out of
+ * capability.json, so what is pinned is the shipped declaration, not a hand-copied one.
  *
  * Two behaviours carry most of the weight. `0` and `false` must compare as values and not be
- * swallowed as falsy — three of the five gates compare against exactly those. And `optional` must
+ * swallowed as falsy — three of the four gates compare against exactly those. And `optional` must
  * tell "the artifact does not exist" (a phase with no security review is not a phase with open
  * threats) from "the field says something else".
  */
@@ -74,7 +79,6 @@ describe('mn-verify-gate frontmatter gates (artifact-frontmatter-equals)', () =>
     for (const when of [
       'workflow.nyquist_enforce',
       'workflow.verify_enforce',
-      'workflow.verify_gates_enforce',
       'workflow.mn_security_enforce',
       'workflow.mn_windows_enforce',
     ]) {
@@ -118,17 +122,25 @@ describe('mn-verify-gate frontmatter gates (artifact-frontmatter-equals)', () =>
     assert.equal(r.payload.details.match, false);
   });
 
-  test('reads the nested gates.all_passed that verify gates records (verify_gates_enforce)', () => {
+  /** A literal predicate on a nested field — the shape verify_gates_enforce declared before it became a query gate. */
+  function nestedGate() {
+    const predicate = { kind: 'artifact-frontmatter-equals', artifact: 'VERIFICATION.md', field: 'gates.all_passed', equals: true };
+    const result = evaluateCheckPredicate({ projectDir, args: ['--predicate', JSON.stringify(predicate), '--phase-dir', phaseDir] });
+    assert.ok(!result.failure, JSON.stringify(result));
+    return result;
+  }
+
+  test('reads a nested field through a dotted path', () => {
     writeArtifact('01-VERIFICATION.md', 'phase: 01\ngates:\n  ran_at: 2026-10-04T00:00:00Z\n  all_passed: true\n  failed: 0');
-    assert.equal(gate('workflow.verify_gates_enforce').block, false);
+    assert.equal(nestedGate().block, false);
 
     writeArtifact('01-VERIFICATION.md', 'phase: 01\ngates:\n  all_passed: false\n  failed: 1');
-    assert.equal(gate('workflow.verify_gates_enforce').block, true, 'a recorded failure must block');
+    assert.equal(nestedGate().block, true, 'a recorded failure must block');
   });
 
   test('a top-level key with the same leaf name does not satisfy the nested field', () => {
     writeArtifact('01-VERIFICATION.md', 'phase: 01\nall_passed: true\ngates:\n  all_passed: false');
-    assert.equal(gate('workflow.verify_gates_enforce').block, true);
+    assert.equal(nestedGate().block, true);
   });
 
   // ── absence vs. contradiction ─────────────────────────────────────────────

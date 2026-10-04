@@ -96,7 +96,7 @@
     "workflow.verify_gates": {
       "type": "string-map",
       "default": {},
-      "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured."
+      "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured. Each check is recorded with a status from a closed set — pass, fail, stale (the command could not run as a check: exit 127/126, a spawn error, a signal or the output cap), timeout — so a roster that outlived its tools is reported as stale with a warning, never as a red check and never as a green one."
     },
     "workflow.verify_gates_record": {
       "type": "boolean",
@@ -106,7 +106,7 @@
     "workflow.verify_gates_enforce": {
       "type": "boolean",
       "default": false,
-      "description": "Block ship when the recorded gate results say a check failed (gates.all_passed != true). This is the gate ADR-2008's artifact-frontmatter-equals predicate was built for and has had nothing to read: workflow.verify_enforce reads truths_unproven, which the verifier writes about itself, while this reads what the commands returned. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
+      "description": "Block ship unless every check in the recorded `gates:` block passed (`gsd_run check mn-verify-gates`). workflow.verify_enforce reads truths_unproven, which the verifier writes about itself; this reads what the commands returned. A red check is a finding naming each check and its exit code; a check recorded as stale (its command not found or not executable, exit 127/126, or cut off by the environment) or timed out is reported as not measured — it still blocks, because a check that could not run proves nothing, but the message sends you to the roster rather than calling the code broken. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
     },
     "workflow.mutation_spot_check": {
       "type": "boolean",
@@ -402,12 +402,7 @@
     {
       "point": "ship:pre",
       "check": {
-        "predicate": {
-          "kind": "artifact-frontmatter-equals",
-          "artifact": "VERIFICATION.md",
-          "field": "gates.all_passed",
-          "equals": true
-        }
+        "query": "mn-verify-gates"
       },
       "when": "workflow.verify_gates_enforce",
       "blocking": true,
