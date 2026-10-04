@@ -307,6 +307,12 @@ text (unstable).
 |------|-------------|
 | `diagrams_source_unavailable` | `diagrams check` when the `--file` document cannot be read or `--root` is not a directory — the check could not look |
 
+### Architecture survey errors
+
+| Code | When emitted |
+|------|-------------|
+| `arch_input_unavailable` | `arch cards`, `arch report` or `arch decide` before the step that writes its input: no `metrics-<date>.json`, no `candidates.json`, or an id that is neither a candidate of the survey nor in `DECISIONS.md` |
+
 ### Hook / security errors
 
 | Code | When emitted |

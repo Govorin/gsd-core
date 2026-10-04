@@ -397,6 +397,9 @@ const ERROR_REASON = Object.freeze({
   // `diagrams check`: the document named by --file cannot be read, or --root is not a
   // directory — the check could not look (review L5: was reported as phase_not_found).
   DIAGRAMS_SOURCE_UNAVAILABLE: 'diagrams_source_unavailable',
+  // `arch cards|report|decide`: the survey step's input (metrics, cards, candidates)
+  // has not been written yet — run the earlier step first.
+  ARCH_INPUT_UNAVAILABLE: 'arch_input_unavailable',
   // generic
   USAGE: 'usage',
   UNKNOWN: 'unknown',
@@ -543,6 +546,8 @@ const REASON_TO_OUTCOME: Readonly<Record<string, string>> = Object.freeze({
   [ERROR_REASON.VERIFICATION_STATUS_INVALID]: 'UNAVAILABLE',
   // The diagrams check could not read what it was pointed at — a missing input, not a finding.
   [ERROR_REASON.DIAGRAMS_SOURCE_UNAVAILABLE]: 'UNAVAILABLE',
+  // An architecture survey step ran before the step that writes its input.
+  [ERROR_REASON.ARCH_INPUT_UNAVAILABLE]: 'UNAVAILABLE',
 
   // Self-failure: the run itself broke, not its inputs.
   [ERROR_REASON.SDK_FAIL_FAST]: 'INTERNAL',
