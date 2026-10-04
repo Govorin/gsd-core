@@ -2706,40 +2706,70 @@ describe('enh-770: Claude install is idempotent for the new hook events', () => 
 
 // ─── Suite 4: Uninstall removes registrations ─────────────────────────────────
 
-describe('enh-770: Uninstall removes new hook event entries', () => {
+describe('enh-770: Uninstall removes every GSD hook registration from the file install wrote', () => {
+  // install() writes hooks into result.settingsPath — .claude/settings.local.json
+  // for a local Claude install (#338), <config dir>/settings.json for a global
+  // one. The check reads THAT file, and a missing file is a failure, not a pass:
+  // an earlier version read .claude/settings.json, found nothing, returned, and
+  // stayed green while every registration (WorktreeCreate included) survived.
+  // An entry left behind points at a deleted script; on WorktreeCreate that
+  // fails every worktree creation after uninstall.
+  const USER_HOOK = { type: 'command', command: 'echo user-owned-session-hook' };
   let tmpDir;
   let previousCwd;
+  let previousConfigDir;
 
   beforeEach(() => {
     tmpDir = createTempDir('gsd-770-uninstall-');
     previousCwd = process.cwd();
+    previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
     process.chdir(tmpDir);
-    stubHooksIntoTarget(path.join(tmpDir, '.claude'));
-
-    const result = install(false, 'claude', { installerMigrations: [] });
-    persistSettings(result.settingsPath, result.settings);
-    // Precondition for the WorktreeCreate/WorktreeRemove half of the test below.
-    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeCreate').length, 1);
-    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeRemove').length, 1);
   });
 
   afterEach(() => {
     process.chdir(previousCwd);
+    if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
     cleanup(tmpDir);
   });
 
-  test('settings.json hook entries are removed on uninstall', () => {
-    uninstall(false, 'claude', { installerMigrations: [] });
-    const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
-    if (!fs.existsSync(settingsPath)) return; // file removed entirely is fine
-    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    // WorktreeCreate/WorktreeRemove (mn fork): an entry left pointing at the
-    // deleted hook script would fail every worktree creation after uninstall.
-    for (const event of ['SubagentStop', 'Stop', 'PreCompact', 'FileChanged', 'WorktreeCreate', 'WorktreeRemove']) {
-      const cmds = hooksForEvent(settings, event);
-      assert.strictEqual(cmds.length, 0,
-        `After uninstall, ${event} should have 0 hooks; got: ${JSON.stringify(cmds)}`);
+  /** Install, persist what install wrote plus one user-owned hook, and return the settings path. */
+  function installWithUserHook(isGlobal, targetDir) {
+    stubHooksIntoTarget(targetDir);
+    const result = install(isGlobal, 'claude', { installerMigrations: [] });
+    assert.strictEqual(fs.realpathSync(path.dirname(result.settingsPath)), fs.realpathSync(targetDir), 'precondition: install wrote into the target');
+    for (const event of ['WorktreeCreate', 'WorktreeRemove', 'SessionStart', 'PreToolUse', 'SubagentStop']) {
+      assert.ok(hooksForEvent(result.settings, event).length > 0, `precondition: ${event} registered`);
     }
+    result.settings.hooks.SessionStart.push({ hooks: [USER_HOOK] });
+    persistSettings(result.settingsPath, result.settings);
+    return result.settingsPath;
+  }
+
+  function assertOnlyUserHookLeft(settingsPath) {
+    assert.ok(fs.existsSync(settingsPath), `${settingsPath} must still exist — it holds a user hook`);
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
+    const left = Object.entries(settings.hooks || {}).flatMap(([event, groups]) =>
+      (Array.isArray(groups) ? groups : []).flatMap((g) => (g && Array.isArray(g.hooks) ? g.hooks : []).map((h) => `${event}: ${h.command}`))
+    );
+    assert.deepStrictEqual(left, [`SessionStart: ${USER_HOOK.command}`], 'every GSD registration is gone; the user hook stays');
+  }
+
+  test('local install (.claude/settings.local.json)', () => {
+    const settingsPath = installWithUserHook(false, path.join(tmpDir, '.claude'));
+    assert.strictEqual(path.basename(settingsPath), 'settings.local.json', 'precondition: the #338 local layer');
+    uninstall(false, 'claude', { installerMigrations: [] });
+    assertOnlyUserHookLeft(settingsPath);
+  });
+
+  test('global install (<CLAUDE_CONFIG_DIR>/settings.json)', () => {
+    const configDir = path.join(tmpDir, 'claude-home');
+    fs.mkdirSync(configDir, { recursive: true });
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    const settingsPath = installWithUserHook(true, configDir);
+    assert.strictEqual(path.basename(settingsPath), 'settings.json');
+    uninstall(true, 'claude', { installerMigrations: [] });
+    assertOnlyUserHookLeft(settingsPath);
   });
 });
 
