@@ -1,7 +1,7 @@
 <step name="window_scope">
 A window review (ADR-5208) reviews the work that landed on `until` since `since` — a week, the tip of the previous window review (`--since last`), a milestone's range — instead of one phase. One fresh agent per lens, in parallel; lenses never see each other's findings and are never merged or re-ranked. A deterministic pre-pass measures what one change at a time cannot show and every lens gets it as data, together with the explicit list of what it checked and the instruction that everything else is the lens's to find.
 
-Inputs from `initialize`: `INVOCATION_JSON`, `FIX_FLAG`, `FIX_ALL`, `FIX_AUTO`, `DEPTH_OVERRIDE`, `AGENT_SKILLS_REVIEWER`, `REVIEWER_MODEL`.
+Inputs from `initialize`: `INVOCATION_JSON`, `GSD_WS`, `FIX_FLAG`, `FIX_ALL`, `FIX_AUTO`, `DEPTH_OVERRIDE`, `AGENT_SKILLS_REVIEWER`, `REVIEWER_MODEL`.
 
 **1. Pre-pass.** `review window-prepass` resolves the window, measures it, writes `prepass.json` and names every lens report path. No `--lens` → `code_review.window_lenses`; correctness batches → `code_review.window_max_files_per_batch`.
 
@@ -10,7 +10,7 @@ W_FIELD() { printf '%s' "$INVOCATION_JSON" | node -e "const r = JSON.parse(requi
 W_SINCE=$(W_FIELD since)
 W_UNTIL=$(W_FIELD until)
 W_LENSES=$(W_FIELD lenses)
-PREPASS_JSON=$(gsd_run review window-prepass --since "$W_SINCE" --until "$W_UNTIL" ${W_LENSES:+--lens "$W_LENSES"})
+PREPASS_JSON=$(gsd_run review window-prepass ${GSD_WS:+--ws=${GSD_WS##* }} --since "$W_SINCE" --until "$W_UNTIL" ${W_LENSES:+--lens "$W_LENSES"})
 PREPASS_EXIT=$?
 if [ "$PREPASS_EXIT" -ne 0 ]; then
   echo "Window review stopped: --since ${W_SINCE} --until ${W_UNTIL} did not resolve (reason above)."
@@ -133,11 +133,11 @@ Try to refute every finding in these lens reports against the code at ${W_TIP}. 
 **5. Compose, mark, commit.** The marker that `--since last` starts from is written only once REVIEW.md exists, and not for an `incomplete` review — a lens that never ran must not be skipped next time.
 
 ```bash
-COMPOSE_JSON=$(gsd_run review window-compose --dir "$WINDOW_DIR") || exit $?
+COMPOSE_JSON=$(gsd_run review window-compose ${GSD_WS:+--ws=${GSD_WS##* }} --dir "$WINDOW_DIR") || exit $?
 W_STATUS=$(printf '%s' "$COMPOSE_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).status)")
 MARK_PATH=""
 if [ "$W_STATUS" != "incomplete" ]; then
-  MARK_PATH=$(gsd_run review window-mark --dir "$WINDOW_DIR" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).marker)")
+  MARK_PATH=$(gsd_run review window-mark ${GSD_WS:+--ws=${GSD_WS##* }} --dir "$WINDOW_DIR" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).marker)")
 fi
 if [ "$COMMIT_DOCS" = "true" ]; then
   COMMIT_LIST=("$PREPASS_PATH" "$REVIEW_PATH")
@@ -159,15 +159,15 @@ Workflow(workflow="gsd-core/workflows/code-review-fix.md", args="${FIX_ARGS}")
 **7. Broken windows.** Surviving Critical/Warning findings that no fix pass fixed are recorded in `.planning/WINDOWS.md` as `deviation` entries, once (each carries the finding's fingerprint); entries of this review that the fix pass did fix are closed. Best-effort, like the executor's ledger population — never blocks.
 
 ```bash
-gsd_run review window-deferred --dir "$WINDOW_DIR" --raw | while IFS=$'\t' read -r W_ACTION W_A W_B W_C W_D; do
+gsd_run review window-deferred ${GSD_WS:+--ws=${GSD_WS##* }} --dir "$WINDOW_DIR" --raw | while IFS=$'\t' read -r W_ACTION W_A W_B W_C W_D; do
   case "$W_ACTION" in
     append)
       W_ARGS=(--kind deviation --phase "$W_A" --description "$W_D")
       if [ "$W_B" != "-" ]; then W_ARGS+=(--file "$W_B"); fi
       if [ "$W_C" != "-" ]; then W_ARGS+=(--line "$W_C"); fi
-      gsd_run windows append "${W_ARGS[@]}" >/dev/null || true ;;
+      gsd_run windows append ${GSD_WS:+--ws=${GSD_WS##* }} "${W_ARGS[@]}" >/dev/null || true ;;
     fixed)
-      gsd_run windows fixed "$W_A" >/dev/null || true ;;
+      gsd_run windows fixed ${GSD_WS:+--ws=${GSD_WS##* }} "$W_A" >/dev/null || true ;;
   esac
 done
 ```

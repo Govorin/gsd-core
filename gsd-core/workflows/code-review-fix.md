@@ -47,7 +47,7 @@ FIXER_MODEL=$(gsd_run query resolve-model gsd-code-fixer --raw)
 
 ```bash
 if [ -n "$REVIEW_OVERRIDE" ]; then
-  TARGET_JSON=$(gsd_run review window-paths --review "$REVIEW_OVERRIDE") || exit $?
+  TARGET_JSON=$(gsd_run review window-paths ${GSD_WS:+--ws=${GSD_WS##* }} --review "$REVIEW_OVERRIDE") || exit $?
   PHASE_DIR=$(printf '%s' "$TARGET_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).dir)")
   PADDED_PHASE="window"
   COMMIT_DOCS=$(gsd_run query config-get commit_docs --raw 2>/dev/null || echo "true")

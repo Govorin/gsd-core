@@ -170,7 +170,7 @@ describe('code-review-fix.md — the `--review` path parameter', { skip: !HAS_BA
     }
   });
   test('[happy] a window review validates its path through the CLI, skips phase init, and runs one fix pass', () => {
-    assert.ok(FIX_WORKFLOW.includes('gsd_run review window-paths --review "$REVIEW_OVERRIDE"'));
+    assert.ok(FIX_WORKFLOW.includes('gsd_run review window-paths ${GSD_WS:+--ws=${GSD_WS##* }} --review "$REVIEW_OVERRIDE"'));
     assert.ok(slice(FIX_WORKFLOW, 'if [ -z "$REVIEW_OVERRIDE" ]; then', 'fi').includes('init.phase-op'));
     assert.ok(FIX_WORKFLOW.includes('if [ -n "$REVIEW_OVERRIDE" ] && [ "$AUTO_MODE" = "true" ]; then'));
     assert.ok(FIX_WORKFLOW.includes('**Window review (`REVIEW_OVERRIDE` set): skip this step.**'));
