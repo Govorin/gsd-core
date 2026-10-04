@@ -78,7 +78,11 @@ for (const entry of LOOP_HOST_CONTRACT) {
 
 // ─── Config-slice validation ──────────────────────────────────────────────────
 
-const VALID_CONFIG_SLICE_TYPES = new Set(['boolean', 'string', 'number', 'enum']);
+// `string-map` is the one structured type: a capability whose key is a
+// dictionary (workflow.verify_gates: check name → command line) declares it as
+// one, rather than smuggling JSON through a `string` that config-set then
+// cannot write and the loader cannot type-check.
+const VALID_CONFIG_SLICE_TYPES = new Set(['boolean', 'string', 'number', 'enum', 'string-map']);
 
 /**
  * Validate a single config-slice entry (one key's { type, default, description }).
@@ -155,6 +159,18 @@ function validateConfigSliceEntry(capId, key, slice) {
         errors.push(
           'capability "' + capId + '" config["' + key + '"]: default "' + def +
           '" is not one of the declared enum values [' + slice.values.join(', ') + ']',
+        );
+      }
+    } else if (slice.type === 'string-map') {
+      // An object of string → string (e.g. check name → command line). Same
+      // value rule as federated-config's isStringMap, which the loader and
+      // config-set apply to user values.
+      const isMap = typeof def === 'object' && def !== null && !Array.isArray(def) &&
+        Object.values(def).every((v) => typeof v === 'string');
+      if (!isMap) {
+        errors.push(
+          'capability "' + capId + '" config["' + key + '"]: default must be an object of string values for type:"string-map" (got: ' +
+          (Array.isArray(def) ? 'array' : def === null ? 'null' : typeof def) + ')',
         );
       }
     }

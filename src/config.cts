@@ -28,6 +28,9 @@ const { VALID_PROFILES, getAgentToModelMapForProfile, formatAgentToModelMapAsTab
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import configSchema = require('./config-schema.cjs');
 const { VALID_CONFIG_KEYS, isValidConfigKey, getCapabilityConfigSchema } = configSchema;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import federatedConfig = require('./federated-config.cjs');
+const { isStringMap } = federatedConfig;
 import { isSecretKey, maskSecret } from './secrets.cjs';
 import { normalizeConfiguredDefaultReviewers, INSTANCE_NAME_PATTERN, KNOWN_REVIEWER_SLUGS } from './review-reviewer-selection.cjs';
 import { migrateOnDisk } from './configuration.cjs';
@@ -1130,6 +1133,14 @@ function cmdConfigSet(cwd: string, keyPath: string | undefined, value: string | 
       case 'string':
         if (typeof parsedValue !== 'string') {
           error(`Invalid ${kp} '${val}'. Must be a string.`);
+        }
+        break;
+      case 'string-map':
+        // The JSON branch above already parsed a `{...}` argument; a value
+        // still a string here was not valid JSON. The loader reads the key by
+        // the same isStringMap rule, so what this accepts it will not drop.
+        if (!isStringMap(parsedValue)) {
+          error(`Invalid ${kp} '${val}'. Must be a JSON object of string values, e.g. '{"name":"value"}'.`);
         }
         break;
     }
