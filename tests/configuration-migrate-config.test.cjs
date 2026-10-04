@@ -665,3 +665,95 @@ describe('migrate-config — GSD_PROJECT scoping (#3749)', () => {
     }
   });
 });
+
+// ─── #4974: retired template keys ─────────────────────────────────────────────
+//
+// #4974 withdrew `safety` and six `gates.*` toggles from templates/config.json
+// because nothing reads them, but every project started from an older template
+// still carries them, and the loader reported `safety` as an unknown key with no
+// way to clear it: migrate-config said "already canonical". They have no
+// canonical destination, so migrate-config removes them.
+
+describe('#4974 — migrate-config drops the keys GSD retired from its template', () => {
+  const {
+    dropRetiredKeys,
+    RETIRED_CONFIG_KEYS,
+  } = require('../gsd-core/bin/lib/configuration.cjs');
+  const { isValidConfigKey } = require('../gsd-core/bin/lib/config-schema.cjs');
+
+  // templates/config.json as it shipped before #4974, trimmed to the blocks that matter.
+  const PRE_4974_TEMPLATE = {
+    mode: 'interactive',
+    gates: {
+      confirm_project: true,
+      confirm_phases: true,
+      confirm_roadmap: true,
+      confirm_breakdown: true,
+      confirm_plan: true,
+      execute_next_plan: false,
+      issues_review: true,
+      confirm_transition: true,
+    },
+    safety: {
+      always_confirm_destructive: true,
+      always_confirm_external_services: true,
+    },
+  };
+
+  let tmpDir;
+
+  afterEach(() => {
+    if (tmpDir) cleanup(tmpDir);
+    tmpDir = null;
+  });
+
+  test('a pre-#4974 template config loses every retired key and keeps the live ones', () => {
+    tmpDir = createTempProject('gsd-migrate-retired-');
+    const configPath = path.join(tmpDir, '.planning', 'config.json');
+    fs.writeFileSync(configPath, JSON.stringify(PRE_4974_TEMPLATE, null, 2), 'utf-8');
+
+    const result = runMigrateConfig(tmpDir);
+    assert.equal(result.status, 0, `stderr: ${result.stderr}`);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.migrated, true);
+    assert.deepEqual(report.normalizations, []);
+    assert.deepEqual(report.retired, [...RETIRED_CONFIG_KEYS]);
+
+    const onDisk = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    assert.deepEqual(onDisk, {
+      mode: 'interactive',
+      gates: { execute_next_plan: false, confirm_transition: true },
+    });
+
+    const again = JSON.parse(runMigrateConfig(tmpDir).stdout);
+    assert.equal(again.migrated, false, 'the second run must be a no-op');
+    assert.deepEqual(again.retired, []);
+  });
+
+  test('dropRetiredKeys removes a section the retirement empties', () => {
+    const { parsed, retired } = dropRetiredKeys({ gates: { confirm_project: true }, mode: 'yolo' });
+    assert.deepEqual(parsed, { mode: 'yolo' });
+    assert.deepEqual(retired, ['gates.confirm_project']);
+  });
+
+  test('dropRetiredKeys leaves a non-object section as the user wrote it', () => {
+    const { parsed, retired } = dropRetiredKeys({ gates: 'off', safety: false });
+    assert.deepEqual(parsed, { gates: 'off' });
+    assert.deepEqual(retired, ['safety']);
+  });
+
+  test('dropRetiredKeys reports nothing and does not mutate its input when no retired key is present', () => {
+    const input = { gates: { execute_next_plan: true }, workflow: { research: false } };
+    const snapshot = structuredClone(input);
+    const { parsed, retired } = dropRetiredKeys(input);
+    assert.deepEqual(retired, []);
+    assert.deepEqual(parsed, snapshot);
+    assert.deepEqual(input, snapshot);
+  });
+
+  test('no retired key is also a live schema key', () => {
+    for (const key of RETIRED_CONFIG_KEYS) {
+      assert.equal(isValidConfigKey(key), false, `${key} is retired, so the schema must not accept it`);
+    }
+  });
+});

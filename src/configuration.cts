@@ -81,6 +81,28 @@ const DEPTH_TO_GRANULARITY: Record<string, string> = {
   comprehensive: 'fine',
 };
 
+// ─── Retired keys ────────────────────────────────────────────────────────────
+// Keys GSD's own templates/config.json shipped and later withdrew because no
+// workflow, agent, or module reads them (#4974). Every project started from an
+// older template still carries them, so they are not the user's typos: the
+// loader names them as retired instead of unknown, and `migrate-config` drops
+// them. They have no canonical destination — unlike the legacy keys
+// `normalizeLegacyKeys` hoists, there is nothing to move them TO.
+const RETIRED_CONFIG_KEYS: readonly string[] = [
+  'safety',
+  'gates.confirm_project',
+  'gates.confirm_phases',
+  'gates.confirm_roadmap',
+  'gates.confirm_breakdown',
+  'gates.confirm_plan',
+  'gates.issues_review',
+];
+
+/** Is `key` a top-level config key GSD retired as a whole (see RETIRED_CONFIG_KEYS)? */
+function isRetiredTopLevelKey(key: string): boolean {
+  return RETIRED_CONFIG_KEYS.includes(key);
+}
+
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 function planningDir(cwd: string, workstream?: string): string {
   if (!workstream)
@@ -185,12 +207,20 @@ interface NormalizeLegacyKeysResult {
   skipped: SkippedNormalization[];
 }
 
+interface DropRetiredKeysResult {
+  parsed: Record<string, unknown>;
+  /** The retired keys that were present and removed, dotted, in RETIRED_CONFIG_KEYS order. */
+  retired: string[];
+}
+
 interface MigrateOnDiskResult {
   migrated: boolean;
   normalizations: Normalization[];
   wrote: string | null;
   /** Migrations declined because the destination section is a non-object (#3760). */
   skipped: SkippedNormalization[];
+  /** Retired keys removed from the file (#4974). */
+  retired: string[];
 }
 
 /**
@@ -316,6 +346,36 @@ function normalizeLegacyKeys(parsed: Record<string, unknown>): NormalizeLegacyKe
   return { parsed: result, normalizations, skipped };
 }
 
+/**
+ * Remove the keys GSD retired (RETIRED_CONFIG_KEYS) from a parsed config.
+ *
+ * A nested retired key is removed only from a section that is an object — a
+ * non-object section is user data this function has no business reshaping
+ * (the #3760 rule). A section left empty by the removal goes with it, so a
+ * template-era `gates` block holding only retired toggles does not linger as `{}`.
+ */
+function dropRetiredKeys(parsed: Record<string, unknown>): DropRetiredKeysResult {
+  const result: Record<string, unknown> = { ...parsed };
+  const retired: string[] = [];
+  for (const key of RETIRED_CONFIG_KEYS) {
+    const [section, field] = key.split('.');
+    if (field === undefined) {
+      if (Object.prototype.hasOwnProperty.call(result, section)) {
+        delete result[section];
+        retired.push(key);
+      }
+      continue;
+    }
+    const raw = result[section];
+    if (!isConfigSection(raw) || !Object.prototype.hasOwnProperty.call(raw, field)) continue;
+    const { [field]: _dropped, ...rest } = raw;
+    if (Object.keys(rest).length === 0) delete result[section];
+    else result[section] = rest;
+    retired.push(key);
+  }
+  return { parsed: result, retired };
+}
+
 function mergeDefaults(parsed: Record<string, unknown>): Record<string, unknown> {
   // Start with a deep clone of defaults, then overlay parsed
   const defaults = structuredClone(CONFIG_DEFAULTS);
@@ -336,11 +396,11 @@ function migrateOnDisk(cwd: string, workstream?: string, configPathOverride?: st
   }
   catch {
     // File missing — nothing to migrate
-    return { migrated: false, normalizations: [], wrote: null, skipped: [] };
+    return { migrated: false, normalizations: [], wrote: null, skipped: [], retired: [] };
   }
   const trimmed = raw.trim();
   if (trimmed === '') {
-    return { migrated: false, normalizations: [], wrote: null, skipped: [] };
+    return { migrated: false, normalizations: [], wrote: null, skipped: [], retired: [] };
   }
   let parsed: unknown;
   try {
@@ -348,7 +408,7 @@ function migrateOnDisk(cwd: string, workstream?: string, configPathOverride?: st
   }
   catch {
     // Malformed — can't migrate
-    return { migrated: false, normalizations: [], wrote: null, skipped: [] };
+    return { migrated: false, normalizations: [], wrote: null, skipped: [], retired: [] };
   }
   const { parsed: normalized, normalizations, skipped } = normalizeLegacyKeys(parsed as Record<string, unknown>);
   // Resolve multiRepo filesystem detection
@@ -366,24 +426,28 @@ function migrateOnDisk(cwd: string, workstream?: string, configPathOverride?: st
       }
     }
   }
-  if (normalizations.length === 0) {
+  const { parsed: pruned, retired } = dropRetiredKeys(result);
+  if (normalizations.length === 0 && retired.length === 0) {
     // Nothing changed — and that now includes the case where every legacy key was
     // REFUSED. Returning early here is what keeps the corrupted-section input from
     // reaching writeFileSync at all.
-    return { migrated: false, normalizations: [], wrote: null, skipped };
+    return { migrated: false, normalizations: [], wrote: null, skipped, retired };
   }
   try {
-    writeFileSync(configPath, JSON.stringify(result, null, 2));
+    writeFileSync(configPath, JSON.stringify(pruned, null, 2));
   }
   catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     throw new Error(`Failed to write migrated config at ${configPath}: ${msg}`);
   }
-  return { migrated: true, normalizations, wrote: configPath, skipped };
+  return { migrated: true, normalizations, wrote: configPath, skipped, retired };
 }
 
 export {
   normalizeLegacyKeys,
+  dropRetiredKeys,
+  isRetiredTopLevelKey,
+  RETIRED_CONFIG_KEYS,
   mergeDefaults,
   migrateOnDisk,
   isConfigSection,
