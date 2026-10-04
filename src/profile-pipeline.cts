@@ -10,12 +10,25 @@
  * ADR-457 build-at-publish: the hand-written bin/lib/profile-pipeline.cjs collapsed
  * to a TypeScript source of truth. Behaviour is preserved byte-for-behaviour
  * from the prior hand-written .cjs; only strict types are added.
+ *
+ * Session discovery, JSONL streaming and the genuine-user-prompt predicate
+ * live in session-transcript.cts, shared with retro-signals; this module only
+ * reads through it, with unbounded limits so its legacy behaviour holds.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import readline from 'node:readline';
+import {
+  getSessionsDir,
+  listProjectDirs,
+  scanProjectDir,
+  readSessionIndex,
+  getProjectName,
+  isGenuineUserRecord,
+  iterateJsonl,
+  UNBOUNDED_READ_LIMITS,
+} from './session-transcript.cjs';
+import type { SessionEntry } from './session-transcript.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import ioModule = require('./io.cjs');
 const { output, error, reapStaleTempFiles, ensureGsdTempDir, GSD_TEMP_DIR } = ioModule;
@@ -24,25 +37,6 @@ import cliExitModule = require('./cli-exit.cjs');
 const { ExitError } = cliExitModule;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SessionEntry {
-  sessionId: string;
-  filePath: string;
-  size: number;
-  modified: Date;
-}
-
-interface IndexEntry {
-  sessionId?: string;
-  summary?: string;
-  messageCount?: number;
-  created?: string;
-}
-
-interface IndexData {
-  originalPath: string | null;
-  entries: Map<string, IndexEntry>;
-}
 
 interface ProjectInfo {
   name: string;
@@ -92,63 +86,6 @@ interface JsonlRecord {
   timestamp?: string;
 }
 
-// ─── Session I/O Helpers ──────────────────────────────────────────────────────
-
-function getSessionsDir(overridePath?: string | null): string | null {
-  const dir = overridePath || path.join(os.homedir(), '.claude', 'projects');
-  if (!fs.existsSync(dir)) return null;
-  return dir;
-}
-
-function scanProjectDir(projectDirPath: string): SessionEntry[] {
-  const entries = fs.readdirSync(projectDirPath);
-  const sessions: SessionEntry[] = [];
-
-  for (const entry of entries) {
-    if (!entry.endsWith('.jsonl')) continue;
-    const sessionId = entry.replace('.jsonl', '');
-    const filePath = path.join(projectDirPath, entry);
-    const stat = fs.statSync(filePath);
-
-    sessions.push({
-      sessionId,
-      filePath,
-      size: stat.size,
-      modified: stat.mtime,
-    });
-  }
-
-  sessions.sort((a, b) => b.modified.getTime() - a.modified.getTime());
-  return sessions;
-}
-
-function readSessionIndex(projectDirPath: string): IndexData {
-  try {
-    const indexPath = path.join(projectDirPath, 'sessions-index.json');
-    const raw = fs.readFileSync(indexPath, 'utf-8');
-    const parsed = JSON.parse(raw) as { originalPath?: string; entries?: IndexEntry[] };
-    const entries = new Map<string, IndexEntry>();
-    for (const entry of (parsed.entries || [])) {
-      if (entry.sessionId) {
-        entries.set(entry.sessionId, entry);
-      }
-    }
-    return { originalPath: parsed.originalPath || null, entries };
-  } catch {
-    return { originalPath: null, entries: new Map() };
-  }
-}
-
-function getProjectName(projectDirName: string, indexData: IndexData, firstRecordCwd?: string | null): string {
-  if (indexData && indexData.originalPath) {
-    return path.basename(indexData.originalPath);
-  }
-  if (firstRecordCwd) {
-    return path.basename(firstRecordCwd);
-  }
-  return projectDirName;
-}
-
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -183,18 +120,7 @@ function formatSessionTable(sessions: SessionDetail[]): string {
 // ─── Message Extraction Helpers ───────────────────────────────────────────────
 
 function isGenuineUserMessage(record: JsonlRecord): boolean {
-  if (record.type !== 'user') return false;
-  if (record.userType !== 'external') return false;
-  if (record.isMeta === true) return false;
-  if (record.isSidechain === true) return false;
-  const content = record.message?.content;
-  if (typeof content !== 'string') return false;
-  if (content.length === 0) return false;
-  if (content.startsWith('<local-command')) return false;
-  if (content.startsWith('<command-')) return false;
-  if (content.startsWith('<task-notification')) return false;
-  if (content.startsWith('<local-command-stdout')) return false;
-  return true;
+  return isGenuineUserRecord(record as Record<string, unknown>);
 }
 
 function truncateContent(content: string, maxLen = 2000): string {
@@ -203,23 +129,13 @@ function truncateContent(content: string, maxLen = 2000): string {
 }
 
 async function streamExtractMessages(filePath: string, filterFn: (r: JsonlRecord) => boolean, maxMessages = 300): Promise<ExtractedMessage[]> {
-  const rl = readline.createInterface({
-    input: fs.createReadStream(filePath),
-    crlfDelay: Infinity,
-    terminal: false,
-  });
-
   const messages: ExtractedMessage[] = [];
   const sessionId = path.basename(filePath, '.jsonl');
 
-  for await (const line of rl) {
+  for await (const item of iterateJsonl(filePath, UNBOUNDED_READ_LIMITS)) {
     if (messages.length >= maxMessages) break;
-    let record: JsonlRecord;
-    try {
-      record = JSON.parse(line) as JsonlRecord;
-    } catch {
-      continue;
-    }
+    if (item.kind !== 'record') continue;
+    const record = item.record as JsonlRecord;
     if (!filterFn(record)) continue;
     messages.push({
       sessionId,
@@ -246,14 +162,7 @@ function cmdScanSessions(overridePath: string | null | undefined, options: { jso
 
   let projectDirs: string[];
   try {
-    projectDirs = fs.readdirSync(sessionsDir as string).filter(entry => {
-      const fullPath = path.join(sessionsDir as string, entry);
-      try {
-        return fs.statSync(fullPath).isDirectory();
-      } catch {
-        return false;
-      }
-    });
+    projectDirs = listProjectDirs(sessionsDir as string);
   } catch (err) {
     error(`Cannot read sessions directory: ${(err as Error).message}`);
     return;
@@ -337,14 +246,7 @@ async function cmdExtractMessages(projectArg: string, options: { sessionId?: str
 
   let projectDirs: string[];
   try {
-    projectDirs = fs.readdirSync(sessionsDir as string).filter(entry => {
-      const fullPath = path.join(sessionsDir as string, entry);
-      try {
-        return fs.statSync(fullPath).isDirectory();
-      } catch {
-        return false;
-      }
-    });
+    projectDirs = listProjectDirs(sessionsDir as string);
   } catch (err) {
     error(`Cannot read sessions directory: ${(err as Error).message}`);
     return;
@@ -486,14 +388,7 @@ async function cmdProfileSample(overridePath: string | null | undefined, options
 
   let projectDirs: string[];
   try {
-    projectDirs = fs.readdirSync(sessionsDir as string).filter(entry => {
-      const fullPath = path.join(sessionsDir as string, entry);
-      try {
-        return fs.statSync(fullPath).isDirectory();
-      } catch {
-        return false;
-      }
-    });
+    projectDirs = listProjectDirs(sessionsDir as string);
   } catch (err) {
     error(`Cannot read sessions directory: ${(err as Error).message}`);
     return;
