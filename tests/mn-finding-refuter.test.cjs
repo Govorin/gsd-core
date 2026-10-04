@@ -97,7 +97,9 @@ describe('finding refuter — the agent contract', () => {
     // It is not a second reviewer. A refuter that adds findings turns a
     // precision pass into another source of revisions.
     assert.match(AGENT, /Never introduce a finding of your own/i);
-    assert.match(AGENT, /revision loop must not silently grow new work/i);
+    // Every mode feeds a loop (the planner's revisions, a fix pass, a survey's
+    // decisions), so the rule is stated for the loop, not the revision loop alone.
+    assert.match(AGENT, /the loop must not silently grow new work/i);
   });
 
   test('closes the verdict vocabulary at two values', () => {

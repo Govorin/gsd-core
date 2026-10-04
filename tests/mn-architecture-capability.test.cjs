@@ -31,13 +31,13 @@ const AGENTS_DIR = path.join(REPO, 'agents');
 const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
 
 describe('architecture capability', () => {
-  test('declares both agents, and both exist in agents/', () => {
+  test('declares its three agents, and each exists in agents/', () => {
     // Every capability agent must be present in agents/ — the installer projects
     // from there, so a declared-but-absent agent installs as a step that spawns
     // nothing.
     assert.deepEqual(
       [...manifest.agents].sort(),
-      ['gsd-architect-reviewer', 'gsd-system-architect'],
+      ['gsd-arch-surveyor', 'gsd-architect-reviewer', 'gsd-system-architect'],
     );
 
     for (const agent of manifest.agents) {
@@ -80,10 +80,21 @@ describe('architecture capability', () => {
     }
   });
 
-  test('every step points at a fragment that exists', () => {
+  test('the milestone stage measures at milestone:post, on by default, with no model', () => {
+    // The survey half's lifecycle stage: a deterministic command step, so it needs no
+    // fragment; the survey itself is model work and only follows the stage's answer.
+    const step = manifest.steps.find((s) => s.point === 'milestone:post');
+    assert.ok(step, 'the architecture capability must register its milestone stage');
+    assert.deepEqual(step.ref, { command: 'arch stage' });
+    assert.equal(step.when, 'architecture.metrics_at_milestone');
+    assert.equal(manifest.config['architecture.metrics_at_milestone'].default, true);
+    assert.equal(manifest.config['architecture.survey_at_milestone'].default, 'suggest');
+  });
+
+  test('every agent step points at a fragment that exists', () => {
     // A step whose fragment path is wrong dispatches an agent with no context,
-    // which fails as vaguely as it sounds.
-    for (const step of manifest.steps) {
+    // which fails as vaguely as it sounds. A command step runs the CLI and has none.
+    for (const step of manifest.steps.filter((s) => s.ref?.agent)) {
       const fragment = path.join(path.dirname(MANIFEST_PATH), step.fragment.path);
       assert.ok(
         fs.existsSync(fragment),
