@@ -490,6 +490,8 @@ export default tseslint.config(
       'gsd-core/bin/lib/mn-zod-fieldtable.cjs',
       'gsd-core/bin/lib/mn-design-registry.cjs',
       'gsd-core/bin/lib/mn-worktree-gc.cjs',
+      // Pocock practices (arch survey / window review): tsc-generated — lint the src/*.cts sources.
+      'gsd-core/bin/lib/code-graph.cjs',
     ],
   },
 
