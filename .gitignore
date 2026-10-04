@@ -358,6 +358,9 @@ build/
 /gsd-core/bin/lib/feature-view.cjs
 /gsd-core/bin/lib/mn-command-router.cjs
 /gsd-core/bin/lib/mn-zod-fieldtable.cjs
+/gsd-core/bin/lib/mn-design-registry.cjs
+/gsd-core/bin/lib/mn-worktree-gc.cjs
+/gsd-core/bin/lib/mn-assertion-count.cjs
 __pycache__/
 *.pyc
 .venv/
