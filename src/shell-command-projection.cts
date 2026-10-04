@@ -325,12 +325,24 @@ function managedHookCommandSurfaceSet(surface: string = 'settings-json', include
   return new Set([...base, ...aliases]);
 }
 
-export function isManagedHookCommand(commandText: unknown, opts: { surface?: string; includeLegacyAliases?: boolean; configDir?: string; args?: unknown[] } = {}): boolean {
-  if (typeof commandText !== 'string') return false;
+type ManagedHookCommandOpts = { surface?: string; includeLegacyAliases?: boolean; configDir?: string; args?: unknown[] };
+
+export function isManagedHookCommand(commandText: unknown, opts: ManagedHookCommandOpts = {}): boolean {
+  return managedHookCommandBasename(commandText, opts) !== null;
+}
+
+/**
+ * The managed hook script a command runs — its basename — or null when the
+ * command is not GSD-managed. isManagedHookCommand is this test; callers that
+ * must tell one managed hook from another (install's settings.json
+ * reconciliation) key on the name it returns.
+ */
+export function managedHookCommandBasename(commandText: unknown, opts: ManagedHookCommandOpts = {}): string | null {
+  if (typeof commandText !== 'string') return null;
   const surface = opts.surface || 'settings-json';
   const includeLegacyAliases = opts.includeLegacyAliases === true;
   const managedBasenames = managedHookCommandSurfaceSet(surface, includeLegacyAliases);
-  if (!managedBasenames || managedBasenames.size === 0) return false;
+  if (!managedBasenames || managedBasenames.size === 0) return null;
 
   // args-form check: the managed hook filename may appear in args[] rather than
   // in command when a windowless launcher wraps the Node invocation. (#976)
@@ -340,7 +352,7 @@ export function isManagedHookCommand(commandText: unknown, opts: { surface?: str
     for (const arg of opts.args) {
       if (typeof arg !== 'string') continue;
       const argBasename = posixNormalize(arg).split('/').pop() || '';
-      if (isManagedHookBasename(argBasename, { surface })) return true;
+      if (isManagedHookBasename(argBasename, { surface })) return argBasename;
     }
   }
 
@@ -348,15 +360,15 @@ export function isManagedHookCommand(commandText: unknown, opts: { surface?: str
 
   if (typeof opts.configDir === 'string' && opts.configDir.length > 0) {
     const normalizedHooksDir = `${posixNormalize(path.join(opts.configDir, 'hooks'))}/`;
-    if (!normalizedCommand.includes(normalizedHooksDir)) return false;
+    if (!normalizedCommand.includes(normalizedHooksDir)) return null;
   }
 
   for (const basename of managedBasenames) {
     const escapedBasename = escapeRegex(basename);
     const pattern = new RegExp(`(^|[\\\\/\\s"'` + '`' + `])${escapedBasename}(?=$|[\\s"'` + '`' + `])`);
-    if (pattern.test(normalizedCommand)) return true;
+    if (pattern.test(normalizedCommand)) return basename;
   }
-  return false;
+  return null;
 }
 
 /**

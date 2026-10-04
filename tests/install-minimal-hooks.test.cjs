@@ -2762,6 +2762,9 @@ describe('enh-770: Uninstall removes every GSD hook registration from the file i
     tmpDir = createTempDir('gsd-770-uninstall-');
     previousCwd = process.cwd();
     previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    // A local install defers worktree provisioning to a user-layer registration
+    // (CLAUDE_CONFIG_DIR, else ~/.claude); the machine's real one must not decide it.
+    process.env.CLAUDE_CONFIG_DIR = path.join(tmpDir, 'user-claude');
     process.chdir(tmpDir);
   });
 

@@ -762,6 +762,13 @@ The prompt-level data/instruction isolation seam for untrusted web/document ingr
 `CONTENT-ROOT.SEAM.decision-1=one base (project) for writing and reading a recorded path, never a fallback between two bases — a path valid under both would be ambiguous`
 `CONTENT-ROOT.SEAM.test-anchors=[tests/project-root.test.cjs::one content boundary, tests/diagrams-check.test.cjs::monorepo sub-project: one content boundary|outside git: the boundary is the project]`
 
+`SETTINGS-HOOKS.RECONCILE.files=[src/runtime-hooks-surface.cts, src/shell-command-projection.cts, bin/install.js]`
+`SETTINGS-HOOKS.RECONCILE.interface=[filterManagedSettingsHooks(settings, keep(slot)) -> changed, reconcileManagedSettingsHooks(settings, desired) -> changed, managedHookCommandBasename(command) -> basename|null]`
+`SETTINGS-HOOKS.RECONCILE.rule=after install the managed settings.json hooks are exactly the slots (event × matcher × managed script basename, counted) applySettingsJsonHooks writes into empty settings for the same install; reconcile runs BEFORE the real apply, because registration is only-if-absent and a hook left on a retired slot would satisfy its absence check`
+`SETTINGS-HOOKS.RECONCILE.shared-filter=uninstall is filterManagedSettingsHooks(settings, () => false); both drop managed hooks one at a time, so a user hook sharing an entry survives (#1755)`
+`SETTINGS-HOOKS.RECONCILE.exempt=gsd-update-banner.js on SessionStart (finishInstall registers it on an opt-in the dry run never sees); the target settings file only — a local install never edits the user layer`
+`SETTINGS-HOOKS.RECONCILE.test-anchors=[tests/install-settings-hook-reconcile.test.cjs]`
+
 `WORKSTREAM.INVARIANT.migrate-name=must normalize through canonical slug policy`
 `WORKSTREAM.INVARIANT.slug-contract=all .planning/workstreams/<name> must be addressable by set/get/status/complete`
 `WORKSTREAM.REGRESSION.test-anchor=tests/workstream.test.cjs::normalizes --migrate-name to a valid workstream slug`

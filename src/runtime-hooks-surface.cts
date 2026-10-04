@@ -51,6 +51,7 @@ import shellCmdProjection = require('./shell-command-projection.cjs');
 const {
   isManagedHookBasename,
   isManagedHookCommand,
+  managedHookCommandBasename,
   projectLegacySettingsHookCommand,
   projectManagedHookCommand,
   projectPortableHookBaseDir,
@@ -62,6 +63,7 @@ const {
 } = shellCmdProjection as {
   isManagedHookBasename: (scriptPath: string, opts?: { surface?: string }) => boolean;
   isManagedHookCommand: (cmd: string | null | undefined, opts?: { surface?: string; includeLegacyAliases?: boolean; configDir?: string }) => boolean;
+  managedHookCommandBasename: (cmd: string | null | undefined, opts?: { surface?: string }) => string | null;
   projectLegacySettingsHookCommand: (opts: { runnerToken: string; scriptPath: string; scriptToken: string; runtime: string; platform: string }) => string | null;
   projectManagedHookCommand: (opts: { absoluteRunner: string; scriptPath: string; runtime: string; platform: string; hookShell?: string }) => string | null;
   projectPortableHookBaseDir: (opts: { configDir: string; homeDir: string }) => string;
@@ -2446,6 +2448,7 @@ function writeCopilotHookConfig(targetDir: string): string {
 //   hookOpts                  - { portableHooks, runtime } passed to buildHookCommand
 //   localCmd                  - (hookFile: string) => string|null
 //   localShellCmd             - (hookFile: string) => string|null
+//   quiet                     - true suppresses the console report (dry run)
 // ---------------------------------------------------------------------------
 
 interface ApplySettingsJsonHooksOpts {
@@ -2468,6 +2471,8 @@ interface ApplySettingsJsonHooksOpts {
   hookOpts: BuildHookCommandOpts;
   localCmd: (hookFile: string) => string | null;
   localShellCmd: (hookFile: string) => string | null;
+  /** Print nothing — for the dry run over empty settings that tells install what this build registers. */
+  quiet?: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2492,7 +2497,10 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
     hookOpts,
     localCmd,
     localShellCmd,
+    quiet,
   } = opts;
+  const log = (line: string): void => { if (!quiet) console.log(line); };
+  const warn = (line: string): void => { if (!quiet) console.warn(line); };
 
   // ADR-857 phase 5f-3: extended hook events are now driven by the registry
   // descriptor field rather than hardcoded runtime-name checks.
@@ -2559,9 +2567,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured update check hook`);
+      log(`  ${green}✓${reset} Configured update check hook`);
     } else if (!hasGsdUpdateHook && !fs.existsSync(checkUpdateFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped update check hook — gsd-check-update.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped update check hook — gsd-check-update.js not found at target`);
     }
 
     // Configure post-tool hook for context window monitoring
@@ -2585,9 +2593,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured context window monitor hook`);
+      log(`  ${green}✓${reset} Configured context window monitor hook`);
     } else if (!hasContextMonitorHook && !fs.existsSync(contextMonitorFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped context monitor hook — gsd-context-monitor.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped context monitor hook — gsd-context-monitor.js not found at target`);
     } else {
       // Migrate existing context monitor hooks: add matcher and timeout if missing
       for (const entry of settings.hooks[postToolEvent]) {
@@ -2604,7 +2612,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
             }
           }
           if (migrated) {
-            console.log(`  ${green}✓${reset} Updated context monitor hook (added matcher + timeout)`);
+            log(`  ${green}✓${reset} Updated context monitor hook (added matcher + timeout)`);
           }
         }
       }
@@ -2635,9 +2643,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured prompt injection guard hook`);
+      log(`  ${green}✓${reset} Configured prompt injection guard hook`);
     } else if (!hasPromptGuardHook && !fs.existsSync(promptGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped prompt guard hook — gsd-prompt-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped prompt guard hook — gsd-prompt-guard.js not found at target`);
     }
 
     // Configure PreToolUse hook for read-before-edit guidance (#1628)
@@ -2659,9 +2667,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured read-before-edit guard hook`);
+      log(`  ${green}✓${reset} Configured read-before-edit guard hook`);
     } else if (!hasReadGuardHook && !fs.existsSync(readGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped read guard hook — gsd-read-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped read guard hook — gsd-read-guard.js not found at target`);
     }
 
     // Configure PostToolUse hook for read-time prompt injection scanning (#2201)
@@ -2683,9 +2691,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured read injection scanner hook`);
+      log(`  ${green}✓${reset} Configured read injection scanner hook`);
     } else if (!hasReadInjectionScannerHook && !fs.existsSync(readInjectionScannerFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped read injection scanner hook — gsd-read-injection-scanner.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped read injection scanner hook — gsd-read-injection-scanner.js not found at target`);
     }
 
     // Community hooks — registered on install but opt-in at runtime.
@@ -2709,7 +2717,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
     const workflowGuardFile = path.join(targetDir, 'hooks', 'gsd-workflow-guard.js');
     if (hasWorkflowGuardHook && workflowGuardHookEntry.matcher !== workflowGuardMatcher) {
       workflowGuardHookEntry.matcher = workflowGuardMatcher;
-      console.log(`  ${green}✓${reset} Updated workflow guard hook matcher`);
+      log(`  ${green}✓${reset} Updated workflow guard hook matcher`);
     } else if (!hasWorkflowGuardHook && fs.existsSync(workflowGuardFile) && workflowGuardCommand) {
       settings.hooks[preToolEvent].push({
         matcher: workflowGuardMatcher,
@@ -2721,9 +2729,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured workflow guard hook (opt-in via hooks.workflow_guard)`);
+      log(`  ${green}✓${reset} Configured workflow guard hook (opt-in via hooks.workflow_guard)`);
     } else if (!hasWorkflowGuardHook && !fs.existsSync(workflowGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped workflow guard hook — gsd-workflow-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped workflow guard hook — gsd-workflow-guard.js not found at target`);
     }
 
     // Configure PreToolUse hook for worktree absolute-path safety (#260)
@@ -2748,9 +2756,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured worktree path guard hook`);
+      log(`  ${green}✓${reset} Configured worktree path guard hook`);
     } else if (!hasWorktreePathGuardHook && !fs.existsSync(worktreePathGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped worktree path guard hook — gsd-worktree-path-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped worktree path guard hook — gsd-worktree-path-guard.js not found at target`);
     }
 
     // Configure PreToolUse hook for Agent-dispatch isolation (#3045)
@@ -2780,9 +2788,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured agent isolation dispatch guard hook`);
+      log(`  ${green}✓${reset} Configured agent isolation dispatch guard hook`);
     } else if (!hasAgentIsolationGuardHook && !fs.existsSync(agentIsolationGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped agent isolation guard hook — gsd-agent-isolation-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped agent isolation guard hook — gsd-agent-isolation-guard.js not found at target`);
     }
 
     // Configure PreToolUse hook for catastrophic-shrink protection (#2255, fix 3 of #973)
@@ -2809,9 +2817,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured write guard hook (catastrophic-shrink protection)`);
+      log(`  ${green}✓${reset} Configured write guard hook (catastrophic-shrink protection)`);
     } else if (!hasWriteGuardHook && !fs.existsSync(writeGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped write guard hook — gsd-write-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped write guard hook — gsd-write-guard.js not found at target`);
     }
 
     // Configure PreToolUse hook for secret-file read protection (#4221).
@@ -2838,9 +2846,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured secret read guard hook (.env / .secrets read protection)`);
+      log(`  ${green}✓${reset} Configured secret read guard hook (.env / .secrets read protection)`);
     } else if (!hasSecretReadGuardHook && !fs.existsSync(secretReadGuardFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped secret read guard hook — gsd-secret-read-guard.js not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped secret read guard hook — gsd-secret-read-guard.js not found at target`);
     }
 
     // Configure commit validation hook (Conventional Commits enforcement, opt-in)
@@ -2865,11 +2873,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured commit validation hook (opt-in via config)`);
+      log(`  ${green}✓${reset} Configured commit validation hook (opt-in via config)`);
     } else if (!hasValidateCommitHook && !fs.existsSync(validateCommitFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — gsd-validate-commit.sh not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — gsd-validate-commit.sh not found at target`);
     } else if (!hasValidateCommitHook && !validateCommitCommand) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — Bash executable path unavailable (#3393)`);
+      warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — Bash executable path unavailable (#3393)`);
     }
 
     // Configure graphify auto-update hook (opt-in via graphify.auto_update; default false, #3347).
@@ -2894,11 +2902,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured graphify auto-update hook (opt-in via graphify.auto_update)`);
+      log(`  ${green}✓${reset} Configured graphify auto-update hook (opt-in via graphify.auto_update)`);
     } else if (!hasGraphifyUpdateHook && !fs.existsSync(graphifyUpdateFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — gsd-graphify-update.sh not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — gsd-graphify-update.sh not found at target`);
     } else if (!hasGraphifyUpdateHook && !graphifyUpdateCommand) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — Bash executable path unavailable (#3393)`);
+      warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — Bash executable path unavailable (#3393)`);
     }
 
     // Configure session state orientation hook (opt-in)
@@ -2918,11 +2926,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured session state orientation hook (opt-in via config)`);
+      log(`  ${green}✓${reset} Configured session state orientation hook (opt-in via config)`);
     } else if (!hasSessionStateHook && !fs.existsSync(sessionStateFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped session state hook — gsd-session-state.sh not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped session state hook — gsd-session-state.sh not found at target`);
     } else if (!hasSessionStateHook && !sessionStateCommand) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped session state hook — Bash executable path unavailable (#3393)`);
+      warn(`  ${yellow}⚠${reset}  Skipped session state hook — Bash executable path unavailable (#3393)`);
     }
 
     // Configure phase boundary detection hook (opt-in)
@@ -2944,11 +2952,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           }
         ]
       });
-      console.log(`  ${green}✓${reset} Configured phase boundary detection hook (opt-in via config)`);
+      log(`  ${green}✓${reset} Configured phase boundary detection hook (opt-in via config)`);
     } else if (!hasPhaseBoundaryHook && !fs.existsSync(phaseBoundaryFile)) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — gsd-phase-boundary.sh not found at target`);
+      warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — gsd-phase-boundary.sh not found at target`);
     } else if (!hasPhaseBoundaryHook && !phaseBoundaryCommand) {
-      console.warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — Bash executable path unavailable (#3393)`);
+      warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — Bash executable path unavailable (#3393)`);
     }
 
     // #3329: the four `.sh` sites above register only-if-absent, so an entry
@@ -2965,7 +2973,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
       'gsd-session-state.sh': sessionStateCommand,
       'gsd-phase-boundary.sh': phaseBoundaryCommand,
     }, { platform: hookOpts.platform, runtime })) {
-      console.log(`  ${green}✓${reset} Reconciled managed .sh hook commands to current format (#3329)`);
+      log(`  ${green}✓${reset} Reconciled managed .sh hook commands to current format (#3329)`);
     }
 
     // ── Extended hook events: SubagentStop / Stop / PreCompact / SubagentStart
@@ -3015,9 +3023,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
               }
             ]
           });
-          console.log(`  ${green}✓${reset} Configured ${event} context monitor hook (${runtimeLabel})`);
+          log(`  ${green}✓${reset} Configured ${event} context monitor hook (${runtimeLabel})`);
         } else if (!alreadyHasContextMonitor && !fs.existsSync(contextMonitorFile)) {
-          console.warn(`  ${yellow}⚠${reset}  Skipped ${event} hook — gsd-context-monitor.js not found at target`);
+          warn(`  ${yellow}⚠${reset}  Skipped ${event} hook — gsd-context-monitor.js not found at target`);
         }
       }
     }
@@ -3059,9 +3067,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           };
           if (spec.matcher) group.matcher = spec.matcher;
           settings.hooks[spec.event].push(group);
-          console.log(`  ${green}✓${reset} Configured ${spec.label} hook`);
+          log(`  ${green}✓${reset} Configured ${spec.label} hook`);
         } else if (!present && !fs.existsSync(file)) {
-          console.warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
+          warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
         }
       }
 
@@ -3096,7 +3104,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
         userClaudeDir !== null && path.resolve(userClaudeDir) !== path.resolve(targetDir) ? findUserLayerWorktreeProvision(userClaudeDir) : null;
       if (foreignCreators.length > 0 || layerCreator) {
         const where = layerCreator ? layerCreator.file : 'the settings being written';
-        console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
+        warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
       } else if (userLayerProvision) {
         for (const event of ['WorktreeCreate', 'WorktreeRemove']) {
           if (!Array.isArray(settings.hooks[event])) continue;
@@ -3108,9 +3116,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           if (kept.length > 0) settings.hooks[event] = kept;
           else delete settings.hooks[event];
         }
-        console.log(`  ${green}✓${reset} Worktree provisioning hook already registered for this user (${userLayerProvision}) — not registered again for the project`);
+        log(`  ${green}✓${reset} Worktree provisioning hook already registered for this user (${userLayerProvision}) — not registered again for the project`);
       } else if (!fs.existsSync(worktreeProvisionFile)) {
-        console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
+        warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
       } else if (worktreeProvisionCommand) {
         const worktreeEvents: Array<{ event: string; timeout: number }> = [
           { event: 'WorktreeCreate', timeout: FORK_WORKTREE_CREATE_TIMEOUT_S },
@@ -3123,7 +3131,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
           settings.hooks[event].push({ hooks: [{ type: 'command', command: worktreeProvisionCommand, timeout }] });
           added = true;
         }
-        if (added) console.log(`  ${green}✓${reset} Configured worktree provisioning hook (WorktreeCreate from local HEAD + WorktreeRemove)`);
+        if (added) log(`  ${green}✓${reset} Configured worktree provisioning hook (WorktreeCreate from local HEAD + WorktreeRemove)`);
       }
     }
     // ── end mn fork enforcement hooks ──────────────────────────────────────────
@@ -3174,9 +3182,9 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
             }
           ]
         });
-        console.log(`  ${green}✓${reset} Configured ${extendedEvent} context monitor hook`);
+        log(`  ${green}✓${reset} Configured ${extendedEvent} context monitor hook`);
       } else if (!alreadyHasContextMonitor && !fs.existsSync(contextMonitorFile)) {
-        console.warn(`  ${yellow}⚠${reset}  Skipped ${extendedEvent} hook — gsd-context-monitor.js not found at target`);
+        warn(`  ${yellow}⚠${reset}  Skipped ${extendedEvent} hook — gsd-context-monitor.js not found at target`);
       }
     }
     // ── end Antigravity-only extended hook events ──────────────────────────────
@@ -3211,11 +3219,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
             }
           ]
         });
-        console.log(`  ${green}✓${reset} Configured FileChanged config-reload hook (Claude Code)`);
+        log(`  ${green}✓${reset} Configured FileChanged config-reload hook (Claude Code)`);
       } else if (!alreadyHasConfigReload && !fs.existsSync(configReloadFile)) {
-        console.warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — gsd-config-reload.js not found at target`);
+        warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — gsd-config-reload.js not found at target`);
       } else if (!alreadyHasConfigReload && !configReloadCommand) {
-        console.warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — Node executable path unavailable`);
+        warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — Node executable path unavailable`);
       }
     }
     // ── end FileChanged hook ────────────────────────────────────────────────────
@@ -3223,6 +3231,116 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
   /* eslint-enable @typescript-eslint/no-unsafe-member-access,
                    @typescript-eslint/no-unsafe-call,
                    @typescript-eslint/no-unsafe-assignment */
+}
+
+// ---------------------------------------------------------------------------
+// Managed settings.json hook filtering — one filter for install and uninstall
+//
+// Registration above is only-if-absent, so on its own it never retires an
+// entry: a managed hook an older build put on another event or matcher (a
+// PostCompact pin, a WorktreeCreate hook whose script is gone) stays beside the
+// current one across every reinstall. Uninstall strips every managed hook from
+// every event; install keeps exactly the slots this build registers. Both walk
+// the block through filterManagedSettingsHooks, which drops managed hooks one
+// at a time, so a user hook sharing an entry with one survives (#1755).
+// ---------------------------------------------------------------------------
+
+/** Where one managed hook sits: the event, the entry's matcher ('' when it has none), the script. */
+interface ManagedHookSlot {
+  event: string;
+  matcher: string;
+  basename: string;
+}
+
+// Registered by finishInstall on SessionStart, and only when the user accepts
+// the banner offer (#2795) — so a dry run never produces it, and a reinstall
+// that does not repeat the offer must keep it.
+const OPT_IN_SETTINGS_HOOK_SLOTS: readonly ManagedHookSlot[] = [
+  { event: 'SessionStart', matcher: '', basename: 'gsd-update-banner.js' },
+];
+
+function managedHookSlotKey(slot: ManagedHookSlot): string {
+  return JSON.stringify([slot.event, slot.matcher, slot.basename]);
+}
+
+/**
+ * Drop every GSD-managed hook `keep` rejects, from every event present (not a
+ * fixed list: a list misses each event GSD adds or retires later). Entries left
+ * without hooks are removed, then events left without entries. Hooks are
+ * visited in file order, so `keep` sees the first of two duplicates first.
+ *
+ * @returns true when `settings` changed.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function filterManagedSettingsHooks(settings: any, keep: (slot: ManagedHookSlot) => boolean): boolean {
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+  if (!settings || !settings.hooks || typeof settings.hooks !== 'object') return false;
+  const hooks = settings.hooks as Record<string, unknown>;
+  let changed = false;
+  for (const event of Object.keys(hooks)) {
+    const entries = hooks[event];
+    if (!Array.isArray(entries)) continue;
+    const kept: unknown[] = [];
+    for (const entry of entries as Array<HookGroup & { matcher?: unknown }>) {
+      if (!entry || typeof entry !== 'object' || !Array.isArray(entry.hooks)) {
+        kept.push(entry);
+        continue;
+      }
+      const matcher = typeof entry.matcher === 'string' ? entry.matcher : '';
+      const survivors = entry.hooks.filter((h: HookEntry) => {
+        if (!h || typeof h.command !== 'string') return true;
+        const basename = managedHookCommandBasename(h.command, { surface: 'settings-json' });
+        return basename === null || keep({ event, matcher, basename });
+      });
+      if (survivors.length !== entry.hooks.length) {
+        changed = true;
+        entry.hooks = survivors;
+      }
+      if (survivors.length > 0) kept.push(entry);
+    }
+    if (kept.length === 0) {
+      delete hooks[event];
+      changed = true;
+    } else {
+      hooks[event] = kept;
+    }
+  }
+  return changed;
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access */
+}
+
+/**
+ * Make the managed registrations in `settings` exactly the ones in `desired` —
+ * the block applySettingsJsonHooks writes into empty settings for this same
+ * install — counted per slot, so a duplicate of a registered slot goes too.
+ * Run it before applySettingsJsonHooks: a managed hook left on a slot the build
+ * no longer uses would otherwise satisfy that hook's only-if-absent check.
+ * Managed hooks outside `desired`, the opt-in slots aside, are removed; user
+ * hooks are never touched. `desired` without a hooks block means the dry run
+ * skipped this runtime's surface, and nothing is reconciled.
+ *
+ * @returns true when `settings` changed.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function reconcileManagedSettingsHooks(settings: any, desired: any): boolean {
+  /* eslint-disable @typescript-eslint/no-unsafe-member-access */
+  if (!desired || !desired.hooks || typeof desired.hooks !== 'object') return false;
+  const remaining = new Map<string, number>();
+  filterManagedSettingsHooks(structuredClone(desired), (slot) => {
+    const key = managedHookSlotKey(slot);
+    remaining.set(key, (remaining.get(key) ?? 0) + 1);
+    return true;
+  });
+  const optIn = new Set(OPT_IN_SETTINGS_HOOK_SLOTS.map(managedHookSlotKey));
+  return filterManagedSettingsHooks(settings, (slot) => {
+    const key = managedHookSlotKey(slot);
+    if (optIn.has(key)) return true;
+    const left = remaining.get(key) ?? 0;
+    if (left === 0) return false;
+    remaining.set(key, left - 1);
+    return true;
+  });
+  /* eslint-enable @typescript-eslint/no-unsafe-member-access */
 }
 
 // ---------------------------------------------------------------------------
@@ -3723,6 +3841,8 @@ export = {
   buildHookCommand,
   recordConfiguredHookCommand,
   applySettingsJsonHooks,
+  filterManagedSettingsHooks,
+  reconcileManagedSettingsHooks,
   validateConfiguredEntrypoints,
   referencesHook,
   rewriteLegacyManagedNodeHookCommands,
