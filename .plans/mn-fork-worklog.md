@@ -700,6 +700,74 @@ artifacts `8b49455a7`.
   `node --test` directly without that sandbox. Open: route affected files through
   `run-tests.cjs --files`, or give the runner the same `GSD_HOME` sandbox.
 
+### Pocock practices, wave 1 + lifecycle stages (2026-10-05)
+
+Tag `pre-pk1` marks `next` before it. Merged in order: `fix-affected` `fbc9f6927`
+(closes the wave 0 open item: `scripts/hermetic-env.cjs`, applied by run-tests,
+test:affected and Stryker), `pk-z4` `bf154df4e`, `pk-z6` `408b98aba`, `pk-z5` `e6b1e1c4e`.
+Conflicts only in list tails (`.gitignore`, `eslint.config.mjs`, `src/io.cts` +
+`tests/io.test.cjs` ERROR_REASON, `docs/json-errors.md`) — union; the codex widening-role
+count was recomputed from the tree (21/20 → 23, retro analyst added). Integration
+`cb741b44b`, derived `f29cf0598`.
+
+- **Wiring.** Refuter `<modes>`: `plan`, `review` (Z4), `arch`, `retro` (patches of Z5/Z6
+  recast into the mode shape; arch-survey now sends `<mode>arch</mode>`). Architecture
+  capability: survey half (`commands: arch`, `gsd-arch-surveyor`, skill `arch-survey`, the
+  `architecture.survey_*` keys). Code-review capability: lens agents,
+  `code_review.window_max_files_per_batch` (40). Model catalog, agent-contracts, ns-review
+  router and `audit_review` cluster (arch-survey, retro), help full + compact
+  (`--since`, arch-survey, retro; FULL_BUDGET 847 → 848 for the one line), TOP_LEVEL_USAGE
+  (`arch`, `retro`), INVENTORY rows, CONFIGURATION sections (Architecture, Retro).
+  Compact variants: none — the registry does not require them for the new agents.
+- **Stages (design G)** — capability steps in loop points, the workflow calls the CLI and the
+  CLI decides (`97388a830`, `fe0e48248`, derived `74bc86766`):
+  - New loop points **`milestone:pre` / `milestone:post`**, hosted by `complete-milestone.md`
+    (loop-host step `milestone`, orchestration family): pre after `verify_readiness`, before any
+    archive; post after the tag. ADR-857 amended; generator, registry schema, validator,
+    resolver fallback, capability matrix and tests moved 12 → 14. Steps only (advisory; no
+    gates/contributions at the boundary). A `ref.command` there gets `--milestone <v>`.
+  - **Stage answer** in `loop-hook-dispatch.md`: a command step may return `decision`
+    (skip/suggest/auto), `message`, `next {skill, args}`; suggest prints, auto dispatches the
+    skill after an in-context charset check. `ship.md` ship:post now dispatches command steps.
+  - `review stage` (code-review, `milestone:pre`, when `workflow.code_review`): window since
+    `LAST-WINDOW.json`, else the previous `v*` tag merged into HEAD (not the one being closed);
+    pre-pass always; `code_review.window_at_milestone` (boolean, **true**) → auto
+    `/gsd-code-review --since <since>`, false → suggest. Empty window → skip; no start → suggest.
+  - `arch stage` (architecture, `milestone:post`, when `architecture.metrics_at_milestone` —
+    new boolean, **true**, so ADR-857's "every hook can be switched off" holds): `arch metrics
+    --compare-last` over the configured scope always; `architecture.survey_at_milestone`
+    (**suggest** / auto / off) decides; the survey is scoped to the grown zones' directories.
+  - `retro stage` (retro, `execute:post` and `ship:post`, when `retro.enabled`): `signals
+    --decide` plus `next {retro, --session <id>}`; `retro.auto` (**suggest** / auto / off).
+- **Defects found and fixed** (each with its test): Z4 lenses lacked the file-writer contract
+  (`f0fa0e7e2`) and a model-catalog entry — `unknown_agent` under every profile (`36349d2c0`,
+  new test: every agent has a catalog entry); **`/gsd-code-review` died in every project but
+  this repo** — the window dispatch required `./gsd-core/bin/lib/code-review-flags.cjs` from
+  cwd and exited (the old flag parse beside it silently dropped `--fix`/`--depth`): now
+  `gsd_run review invocation -- <args>` (`5cf6eb31a`, the shipped-bash test runs outside the
+  repo); window-scope.md launcher + colon syntax (`e76db4e72`); bare `gsd-tools` in the
+  command help (`6374587e7`); a consumer path in agent-contracts (`253deb3f3`); the
+  standards lens is an agent_skills consumer (`12e363f81`); `scripts/test-env.cjs` matched
+  the push-gate test pattern → `scripts/hermetic-env.cjs` (`3368c4c2a`); retro selection
+  quoting (`e8f60e31b`).
+- **"Red on next too" (task 3), checked on `pre-pk1`:** `docs-parity (/gsd-retro)` — wave 0's
+  INVENTORY rows named `/gsd-retro` before the command existed; resolved by merging Z6, no
+  code change. `phase-id (retro-signals)` — the drift scanner read retro's Unicode word-end
+  class `(?![\p{L}\p{N}])` as a phase-name check; sanctioned with the dedicated
+  `// phase-id-owner:` line (`6fea2ca1e`).
+- **Agents' decisions kept:** the refuter belongs to mn-verify-gate (without it findings are
+  `unverified`); `LAST-WINDOW.json` is written only after the window's REVIEW.md, never by the
+  stage; retro candidates are never applied, `auto` only spawns the analyst.
+- **Not done / open:** other `require('./gsd-core/bin/lib/…')` sites in `code-review.md`
+  (`code-review-depth`, `fallow-runner`) and `code-review/steps/structural-pre-pass.md` are the
+  same upstream class (silently degrade outside the repo) — need CLI verbs like `review
+  invocation`. `code-review.md` sits at ~50 000 normalized chars, just under the
+  prompt-stuffing threshold. The stage answer is prose-dispatched like every step: no runtime
+  check that a host honoured `next`. From design wave 2, `audit-fix --source` (a window review
+  as an audit-fix source) is not done; no `tests/emitted-drift-acks/` fragment was needed —
+  the one growth (complete-milestone.md) carries an `Emitted-Drift-Ack-Growth` trailer. Wave 3
+  (evals on `report-ab`) remains.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length

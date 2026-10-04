@@ -4,6 +4,16 @@
 (MIT), документация Claude Code (`code.claude.com/docs/en/code-review.md`, `commands.md`,
 `ultrareview.md`). Только исследование и проект: код не менялся.
 
+> **Статус реализации (2026-10-05).** Волны 0, 1 и 2 (интеграция) влиты в `next`: Z1–Z3
+> (тег `pre-pk0`), Z4–Z6 + этапы G (тег `pre-pk1`). Этапы G сделаны контрибуциями капабилити:
+> новые loop points `milestone:pre`/`milestone:post` в `complete-milestone` (поправка ADR-857),
+> `review stage` (milestone:pre, `code_review.window_at_milestone`, по умолчанию on),
+> `arch stage` (milestone:post, `architecture.metrics_at_milestone` on +
+> `architecture.survey_at_milestone` suggest), `retro stage` (execute:post и ship:post,
+> `retro.auto` suggest); ответ этапа `decision/message/next` описан в `loop-hook-dispatch.md`.
+> Не сделано: `audit-fix --source` (волна 2) и волна 3 (замеры). Подробности и хеши —
+> `.plans/mn-fork-worklog.md`, раздел «Pocock practices, wave 1 + lifecycle stages».
+
 Принципы, по которым ниже принимаются решения:
 
 - **P1. Детерминированное — в коде, модель — только для суждения.** Всё, что можно посчитать
