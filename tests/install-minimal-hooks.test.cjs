@@ -2603,15 +2603,24 @@ describe('enh-770: Claude install registers FileChanged hook for .planning/confi
 describe('enh-770: Claude install is idempotent for the new hook events', () => {
   let tmpDir;
   let previousCwd;
+  let previousConfigDir;
+  let userClaudeDir;
 
   beforeEach(() => {
     tmpDir = createTempDir('gsd-770-idem-');
     previousCwd = process.cwd();
     process.chdir(tmpDir);
     stubHooksIntoTarget(path.join(tmpDir, '.claude'));
+    // A local install reads the user layer (CLAUDE_CONFIG_DIR, else ~/.claude) to avoid a second
+    // provisioning registration; the machine's real one must never decide these tests.
+    previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    userClaudeDir = path.join(tmpDir, 'user-claude');
+    process.env.CLAUDE_CONFIG_DIR = userClaudeDir;
   });
 
   afterEach(() => {
+    if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+    else process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
     process.chdir(previousCwd);
     cleanup(tmpDir);
   });
@@ -2688,6 +2697,36 @@ describe('enh-770: Claude install is idempotent for the new hook events', () => 
     assert.notStrictEqual(result.settingsPath, shared, 'precondition: the install writes the other layer');
     assert.strictEqual(hooksForEvent(result.settings, 'WorktreeCreate').length, 0);
     assert.strictEqual(hooksForEvent(result.settings, 'WorktreeRemove').length, 0);
+  });
+
+  // Review M2: a global install and a local one register the same hook with different command
+  // lines, so Claude Code runs both for one worktree name and they race on `git worktree add -b`.
+  test('mn fork: a local install defers to a user-layer provisioning hook — one registration per user', () => {
+    const userProvision = { hooks: [{ type: 'command', command: 'node "/home/u/.claude/hooks/gsd-worktree-provision.js"' }] };
+    persistSettings(path.join(userClaudeDir, 'settings.json'), { hooks: { WorktreeCreate: [userProvision] } });
+    const s = install(false, 'claude', { installerMigrations: [] }).settings;
+    assert.strictEqual(hooksForEvent(s, 'WorktreeCreate').length, 0, 'a project registration would race the user one');
+    assert.strictEqual(hooksForEvent(s, 'WorktreeRemove').length, 0);
+  });
+
+  test('mn fork: a project registration left by an earlier local install is dropped once the user layer has one; other handlers stay', () => {
+    const first = install(false, 'claude', { installerMigrations: [] });
+    const own = { type: 'command', command: 'bash ./audit-removal.sh' };
+    first.settings.hooks.WorktreeRemove.push({ hooks: [own] });
+    persistSettings(first.settingsPath, first.settings);
+    persistSettings(path.join(userClaudeDir, 'settings.json'), {
+      hooks: { WorktreeCreate: [{ hooks: [{ type: 'command', command: 'node "/home/u/.claude/hooks/gsd-worktree-provision.js"' }] }] },
+    });
+    process.chdir(tmpDir);
+    const s = install(false, 'claude', { installerMigrations: [] }).settings;
+    assert.strictEqual(hooksForEvent(s, 'WorktreeCreate').length, 0);
+    assert.deepStrictEqual(hooksForEvent(s, 'WorktreeRemove'), [own.command]);
+  });
+
+  test('mn fork: without a user-layer registration the local install still registers the hook', () => {
+    persistSettings(path.join(userClaudeDir, 'settings.json'), { hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'echo hi' }] }] } });
+    const s = install(false, 'claude', { installerMigrations: [] }).settings;
+    assert.strictEqual(hooksForEvent(s, 'WorktreeCreate').filter((c) => String(c).includes('gsd-worktree-provision')).length, 1);
   });
 
   test('re-running after persisted first install does not duplicate FileChanged hook', () => {

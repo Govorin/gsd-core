@@ -135,6 +135,7 @@ const REFUSAL = Object.freeze({
   PULL_REQUEST_FETCH_FAILED: 'pull-request-fetch-failed',
   BASE_TOO_STALE: 'base-too-stale',
   PROVISION_FAILED: 'provision-failed',
+  CREATE_LOCKED: 'create-locked',
 });
 
 /** Registered exit outcome (ADR-3889) per refusal code. */
@@ -150,6 +151,7 @@ const EXIT_OUTCOME_FOR_REFUSAL = Object.freeze({
   [REFUSAL.NOT_MANAGED]: 'UNAVAILABLE',
   [REFUSAL.BASE_TOO_STALE]: 'FAIL',
   [REFUSAL.PROVISION_FAILED]: 'FAIL',
+  [REFUSAL.CREATE_LOCKED]: 'UNAVAILABLE',
 });
 
 function refuse(code, reason, extra = {}) {
@@ -366,10 +368,71 @@ function measureBaseLag(repoDir, baseSha, mainHeadSha, git = runGit) {
 }
 
 /** Copy the tool configuration an agent needs to have the tools it expects. */
+// A project-scoped (local) install registers its hooks as "$CLAUDE_PROJECT_DIR"/.claude/hooks/….
+// In a session inside the worktree CLAUDE_PROJECT_DIR is the worktree, and .claude/hooks is
+// normally gitignored — every such hook (SessionStart's gsd-pin-invariants, which delivers this
+// hook's own warnings; a nested WorktreeCreate) would point at a missing file. A copied settings
+// file therefore has every project-dir path that is missing in the worktree but present in the
+// source checkout rewritten to the source checkout's absolute path (review L7). Paths the
+// worktree does carry are left alone.
+// Three spellings: "$VAR"/rel (the installer's), "$VAR/rel", and a bare $VAR/rel; ${VAR} likewise.
+// Path segments exclude "/", so the repetition cannot backtrack ambiguously.
+const PROJECT_DIR_VAR = String.raw`\$(?:\{CLAUDE_PROJECT_DIR\}|CLAUDE_PROJECT_DIR)`;
+const PROJECT_DIR_REL = String.raw`((?:/[^\s"'\\/]+)+)`;
+const PROJECT_DIR_PATH_RE = new RegExp(
+  `"${PROJECT_DIR_VAR}"${PROJECT_DIR_REL}|"${PROJECT_DIR_VAR}${PROJECT_DIR_REL}"|${PROJECT_DIR_VAR}${PROJECT_DIR_REL}`,
+  'g'
+);
+const SETTINGS_FILES = new Set([path.join('.claude', 'settings.local.json'), path.join('.claude', 'settings.json')]);
+
+function shellQuoted(p) {
+  return `"${p.replace(/(["\\$\x60])/g, '\\$1')}"`;
+}
+
+/** `value` with project-dir paths absent from the worktree redirected to the source checkout. */
+function redirectProjectDirPaths(value, sourceDir, worktreeDir, counter) {
+  if (typeof value === 'string') {
+    return value.replace(PROJECT_DIR_PATH_RE, (whole, quotedVar, quotedWhole, bare) => {
+      const relative = (quotedVar || quotedWhole || bare).split('/').filter(Boolean);
+      if (fs.existsSync(path.join(worktreeDir, ...relative))) return whole;
+      if (!fs.existsSync(path.join(sourceDir, ...relative))) return whole;
+      counter.n += 1;
+      return shellQuoted(path.join(sourceDir, ...relative));
+    });
+  }
+  if (Array.isArray(value)) return value.map((v) => redirectProjectDirPaths(v, sourceDir, worktreeDir, counter));
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) out[k] = redirectProjectDirPaths(v, sourceDir, worktreeDir, counter);
+    return out;
+  }
+  return value;
+}
+
+/**
+ * Copy one settings file, redirecting project-dir paths (above). Returns how many were
+ * redirected. A file that is not JSON is copied verbatim — nothing in it can be safely rewritten.
+ */
+function copySettingsFile(source, target, sourceDir, worktreeDir) {
+  let parsed;
+  try {
+    parsed = JSON.parse(fs.readFileSync(source, 'utf8'));
+  } catch {
+    fs.copyFileSync(source, target);
+    return 0;
+  }
+  const counter = { n: 0 };
+  const rewritten = redirectProjectDirPaths(parsed, sourceDir, worktreeDir, counter);
+  if (counter.n === 0) fs.copyFileSync(source, target);
+  else fs.writeFileSync(target, `${JSON.stringify(rewritten, null, 2)}\n`);
+  return counter.n;
+}
+
 function copyToolConfig(sourceDir, worktreeDir) {
   const copied = [];
   const existing = [];
   const failed = [];
+  const redirected = [];
   for (const rel of TOOL_CONFIG_FILES) {
     const source = path.join(sourceDir, rel);
     const target = path.join(worktreeDir, rel);
@@ -382,13 +445,18 @@ function copyToolConfig(sourceDir, worktreeDir) {
     }
     try {
       fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.copyFileSync(source, target);
+      if (SETTINGS_FILES.has(rel)) {
+        const n = copySettingsFile(source, target, sourceDir, worktreeDir);
+        if (n > 0) redirected.push(`${rel} (${n})`);
+      } else {
+        fs.copyFileSync(source, target);
+      }
       copied.push(rel);
     } catch (err) {
       failed.push({ file: rel, reason: err && err.code ? String(err.code) : 'copy failed' });
     }
   }
-  return { copied, existing, failed };
+  return { copied, existing, failed, redirected };
 }
 
 /**
@@ -509,6 +577,9 @@ function equipWorktree({ sourceTop, worktreeDir, planningRoot, config, installTi
   if (config.copyToolConfig) {
     const copy = (steps.copyToolConfig || copyToolConfig)(sourceDir, targetDir);
     if (copy.copied.length) notes.push(`copied ${copy.copied.join(', ')}`);
+    if (copy.redirected && copy.redirected.length) {
+      notes.push(`pointed project-dir hook paths missing in the worktree at the source checkout: ${copy.redirected.join(', ')}`);
+    }
     if (copy.existing.length) notes.push(`left existing ${copy.existing.join(', ')} untouched`);
     for (const f of copy.failed) failures.push({ step: 'tool-config', reason: `${f.file}: ${f.reason}` });
   }
@@ -657,6 +728,94 @@ function rollback(mainRoot, worktreeDir, branch, git) {
   return left;
 }
 
+// ─── concurrent creators ─────────────────────────────────────────────────────
+//
+// Claude Code runs every matching WorktreeCreate handler in parallel. GSD registered in two
+// settings layers (a global install and a local one carry different command lines, so nothing
+// dedupes them) means two copies of this hook for ONE name: both see no directory, both run
+// `git worktree add -b`, one fails. The installer keeps one registration per user (review M2);
+// this lock is the backstop for what it cannot see (a local registration made before the global
+// install). One creator per name holds `<git-common-dir>/gsd-worktree-create/<name>.lock`; a second
+// waits for it and then finds the finished worktree — "reused", the same path, no race.
+
+const CREATE_LOCK_DIR = 'gsd-worktree-create';
+/** Longest wait for another creator: under the host budget (FORK_WORKTREE_CREATE_TIMEOUT_S, 900 s). */
+const CREATE_LOCK_WAIT_MS = 870000;
+const CREATE_LOCK_POLL_MS = 200;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function pidIsAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return err.code === 'EPERM';
+  }
+}
+
+/**
+ * Take the create lock for `name`, waiting while a live creator holds it. A lock whose holder pid
+ * is dead is stale and taken over; one whose pid is unreadable (a holder between open and write)
+ * is waited on like a live one. Returns `{ release }` or a refusal when the wait runs out.
+ */
+function acquireCreateLock(mainRoot, name, git, options) {
+  const commonDir = git(['rev-parse', '--git-common-dir'], mainRoot);
+  if (!commonDir.ok) return refuse(REFUSAL.GIT_FAILED, `git rev-parse --git-common-dir failed: ${gitDetail(commonDir)}`);
+  const lockPath = path.join(path.resolve(mainRoot, commonDir.stdout.trim()), CREATE_LOCK_DIR, `${name}.lock`);
+  const clock = options.clock || Date;
+  const sleep = options.sleep || sleepSync;
+  const isAlive = options.isAlive || pidIsAlive;
+  const deadline = clock.now() + (options.lockWaitMs !== undefined ? options.lockWaitMs : CREATE_LOCK_WAIT_MS);
+  try {
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  } catch (err) {
+    return refuse(REFUSAL.GIT_FAILED, `cannot create ${path.dirname(lockPath)}: ${err.message}`);
+  }
+  for (;;) {
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: 'wx' });
+      return {
+        outcome: 'locked',
+        release: () => {
+          try {
+            fs.unlinkSync(lockPath);
+          } catch {
+            // Already gone.
+          }
+        },
+      };
+    } catch (err) {
+      if (err.code !== 'EEXIST') return refuse(REFUSAL.GIT_FAILED, `cannot write ${lockPath}: ${err.message}`);
+    }
+    let holder = NaN;
+    try {
+      holder = Number.parseInt(fs.readFileSync(lockPath, 'utf8'), 10);
+    } catch {
+      continue; // released between our write and this read: try again
+    }
+    if (Number.isInteger(holder) && holder > 0 && !isAlive(holder)) {
+      try {
+        fs.unlinkSync(lockPath);
+      } catch {
+        // Another waiter took it over first.
+      }
+      continue;
+    }
+    if (clock.now() >= deadline) {
+      return refuse(
+        REFUSAL.CREATE_LOCKED,
+        `another WorktreeCreate handler (pid ${Number.isInteger(holder) ? holder : 'unknown'}) is still creating "${name}" — ` +
+          `GSD's provisioning hook is probably registered twice (global and project settings); keep one, or remove ${lockPath} if no creation is running`,
+        { lockPath }
+      );
+    }
+    sleep(CREATE_LOCK_POLL_MS);
+  }
+}
+
 /**
  * Handle one WorktreeCreate payload. Returns
  *   `{ outcome: 'created' | 'reused', path, branch, baseSha, notes[], warnings[] }`
@@ -687,6 +846,18 @@ function createWorktree(data, options = {}) {
 
   const worktreeDir = path.join(mainRoot, ...WORKTREES_DIR_SEGMENTS, name);
 
+  const lock = acquireCreateLock(mainRoot, name, git, options);
+  if (lock.outcome === 'refused') return lock;
+  try {
+    return createLocked({ options, git, name, branch, prNumber, cwd, roots, headSha, worktreeDir });
+  } finally {
+    lock.release();
+  }
+}
+
+/** Everything after the create lock is held: one creator per name runs this at a time. */
+function createLocked({ options, git, name, branch, prNumber, cwd, roots, headSha, worktreeDir }) {
+  const { sourceTop, mainRoot } = roots;
   if (fs.existsSync(worktreeDir)) {
     // Resuming a kept worktree (`claude --worktree <name> --resume`) asks for
     // the same name again: the checkout this hook made earlier is the answer.

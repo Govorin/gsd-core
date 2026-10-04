@@ -644,6 +644,146 @@ describe('WorktreeCreate warnings reach the first session in the worktree (Sessi
   });
 });
 
+describe('WorktreeCreate: two registrations of this hook create one worktree (review M2)', () => {
+  // Claude Code runs every matching WorktreeCreate handler in parallel; GSD registered globally
+  // AND in the project means two copies for one name. The create lock serializes them: the
+  // second waits, then finds the finished worktree. Driven with an injected sleep and pid probe —
+  // the "other creator" acts inside the wait, no timing involved.
+  let repo;
+  let lockPath;
+  const OTHER_PID = 2147483646;
+
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-lock-');
+    lockPath = path.join(fs.realpathSync.native(repo), '.git', 'gsd-worktree-create', 'x.lock');
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  });
+  afterEach(() => cleanup(repo));
+
+  test('a creator that finds the lock held waits, then reuses the worktree the holder made — same path, nothing doubled', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    let waits = 0;
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      {
+        config: null,
+        isAlive: (pid) => pid === OTHER_PID && fs.existsSync(lockPath),
+        sleep: () => {
+          waits += 1;
+          // The other creator finishes: its worktree exists, its lock is released.
+          git(repo, ['worktree', 'add', '-q', '-b', 'worktree-x', managedPath(repo, 'x'), 'HEAD']);
+          fs.unlinkSync(lockPath);
+        },
+      },
+    );
+    assert.equal(waits, 1);
+    assert.equal(result.outcome, 'reused', JSON.stringify(result));
+    assert.equal(result.path, managedPath(repo, 'x'));
+    assert.equal(fs.existsSync(lockPath), false, 'the waiter releases what it took');
+  });
+
+  test('a lock left by a dead creator is taken over: the worktree is created, the lock released', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      { config: null, isAlive: () => false, sleep: () => assert.fail('a stale lock is not waited on') },
+    );
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(fs.existsSync(lockPath), false);
+  });
+
+  test('a holder that never finishes: refused once the wait runs out, nothing created', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    let now = 0;
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      { config: null, isAlive: () => true, lockWaitMs: 1000, clock: { now: () => now }, sleep: () => { now += 600; } },
+    );
+    assert.equal(result.code, REFUSAL.CREATE_LOCKED);
+    assert.equal(fs.existsSync(managedPath(repo, 'x')), false);
+    assert.equal(branchExists(repo, 'worktree-x'), false);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), String(OTHER_PID), 'the live holder keeps its lock');
+  });
+
+  test('an uncontended create takes and releases the lock', () => {
+    const result = provision.createWorktree({ name: 'x', cwd: repo }, { config: null });
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(fs.existsSync(lockPath), false);
+  });
+});
+
+describe('WorktreeCreate: a local install\'s hooks still run in the worktree (review L7)', () => {
+  // A local install registers "$CLAUDE_PROJECT_DIR"/.claude/hooks/…, and .claude/hooks is
+  // gitignored. Inside the worktree CLAUDE_PROJECT_DIR is the worktree, so a verbatim copy of
+  // settings.local.json points every hook — SessionStart's pin-invariants, which delivers this
+  // hook's own warnings, included — at a missing file.
+  let repo;
+  let main;
+  const PIN_CMD = 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/gsd-pin-invariants.js';
+
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-local-');
+    main = fs.realpathSync.native(repo);
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/hooks/\n.claude/settings.local.json\n.claude/worktrees/\n');
+    commit(repo, 'tracked.sh', 'echo tracked\n');
+    // The local install: the real hook scripts under the gitignored .claude/hooks.
+    fs.cpSync(path.dirname(HOOK), path.join(repo, '.claude', 'hooks'), { recursive: true });
+  });
+  afterEach(() => cleanup(repo));
+
+  function writeLocalSettings(settings) {
+    fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), JSON.stringify(settings, null, 2));
+  }
+
+  test('project-dir paths missing in the worktree point at the source checkout; paths it carries, and everything else, stay', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none' });
+    writeLocalSettings({
+      permissions: { allow: ['Bash(npm test)'] },
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: PIN_CMD }] }],
+        PostToolUse: [{ hooks: [{ type: 'command', command: 'bash "$CLAUDE_PROJECT_DIR/tracked.sh"' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'node ${CLAUDE_PROJECT_DIR}/.claude/hooks/nowhere.js' }] }],
+      },
+    });
+    const made = provision.createWorktree({ name: 'local', cwd: repo });
+    assert.equal(made.outcome, 'created', JSON.stringify(made));
+    const copied = JSON.parse(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8'));
+    const pinPath = path.join(main, '.claude', 'hooks', 'gsd-pin-invariants.js');
+    assert.equal(copied.hooks.SessionStart[0].hooks[0].command, `node "${pinPath}"`);
+    assert.equal(copied.hooks.PostToolUse[0].hooks[0].command, 'bash "$CLAUDE_PROJECT_DIR/tracked.sh"', 'the worktree carries tracked.sh');
+    assert.equal(copied.hooks.Stop[0].hooks[0].command, 'node ${CLAUDE_PROJECT_DIR}/.claude/hooks/nowhere.js', 'missing on both sides: nothing to point at');
+    assert.deepEqual(copied.permissions, { allow: ['Bash(npm test)'] });
+    assert.ok(made.notes.some((n) => n.includes('.claude/settings.local.json (1)')), made.notes.join(' | '));
+  });
+
+  test('the provisioning warning reaches the first session through the copied SessionStart hook', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'install', worktree_install_command: 'exit 1' });
+    writeLocalSettings({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: PIN_CMD }] }] } });
+    const made = provision.createWorktree({ name: 'warned-local', cwd: repo });
+    assert.equal(made.outcome, 'created', JSON.stringify(made));
+    assert.equal(fs.existsSync(path.join(made.path, '.claude', 'hooks', 'gsd-pin-invariants.js')), false, 'precondition: hooks are not in the worktree');
+
+    const command = JSON.parse(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8')).hooks.SessionStart[0].hooks[0].command;
+    const script = /^node "(.+)"$/.exec(command)[1];
+    const first = runNode([script], {
+      input: JSON.stringify({ hook_event_name: 'SessionStart', source: 'startup', cwd: made.path }),
+      cwd: made.path,
+      env: { ...TEST_ENV_BASE, CLAUDE_PROJECT_DIR: made.path },
+      timeoutMs: STAGED_HOOK_SCRIPT_TIMEOUT_MS,
+    });
+    assert.equal(first.outcome, OUTCOME.EXITED, `stderr=${first.stderr}`);
+    assert.equal(first.exitCode, 0, first.stderr);
+    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.additionalContext.includes('install exited 1'));
+  });
+
+  test('a settings file that is not JSON is copied verbatim', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none' });
+    fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), '{ not json "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.js');
+    const made = provision.createWorktree({ name: 'odd', cwd: repo });
+    assert.equal(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8'), '{ not json "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.js');
+  });
+});
+
 describe('WorktreeRemove: cleans up what WorktreeCreate made', () => {
   let repo;
   beforeEach(() => {

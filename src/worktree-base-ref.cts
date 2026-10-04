@@ -392,6 +392,51 @@ export function findWorktreeCreateHook(
 }
 
 /**
+ * The user-layer settings file (`<userClaudeDir>/settings.json`) when it already registers
+ * GSD's own provisioning hook on `WorktreeCreate`, else null.
+ *
+ * Claude Code merges hooks across layers and runs every matching one in parallel, and the
+ * user layer and a project's local layer carry DIFFERENT command lines for the same hook
+ * (`~/.claude/hooks/…` vs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/…`), so nothing dedupes them:
+ * a global install plus a local install would run two creators for one name, racing on
+ * `git worktree add -b`. One registration per user — the user layer's — is the rule the
+ * local install applies with this. An unreadable or unparseable file says nothing either way
+ * and returns null (the hook's own create lock is the backstop for that case).
+ */
+export function findUserLayerWorktreeProvision(
+  userClaudeDir: string,
+  deps?: { readFile?: (p: string) => string | null }
+): string | null {
+  const file = path.join(userClaudeDir, 'settings.json');
+  const readFile: (p: string) => string | null = deps?.readFile ?? ((p: string) => {
+    try {
+      return fs.readFileSync(p, 'utf8');
+    } catch {
+      return null;
+    }
+  });
+  const contents = readFile(file);
+  if (contents == null || contents.trim() === '') return null;
+  let parsed: unknown;
+  try {
+    parsed = parseJsonc(contents);
+  } catch {
+    return null;
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+  const hooks = (parsed as Record<string, unknown>).hooks;
+  if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) return null;
+  const entry = (hooks as Record<string, unknown>).WorktreeCreate;
+  if (!Array.isArray(entry)) return null;
+  const registers = entry.some((group) => {
+    if (group === null || typeof group !== 'object' || Array.isArray(group)) return false;
+    const handlers = (group as Record<string, unknown>).hooks;
+    return Array.isArray(handlers) && handlers.some(isGsdWorktreeProvisionHandler);
+  });
+  return registers ? file : null;
+}
+
+/**
  * CLI command: check current worktree base-ref degradation status.
  *
  * Reads effective baseRef from <cwd>/.claude settings (3-layer cascade:
