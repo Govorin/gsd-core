@@ -3,7 +3,7 @@
 
 In this codebase the type IS the specification: an `EitherAsync<OrderError, Order>` says what can fail and what comes back; a `Brand<string, 'OrderId'>` says which ids may be passed where; a closed `ErrorCode` const says which failures exist at all. Code written before those decisions does not merely need refactoring later — it encodes a different specification, and the compiler will defend the wrong one.
 
-The lint layer already enforces the SHAPE of these decisions (`no-raw-primitive-domain-types`, `no-unbranded-id-in-port`, `error-code-file-naming`, `zod-enum-const-object`, `no-inline-error-type`, and ~60 more). It cannot make the decisions, and it fires only once code exists — by then the choice was made by whoever typed first. That is the gap this section fills: the decisions, in the plan, before the tasks that depend on them.
+The lint layer enforces part of the SHAPE of these decisions (`error-code-file-naming`, `zod-enum-const-object`, `no-inline-error-type`, `no-type-assertion`, and dozens more). Two caveats you must plan around, not assume away: `no-primitive-for-known-branded-name` (the successor of the retired `no-raw-primitive-domain-types` / `no-unbranded-id-in-port`) is only a `warn`, fires only for a name that already has a brand, and only in `*.port.ts` and `libs/*/services/**` — nothing at lint level asks `types`/`domain` for a brand at all. New and changed code is instead checked by the diff gate `tools/checks/type-strictness-diff.ts` (bare primitives, `throw`, signatures without `Either`), which runs from the Stop quality gate. Neither can make the decisions, and both fire only once code exists — by then the choice was made by whoever typed first. That is the gap this section fills: the decisions, in the plan, before the tasks that depend on them.
 
 ## What the plan must state
 
@@ -16,7 +16,7 @@ State only what this phase actually introduces. A phase that adds a screen over 
 | `OrderId` | `Brand<string, 'OrderId'>` | yes | `libs/trade/types/src/order/order-id.ts` |
 | `Order` | `{ id: OrderId; status: OrderStatus; … }` | — | `libs/trade/types/src/order/order.ts` |
 
-A raw `string` id crossing a port boundary is the defect `no-unbranded-id-in-port` exists to catch; deciding it here means the rule never has to fire.
+A raw `string` id crossing a port boundary is the defect the diff gate blocks (and `no-primitive-for-known-branded-name` warns about when the brand already exists); deciding it here means neither has to fire.
 
 **2. The failure set — closed, named, and complete before the first `left()`**
 
