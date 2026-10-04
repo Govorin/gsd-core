@@ -1,17 +1,19 @@
 'use strict';
 
 /**
- * clean-state.mjs — the gate that turns ship.md's "Clean working tree?" question
- * into an exit code, and adds the one state `git status --short` cannot show.
+ * `gsd_run check mn-clean-state` — turns ship.md's "Clean working tree?" question into a verdict,
+ * and adds the one state `git status --short` cannot show (src/gate-mn-clean-state.cts; replaces
+ * capabilities/mn-verify-gate/scripts/clean-state.mjs).
  *
- * ship.md asks the model to read `git status --short` and stop on output. That is
- * discipline, not mechanism. And a stopped cherry-pick or rebase can leave the
- * tree clean while history sits halfway through an operation — status is empty,
- * ship continues. Those two cases are what this file pins.
+ * ship.md asks the model to read `git status --short` and stop on output. That is discipline, not
+ * mechanism. And a stopped cherry-pick or rebase can leave the tree clean while history sits
+ * halfway through an operation — status is empty, ship continues.
  *
- * The non-blocking half carries as much weight as the detection: `.planning/`
- * churns while the work itself runs, so a gate that failed on it would block every
- * phase and be switched off the day it shipped.
+ * The non-blocking half carries as much weight as the detection: `.planning/` churns while the work
+ * runs, so a gate that failed on it would block every phase and be switched off the day it shipped.
+ *
+ * The gate is project-scoped: it judges the project's working tree and ignores the phase argument
+ * the dispatcher appends.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -19,43 +21,24 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { runNode, runGit, OUTCOME } = require('./helpers/process-seam.cjs');
+
+const { runGit, OUTCOME } = require('./helpers/process-seam.cjs');
 const { createTempGitProject, cleanup } = require('./helpers.cjs');
+const { runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
+const { evaluateMnCleanState, CLEAN_STATE_SHOWN, parsePorcelainV2 } = require('../gsd-core/bin/lib/gate-mn-clean-state.cjs');
 
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'clean-state.mjs',
-);
+const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
-/** Bounds one run of the gate script against a small temp fixture. */
-const RUN_TIMEOUT_MS = 30000;
-
-/**
- * Bounds one git call building the fixture (add, commit, worktree add). Kept
- * at its original value rather than moved onto the shared GIT_TIMEOUT_MS
- * (15000) or GIT_FIXTURE_TIMEOUT_MS (60000): naming, not tuning.
- */
+/** Bounds one git call building the fixture (add, commit, worktree add). */
 const FIXTURE_GIT_TIMEOUT_MS = 30000;
 
-const CLEAN = 0;
-const UNCLEAN = 1;
-const CANNOT_LOOK = 2;
-
-// The display cap in the script. Named here so the boundary tests below stay
-// honest if it ever moves.
-const SHOWN = 10;
-
-describe('clean-state gate', () => {
+describe('check mn-clean-state', () => {
   let project;
   let phaseDir;
   const extra = [];
 
   beforeEach(() => {
-    project = createTempGitProject('gsd-clean-state-');
+    project = createTempGitProject('gsd-mn-clean-state-');
     phaseDir = path.join(project, '.planning', 'phases', '01-demo');
     fs.mkdirSync(phaseDir, { recursive: true });
   });
@@ -72,8 +55,9 @@ describe('clean-state gate', () => {
     return r.stdout.trim();
   }
 
-  function run(dir = phaseDir) {
-    return runNode([SCRIPT, '--dir', dir], { timeoutMs: RUN_TIMEOUT_MS });
+  /** The verdict payload for `projectDir` (defaults to the fixture project), phase argument as dispatched. */
+  function gate(projectDir = project, args = ['01']) {
+    return evaluateMnCleanState({ projectDir, args }).payload;
   }
 
   function commitAll(message) {
@@ -84,80 +68,80 @@ describe('clean-state gate', () => {
   // ── detection ─────────────────────────────────────────────────────────────
 
   test('passes a clean tree', () => {
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, CLEAN, `a clean tree must pass: ${r.stderr}`);
+    const v = gate();
+    assert.equal(v.block, false);
+    assert.equal(v.status, 'pass');
   });
 
   test('blocks an untracked file outside .planning and names it', () => {
     fs.writeFileSync(path.join(project, 'scratch.txt'), 'x');
-
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN, `untracked work must block: ${r.stdout}`);
-    assert.match(r.stderr, /1 path\(s\) changed outside \.planning\//);
-    assert.match(r.stderr, /scratch\.txt/);
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'finding');
+    assert.deepEqual(v.dirty, ['scratch.txt']);
   });
 
   test('blocks a modified tracked file', () => {
     fs.writeFileSync(path.join(project, 'a.txt'), 'one');
     commitAll('add a');
     fs.writeFileSync(path.join(project, 'a.txt'), 'two');
+    assert.deepEqual(gate().dirty, ['a.txt']);
+  });
 
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN);
-    assert.match(r.stderr, /a\.txt/);
+  test('blocks a modified tracked file whose status has a leading space (` M`)', () => {
+    // The exec seam trims its output; porcelain v1's first record ` M a.txt` would lose a character.
+    fs.writeFileSync(path.join(project, 'a.txt'), 'one');
+    commitAll('add a');
+    fs.writeFileSync(path.join(project, 'a.txt'), 'two');
+    fs.writeFileSync(path.join(project, 'b.txt'), 'new');
+    assert.deepEqual(gate().dirty.sort(), ['a.txt', 'b.txt']);
   });
 
   test('names a path with a space and a non-ASCII letter intact', () => {
-    // -z exists for exactly this: plain porcelain quotes such paths and a
-    // naive reader would report the quoting, not the file.
+    // -z exists for exactly this: plain porcelain quotes such paths.
     fs.writeFileSync(path.join(project, 'мой файл.txt'), 'x');
-
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN);
-    assert.match(r.stderr, /мой файл\.txt/);
+    assert.deepEqual(gate().dirty, ['мой файл.txt']);
   });
 
   test('reports a staged rename once, under its new path, with the old path not mangled in', () => {
-    // A rename is two records in `-z` output. Reading the second as a normal
-    // record cuts its first three characters and reports a path that never existed.
+    // A rename is two records in `-z` output; reading the second as a normal record reports a
+    // path that never existed.
     fs.writeFileSync(path.join(project, 'old-name.txt'), 'x');
     commitAll('add old');
     git(['mv', 'old-name.txt', 'new-name.txt']);
+    assert.deepEqual(gate().dirty, ['new-name.txt']);
+  });
 
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN);
-    assert.match(r.stderr, /1 path\(s\) changed/, `a rename is one change: ${r.stderr}`);
-    const listed = r.stderr
-      .split('\n')
-      .filter((line) => line.startsWith('  '))
-      .map((line) => line.trim());
-    assert.deepEqual(listed, ['new-name.txt'], 'the old path must not appear, whole or with its head cut off');
+  test('parsePorcelainV2 reads every record type and skips a rename\'s original path', () => {
+    const out = [
+      '1 .M N... 100644 100644 100644 abc abc a b.txt',
+      '2 R. N... 100644 100644 100644 abc abc R100 new name.txt',
+      'old name.txt',
+      'u UU N... 100644 100644 100644 100644 abc abc abc conflict.txt',
+      '? untracked file.txt',
+      '',
+    ].join('\0');
+    assert.deepEqual(parsePorcelainV2(out), ['a b.txt', 'new name.txt', 'conflict.txt', 'untracked file.txt']);
   });
 
   // ── the state status cannot show ──────────────────────────────────────────
 
   test('blocks an unfinished cherry-pick even though the tree is clean', () => {
-    // Status is empty here by construction; only the marker file gives it away.
     const head = git(['rev-parse', 'HEAD']);
     fs.writeFileSync(path.join(project, '.git', 'CHERRY_PICK_HEAD'), `${head}\n`);
     assert.equal(git(['status', '--porcelain']), '', 'precondition: status really is empty');
-
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN, `an unfinished operation must block: ${r.stdout}`);
-    assert.match(r.stderr, /git operation not finished: cherry-pick/);
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.deepEqual([v.operations, v.dirty], [['cherry-pick'], []]);
   });
 
   test('blocks an unfinished rebase (directory marker)', () => {
     fs.mkdirSync(path.join(project, '.git', 'rebase-merge'));
-
-    const r = run();
-    assert.equal(r.exitCode, UNCLEAN);
-    assert.match(r.stderr, /git operation not finished: rebase/);
+    assert.deepEqual(gate().operations, ['rebase']);
   });
 
   test('finds the operation marker inside a linked worktree, where .git is a file', () => {
-    const linked = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-clean-state-wt-'));
+    const linked = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-mn-clean-state-wt-'));
     extra.push(linked);
     // Only the unique name is wanted: `git worktree add` creates the directory itself.
     cleanup(linked);
@@ -165,85 +149,91 @@ describe('clean-state gate', () => {
     const marker = git(['rev-parse', '--git-path', 'CHERRY_PICK_HEAD'], linked);
     const head = git(['rev-parse', 'HEAD'], linked);
     fs.writeFileSync(path.resolve(linked, marker), `${head}\n`);
+    fs.mkdirSync(path.join(linked, '.planning', 'phases', '01-demo'), { recursive: true });
 
-    const linkedPhase = path.join(linked, '.planning', 'phases', '01-demo');
-    fs.mkdirSync(linkedPhase, { recursive: true });
-
-    const r = run(linkedPhase);
-    assert.equal(r.exitCode, UNCLEAN, `a hand-built .git/ path would miss this: ${r.stdout}`);
-    assert.match(r.stderr, /cherry-pick/);
+    const v = gate(linked);
+    assert.equal(v.block, true, 'a hand-built .git/ path would miss this');
+    assert.deepEqual(v.operations, ['cherry-pick']);
   });
 
   // ── what must NOT block ───────────────────────────────────────────────────
 
   test('ignores changes under .planning/', () => {
-    // Planning state changes while the work runs; requiring it clean would
-    // block every phase.
     fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), 'draft');
     fs.writeFileSync(path.join(project, '.planning', 'STATE.md'), 'edited');
-
-    const r = run();
-    assert.equal(r.exitCode, CLEAN, `.planning churn must not block: ${r.stderr}`);
+    assert.equal(gate().block, false);
   });
 
   test('does not treat a leftover .continue-here.md as an abandoned session', () => {
-    // resume-project deletes HANDOFF.json but not this file, so its presence
-    // says nothing about whether the session was dropped.
     fs.writeFileSync(path.join(phaseDir, '.continue-here.md'), 'resume here');
+    assert.equal(gate().block, false);
+  });
 
-    const r = run();
-    assert.equal(r.exitCode, CLEAN, `a healthy phase must pass: ${r.stderr}`);
+  test('is project-scoped: the phase argument is ignored, and none is needed', () => {
+    fs.writeFileSync(path.join(project, 'scratch.txt'), 'x');
+    for (const args of [[], ['01'], ['99'], ['.planning/phases/01-demo', 'REQ-1']]) {
+      const v = gate(project, args);
+      assert.equal(v.block, true, JSON.stringify(args));
+      assert.deepEqual(v.dirty, ['scratch.txt'], JSON.stringify(args));
+    }
   });
 
   // ── display cap boundary ──────────────────────────────────────────────────
 
-  for (const [count, tail] of [
-    [SHOWN - 1, false],
-    [SHOWN, false],
-    [SHOWN + 1, true],
+  for (const [count, more] of [
+    [CLEAN_STATE_SHOWN - 1, 0],
+    [CLEAN_STATE_SHOWN, 0],
+    [CLEAN_STATE_SHOWN + 1, 1],
   ]) {
-    test(`lists ${count} changed path(s)${tail ? ' and counts the one it cuts' : ' in full'}`, () => {
+    test(`lists ${count} changed path(s)${more ? ' and counts the one it cuts' : ' in full'}`, () => {
       for (let i = 0; i < count; i++) {
         fs.writeFileSync(path.join(project, `f${String(i).padStart(2, '0')}.txt`), 'x');
       }
-
-      const r = run();
-      assert.equal(r.exitCode, UNCLEAN);
-      assert.match(r.stderr, new RegExp(`${count} path\\(s\\) changed`));
-      if (tail) {
-        assert.match(r.stderr, /… and 1 more/);
-        assert.doesNotMatch(r.stderr, /f10\.txt/, 'the 11th path is counted, not listed');
-      } else {
-        assert.doesNotMatch(r.stderr, /and \d+ more/);
-        assert.match(r.stderr, new RegExp(`f${String(count - 1).padStart(2, '0')}\\.txt`));
-      }
+      const v = gate();
+      assert.equal(v.block, true);
+      assert.equal(v.dirty.length, count);
+      assert.equal(v.dirtyShown.length, Math.min(count, CLEAN_STATE_SHOWN));
+      assert.equal(v.dirtyMore, more);
     });
   }
 
   // ── cannot look is not unclean ────────────────────────────────────────────
 
-  test('exits 2, not 1, outside a git repository', () => {
-    // Unclean and "could not look" must stay distinct: the second is an
-    // environment fault, and routing it as a finding would send the reader
-    // to clean a tree that was never examined.
-    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-clean-state-nogit-'));
+  test('outside a git repository the gate is unresolvable, not unclean', () => {
+    // An environment fault routed as a finding would send the reader to clean a tree never examined.
+    const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-mn-clean-state-nogit-'));
     extra.push(outside);
-
-    const r = run(outside);
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, CANNOT_LOOK, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /cannot look/);
+    const v = gate(outside);
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'unresolvable');
   });
 
-  test('exits 2 for a missing --dir argument', () => {
-    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
-    assert.equal(r.exitCode, CANNOT_LOOK);
-    assert.match(r.stderr, /usage/);
+  test('a git that fails mid-check is unresolvable', () => {
+    let calls = 0;
+    const deps = {
+      runGit: () => {
+        calls += 1;
+        return calls === 1
+          ? { exitCode: 0, stdout: project, stderr: '', signal: null, error: null, timedOut: false }
+          : { exitCode: 128, stdout: '', stderr: 'fatal: index locked', signal: null, error: null, timedOut: false };
+      },
+    };
+    assert.equal(evaluateMnCleanState({ projectDir: project, args: [] }, deps).payload.status, 'unresolvable');
   });
 
-  test('exits 2 for a phase directory that does not exist', () => {
-    const r = run(path.join(project, 'no-such-dir'));
-    assert.equal(r.exitCode, CANNOT_LOOK);
-    assert.match(r.stderr, /not found/);
+  // ── wiring ────────────────────────────────────────────────────────────────
+
+  test('the capability runs check mn-clean-state at ship:pre', () => {
+    const g = CAPABILITY.gates.find((x) => x.when === 'workflow.clean_state_enforce');
+    assert.ok(g);
+    assert.equal(g.point, 'ship:pre');
+    assert.deepEqual(g.check, { query: 'mn-clean-state' });
+  });
+
+  test('gsd_run check mn-clean-state "${PHASE_DIR}" prints the verdict', () => {
+    fs.writeFileSync(path.join(project, 'scratch.txt'), 'x');
+    const payload = runMnCheck(project, 'mn-clean-state', [phaseDir]);
+    assert.equal(payload.block, true);
+    assert.deepEqual(payload.dirty, ['scratch.txt']);
   });
 });

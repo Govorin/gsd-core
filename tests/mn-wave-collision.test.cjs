@@ -1,212 +1,169 @@
 'use strict';
 
 /**
- * wave-collision.mjs — the gate that catches two same-wave plans declaring the
- * same file.
+ * `gsd_run check mn-wave-collision`, literal mode — two same-wave plans declaring the same file
+ * (src/gate-mn-waves.cts; replaces capabilities/mn-verify-gate/scripts/wave-collision.mjs).
  *
- * Same-wave plans execute concurrently in separate worktrees and commit in
- * sequence, so a shared file means the second commit either overwrites the
- * first or lands in a merge conflict. The rule against it is the only
- * parallelism rule in the system, it lives as pseudocode inside the planner
- * prompt, an LLM executes it, and nothing checked the result.
+ * Same-wave plans execute concurrently in separate worktrees and commit in sequence, so a shared
+ * file means the second commit either overwrites the first or lands in a merge conflict. Measured
+ * across 13 planning roots and 1412 plans: 38 phases of 283 (13.4%) violate the rule, 107
+ * colliding pairs — stable while data quality doubled, which rules out "dirty data".
  *
- * Measured across 13 planning roots and 1412 plans: 38 phases of 283 (13.4%)
- * violate it, 107 colliding pairs. The number is stable — data quality doubled
- * between two measurements (non-file entries 10% → 4%) while the violation rate
- * moved 13.3% → 13.4%, which rules out "dirty data" and leaves the prompt.
+ * Literal mode is the default (`workflow.wave_normalize` off): only concrete files are compared,
+ * directories and globs are counted as `skipped`. Expand mode is pinned in
+ * tests/mn-wave-normalize.test.cjs.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
+
 const { cleanup } = require('./helpers.cjs');
+const { createMnProject, makePhase, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
+const { evaluateMnWaveCollision } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
 
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'wave-collision.mjs',
-);
+const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
-/** Bounds one run of the gate script against a small temp fixture. */
-const RUN_TIMEOUT_MS = 30000;
+/** A plan with the frontmatter shape the real planner emits. */
+function plan(wave, files) {
+  const list = files.map((f) => `  - ${f}`).join('\n');
+  return `---\nwave: ${wave}\nfiles_modified:\n${list}\n---\n\n# plan\n`;
+}
 
-const PASS = 0;
-const COLLISION = 1;
-const CANNOT_LOOK = 2;
-
-describe('wave-collision gate', () => {
-  let tmp;
-  let phaseDir;
+describe('check mn-wave-collision (literal mode)', () => {
+  let projectDir;
 
   beforeEach(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wave-collision-'));
-    phaseDir = path.join(tmp, 'phase');
-    fs.mkdirSync(phaseDir, { recursive: true });
+    projectDir = createMnProject('gsd-mn-wave-collision-');
   });
 
   afterEach(() => {
-    cleanup(tmp);
+    cleanup(projectDir);
   });
 
-  /** Write a plan with the frontmatter shape the real planner emits. */
-  function writePlan(name, wave, files) {
-    const list = files.map((f) => `  - ${f}`).join('\n');
-    fs.writeFileSync(
-      path.join(phaseDir, name),
-      `---\nwave: ${wave}\nfiles_modified:\n${list}\n---\n\n# ${name}\n`,
-    );
-  }
-
-  function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
+  function gateOn(files) {
+    const { phaseNumber } = makePhase(projectDir, files);
+    return evaluateMnWaveCollision({ projectDir, args: [phaseNumber] }).payload;
   }
 
   // ── the defect ────────────────────────────────────────────────────────────
 
   test('catches two plans in the same wave declaring the same file', () => {
-    // The shape measured on the live project: 06-02 and 06-03, both wave 2,
-    // both declaring apps/trade-mind/api/src/main.ts.
-    writePlan('06-02-PLAN.md', 2, ['apps/api/src/main.ts', 'apps/api/src/vault.ts']);
-    writePlan('06-03-PLAN.md', 2, ['apps/api/src/main.ts', 'apps/api/src/heimdall.ts']);
-
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, COLLISION, `expected a collision, got ${r.exitCode}: ${r.stdout}`);
-    assert.match(r.stderr, /WAVE 2/);
-    assert.match(r.stderr, /06-02-PLAN\.md/);
-    assert.match(r.stderr, /06-03-PLAN\.md/);
-    assert.match(r.stderr, /apps\/api\/src\/main\.ts/);
-    // The consequence must be stated, or the reader has to guess why it matters.
-    assert.match(r.stderr, /overwrites the first|merge conflict/);
+    // The shape measured on the live project: 06-02 and 06-03, both wave 2, both main.ts.
+    const v = gateOn({
+      '06-02-PLAN.md': plan(2, ['apps/api/src/main.ts', 'apps/api/src/vault.ts']),
+      '06-03-PLAN.md': plan(2, ['apps/api/src/main.ts', 'apps/api/src/heimdall.ts']),
+    });
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'finding');
+    assert.equal(v.mode, 'literal');
+    assert.deepEqual(v.collisions, [
+      { wave: 2, a: '06-02-PLAN.md', b: '06-03-PLAN.md', shared: ['apps/api/src/main.ts'], sharedCount: 1 },
+    ]);
   });
 
   test('reports every colliding pair, not just the first', () => {
-    writePlan('a-PLAN.md', 1, ['src/shared.ts']);
-    writePlan('b-PLAN.md', 1, ['src/shared.ts']);
-    writePlan('c-PLAN.md', 1, ['src/shared.ts']);
-
-    const r = run();
-    assert.equal(r.exitCode, COLLISION);
-    // Three plans over one file are three distinct pairs — a report naming one
-    // would understate the work needed to fix it.
-    assert.match(r.stderr, /3 colliding pair\(s\)/);
+    // Three plans over one file are three distinct pairs.
+    const v = gateOn({
+      'a-PLAN.md': plan(1, ['src/shared.ts']),
+      'b-PLAN.md': plan(1, ['src/shared.ts']),
+      'c-PLAN.md': plan(1, ['src/shared.ts']),
+    });
+    assert.equal(v.counts.collisions, 3);
+    assert.deepEqual(v.collisions.map((c) => [c.a, c.b]), [
+      ['a-PLAN.md', 'b-PLAN.md'],
+      ['a-PLAN.md', 'c-PLAN.md'],
+      ['b-PLAN.md', 'c-PLAN.md'],
+    ]);
   });
 
   // ── what must NOT count as a collision ────────────────────────────────────
 
   test('passes when the same file is declared in DIFFERENT waves', () => {
     // Sequencing is precisely the remedy: wave 2 runs after wave 1 finishes.
-    writePlan('a-PLAN.md', 1, ['src/shared.ts']);
-    writePlan('b-PLAN.md', 2, ['src/shared.ts']);
-
-    const r = run();
-    assert.equal(r.exitCode, PASS, `different waves must not collide: ${r.stderr}`);
+    const v = gateOn({ 'a-PLAN.md': plan(1, ['src/shared.ts']), 'b-PLAN.md': plan(2, ['src/shared.ts']) });
+    assert.equal(v.block, false);
   });
 
   test('passes when same-wave plans declare disjoint files', () => {
-    writePlan('a-PLAN.md', 1, ['src/a.ts', 'src/b.ts']);
-    writePlan('b-PLAN.md', 1, ['src/c.ts', 'src/d.ts']);
-
-    const r = run();
-    assert.equal(r.exitCode, PASS, `disjoint files are the healthy case: ${r.stderr}`);
-    assert.match(r.stdout, /no shared files/);
+    const v = gateOn({ 'a-PLAN.md': plan(1, ['src/a.ts', 'src/b.ts']), 'b-PLAN.md': plan(1, ['src/c.ts', 'src/d.ts']) });
+    assert.equal(v.block, false);
+    assert.equal(v.pairsChecked, 1);
   });
 
   test('normalizes ./-prefixed and trailing-slash paths before comparing', () => {
-    // `./src/a.ts` and `src/a.ts` are the same file; a formatting difference
-    // must not hide a real collision.
-    writePlan('a-PLAN.md', 1, ['./src/a.ts']);
-    writePlan('b-PLAN.md', 1, ['src/a.ts']);
-
-    const r = run();
-    assert.equal(r.exitCode, COLLISION, 'path formatting must not mask a collision');
+    const v = gateOn({ 'a-PLAN.md': plan(1, ['./src/a.ts']), 'b-PLAN.md': plan(1, ['src/a.ts']) });
+    assert.equal(v.block, true, 'path formatting must not mask a collision');
+    assert.deepEqual(v.collisions[0].shared, ['src/a.ts']);
   });
 
-  test('does not compare directory or glob entries', () => {
-    // 4% of entries on the live project are directories or globs. Expanding a
-    // glob would need a tree walk and would fire on paths the plan is about to
-    // create, so these are skipped rather than guessed at.
-    writePlan('a-PLAN.md', 1, ['libs/shared/**']);
-    writePlan('b-PLAN.md', 1, ['libs/shared/**']);
+  test('does not compare directory or glob entries, and counts them as skipped', () => {
+    // Expanding a glob needs a tree walk; literal mode skips rather than guesses.
+    const v = gateOn({ 'a-PLAN.md': plan(1, ['libs/shared/**']), 'b-PLAN.md': plan(1, ['libs/shared/**']) });
+    assert.equal(v.block, false);
+    assert.equal(v.skipped, 2, 'skipped entries must be reported, not vanish');
+  });
 
-    const r = run(['--verbose']);
-    assert.equal(r.exitCode, PASS, `globs must not be compared literally: ${r.stderr}`);
-    assert.match(r.stdout, /non-file entr/, 'skipped entries must be reported, not vanish');
+  test('literal mode reports no declared-nothing, stale-glob or prose findings', () => {
+    const v = gateOn({ 'a-PLAN.md': '---\nwave: 1\n---\n\n# empty\n', 'b-PLAN.md': plan(1, ['gone/**', '"two words"']) });
+    assert.equal(v.block, false);
+    assert.deepEqual([v.counts.declaredNothing, v.counts.resolvedToNothing, v.counts.unparseable], [0, 0, 0]);
   });
 
   test('passes a phase whose plans carry no wave tag', () => {
-    fs.writeFileSync(
-      path.join(phaseDir, 'x-PLAN.md'),
-      '---\nfiles_modified:\n  - src/a.ts\n---\n\n# no wave\n',
-    );
-    fs.writeFileSync(
-      path.join(phaseDir, 'y-PLAN.md'),
-      '---\nfiles_modified:\n  - src/a.ts\n---\n\n# no wave\n',
-    );
-
-    const r = run(['--verbose']);
-    assert.equal(r.exitCode, PASS, 'untagged plans are not parallelized, so they cannot collide');
-    assert.match(r.stdout, /nothing to check/);
+    // Untagged plans are not parallelised, so they cannot collide.
+    const v = gateOn({
+      'x-PLAN.md': '---\nfiles_modified:\n  - src/a.ts\n---\n\n# no wave\n',
+      'y-PLAN.md': '---\nfiles_modified:\n  - src/a.ts\n---\n\n# no wave\n',
+    });
+    assert.equal(v.block, false);
+    assert.equal(v.plans, 0);
   });
 
   test('passes a phase with a single plan', () => {
-    writePlan('only-PLAN.md', 1, ['src/a.ts']);
-
-    const r = run();
-    assert.equal(r.exitCode, PASS);
+    assert.equal(gateOn({ 'only-PLAN.md': plan(1, ['src/a.ts']) }).block, false);
   });
 
   test('passes a plan declaring no files', () => {
-    // 5% of plans on the live project declare none. An empty declaration
-    // cannot collide with anything.
-    fs.writeFileSync(path.join(phaseDir, 'a-PLAN.md'), '---\nwave: 1\n---\n\n# empty\n');
-    writePlan('b-PLAN.md', 1, ['src/a.ts']);
+    const v = gateOn({ 'a-PLAN.md': '---\nwave: 1\n---\n\n# empty\n', 'b-PLAN.md': plan(1, ['src/a.ts']) });
+    assert.equal(v.block, false);
+  });
 
-    const r = run();
-    assert.equal(r.exitCode, PASS);
+  test('a superseded plan never runs, so it cannot collide', () => {
+    const v = gateOn({
+      'a-PLAN.md': '---\nwave: 1\nstatus: superseded\nsuperseded_by: b\nfiles_modified:\n  - src/a.ts\n---\n',
+      'b-PLAN.md': plan(1, ['src/a.ts']),
+    });
+    assert.equal(v.block, false);
   });
 
   // ── could-not-look is not success ─────────────────────────────────────────
 
-  test('exits 2 when the phase directory does not exist', () => {
-    const r = runNode([SCRIPT, '--dir', path.join(tmp, 'nope')], { timeoutMs: RUN_TIMEOUT_MS });
-    assert.equal(r.exitCode, CANNOT_LOOK, '"could not look" must be distinct from "found nothing"');
+  test('a phase that does not exist is unresolvable', () => {
+    const v = evaluateMnWaveCollision({ projectDir, args: ['42'] }).payload;
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'unresolvable');
   });
 
-  test('exits 2 when --dir is omitted', () => {
-    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
-    assert.equal(r.exitCode, CANNOT_LOOK);
+  test('no phase argument is a usage failure', () => {
+    assert.ok(evaluateMnWaveCollision({ projectDir, args: [] }).failure);
   });
 
   // ── the gate is dispatched, not merely present ────────────────────────────
 
-  test('the capability registers the gate at plan:post', () => {
-    // The manifest IS the deployed contract: the runtime reads this JSON to
-    // decide what runs. A script nothing dispatches is the defect class this
-    // fork exists to close.
-    const manifest = JSON.parse(
-      fs.readFileSync(
-        path.join(__dirname, '..', 'capabilities', 'mn-verify-gate', 'capability.json'),
-        'utf8',
-      ),
-    );
-
-    const gate = (manifest.gates || []).find((g) => g.when === 'workflow.wave_collision');
+  test('the capability registers the gate at plan:post through check mn-wave-collision', () => {
+    const gate = CAPABILITY.gates.find((g) => g.when === 'workflow.wave_collision');
     assert.ok(gate, 'a gate keyed on workflow.wave_collision must be declared');
-    // plan:post, not verify: at planning time the fix is renumbering a wave;
-    // by verify the colliding commits already landed.
+    // plan:post: at planning time the fix is renumbering a wave; by verify the commits landed.
     assert.equal(gate.point, 'plan:post');
     assert.equal(gate.blocking, true);
-    assert.match(gate.check.predicate.command, /wave-collision\.mjs/);
+    assert.deepEqual(gate.check, { query: 'mn-wave-collision' });
+    assert.equal(CAPABILITY.config['workflow.wave_collision'].default, false, 'a new blocking gate ships off');
+  });
 
-    const cfg = manifest.config['workflow.wave_collision'];
-    assert.ok(cfg, 'the gate must own a config key so it can be switched off');
-    assert.equal(cfg.default, false, 'a new blocking gate ships off and is opted into');
+  test('gsd_run check mn-wave-collision "${PHASE_DIR}" "${PHASE_REQ_IDS}" prints the verdict', () => {
+    const { phaseDir } = makePhase(projectDir, { 'a-PLAN.md': plan(1, ['src/a.ts']), 'b-PLAN.md': plan(1, ['src/a.ts']) });
+    const payload = runMnCheck(projectDir, 'mn-wave-collision', [phaseDir, 'REQ-01']);
+    assert.equal(payload.block, true);
+    assert.equal(payload.counts.collisions, 1);
   });
 });

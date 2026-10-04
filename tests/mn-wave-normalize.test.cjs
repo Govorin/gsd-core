@@ -1,42 +1,20 @@
 'use strict';
 
 /**
- * wave-normalize.mjs — the gate that gives wave-collision its sight back.
+ * `gsd_run check mn-wave-collision`, expand mode — wave collision with its sight back
+ * (src/gate-mn-waves.cts over src/files-modified-normalize.cts; replaces
+ * capabilities/mn-verify-gate/scripts/wave-normalize.mjs).
  *
- * ── What is being pinned, and why the fixtures look like this ─────────────
+ * Literal comparison sees only entries with a dot in the basename. Measured across 55 reachable
+ * phase directories: 2 collisions caught, 17 phases with entries skipped. On
+ * `legion-app/08.2-heimdall-runtime` it reported "no shared files" while `08.2-01-PLAN.md` and
+ * `08.2-01b-PLAN.md` both declared the directory `libs/modules/heimdall/testing` (40 files). The
+ * first fixtures below rebuild that exact shape.
  *
- * `wave-collision.mjs` compares only entries whose basename holds a dot. Every
- * directory and every glob is skipped, honestly reported, and never compared.
- * Measured across the 55 reachable phase directories: 2 collisions caught,
- * 17 phases where entries are skipped. The phase
- * `legion-app/08.2-heimdall-runtime` is the measured false negative — its own
- * `--verbose` line reads
- *
- *   "OK — 9 plan(s) across 8 wave(s), 1 pair(s) checked, no shared files"
- *   "13 non-file entr(ies) (directories or globs) were not compared"
- *
- * while `08.2-01-PLAN.md` and `08.2-01b-PLAN.md` both declare the directory
- * `libs/modules/heimdall/testing`. The first fixture below reconstructs that
- * exact shape — two same-wave plans, one directory entry, real files beneath
- * it — because a gate that only passes on synthesised input has not been shown
- * to close the defect it was written for.
- *
- * ── Why the heading assertions are not cosmetic ───────────────────────────
- *
- * All four verdicts exit 1. So the exit code proves nothing about whether a
- * declared-nothing plan and a stale glob stayed distinguishable — the property
- * D-66 demands, on the grounds that collapsing them is how a gate earns the
- * reputation that gets it disabled. The only observable that separates them is
- * WHICH heading a plan lands under, so the tests assert the pairing directly:
- * present under its own heading AND absent from the neighbouring one.
- *
- * ── Typed surfaces only ───────────────────────────────────────────────────
- *
- * Nothing here reads the gate's source text. The process's exit code, its
- * `--json` object, and `capability.json` parsed through `require` are the typed
- * surfaces (local/no-source-grep). The human-readable stderr headings are
- * asserted because they ARE the operator-facing contract of criterion 1 —
- * "names the overlapping pair and the shared file" is a claim about output.
+ * Expand mode is switched on by `workflow.wave_normalize: true` (the config the capability gate
+ * keys on) — every test here runs with it, except the one pinning the manual `--expand` flag. The
+ * four findings (D-65, D-66) stay separately observable in typed payload fields; the full
+ * per-plan resolution is pinned through `analyzeWaveCollision`, the in-process surface.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -44,101 +22,110 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
-const { createTempDir, cleanup } = require('./helpers.cjs');
+const { cleanup } = require('./helpers.cjs');
+const { createMnProject, makePhase, writeFiles, writeWorkflowConfig, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
+const { evaluateMnWaveCollision, analyzeWaveCollision, MAX_LISTED, MAX_SHARED_LISTED } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
 
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'wave-normalize.mjs',
-);
+const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
-/** 0 clean · 1 finding · 2 could not check. The distinction is the point. */
-const CLEAN = 0;
-const FINDING = 1;
-const CANNOT_CHECK = 2;
+/** A PLAN.md carrying a block-form `files_modified:` list (empty list → the bare key). */
+function plan(name, wave, entries) {
+  const list = entries.map((e) => `  - ${e}`).join('\n');
+  const block = entries.length > 0 ? `files_modified:\n${list}\n` : 'files_modified:\n';
+  return `---\nphase: 01-x\nplan: ${name}\nwave: ${wave}\n${block}autonomous: true\n---\n\n# ${name}\n`;
+}
 
-const RUN_TIMEOUT_MS = 30000;
-
-describe('wave-normalize gate', () => {
-  let root;
-  let phaseDir;
+describe('check mn-wave-collision (expand mode)', () => {
+  let projectDir;
 
   beforeEach(() => {
-    root = createTempDir('gsd-wave-normalize-');
-    phaseDir = path.join(root, '.planning', 'phases', '01-x');
-    fs.mkdirSync(phaseDir, { recursive: true });
+    projectDir = createMnProject('gsd-mn-wave-normalize-');
+    writeWorkflowConfig(projectDir, { wave_normalize: true });
   });
 
   afterEach(() => {
-    cleanup(root);
+    cleanup(projectDir);
   });
 
-  /** Write a PLAN.md carrying a block-form `files_modified:` list. */
-  function writePlan(name, wave, entries) {
-    const list = entries.map((e) => `  - ${e}`).join('\n');
-    const block = entries.length > 0 ? `files_modified:\n${list}\n` : 'files_modified:\n';
-    fs.writeFileSync(
-      path.join(phaseDir, name),
-      `---\nphase: 01-x\nplan: ${name}\nwave: ${wave}\n${block}autonomous: true\n---\n\n# ${name}\n`,
-    );
+  /** Files in the project tree the entries resolve against. */
+  function tree(...rels) {
+    writeFiles(projectDir, Object.fromEntries(rels.map((r) => [r, 'x\n'])));
   }
 
-  /** Write a file inside the temp repo root, creating parents. */
-  function writeTree(relPath, content = 'x\n') {
-    const abs = path.join(root, relPath);
-    fs.mkdirSync(path.dirname(abs), { recursive: true });
-    fs.writeFileSync(abs, content);
+  function phase(files) {
+    return makePhase(projectDir, files);
   }
 
-  function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, '--root', root, ...extra], {
-      timeoutMs: RUN_TIMEOUT_MS,
-    });
+  function gateOn(files, extra = []) {
+    const { phaseNumber } = phase(files);
+    return evaluateMnWaveCollision({ projectDir, args: [phaseNumber, ...extra] }).payload;
   }
 
-  // ── the payload must survive a pipe, not just a file ─────────────────────
+  function analyze(files) {
+    const { phaseDir } = phase(files);
+    return analyzeWaveCollision(projectDir, phaseDir, 'expand');
+  }
 
-  describe('a --json payload larger than the pipe buffer', () => {
+  // ── the mode switch ───────────────────────────────────────────────────────
+
+  test('workflow.wave_normalize switches the verb to expand mode', () => {
+    tree('libs/m/testing/a.ts');
+    const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-01b-PLAN.md': plan('b', 1, ['libs/m/testing']) });
+    assert.equal(v.mode, 'expand');
+    assert.equal(v.block, true);
+  });
+
+  test('without the config key, --expand switches it by hand', () => {
+    writeWorkflowConfig(projectDir, { wave_normalize: false });
+    tree('libs/m/testing/a.ts');
+    const files = { '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-01b-PLAN.md': plan('b', 1, ['libs/m/testing']) };
+    const literal = gateOn(files);
+    assert.equal(literal.mode, 'literal');
+    assert.equal(literal.block, false, 'literal mode cannot see a directory collision — the measured false negative');
+    const expanded = gateOn(files, ['--expand']);
+    assert.equal(expanded.mode, 'expand');
+    assert.equal(expanded.block, true);
+  });
+
+  // ── the payload stays readable by the dispatcher ──────────────────────────
+
+  describe('a collision over a large directory', () => {
     /**
-     * Found by the plan-03-03 run against the real trees.
-     *
-     * On `legion-app/08.2-heimdall-runtime` this gate's `--json` is 109741
-     * bytes. Redirected to a FILE it arrived whole; read through a PIPE it was
-     * cut at exactly 65536 — `process.exit()` discards the unflushed tail of an
-     * async pipe write. Every programmatic reader (the survey driver, the gate
-     * runner) gets a pipe, so the truncation was invisible to a human running
-     * the gate by hand and total for anything consuming it.
-     *
-     * The damage is worse than a short read: truncated JSON does not parse, and
-     * a caller that treats an unparseable payload as "no findings" converts a
-     * 40-file collision into a clean verdict. That is the false-negative class
-     * this whole gate exists to close, reintroduced one layer up.
+     * The script's `--json` on 08.2 was 109741 bytes and was cut at the 65536-byte pipe buffer.
+     * gsd-tools swaps any payload over ~50 KB for an `@file:` pointer, which the dispatcher's jq
+     * cannot read — an oversized verdict would read as "no block". So the payload lists at most
+     * MAX_SHARED_LISTED shared files and carries the true count.
      */
-    test('survives being read through a pipe, not merely written to a file', () => {
-      // ~1200 files under one directory, declared by two same-wave plans:
-      // past 64 KB of JSON once each path appears in both resolved lists.
-      for (let i = 0; i < 1200; i++) {
-        writeTree(`libs/gen/module-${String(i).padStart(5, '0')}.ts`);
+    test('yields a compact verdict the dispatcher can parse, with the true shared count', () => {
+      for (let i = 0; i < 1200; i++) tree(`libs/gen/module-${String(i).padStart(5, '0')}.ts`);
+      const { phaseDir } = phase({ '01-01-PLAN.md': plan('a', 1, ['libs/gen']), '01-02-PLAN.md': plan('b', 1, ['libs/gen']) });
+      const payload = runMnCheck(projectDir, 'mn-wave-collision', [phaseDir]);
+      assert.equal(payload.block, true);
+      assert.equal(payload.collisions.length, 1);
+      assert.equal(payload.collisions[0].sharedCount, 1200);
+      assert.equal(payload.collisions[0].shared.length, MAX_SHARED_LISTED);
+    });
+
+    test('shared files are listed whole up to the cap, and capped one past it', () => {
+      for (const n of [MAX_SHARED_LISTED - 1, MAX_SHARED_LISTED, MAX_SHARED_LISTED + 1]) {
+        const dir = `libs/cap${n}`;
+        for (let i = 0; i < n; i++) tree(`${dir}/f${String(i).padStart(3, '0')}.ts`);
+        const v = gateOn({ '01-01-PLAN.md': plan('a', 1, [dir]), '01-02-PLAN.md': plan('b', 1, [dir]) });
+        assert.equal(v.collisions[0].sharedCount, n);
+        assert.equal(v.collisions[0].shared.length, Math.min(n, MAX_SHARED_LISTED), `n=${n}`);
       }
-      writePlan('01-01-PLAN.md', 1, ['libs/gen']);
-      writePlan('01-02-PLAN.md', 1, ['libs/gen']);
+    });
 
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING);
-      assert.ok(
-        r.stdout.length > 65536,
-        `payload was truncated at the pipe buffer: ${r.stdout.length} bytes`,
-      );
-
-      // Parses whole — the property truncation destroys.
-      const out = JSON.parse(r.stdout);
-      assert.equal(out.collisions.length, 1);
-      assert.equal(out.collisions[0].shared.length, 1200);
+    test('colliding pairs are listed up to MAX_LISTED, counted beyond it', () => {
+      // MAX_LISTED + 1 pairs from plans sharing one file in one wave: k plans make k(k-1)/2 pairs.
+      let k = 2;
+      while ((k * (k - 1)) / 2 <= MAX_LISTED) k++;
+      const files = {};
+      for (let i = 0; i < k; i++) files[`01-${String(i).padStart(2, '0')}-PLAN.md`] = plan(String(i), 1, ['src/shared.ts']);
+      const v = gateOn(files);
+      assert.equal(v.counts.collisions, (k * (k - 1)) / 2);
+      assert.ok(v.counts.collisions > MAX_LISTED);
+      assert.equal(v.collisions.length, MAX_LISTED);
     });
   });
 
@@ -146,610 +133,314 @@ describe('wave-normalize gate', () => {
 
   describe('the 08.2 shape — a directory entry declared by two same-wave plans', () => {
     beforeEach(() => {
-      writeTree('libs/m/testing/a.ts');
-      writeTree('libs/m/testing/b.ts');
+      tree('libs/m/testing/a.ts', 'libs/m/testing/b.ts');
     });
 
-    test('reports the collision, naming both plans and the shared resolved file', () => {
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-01b-PLAN.md', 1, ['libs/m/testing']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(
-        r.exitCode,
-        FINDING,
-        `the directory overlap wave-collision calls clean must be a finding: ${r.stdout}${r.stderr}`,
-      );
-      // Criterion 1 verbatim: "names the overlapping pair and the shared file".
-      assert.match(r.stderr, /01-01-PLAN\.md/);
-      assert.match(r.stderr, /01-01b-PLAN\.md/);
-      assert.match(r.stderr, /libs\/m\/testing\/a\.ts/);
-      assert.match(r.stderr, /COLLIDING PAIRS/);
+    test('reports the collision, naming both plans and the shared resolved files', () => {
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-01b-PLAN.md': plan('b', 1, ['libs/m/testing']) });
+      assert.equal(v.block, true);
+      assert.deepEqual(v.collisions, [
+        { wave: 1, a: '01-01-PLAN.md', b: '01-01b-PLAN.md', shared: ['libs/m/testing/a.ts', 'libs/m/testing/b.ts'], sharedCount: 2 },
+      ]);
     });
 
     test('the same two plans in DIFFERENT waves do not collide', () => {
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-01b-PLAN.md', 2, ['libs/m/testing']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-01b-PLAN.md': plan('b', 2, ['libs/m/testing']) });
+      assert.equal(v.block, false);
     });
 
-    test('a directory against a file INSIDE it collides — the case the shipped gate cannot see at all', () => {
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/testing/a.ts']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /libs\/m\/testing\/a\.ts/);
+    test('a directory against a file INSIDE it collides — the case literal mode cannot see', () => {
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-02-PLAN.md': plan('b', 1, ['libs/m/testing/a.ts']) });
+      assert.equal(v.block, true);
       // b.ts is in the directory but not in the other plan — not shared.
-      assert.doesNotMatch(r.stderr, /libs\/m\/testing\/b\.ts/);
+      assert.deepEqual(v.collisions[0].shared, ['libs/m/testing/a.ts']);
     });
 
     test('two same-wave plans declaring DISJOINT directories are clean', () => {
-      writeTree('libs/other/c.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-02-PLAN.md', 1, ['libs/other']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
+      tree('libs/other/c.ts');
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-02-PLAN.md': plan('b', 1, ['libs/other']) });
+      assert.equal(v.block, false);
     });
 
     test('a glob and a file it matches collide once resolved', () => {
-      writePlan('01-01-PLAN.md', 1, ['libs/m/**']);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/testing/b.ts']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /libs\/m\/testing\/b\.ts/);
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/**']), '01-02-PLAN.md': plan('b', 1, ['libs/m/testing/b.ts']) });
+      assert.deepEqual(v.collisions[0].shared, ['libs/m/testing/b.ts']);
     });
   });
 
-  // ── the blank-line quirk, paid for once already in wave-collision.mjs ─────
+  // ── reading the plan: the quirks paid for once already ────────────────────
 
   test('a blank line inside the files_modified block does not close it', () => {
-    // 08.2-01b-PLAN.md in the live tree is written exactly this way, and so are
-    // 17 of 96 plans in one project. Reading the blank line as "end of list"
-    // turns the plan into "declared nothing" and hides the real collision.
-    writeTree('libs/m/testing/a.ts');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n\n  - libs/m/testing\n\nautonomous: true\n---\n\n# a\n',
-    );
-    writePlan('01-02-PLAN.md', 1, ['libs/m/testing']);
-
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /libs\/m\/testing\/a\.ts/);
+    // 17 of 96 plans in one project are written this way; "end of list" would hide the collision.
+    tree('libs/m/testing/a.ts');
+    const v = gateOn({
+      '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified:\n\n  - libs/m/testing\n\nautonomous: true\n---\n\n# a\n',
+      '01-02-PLAN.md': plan('b', 1, ['libs/m/testing']),
+    });
+    assert.deepEqual(v.collisions[0].shared, ['libs/m/testing/a.ts']);
   });
 
   test('a YAML comment inside the files_modified block does not close it', () => {
-    // Found by running the gate across all 55 reachable phase directories:
-    // legion-app/08.3-gates/08.3-05-PLAN.md declares four files after three
-    // `#` comment lines, and a parser that breaks on the first non-item line
-    // reported it as DECLARED NOTHING. That is the exact miscategorisation
-    // D-65 exists to prevent — a plan that DID declare, filed under "refused to
-    // declare" — so the false positive is worse than the miss it replaced.
-    writeTree('tools/verify-all.sh');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n' +
+    // legion-app/08.3-gates/08.3-05-PLAN.md declares four files after three `#` lines; a parser
+    // breaking there filed a plan that DID declare under "refused to declare" (D-65).
+    tree('tools/verify-all.sh');
+    const a = analyze({
+      '01-01-PLAN.md':
+        '---\nphase: 01-x\nwave: 1\nfiles_modified:\n' +
         '  # ⚠️ verify-all.sh — the branch may not be taken; declared anyway\n' +
         '  # because an undeclared edit to a shared file breaks this very check\n' +
         '  - tools/verify-all.sh\nautonomous: true\n---\n\n# a\n',
-    );
-
-    const r = run(['--json']);
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    const plan = JSON.parse(r.stdout).plans[0];
-    assert.equal(plan.declaredNothing, false, 'a commented list is not an empty declaration');
-    assert.deepEqual(
-      plan.entries.map((e) => e.declared),
-      ['tools/verify-all.sh'],
-    );
+    });
+    assert.equal(a.plans[0].declaredNothing, false, 'a commented list is not an empty declaration');
+    assert.deepEqual(a.plans[0].entries.map((e) => e.declared), ['tools/verify-all.sh']);
   });
 
   test('a comment is not mistaken for a declared entry', () => {
-    // The complementary error: skipping the comment must not ADD it as a path.
-    writeTree('tools/a.sh');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  # a note\n  - tools/a.sh\n---\n\n# a\n',
-    );
-
-    const out = JSON.parse(run(['--json']).stdout);
-    assert.equal(out.plans[0].entries.length, 1);
-    assert.equal(out.plans[0].unparseable, undefined);
-    assert.deepEqual(out.unparseable, []);
+    tree('tools/a.sh');
+    const a = analyze({ '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  # a note\n  - tools/a.sh\n---\n\n# a\n' });
+    assert.equal(a.plans[0].entries.length, 1);
+    assert.deepEqual(a.unparseable, []);
   });
 
   test('a trailing comment on an entry is stripped, not read as prose', () => {
-    // Second finding of the 55-phase corpus run, same family as the leading-#
-    // case: mn-konung/05-09-PLAN.md writes
-    //   - apps/.../use-websocket.ts    # DELETED in this commit
-    // Both paths are real. Keeping the comment makes the entry contain a space,
-    // which the prose rule then files under UNPARSEABLE — the gate blaming the
-    // planner for annotating a path correctly.
-    writeTree('src/keep.ts');
-    writeTree('src/other.ts');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n' +
-        '  - src/keep.ts    # NEW (task 3)\n' +
-        '  - src/other.ts # DELETED in this commit\n---\n\n# a\n',
-    );
-    writePlan('01-02-PLAN.md', 1, ['src/keep.ts']);
-
-    const r = run(['--json']);
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    const out = JSON.parse(r.stdout);
-
-    assert.deepEqual(out.unparseable, [], 'an annotated path is not prose');
-    assert.deepEqual(
-      out.plans[0].entries.map((e) => e.declared),
-      ['src/keep.ts', 'src/other.ts'],
-    );
-    // And the stripped entry still participates in the comparison.
-    assert.equal(r.exitCode, FINDING);
-    assert.deepEqual(out.collisions[0].shared, ['src/keep.ts']);
+    // mn-konung/05-09-PLAN.md: `- apps/.../use-websocket.ts    # DELETED in this commit`.
+    tree('src/keep.ts', 'src/other.ts');
+    const files = {
+      '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  - src/keep.ts    # NEW (task 3)\n  - src/other.ts # DELETED in this commit\n---\n\n# a\n',
+      '01-02-PLAN.md': plan('b', 1, ['src/keep.ts']),
+    };
+    const { phaseDir, phaseNumber } = phase(files);
+    const a = analyzeWaveCollision(projectDir, phaseDir, 'expand');
+    assert.deepEqual(a.unparseable, [], 'an annotated path is not prose');
+    assert.deepEqual(a.plans[0].entries.map((e) => e.declared), ['src/keep.ts', 'src/other.ts']);
+    const v = evaluateMnWaveCollision({ projectDir, args: [phaseNumber] }).payload;
+    assert.equal(v.block, true);
+    assert.deepEqual(v.collisions[0].shared, ['src/keep.ts']);
   });
 
   test('a # inside a quoted entry is NOT treated as a comment', () => {
-    // The boundary of the strip: a path may legitimately contain a hash.
-    // Cutting at the first # regardless of quoting would corrupt it silently.
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  - "src/od#d.ts"\n---\n\n# a\n',
-    );
-
-    const out = JSON.parse(run(['--json']).stdout);
-    assert.deepEqual(
-      out.plans[0].entries.map((e) => e.declared),
-      ['src/od#d.ts'],
-    );
+    const a = analyze({ '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  - "src/od#d.ts"\n---\n\n# a\n' });
+    assert.deepEqual(a.plans[0].entries.map((e) => e.declared), ['src/od#d.ts']);
   });
 
   test('the LAST frontmatter line is not lost', () => {
-    // A regex requiring `\n` after every list item drops the final entry: its
-    // newline was eaten by the closing `---`. wave-collision.mjs records this
-    // defect in a comment; the line-based parse here inherits the fix.
-    writeTree('libs/m/last.ts');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  - libs/m/last.ts\n---\n\n# a\n',
-    );
-    writePlan('01-02-PLAN.md', 1, ['libs/m/last.ts']);
-
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /libs\/m\/last\.ts/);
+    tree('libs/m/last.ts');
+    const v = gateOn({
+      '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified:\n  - libs/m/last.ts\n---\n\n# a\n',
+      '01-02-PLAN.md': plan('b', 1, ['libs/m/last.ts']),
+    });
+    assert.deepEqual(v.collisions[0].shared, ['libs/m/last.ts']);
   });
 
   test('the inline form files_modified: [a, b] is read', () => {
-    writeTree('libs/m/x.ts');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      '---\nphase: 01-x\nwave: 1\nfiles_modified: [libs/m/x.ts, "libs/m/y.ts"]\nautonomous: true\n---\n\n# a\n',
-    );
-    writePlan('01-02-PLAN.md', 1, ['libs/m/x.ts']);
-
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-    assert.match(r.stderr, /libs\/m\/x\.ts/);
+    tree('libs/m/x.ts');
+    const v = gateOn({
+      '01-01-PLAN.md': '---\nphase: 01-x\nwave: 1\nfiles_modified: [libs/m/x.ts, "libs/m/y.ts"]\nautonomous: true\n---\n\n# a\n',
+      '01-02-PLAN.md': plan('b', 1, ['libs/m/x.ts']),
+    });
+    assert.deepEqual(v.collisions[0].shared, ['libs/m/x.ts']);
   });
 
   // ── criterion 2 & 4: the four verdicts stay four ──────────────────────────
 
   describe('the four verdicts do not collapse', () => {
-    test('a plan declaring no files lands under DECLARED NOTHING and never reads as non-overlapping', () => {
+    test('a plan declaring no files lands under declaredNothing and never reads as non-overlapping', () => {
       // D-65: an empty declaration is a refusal to make, not "shares nothing".
-      writeTree('libs/m/a.ts');
-      writePlan('01-01-PLAN.md', 1, []);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/a.ts']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /DECLARED NOTHING/);
-      assert.match(r.stderr, /01-01-PLAN\.md/);
+      tree('libs/m/a.ts');
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, []), '01-02-PLAN.md': plan('b', 1, ['libs/m/a.ts']) });
+      assert.equal(v.block, true);
+      assert.deepEqual(v.declaredNothing, ['01-01-PLAN.md']);
+      assert.deepEqual(v.collisions, []);
     });
 
-    test('a glob resolving to nothing lands under RESOLVED TO NOTHING', () => {
-      writePlan('01-01-PLAN.md', 1, ['does-not-exist/**']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /RESOLVED TO NOTHING/);
-      assert.match(r.stderr, /does-not-exist/);
+    test('a glob resolving to nothing lands under resolvedToNothing', () => {
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['does-not-exist/**']) });
+      assert.equal(v.block, true);
+      assert.deepEqual(v.resolvedToNothing, [{ plan: '01-01-PLAN.md', declared: 'does-not-exist/**', kind: 'glob' }]);
     });
 
-    test('a declared-nothing plan is ABSENT from the RESOLVED TO NOTHING section', () => {
-      // The exit code is 1 for both, so it proves nothing about the split.
-      // Section membership is the only observable that does (D-66).
-      writePlan('01-01-PLAN.md', 1, []);
-      writePlan('01-02-PLAN.md', 1, ['gone/**']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-
-      const declaredNothing = sectionOf(r.stderr, 'DECLARED NOTHING');
-      const resolvedNothing = sectionOf(r.stderr, 'RESOLVED TO NOTHING');
-
-      assert.match(declaredNothing, /01-01-PLAN\.md/);
-      assert.doesNotMatch(declaredNothing, /01-02-PLAN\.md/);
-      assert.match(resolvedNothing, /01-02-PLAN\.md/);
-      assert.doesNotMatch(resolvedNothing, /01-01-PLAN\.md/);
+    test('a declared-nothing plan is ABSENT from resolvedToNothing, and the stale glob from declaredNothing', () => {
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, []), '01-02-PLAN.md': plan('b', 1, ['gone/**']) });
+      assert.deepEqual(v.declaredNothing, ['01-01-PLAN.md']);
+      assert.deepEqual(v.resolvedToNothing.map((r) => r.plan), ['01-02-PLAN.md']);
     });
 
-    test('a prose entry lands under UNPARSEABLE ENTRIES, distinct from both', () => {
-      writePlan('01-01-PLAN.md', 1, ['"apps/x (9 files) — exact list from live scan"']);
+    test('a prose entry lands under unparseable, distinct from both', () => {
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['"apps/x (9 files) — exact list from live scan"']) });
+      assert.equal(v.block, true);
+      assert.deepEqual(v.unparseable.map((u) => u.plan), ['01-01-PLAN.md']);
+      assert.deepEqual([v.declaredNothing, v.resolvedToNothing], [[], []]);
+    });
 
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-
-      const unparseable = sectionOf(r.stderr, 'UNPARSEABLE ENTRIES');
-      assert.match(unparseable, /01-01-PLAN\.md/);
-      assert.doesNotMatch(sectionOf(r.stderr, 'DECLARED NOTHING'), /01-01-PLAN\.md/);
-      assert.doesNotMatch(sectionOf(r.stderr, 'RESOLVED TO NOTHING'), /01-01-PLAN\.md/);
+    test('an empty directory lands under resolvedToNothing as a directory', () => {
+      fs.mkdirSync(path.join(projectDir, 'libs/empty'), { recursive: true });
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/empty']) });
+      assert.deepEqual(v.resolvedToNothing, [{ plan: '01-01-PLAN.md', declared: 'libs/empty', kind: 'directory' }]);
     });
 
     test('a file that does not exist yet is NOT unresolved — the plan intends to create it', () => {
-      // Treating a greenfield declaration as a stale glob would flag every new
-      // plan and get the gate switched off on day one.
-      writePlan('01-01-PLAN.md', 1, ['src/brand-new.ts']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['src/brand-new.ts']) });
+      assert.equal(v.block, false);
     });
   });
 
-  // ── boundary coverage on the pair loop: 0, 1, 2 plans ─────────────────────
+  // ── boundary coverage on the pair loop: 0, 1, 2, 3 plans ──────────────────
 
   describe('plan-count boundaries — where the nested pair loop silently does nothing', () => {
-    test('a phase with zero plans exits 0', () => {
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
+    test('a phase with zero plans passes', () => {
+      const v = gateOn({});
+      assert.equal(v.block, false);
+      assert.equal(v.pairsChecked, 0);
     });
 
-    test('a phase with one plan exits 0 — zero pairs to check', () => {
-      writeTree('libs/m/a.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/a.ts']);
-
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
+    test('a phase with one plan passes — zero pairs to check', () => {
+      tree('libs/m/a.ts');
+      const v = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/a.ts']) });
+      assert.equal(v.block, false);
+      assert.equal(v.pairsChecked, 0);
     });
 
     test('a wave holding exactly one plan checks zero pairs; a second plan makes one', () => {
-      writeTree('libs/m/a.ts');
-      writeTree('libs/m/b.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/a.ts']);
-      writePlan('01-02-PLAN.md', 2, ['libs/m/b.ts']);
-
-      const oneEach = run(['--json']);
-      assert.equal(oneEach.outcome, OUTCOME.EXITED);
-      assert.equal(oneEach.exitCode, CLEAN, `${oneEach.stdout}${oneEach.stderr}`);
-      assert.equal(JSON.parse(oneEach.stdout).pairsChecked, 0);
-
-      writePlan('01-02-PLAN.md', 1, ['libs/m/b.ts']);
-      const bothInOne = run(['--json']);
-      assert.equal(bothInOne.outcome, OUTCOME.EXITED);
-      assert.equal(bothInOne.exitCode, CLEAN, `${bothInOne.stdout}${bothInOne.stderr}`);
-      assert.equal(JSON.parse(bothInOne.stdout).pairsChecked, 1);
+      tree('libs/m/a.ts', 'libs/m/b.ts');
+      assert.equal(gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/a.ts']), '01-02-PLAN.md': plan('b', 2, ['libs/m/b.ts']) }).pairsChecked, 0);
+      const both = gateOn({ '01-01-PLAN.md': plan('a', 1, ['libs/m/a.ts']), '01-02-PLAN.md': plan('b', 1, ['libs/m/b.ts']) });
+      assert.equal(both.block, false);
+      assert.equal(both.pairsChecked, 1);
     });
 
     test('three same-wave plans check three pairs', () => {
-      for (const n of ['a', 'b', 'c']) writeTree(`libs/m/${n}.ts`);
-      writePlan('01-01-PLAN.md', 1, ['libs/m/a.ts']);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/b.ts']);
-      writePlan('01-03-PLAN.md', 1, ['libs/m/c.ts']);
-
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(JSON.parse(r.stdout).pairsChecked, 3);
+      tree('libs/m/a.ts', 'libs/m/b.ts', 'libs/m/c.ts');
+      const v = gateOn({
+        '01-01-PLAN.md': plan('a', 1, ['libs/m/a.ts']),
+        '01-02-PLAN.md': plan('b', 1, ['libs/m/b.ts']),
+        '01-03-PLAN.md': plan('c', 1, ['libs/m/c.ts']),
+      });
+      assert.equal(v.pairsChecked, 3);
     });
   });
 
-  // ── the could-not-check contract ──────────────────────────────────────────
+  // ── could not check, never mistaken for a finding ─────────────────────────
 
-  describe('exit 2 — could not check, never mistaken for a finding', () => {
-    test('a missing --dir exits 2', () => {
-      const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /UNKNOWN:/);
+  describe('unresolvable — could not check', () => {
+    test('a phase that does not exist is unresolvable', () => {
+      const v = evaluateMnWaveCollision({ projectDir, args: ['77'] }).payload;
+      assert.equal(v.status, 'unresolvable');
+      assert.equal(v.block, true);
     });
 
-    test('a phase directory that does not exist exits 2', () => {
-      const r = runNode([SCRIPT, '--dir', path.join(root, 'nope'), '--root', root], {
-        timeoutMs: RUN_TIMEOUT_MS,
-      });
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /UNKNOWN:/);
+    test('a path naming a FILE rather than a phase directory is unresolvable', () => {
+      fs.writeFileSync(path.join(projectDir, 'a-file'), 'x');
+      assert.equal(evaluateMnWaveCollision({ projectDir, args: ['./a-file'] }).payload.status, 'unresolvable');
     });
 
-    test('a --dir pointing at a FILE exits 2, not 0', () => {
-      const asFile = path.join(root, 'a-file');
-      fs.writeFileSync(asFile, 'x');
-      const r = runNode([SCRIPT, '--dir', asFile, '--root', root], { timeoutMs: RUN_TIMEOUT_MS });
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, `${r.stdout}${r.stderr}`);
+    test('a PLAN.md that is a directory is unresolvable rather than silently skipped', () => {
+      const { phaseDir, phaseNumber } = phase({});
+      fs.mkdirSync(path.join(phaseDir, '01-01-PLAN.md'));
+      const v = evaluateMnWaveCollision({ projectDir, args: [phaseNumber] }).payload;
+      assert.equal(v.status, 'unresolvable');
     });
 
-    test('a PLAN.md that is a directory exits 2 rather than being silently skipped', () => {
-      // An unreadable plan is "could not look", which must not read as clean.
-      fs.mkdirSync(path.join(phaseDir, '01-01-PLAN.md'), { recursive: true });
-      const r = run();
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, `${r.stdout}${r.stderr}`);
-      assert.match(r.stderr, /UNKNOWN:/);
-    });
-
-    test('an UNCAUGHT throw exits 2, not Node default 1', () => {
-      // The whole reason the script has a single exit point. Node exits 1 on an
-      // uncaught exception, which a gate runner reads as "found a collision" —
-      // indistinguishable from a real finding, and a false halt is worse than a
-      // miss. Proven by running a copy with a throw injected into main(), since
-      // no legitimate input reaches that branch.
-      const src = fs.readFileSync(SCRIPT, 'utf8');
-      assert.ok(src.includes('function main() {'), 'anchor must exist for the injection');
-      const broken = path.join(root, 'wave-normalize-throwing.mjs');
-      fs.writeFileSync(
-        broken,
-        src.replace('function main() {', "function main() {\n  throw new Error('injected');"),
-      );
-
-      const r = runNode([broken, '--dir', phaseDir, '--root', root], {
-        timeoutMs: RUN_TIMEOUT_MS,
-      });
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, 'an uncaught throw must be could-not-check');
-      assert.notEqual(r.exitCode, FINDING, 'a crash must never read as a finding');
-      assert.match(r.stderr, /UNKNOWN:/);
-    });
-
-    test('a --root that does not exist exits 2', () => {
-      writePlan('01-01-PLAN.md', 1, ['libs/m/a.ts']);
-      const r = runNode([SCRIPT, '--dir', phaseDir, '--root', path.join(root, 'absent-root')], {
-        timeoutMs: RUN_TIMEOUT_MS,
-      });
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CANNOT_CHECK, `${r.stdout}${r.stderr}`);
+    test('no phase argument is a usage failure', () => {
+      assert.ok(evaluateMnWaveCollision({ projectDir, args: [] }).failure);
     });
   });
 
-  // ── --json is the machine surface ─────────────────────────────────────────
+  // ── the in-process analysis: per-plan entries ─────────────────────────────
 
-  describe('--json', () => {
-    test('carries per-plan declared entries and their kinds, and exits like the human path', () => {
-      writeTree('libs/m/testing/a.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/testing/a.ts']);
-
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, FINDING, `${r.stdout}${r.stderr}`);
-
-      const out = JSON.parse(r.stdout);
-      assert.equal(out.exitCode, FINDING);
-
-      const first = out.plans.find((p) => p.name === '01-01-PLAN.md');
-      assert.ok(first, 'the plan must appear in the json');
+  describe('analyzeWaveCollision', () => {
+    test('carries per-plan declared entries, their kinds and resolutions', () => {
+      tree('libs/m/testing/a.ts');
+      const a = analyze({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-02-PLAN.md': plan('b', 1, ['libs/m/testing/a.ts']) });
+      const first = a.plans.find((p) => p.plan === '01-01-PLAN.md');
       assert.equal(first.wave, 1);
       assert.equal(first.declaredNothing, false);
-      assert.equal(first.entries[0].declared, 'libs/m/testing');
-      assert.equal(first.entries[0].kind, 'directory');
-      assert.deepEqual(first.entries[0].resolved, ['libs/m/testing/a.ts']);
-
-      const second = out.plans.find((p) => p.name === '01-02-PLAN.md');
-      assert.equal(second.entries[0].kind, 'file');
-
-      assert.equal(out.collisions.length, 1);
-      assert.equal(out.collisions[0].wave, 1);
-      assert.deepEqual(out.collisions[0].shared, ['libs/m/testing/a.ts']);
+      assert.deepEqual(
+        first.entries.map((e) => [e.declared, e.kind, [...e.resolved]]),
+        [['libs/m/testing', 'directory', ['libs/m/testing/a.ts']]],
+      );
+      assert.equal(a.plans.find((p) => p.plan === '01-02-PLAN.md').entries[0].kind, 'file');
+      assert.deepEqual(a.collisions, [{ wave: 1, a: '01-01-PLAN.md', b: '01-02-PLAN.md', shared: ['libs/m/testing/a.ts'] }]);
     });
 
-    test('separates declaredNothing from unresolved in the parsed object', () => {
-      writePlan('01-01-PLAN.md', 1, []);
-      writePlan('01-02-PLAN.md', 1, ['gone/**']);
-
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      const out = JSON.parse(r.stdout);
-
-      const nothing = out.plans.find((p) => p.name === '01-01-PLAN.md');
-      const stale = out.plans.find((p) => p.name === '01-02-PLAN.md');
-
+    test('separates declaredNothing from unresolved', () => {
+      const a = analyze({ '01-01-PLAN.md': plan('a', 1, []), '01-02-PLAN.md': plan('b', 1, ['gone/**']) });
+      const nothing = a.plans.find((p) => p.plan === '01-01-PLAN.md');
+      const stale = a.plans.find((p) => p.plan === '01-02-PLAN.md');
       assert.equal(nothing.declaredNothing, true);
       assert.equal(nothing.entries.length, 0);
-
-      // The stale glob DID declare something; only its resolution is empty.
       assert.equal(stale.declaredNothing, false);
       assert.equal(stale.entries[0].kind, 'glob');
       assert.equal(stale.entries[0].unresolved, true);
-    });
-
-    test('a clean phase emits json and exits 0', () => {
-      writeTree('libs/m/a.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/a.ts']);
-
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, CLEAN, `${r.stdout}${r.stderr}`);
-      const out = JSON.parse(r.stdout);
-      assert.equal(out.exitCode, CLEAN);
-      assert.equal(out.collisions.length, 0);
     });
   });
 
   // ── determinism (criterion 3), and its trap ───────────────────────────────
 
   describe('determinism', () => {
-    test('two runs on unchanged input produce byte-identical json', () => {
-      writeTree('libs/m/testing/a.ts');
-      writeTree('libs/m/testing/z.ts');
-      writeTree('libs/m/testing/nested/b.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      writePlan('01-02-PLAN.md', 1, ['libs/m/testing/z.ts']);
-
-      const first = run(['--json']);
-      const second = run(['--json']);
-      assert.equal(first.outcome, OUTCOME.EXITED);
-      assert.equal(second.outcome, OUTCOME.EXITED);
-      assert.equal(first.stdout, second.stdout);
+    test('two runs on unchanged input produce identical verdicts', () => {
+      tree('libs/m/testing/a.ts', 'libs/m/testing/z.ts', 'libs/m/testing/nested/b.ts');
+      const { phaseNumber } = phase({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']), '01-02-PLAN.md': plan('b', 1, ['libs/m/testing/z.ts']) });
+      const first = evaluateMnWaveCollision({ projectDir, args: [phaseNumber] }).payload;
+      const second = evaluateMnWaveCollision({ projectDir, args: [phaseNumber] }).payload;
+      assert.deepEqual(first, second);
     });
 
-    test('and the output CHANGES with the input — determinism is not a constant', () => {
-      // Criterion 3's trap: a gate that always answers the same thing is
-      // trivially deterministic and worthless. Stability must be shown next to
-      // sensitivity, or it proves only that nothing is being computed.
-      writeTree('libs/m/testing/a.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-      const before = run(['--json']).stdout;
-
-      writeTree('libs/m/testing/added.ts');
-      const after = run(['--json']).stdout;
-
-      assert.notEqual(before, after, 'a new file under the declared directory must change the answer');
+    test('and the answer CHANGES with the input — determinism is not a constant', () => {
+      tree('libs/m/testing/a.ts');
+      const { phaseDir } = phase({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']) });
+      const before = analyzeWaveCollision(projectDir, phaseDir, 'expand').plans[0].files;
+      tree('libs/m/testing/added.ts');
+      const after = analyzeWaveCollision(projectDir, phaseDir, 'expand').plans[0].files;
+      assert.notDeepEqual(before, after, 'a new file under the declared directory must change the answer');
     });
 
     test('resolved file lists are sorted regardless of creation order', () => {
-      // readdirSync order is not guaranteed; the sort must be explicit.
-      writeTree('libs/m/testing/z.ts');
-      writeTree('libs/m/testing/a.ts');
-      writeTree('libs/m/testing/m.ts');
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-
-      const out = JSON.parse(run(['--json']).stdout);
-      const resolved = out.plans[0].entries[0].resolved;
-      assert.deepEqual(resolved, [...resolved].sort());
-      assert.deepEqual(resolved, [
-        'libs/m/testing/a.ts',
-        'libs/m/testing/m.ts',
-        'libs/m/testing/z.ts',
-      ]);
+      tree('libs/m/testing/z.ts', 'libs/m/testing/a.ts', 'libs/m/testing/m.ts');
+      const resolved = [...analyze({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']) }).plans[0].entries[0].resolved];
+      assert.deepEqual(resolved, ['libs/m/testing/a.ts', 'libs/m/testing/m.ts', 'libs/m/testing/z.ts']);
     });
   });
 
-  // ── T-03-01: the walk stays inside --root ─────────────────────────────────
+  // ── T-03-01: the walk stays inside the project ────────────────────────────
 
   describe('containment', () => {
-    test('a symlinked directory is not followed out of the tree', () => {
-      const outside = path.join(root, '..', `escape-${path.basename(root)}`);
+    test('a symlinked directory is not followed out of the tree', { skip: process.platform === 'win32' }, (t) => {
+      const outside = path.join(projectDir, '..', `escape-${path.basename(projectDir)}`);
       fs.mkdirSync(outside, { recursive: true });
+      t.after(() => cleanup(outside));
       fs.writeFileSync(path.join(outside, 'secret.ts'), 'x');
-
-      fs.mkdirSync(path.join(root, 'libs/m/testing'), { recursive: true });
-      fs.symlinkSync(outside, path.join(root, 'libs/m/testing/link'));
-      writeTree('libs/m/testing/a.ts');
-
-      writePlan('01-01-PLAN.md', 1, ['libs/m/testing']);
-
-      const r = run(['--json']);
-      cleanup(outside);
-
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      const resolved = JSON.parse(r.stdout).plans[0].entries[0].resolved;
-      assert.deepEqual(resolved, ['libs/m/testing/a.ts']);
-      assert.ok(
-        !resolved.some((f) => f.includes('secret.ts')),
-        'the walk must not follow a symlink out of the repository',
-      );
+      tree('libs/m/testing/a.ts');
+      fs.symlinkSync(outside, path.join(projectDir, 'libs/m/testing/link'));
+      const resolved = [...analyze({ '01-01-PLAN.md': plan('a', 1, ['libs/m/testing']) }).plans[0].entries[0].resolved];
+      assert.deepEqual(resolved, ['libs/m/testing/a.ts'], 'the walk must not follow a symlink out of the repository');
     });
 
     test('an entry escaping the root via .. is refused rather than resolved', () => {
-      writePlan('01-01-PLAN.md', 1, ['../outside/x.ts']);
+      const a = analyze({ '01-01-PLAN.md': plan('a', 1, ['../outside/x.ts']) });
+      assert.equal(a.plans[0].entries[0].kind, 'malformed');
+    });
 
-      const r = run(['--json']);
-      assert.equal(r.outcome, OUTCOME.EXITED);
-      const entry = JSON.parse(r.stdout).plans[0].entries[0];
-      assert.equal(entry.kind, 'malformed');
+    test('an absolute entry is refused rather than resolved', () => {
+      const a = analyze({ '01-01-PLAN.md': plan('a', 1, ['/etc/passwd']) });
+      assert.equal(a.plans[0].entries[0].kind, 'malformed');
     });
   });
 
-  // ── registration (task 3) ─────────────────────────────────────────────────
+  // ── registration ──────────────────────────────────────────────────────────
 
   describe('registration in capability.json', () => {
-    const capability = require('../capabilities/mn-verify-gate/capability.json');
-
-    test('the gate sits at index 16 — the array position is execution order', () => {
-      // Pinned by index, not "last": gates registered after this one append at
-      // the end and must not move it. What matters is that it was appended after
-      // the sixteen already verified, and that nothing has been inserted before it.
-      assert.equal(capability.gates[16].when, 'workflow.wave_normalize');
-    });
-
-    test('it is a command-exit-zero predicate at plan:post, blocking, halting on error', () => {
-      const last = capability.gates[16];
-      assert.equal(last.point, 'plan:post');
-      assert.equal(last.check.predicate.kind, 'command-exit-zero');
-      assert.equal(last.check.predicate.timeout, 60);
-      assert.equal(last.blocking, true);
-      assert.equal(last.onError, 'halt');
-      assert.match(last.check.predicate.command, /wave-normalize\.mjs/);
-      assert.match(last.check.predicate.command, /\$\{PHASE_DIR\}/);
+    test('the wave_normalize gate queries mn-wave-collision at plan:post, blocking, halting on error', () => {
+      const gate = CAPABILITY.gates.find((g) => g.when === 'workflow.wave_normalize');
+      assert.ok(gate);
+      assert.equal(gate.point, 'plan:post');
+      assert.deepEqual(gate.check, { query: 'mn-wave-collision' });
+      assert.equal(gate.blocking, true);
+      assert.equal(gate.onError, 'halt');
     });
 
     test('the config key defaults to false — enabling it is a choice', () => {
-      assert.equal(capability.config['workflow.wave_normalize'].type, 'boolean');
-      assert.equal(capability.config['workflow.wave_normalize'].default, false);
-    });
-
-    test('appending did not disturb the sixteen gates already verified', () => {
-      // A floor, not an exact count: gates registered after this one append at
-      // the end (the same convention this test pins), and each of them would
-      // otherwise have to edit this line.
-      assert.ok(capability.gates.length >= 17, `expected at least 17 gates, got ${capability.gates.length}`);
-      assert.deepEqual(
-        capability.gates.slice(0, 16).map((g) => g.when),
-        [
-          'workflow.nyquist_enforce',
-          'workflow.verify_enforce',
-          'workflow.verify_gates_enforce',
-          'workflow.uat_enforce',
-          'workflow.mutation_spot_check',
-          'workflow.mn_security_enforce',
-          'workflow.mn_windows_enforce',
-          'workflow.assertion_ratchet',
-          'workflow.migration_safety',
-          'workflow.migration_safety_strict',
-          'workflow.blast_radius',
-          'workflow.contract_drift',
-          'workflow.wave_collision',
-          'workflow.orphan_plans',
-          'workflow.wave_solve',
-          'workflow.plan_status_enforce',
-        ],
-      );
+      assert.equal(CAPABILITY.config['workflow.wave_normalize'].type, 'boolean');
+      assert.equal(CAPABILITY.config['workflow.wave_normalize'].default, false);
     });
   });
 });
-
-/**
- * The text under a heading, up to the next ALL-CAPS heading or the end.
- *
- * Section membership is the ONLY observable separating a declared-nothing plan
- * from a stale glob — both exit 1 — so the split is asserted here rather than
- * inferred from an exit code that is identical for both (D-66).
- */
-function sectionOf(text, heading) {
-  const start = text.indexOf(heading);
-  if (start === -1) return '';
-  const rest = text.slice(start + heading.length);
-  const next = rest.search(/\n(?:COLLIDING PAIRS|DECLARED NOTHING|RESOLVED TO NOTHING|UNPARSEABLE ENTRIES)\b/);
-  return next === -1 ? rest : rest.slice(0, next);
-}

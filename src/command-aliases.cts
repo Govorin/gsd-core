@@ -281,6 +281,18 @@ export const VERIFY_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "gates",
     "mutation": true
+  },
+  {
+    // mutation: true — it records (the mutation spot-check result into
+    // {phase}-VERIFICATION.md's `mutation:` block) and, while it runs, it
+    // temporarily changes and restores the phase's declared source files.
+    // The gate `check mn-mutation-spot-check` reads the record.
+    "canonical": "verify.mutation",
+    "aliases": [
+      "verify mutation"
+    ],
+    "subcommand": "mutation",
+    "mutation": true
   }
 ];
 

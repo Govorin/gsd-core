@@ -42,6 +42,7 @@ import { readAutoModeState } from './check-auto-mode.cjs';
 import verifyModule = require('./verify.cjs');
 const { cmdVerifySchemaDrift, cmdVerifyCodebaseDrift, cmdVerifyContextDrift } = verifyModule;
 import { routeProhibitionEnforcement } from './prohibition-enforcement.cjs';
+import { isMnCheckVerb, evaluateMnCheck } from './gate-mn-dispatch.cjs';
 
 type ErrorReason = (typeof ERROR_REASON)[keyof typeof ERROR_REASON];
 
@@ -131,6 +132,8 @@ function routeCheckCommand({ args, cwd, raw }: RouteCheckCommandOptions): void {
   // so the declared query must be dispatchable exactly as declared.
   const rawSubcommand = args[1];
   const subcommand = typeof rawSubcommand === 'string' ? rawSubcommand.replace(/\./g, '-') : rawSubcommand;
+  // mn-verify-gate's gates (`check mn-*`): one registration line, the verbs live in gate-mn-dispatch.cts.
+  if (isMnCheckVerb(subcommand)) return emitGateResult(evaluateMnCheck(subcommand, { projectDir: cwd, args: args.slice(2) }), raw);
   switch (subcommand) {
     case 'auto-mode':
       cmdAutoMode(cwd, raw);

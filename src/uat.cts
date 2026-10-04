@@ -144,7 +144,39 @@ function readNormalizedDocument(filePath: string): string {
   return normalizeLineEndings(fs.readFileSync(filePath, 'utf-8'));
 }
 
+/** What `audit-uat` reports: every non-passing item across the project's phases. */
+interface AuditUatReport {
+  results: UatFileResult[];
+  summary: {
+    total_files: number;
+    total_items: number;
+    parse_gap_files: number;
+    by_category: Record<string, number>;
+    by_phase: Record<string, number>;
+    current_milestone: { files: number; items: number };
+    archived: { files: number; items: number; by_milestone: Record<string, number> };
+  };
+  acknowledged_files: number;
+}
+
+/**
+ * `gsd-tools audit-uat` — prints the report, or fails when the project has no phases at all.
+ */
 function cmdAuditUat(cwd: string, raw: boolean): void {
+  const report = collectAuditUat(cwd);
+  if (report === null) {
+    error('No phases directory found in planning directory');
+  }
+  output(report, raw, undefined);
+}
+
+/**
+ * The `audit-uat` report as a value, for in-process readers (`check mn-uat-open` filters it to
+ * one phase instead of spawning `gsd-tools audit-uat`). `null` when the project has neither an
+ * active nor an archived phase directory — the case `cmdAuditUat` reports as an error. A
+ * VERIFICATION.md whose `status` is outside the closed enum still throws (`reportStatusOf`).
+ */
+function collectAuditUat(cwd: string): AuditUatReport | null {
   const phasesDir = path.join(planningDir(cwd), 'phases');
   const hasActivePhases = fs.existsSync(phasesDir);
 
@@ -165,7 +197,7 @@ function cmdAuditUat(cwd: string, raw: boolean): void {
   // fully-populated audit, not a broken install.
   const archivedDirs = getAllArchivedPhaseDirs(cwd);
   if (!hasActivePhases && archivedDirs.length === 0) {
-    error('No phases directory found in planning directory');
+    return null;
   }
 
   const results: UatFileResult[] = [];
@@ -344,15 +376,7 @@ function cmdAuditUat(cwd: string, raw: boolean): void {
   }
 
   // Compute summary
-  const summary: {
-    total_files: number;
-    total_items: number;
-    parse_gap_files: number;
-    by_category: Record<string, number>;
-    by_phase: Record<string, number>;
-    current_milestone: { files: number; items: number };
-    archived: { files: number; items: number; by_milestone: Record<string, number> };
-  } = {
+  const summary: AuditUatReport['summary'] = {
     total_files: results.length,
     total_items: results.reduce((sum, r) => sum + r.items.length, 0),
     // #3707 blocker 2: a distinct counter so a file whose test blocks
@@ -411,7 +435,7 @@ function cmdAuditUat(cwd: string, raw: boolean): void {
 
   // #3805: acknowledged files surface as a COUNT (audit-open's honesty
   // model: the marker fired, the items are suppressed, both facts visible).
-  output({ results, summary, acknowledged_files: acknowledgedFiles }, raw, undefined);
+  return { results, summary, acknowledged_files: acknowledgedFiles };
 }
 
 // ─── cmdRenderCheckpoint ──────────────────────────────────────────────────────
@@ -4454,6 +4478,7 @@ function categorizeItem(rawResult: string, reason?: string, blockedBy?: string):
 
 export = {
   cmdAuditUat,
+  collectAuditUat,
   cmdRenderCheckpoint,
   completeUatSession,
   cmdUatCompleteSession,

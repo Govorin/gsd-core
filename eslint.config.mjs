@@ -453,6 +453,20 @@ export default tseslint.config(
       // Phase 5 (05-01/05-03): tsc-generated runtime artifacts — lint the src/*.cts sources.
       'gsd-core/bin/lib/feature-vocabulary.cjs',
       'gsd-core/bin/lib/feature-view.cjs',
+      // mn-verify-gate gates (`check mn-*`): tsc-generated runtime artifacts — lint the src/*.cts sources.
+      'gsd-core/bin/lib/gate-mn-support.cjs',
+      'gsd-core/bin/lib/gate-mn-dispatch.cjs',
+      'gsd-core/bin/lib/gate-mn-plan-status.cjs',
+      'gsd-core/bin/lib/gate-mn-waves.cjs',
+      'gsd-core/bin/lib/gate-mn-blast-radius.cjs',
+      'gsd-core/bin/lib/gate-mn-contract-drift.cjs',
+      'gsd-core/bin/lib/gate-mn-migration-safety.cjs',
+      'gsd-core/bin/lib/gate-mn-clean-state.cjs',
+      'gsd-core/bin/lib/gate-mn-assertion-ratchet.cjs',
+      'gsd-core/bin/lib/gate-mn-mutation-spot-check.cjs',
+      'gsd-core/bin/lib/gate-mn-uat-open.cjs',
+      'gsd-core/bin/lib/mn-assertion-count.cjs',
+      'gsd-core/bin/lib/verify-mutation.cjs',
     ],
   },
 

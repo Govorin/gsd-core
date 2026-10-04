@@ -7,7 +7,7 @@
   "tier": "full",
   "requires": [],
   "engines": {
-    "gsd": ">=1.9.0"
+    "gsd": ">=1.15.0"
   },
   "runtimeCompat": {
     "supported": [
@@ -34,17 +34,17 @@
     "workflow.mn_security_enforce": {
       "type": "boolean",
       "default": false,
-      "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+      "description": "Block ship on open threats in SECURITY.md (threats_open must be 0). Unlike core workflow.security_enforcement, which blocks when the phase wrote no SECURITY.md, this gate declares the artifact optional: a phase with no SECURITY.md passes — absence of threats is not a defect. A SECURITY.md that exists is always read."
     },
     "workflow.mn_windows_enforce": {
       "type": "boolean",
       "default": false,
-      "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+      "description": "Block ship on open broken windows in WINDOWS.md (open_count must be 0). Unlike core workflow.windows_enforce, the artifact is optional: a phase with no WINDOWS.md passes. A WINDOWS.md that exists is always read."
     },
     "workflow.assertion_ratchet": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json, recorded (first time, or after a declared drop) with `gsd_run mn assertion-baseline --update`; without one it blocks as unresolvable."
     },
     "workflow.data_contract_for_ui": {
       "type": "boolean",
@@ -104,7 +104,7 @@
     "workflow.mutation_spot_check": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+      "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Runs as a verify:pre step (`gsd_run verify mutation`, bounded to nine minutes) that records a mutation: block in VERIFICATION.md; the gate reads that record and blocks on a survivor, on a missing or stale record, or when the step could not check. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
     },
     "workflow.mutation_test_command": {
       "type": "string",
@@ -114,7 +114,7 @@
     "workflow.mutation_max_mutants": {
       "type": "number",
       "default": 3,
-      "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+      "description": "How many mutants the spot-check introduces per phase (one per declared source file). It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command, and the step stops starting new ones once its nine-minute budget is spent."
     },
     "workflow.worktree_provision": {
       "type": "boolean",
@@ -224,7 +224,7 @@
     "workflow.wave_normalize": {
       "type": "boolean",
       "default": false,
-      "description": "Block on same-wave overlap AFTER resolving directories and globs against the working tree, and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Supersedes workflow.wave_collision for projects whose plans declare directories: that gate compares only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Both may be enabled — wave_collision runs first, this one catches what it skipped. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
+      "description": "Resolve directories and globs against the working tree before comparing same-wave files_modified (check mn-wave-collision in expand mode), and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Also switches check mn-wave-solve to the resolved file sets. Supersedes workflow.wave_collision for projects whose plans declare directories: literal comparison sees only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Enabling it alone also turns the gate on; with both keys on, the expand mode applies. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
     },
     "workflow.orphan_plans": {
       "type": "boolean",
@@ -234,7 +234,7 @@
     "workflow.wave_solve": {
       "type": "boolean",
       "default": false,
-      "description": "Block at plan:post when a declared wave is EARLIER than the computed assignment — the plan would run before its dependency exists, or race another plan over the same file. A wave declared LATER than necessary is reported, not blocked: it is sequential where parallel would do, slower but never wrong."
+      "description": "Block at plan:post when a declared wave breaks the parallelism invariant — a plan declared at or before the wave of a plan it depends on (it would run before its dependency exists), or sharing a declared wave and a file with another plan (it races it). The computed assignment (depends_on levels, then file-overlap stages) is reported for renumbering; a wave declared LATER than computed is reported, not blocked: sequential where parallel would do, slower but never wrong. A dependency cycle cannot be checked and blocks."
     },
     "workflow.plan_status_enforce": {
       "type": "boolean",
@@ -266,6 +266,16 @@
       "produces": [],
       "consumes": [],
       "when": "workflow.verify_gates_record",
+      "onError": "skip"
+    },
+    {
+      "point": "verify:pre",
+      "ref": {
+        "command": "verify mutation"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.mutation_spot_check",
       "onError": "skip"
     }
   ],
@@ -353,9 +363,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VALIDATION.md",
+          "field": "nyquist_compliant",
+          "equals": true
         }
       },
       "when": "workflow.nyquist_enforce",
@@ -366,9 +377,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VERIFICATION.md",
+          "field": "truths_unproven",
+          "equals": 0
         }
       },
       "when": "workflow.verify_enforce",
@@ -379,9 +391,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VERIFICATION.md",
+          "field": "gates.all_passed",
+          "equals": true
         }
       },
       "when": "workflow.verify_gates_enforce",
@@ -391,11 +404,7 @@
     {
       "point": "ship:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 90
-        }
+        "query": "mn-uat-open"
       },
       "when": "workflow.uat_enforce",
       "blocking": true,
@@ -404,11 +413,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 1800
-        }
+        "query": "mn-mutation-spot-check"
       },
       "when": "workflow.mutation_spot_check",
       "blocking": true,
@@ -418,9 +423,11 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "SECURITY.md",
+          "field": "threats_open",
+          "equals": 0,
+          "optional": true
         }
       },
       "when": "workflow.mn_security_enforce",
@@ -431,9 +438,11 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "WINDOWS.md",
+          "field": "open_count",
+          "equals": 0,
+          "optional": true
         }
       },
       "when": "workflow.mn_windows_enforce",
@@ -443,11 +452,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
-          "timeout": 120
-        }
+        "query": "mn-assertion-ratchet"
       },
       "when": "workflow.assertion_ratchet",
       "blocking": true,
@@ -456,11 +461,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-migration-safety"
       },
       "when": "workflow.migration_safety",
       "blocking": true,
@@ -469,11 +470,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
-          "timeout": 60
-        }
+        "query": "mn-migration-safety"
       },
       "when": "workflow.migration_safety_strict",
       "blocking": true,
@@ -482,11 +479,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-blast-radius"
       },
       "when": "workflow.blast_radius",
       "blocking": true,
@@ -495,11 +488,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
-          "timeout": 120
-        }
+        "query": "mn-contract-drift"
       },
       "when": "workflow.contract_drift",
       "blocking": true,
@@ -508,11 +497,7 @@
     {
       "point": "plan:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-collision.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-wave-collision"
       },
       "when": "workflow.wave_collision",
       "blocking": true,
@@ -521,11 +506,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-orphan-plans"
       },
       "when": "workflow.orphan_plans",
       "blocking": true,
@@ -534,11 +515,7 @@
     {
       "point": "plan:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-solve.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-wave-solve"
       },
       "when": "workflow.wave_solve",
       "blocking": true,
@@ -547,11 +524,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-plan-status"
       },
       "when": "workflow.plan_status_enforce",
       "blocking": true,
@@ -560,11 +533,7 @@
     {
       "point": "plan:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-normalize.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-wave-collision"
       },
       "when": "workflow.wave_normalize",
       "blocking": true,
@@ -573,11 +542,7 @@
     {
       "point": "ship:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 30
-        }
+        "query": "mn-clean-state"
       },
       "when": "workflow.clean_state_enforce",
       "blocking": true,

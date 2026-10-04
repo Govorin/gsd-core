@@ -19,8 +19,9 @@
  *
  * Built-in kinds: `command-exit-zero` runs a declared command in a bounded
  * `sh -c` subprocess; `artifact-frontmatter-equals` compares a declared value
- * with frontmatter read through injected artifact dependencies. See ADR-2008
- * for the full contracts.
+ * with frontmatter read through injected artifact dependencies (`field` may be a
+ * dotted path into a nested map; `optional: true` lets an absent artifact pass,
+ * never a contradicting one). See ADR-2008 for the full contracts.
  *
  * This is a leaf pure module: no fs, no child_process, no config — the subprocess
  * seam is injected so the evaluator is trivially testable without spawning.
@@ -200,8 +201,22 @@ function evaluateArtifactFrontmatterEquals(
   if (expectedValue === undefined) {
     throw new Error('artifact-frontmatter-equals predicate requires an "equals" key');
   }
+  const optional = predicate['optional'];
+  if (optional !== undefined && typeof optional !== 'boolean') {
+    throw new Error('artifact-frontmatter-equals predicate "optional" must be a boolean');
+  }
   const targetDir = isNonEmptyString(ctx.phaseDir) ? ctx.phaseDir : ctx.cwd;
   const filePath = deps.findPhaseArtifact(targetDir, artifactSuffix);
+  if (!filePath && optional === true) {
+    // `optional` relaxes exactly one case: the artifact does not exist. A phase with no threats
+    // writes no SECURITY.md, and demanding one would block ship for the absence of a problem. An
+    // artifact that exists is always read — a wrong or missing field still blocks below.
+    return {
+      block: false,
+      message: `Artifact matching ${artifactSuffix} not found in ${targetDir}; it is optional, so there is nothing to enforce`,
+      details: { kind: 'artifact-frontmatter-equals', artifactNotFound: true, optional: true },
+    };
+  }
   if (!filePath) {
     return {
       block: true,

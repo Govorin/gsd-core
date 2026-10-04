@@ -331,6 +331,19 @@ function recordGates(
   verificationPath: string,
   gates: GatesFrontmatter
 ): { created: boolean } {
+  return recordVerificationBlock(verificationPath, 'gates', gates);
+}
+
+/**
+ * Write one top-level frontmatter block (`gates:`, `mutation:`) into a phase's VERIFICATION.md,
+ * creating the file when the verifier has not written it yet. Key-level (spliceFrontmatter), so
+ * every other key — the verifier's, or another recorder's block — is preserved.
+ */
+function recordVerificationBlock(
+  verificationPath: string,
+  key: string,
+  block: Record<string, unknown>
+): { created: boolean } {
   let content = '';
   let created = false;
   try {
@@ -346,10 +359,23 @@ function recordGates(
     content = `---\nphase: ${phase}\n---\n\n# Verification Report\n\nGate results were recorded before verification ran.\n`;
   }
 
-  const existing = extractFrontmatter(content) as Record<string, unknown>;
-  const updated = { ...existing, gates };
+  const existing = extractFrontmatter(content);
+  // A one-level block of scalars and scalar lists is a FrontmatterValue map; the writer refuses
+  // anything deeper at runtime.
+  const updated = { ...existing, [key]: block };
   fs.writeFileSync(verificationPath, spliceFrontmatter(content, updated));
   return { created };
+}
+
+/**
+ * The phase's VERIFICATION.md is named for the phase directory: a directory
+ * `03-ports` holds `03-VERIFICATION.md` (the phase number, not the full
+ * directory name) — matching what the verifier writes.
+ */
+function verificationPathFor(phaseDir: string): string {
+  const phaseName = path.basename(phaseDir);
+  const phaseNum = /^(\d+(?:\.\d+)?[a-z]?)/.exec(phaseName)?.[1] || phaseName;
+  return path.join(phaseDir, `${phaseNum}-VERIFICATION.md`);
 }
 
 // ─── Configuration ────────────────────────────────────────────────────────
@@ -505,12 +531,7 @@ function cmdVerifyGates(
   const ranAt = options.timestamp || new Date().toISOString();
   const gates = buildGatesFrontmatter(results, ranAt);
 
-  // The phase's VERIFICATION.md is named for the phase directory: a directory
-  // `03-ports` holds `03-VERIFICATION.md` (the phase number, not the full
-  // directory name) — matching what the verifier writes.
-  const phaseName = path.basename(phaseDir);
-  const phaseNum = /^(\d+(?:\.\d+)?[a-z]?)/.exec(phaseName)?.[1] || phaseName;
-  const verificationPath = path.join(phaseDir, `${phaseNum}-VERIFICATION.md`);
+  const verificationPath = verificationPathFor(phaseDir);
 
   let created = false;
   try {
@@ -564,6 +585,8 @@ export = {
   runGates,
   buildGatesFrontmatter,
   recordGates,
+  recordVerificationBlock,
+  verificationPathFor,
   readChecks,
   parseCounts,
 };

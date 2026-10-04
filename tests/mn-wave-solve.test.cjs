@@ -1,226 +1,264 @@
 'use strict';
 
 /**
- * wave-solve.mjs — computes the wave assignment instead of trusting an LLM to.
+ * `gsd_run check mn-wave-solve` — the wave assignment computed instead of trusted
+ * (src/gate-mn-waves.cts; replaces capabilities/mn-verify-gate/scripts/wave-solve.mjs).
  *
- * The one parallelism rule: a plan's wave must be strictly later than every
- * plan it depends on, and two plans in the same wave may not share a file. It
- * lives as pseudocode inside the planner prompt, an LLM executes it, and until
- * wave-collision shipped nothing checked the result — 38 phases of 283 violate
- * it. The detector catches a violation after the fact; this answers the other
- * question, what the assignment should have been.
+ * The one parallelism rule: a plan's wave must be strictly later than every plan it depends on,
+ * and two plans in the same wave may not share a file. The gate composes upstream functions —
+ * `computeDependencyLevels` (src/phase.cts) for the depends_on levels and cycles, then
+ * `partitionByFileOverlap` inside a level — and judges the DECLARED waves against the invariant.
  *
- * The tests weight three things the solver got wrong on first contact with real
- * data, because each produced confident nonsense rather than an error:
- *
- *   - Wave numbering starts at 0 in some phases and 1 in others. A solver
- *     hardcoding 1 reports every plan of a zero-based phase as diverged, and a
- *     real violation drowns in that noise.
- *   - Declaring a LATER wave than necessary is safe — sequential where parallel
- *     would do, slower but never wrong. Blocking it fails phases for
- *     conservative planning.
- *   - Declaring an EARLIER wave is the violation: the plan runs before its
- *     dependency exists, or races another plan over the same file.
+ * Three things the script got wrong on first contact with real data, each producing confident
+ * nonsense rather than an error, stay pinned:
+ *   - numbering starts at 0 in some phases and 1 in others;
+ *   - declaring a LATER wave than necessary is safe (conservative, never blocking);
+ *   - declaring an EARLIER wave is the violation.
+ * And two the composition fixes over the script (see "beyond the script" below): a valid
+ * assignment that merely differs from one greedy answer is not flagged, and a dependency of a
+ * plan pushed back by a file clash is still scheduled after it.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
+
 const { cleanup } = require('./helpers.cjs');
+const { createMnProject, makePhase, writeFiles, writeWorkflowConfig, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
+const { evaluateMnWaveSolve, analyzeWaveSolve } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
 
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'wave-solve.mjs',
-);
+const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
-/** Bounds one run of the gate script against a small temp fixture. */
-const RUN_TIMEOUT_MS = 30000;
+/** A plan in the shape the real planner emits. */
+function plan({ wave, deps = [], files = [] }) {
+  const depLine = `depends_on: [${deps.map((d) => `"${d}"`).join(', ')}]`;
+  const fileLines = files.map((f) => `  - "${f}"`).join('\n');
+  const waveLine = wave === undefined ? '' : `wave: ${wave}\n`;
+  return `---\n${waveLine}${depLine}\nfiles_modified:\n${fileLines}\n---\n\n# plan\n`;
+}
 
-const AGREES = 0;
-const VIOLATION = 1;
-const CANNOT_LOOK = 2;
-
-describe('wave-solve', () => {
-  let phaseDir;
+describe('check mn-wave-solve', () => {
+  let projectDir;
 
   beforeEach(() => {
-    phaseDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wave-solve-'));
+    projectDir = createMnProject('gsd-mn-wave-solve-');
   });
 
   afterEach(() => {
-    cleanup(phaseDir);
+    cleanup(projectDir);
   });
 
-  /** A plan in the shape the real planner emits. */
-  function writePlan(name, { wave, deps = [], files = [] }) {
-    const depLine = `depends_on: [${deps.map((d) => `"${d}"`).join(', ')}]`;
-    const fileLines = files.map((f) => `  - "${f}"`).join('\n');
-    fs.writeFileSync(
-      path.join(phaseDir, name),
-      `---\nwave: ${wave}\n${depLine}\nfiles_modified:\n${fileLines}\n---\n\n# ${name}\n`,
-    );
+  function gateOn(files, extra = []) {
+    const { phaseNumber } = makePhase(projectDir, files);
+    return evaluateMnWaveSolve({ projectDir, args: [phaseNumber, ...extra] }).payload;
   }
 
-  function run(extra = []) {
-    return runNode([SCRIPT, '--dir', phaseDir, ...extra], { timeoutMs: RUN_TIMEOUT_MS });
-  }
+  const kinds = (v) => v.violations.map((x) => [x.plan, x.kind]);
+  const assignment = (v) => v.plans.map((p) => [p.id, p.declared, p.computed]);
 
   // ── the violation ─────────────────────────────────────────────────────────
 
-  test('flags a plan sharing a wave with one that touches the same file', () => {
-    // The measured shape: two plans, same wave, both declaring main.ts.
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/main.ts', 'src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 1, files: ['src/main.ts', 'src/b.ts'] });
-
-    const r = run();
-    assert.equal(r.outcome, OUTCOME.EXITED);
-    assert.equal(r.exitCode, VIOLATION, `a file collision must be reported: ${r.stdout}`);
-    assert.match(r.stderr, /01-02-PLAN\.md/);
-    assert.match(r.stderr, /computed: wave 2/, 'the fix must be stated, not just the fault');
+  test('flags a plan sharing a wave with one that touches the same file, and states the fix', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/main.ts', 'src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, files: ['src/main.ts', 'src/b.ts'] }),
+    });
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'finding');
+    assert.deepEqual(kinds(v), [['01-02-PLAN.md', 'shares-file-in-wave']]);
+    assert.deepEqual(v.violations[0].shared, ['src/main.ts']);
+    assert.equal(v.plans.find((p) => p.id === '01-02').computed, 2, 'the fix must be stated, not just the fault');
   });
 
   test('flags a plan scheduled before its own dependency', () => {
-    writePlan('01-01-PLAN.md', { wave: 2, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 1, deps: ['01-01'], files: ['src/b.ts'] });
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 2, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    assert.equal(v.block, true);
+    assert.deepEqual(v.violations, [
+      { plan: '01-02-PLAN.md', kind: 'before-dependency', wave: 1, declared: 1, dependency: '01-01-PLAN.md', dependencyWave: 2 },
+    ]);
+  });
 
-    const r = run();
-    assert.equal(r.exitCode, VIOLATION, `running before a dependency must block: ${r.stdout}`);
-    assert.match(r.stderr, /01-02-PLAN\.md/);
-    // The consequence has to be named or the reader cannot judge severity.
-    assert.match(r.stderr, /does not exist yet|races/);
+  test('a plan in the SAME wave as its dependency is a violation — strictly later is required', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    assert.deepEqual(kinds(v), [['01-02-PLAN.md', 'before-dependency']]);
+  });
+
+  test('a bare plan-number dependency resolves like phase-plan-index resolves it', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, deps: ['01'], files: ['src/b.ts'] }),
+    });
+    assert.deepEqual(kinds(v), [['01-02-PLAN.md', 'before-dependency']]);
   });
 
   // ── what must NOT be a violation ──────────────────────────────────────────
 
-  test('accepts a plan scheduled LATER than necessary', () => {
-    // Sequential where parallel would do: slower, never wrong. Most real
-    // divergence is this, and blocking it fails phases for caution.
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 5, files: ['src/b.ts'] });
-
-    const r = run(['--verbose']);
-    assert.equal(r.exitCode, AGREES, `a conservative wave must not block: ${r.stderr}`);
-    assert.match(r.stdout, /scheduled later than necessary/);
-    assert.match(r.stdout, /01-02-PLAN\.md/, 'it is still reported, not silently dropped');
+  test('accepts a plan scheduled LATER than necessary, and reports it as conservative', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 5, files: ['src/b.ts'] }),
+    });
+    assert.equal(v.block, false);
+    assert.deepEqual(v.conservative.map((c) => [c.plan, c.declared, c.computed]), [['01-02-PLAN.md', 5, 1]]);
   });
 
   test('takes the wave base from the phase, not from a constant', () => {
-    // Both conventions exist in live data. A solver starting at 1 reports every
-    // plan of a zero-based phase as diverged, and the real violation drowns.
-    writePlan('01-01-PLAN.md', { wave: 0, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 1, deps: ['01-01'], files: ['src/b.ts'] });
-
-    const r = run();
-    assert.equal(r.exitCode, AGREES, `zero-based numbering must be honoured: ${r.stderr}`);
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 0, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    assert.equal(v.block, false);
+    assert.equal(v.base, 0);
+    assert.deepEqual(assignment(v), [['01-01', 0, 0], ['01-02', 1, 1]]);
   });
 
   test('accepts a correct multi-wave chain', () => {
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 2, deps: ['01-01'], files: ['src/b.ts'] });
-    writePlan('01-03-PLAN.md', { wave: 3, deps: ['01-02'], files: ['src/c.ts'] });
-
-    const r = run();
-    assert.equal(r.exitCode, AGREES, `a correct chain must pass: ${r.stderr}`);
-    assert.match(r.stdout, /3 plan\(s\) match/);
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 2, deps: ['01-01'], files: ['src/b.ts'] }),
+      '01-03-PLAN.md': plan({ wave: 3, deps: ['01-02'], files: ['src/c.ts'] }),
+    });
+    assert.equal(v.block, false);
+    assert.equal(v.matched, 3);
   });
 
-  test('does not treat a glob as a file collision', () => {
-    // Expanding one needs a tree walk and fires on paths the plan is about to
-    // create. These are skipped and reported, never guessed at.
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['libs/shared/**'] });
-    writePlan('01-02-PLAN.md', { wave: 1, files: ['libs/shared/**'] });
+  test('does not treat a glob as a file collision in literal mode', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['libs/shared/**'] }),
+      '01-02-PLAN.md': plan({ wave: 1, files: ['libs/shared/**'] }),
+    });
+    assert.equal(v.block, false);
+    assert.equal(v.mode, 'literal');
+  });
 
-    const r = run(['--verbose']);
-    assert.equal(r.exitCode, AGREES, `globs must not compare literally: ${r.stderr}`);
-    assert.match(r.stdout, /non-file entr/, 'skipped entries must be reported');
+  test('with workflow.wave_normalize on, it compares the resolved file sets', () => {
+    writeWorkflowConfig(projectDir, { wave_normalize: true });
+    writeFiles(projectDir, { 'libs/shared/a.ts': 'x\n' });
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['libs/shared/**'] }),
+      '01-02-PLAN.md': plan({ wave: 1, files: ['libs/shared/a.ts'] }),
+    });
+    assert.equal(v.mode, 'expand');
+    assert.deepEqual(kinds(v), [['01-02-PLAN.md', 'shares-file-in-wave']]);
+  });
+
+  test('a plan declaring no wave runs at its depends_on level, and is judged there', () => {
+    // phase-plan-index schedules an undeclared plan at its DAG level; at level 0 that is wave 1,
+    // the same wave 01-02 declares — over the same file.
+    const v = gateOn({ '01-01-PLAN.md': plan({ files: ['src/a.ts'] }), '01-02-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }) });
+    assert.equal(v.undeclared, 1);
+    assert.deepEqual(v.violations.map((x) => [x.plan, x.kind, x.wave, x.declared]), [['01-02-PLAN.md', 'shares-file-in-wave', 1, 1]]);
+  });
+
+  test('an undeclared plan clear of every other plan passes', () => {
+    const v = gateOn({ '01-01-PLAN.md': plan({ files: ['src/a.ts'] }), '01-02-PLAN.md': plan({ wave: 1, files: ['src/b.ts'] }) });
+    assert.equal(v.block, false);
+    assert.equal(v.undeclared, 1);
+  });
+
+  test('a dependency outside the phase is reported, not blocking', () => {
+    const v = gateOn({ '01-01-PLAN.md': plan({ wave: 1, deps: ['07-03'], files: ['src/a.ts'] }) });
+    assert.equal(v.block, false);
+    assert.deepEqual(v.unresolvedDependencies, [{ plan: '01-01-PLAN.md', token: '07-03' }]);
   });
 
   test('passes a phase with a single plan', () => {
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/a.ts'] });
-
-    const r = run();
-    assert.equal(r.exitCode, AGREES);
+    assert.equal(gateOn({ '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }) }).block, false);
   });
 
   test('passes a phase with no plans', () => {
-    const r = run(['--verbose']);
-    assert.equal(r.exitCode, AGREES);
-    assert.match(r.stdout, /nothing to solve/);
+    const v = gateOn({});
+    assert.equal(v.block, false);
+    assert.equal(v.counts.plans, 0);
+  });
+
+  // ── beyond the script: the invariant, not one greedy answer ───────────────
+
+  test('a valid assignment that differs from the greedy order is not flagged', () => {
+    // The script computed 01-01 → 1, 01-02 → 2 (lexicographic first-fit) and flagged 01-02
+    // declared 1 < 2, although the declared split (01-02 first, 01-01 second) is equally valid.
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 2, files: ['src/main.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, files: ['src/main.ts'] }),
+    });
+    assert.equal(v.block, false);
+  });
+
+  test('a plan depending on one pushed back by a file clash is computed after it', () => {
+    // The script derived dependents' waves BEFORE the file-clash shift, so 01-03 (depends on 01-02)
+    // was computed into the very wave 01-02 had been pushed into.
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/main.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 2, files: ['src/main.ts'] }),
+      '01-03-PLAN.md': plan({ wave: 3, deps: ['01-02'], files: ['src/c.ts'] }),
+    });
+    assert.equal(v.block, false);
+    const computed = Object.fromEntries(v.plans.map((p) => [p.id, p.computed]));
+    assert.ok(computed['01-03'] > computed['01-02'], JSON.stringify(computed));
   });
 
   // ── determinism ───────────────────────────────────────────────────────────
 
-  test('produces the same assignment on repeated runs', () => {
-    // A solver depending on directory read order is unreproducible, and an
-    // unreproducible answer cannot be compared against an existing assignment.
-    writePlan('01-03-PLAN.md', { wave: 1, files: ['src/c.ts'] });
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 1, files: ['src/b.ts'] });
-
-    const first = run(['--json']);
-    const second = run(['--json']);
-    assert.equal(first.stdout, second.stdout, 'the same input must give the same output');
+  test('produces the same assignment on repeated runs, independent of file creation order', () => {
+    const { phaseDir } = makePhase(projectDir, {
+      '01-03-PLAN.md': plan({ wave: 1, files: ['src/c.ts'] }),
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, files: ['src/b.ts'] }),
+    });
+    assert.deepEqual(analyzeWaveSolve(projectDir, phaseDir, 'literal'), analyzeWaveSolve(projectDir, phaseDir, 'literal'));
   });
 
-  test('--json emits the computed assignment for every plan', () => {
-    writePlan('01-01-PLAN.md', { wave: 1, files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 2, deps: ['01-01'], files: ['src/b.ts'] });
-
-    const r = run(['--json']);
-    const parsed = JSON.parse(r.stdout);
-    assert.equal(parsed.plans.length, 2);
-    assert.deepEqual(
-      parsed.plans.map((p) => [p.id, p.declared, p.computed]),
-      [['01-01', 1, 1], ['01-02', 2, 2]],
-    );
+  test('emits the computed assignment for every plan', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 2, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    assert.deepEqual(assignment(v), [['01-01', 1, 1], ['01-02', 2, 2]]);
   });
 
   // ── could-not-look is not success ─────────────────────────────────────────
 
-  test('exits 2 on a dependency cycle rather than inventing an order', () => {
-    // A cyclic graph has no wave assignment. Producing one would be worse than
-    // producing none, because it looks like an answer.
-    writePlan('01-01-PLAN.md', { wave: 1, deps: ['01-02'], files: ['src/a.ts'] });
-    writePlan('01-02-PLAN.md', { wave: 2, deps: ['01-01'], files: ['src/b.ts'] });
-
-    const r = run();
-    assert.equal(r.exitCode, CANNOT_LOOK, `a cycle is unsolvable, not a violation: ${r.stdout}`);
-    assert.match(r.stderr, /cycle/i);
+  test('a dependency cycle is unresolvable rather than an invented order', () => {
+    const v = gateOn({
+      '01-01-PLAN.md': plan({ wave: 1, deps: ['01-02'], files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 2, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'unresolvable');
+    assert.deepEqual(v.cycle, ['01-01-PLAN.md', '01-02-PLAN.md']);
   });
 
-  test('exits 2 when the phase directory does not exist', () => {
-    const r = runNode([SCRIPT, '--dir', path.join(phaseDir, 'nope')], { timeoutMs: RUN_TIMEOUT_MS });
-    assert.equal(r.exitCode, CANNOT_LOOK);
+  test('a phase that does not exist is unresolvable', () => {
+    assert.equal(evaluateMnWaveSolve({ projectDir, args: ['88'] }).payload.status, 'unresolvable');
   });
 
-  test('exits 2 when --dir is omitted', () => {
-    const r = runNode([SCRIPT], { timeoutMs: RUN_TIMEOUT_MS });
-    assert.equal(r.exitCode, CANNOT_LOOK);
+  test('no phase argument is a usage failure', () => {
+    assert.ok(evaluateMnWaveSolve({ projectDir, args: [] }).failure);
   });
 
-  test('the capability registers the solver at plan:post', () => {
-    // The manifest IS the deployed contract — the runtime reads this JSON.
-    const manifest = JSON.parse(
-      fs.readFileSync(
-        path.join(__dirname, '..', 'capabilities', 'mn-verify-gate', 'capability.json'),
-        'utf8',
-      ),
-    );
+  // ── wiring ────────────────────────────────────────────────────────────────
 
-    const gate = (manifest.gates || []).find((g) => g.when === 'workflow.wave_solve');
+  test('the capability registers the solver at plan:post through check mn-wave-solve', () => {
+    const gate = CAPABILITY.gates.find((g) => g.when === 'workflow.wave_solve');
     assert.ok(gate, 'a gate keyed on workflow.wave_solve must be declared');
-    // plan:post, beside the detector: at planning time the fix is renumbering a
-    // wave; by execute the colliding worktrees are already running.
     assert.equal(gate.point, 'plan:post');
     assert.equal(gate.blocking, true);
-    assert.match(gate.check.predicate.command, /wave-solve\.mjs/);
-    assert.equal(manifest.config['workflow.wave_solve'].default, false);
+    assert.deepEqual(gate.check, { query: 'mn-wave-solve' });
+    assert.equal(CAPABILITY.config['workflow.wave_solve'].default, false);
+  });
+
+  test('gsd_run check mn-wave-solve --phase N prints the verdict', () => {
+    const { phaseNumber } = makePhase(projectDir, {
+      '01-01-PLAN.md': plan({ wave: 2, files: ['src/a.ts'] }),
+      '01-02-PLAN.md': plan({ wave: 1, deps: ['01-01'], files: ['src/b.ts'] }),
+    });
+    const payload = runMnCheck(projectDir, 'mn-wave-solve', ['--phase', phaseNumber]);
+    assert.equal(payload.block, true);
+    assert.equal(payload.violations[0].kind, 'before-dependency');
   });
 });

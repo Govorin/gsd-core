@@ -2,12 +2,13 @@
 
 /**
  * files-modified-normalize — resolving declared `files_modified` entries against
- * a real tree so the shipped wave-collision gate stops skipping them.
+ * a real tree so the wave-collision gate stops skipping them (`check
+ * mn-wave-collision` in expand mode, src/gate-mn-waves.cts, reads through it).
  *
  * ── Why this module exists ──────────────────────────────────────────────────
  *
- * `capabilities/mn-verify-gate/scripts/wave-collision.mjs` ships today and works:
- * it names the colliding pair and the shared file and exits 1. What it cannot do
+ * Literal wave collision (formerly `scripts/wave-collision.mjs`) works: it names
+ * the colliding pair and the shared file. What it cannot do
  * is compare an entry that is not a concrete file. Its own `--verbose` output on
  * `legion-app/08.2-heimdall-runtime`:
  *
@@ -431,5 +432,38 @@ describe('normalizeEntries — the per-entry surface', () => {
 
   test('an empty declaration list yields no entries', () => {
     assert.deepStrictEqual(normalizeEntries([], fs), []);
+  });
+});
+
+// ── T-03-01: an entry or a link leaving the root is never resolved ───────────
+
+describe('containment (T-03-01)', () => {
+  const fs = makeProbe(TREE);
+
+  test('an entry climbing above the root via .. is malformed, not a file the plan creates', () => {
+    assert.equal(classifyEntry('../outside/x.ts', fs), 'malformed');
+    assert.equal(classifyEntry('libs/../../x.ts', fs), 'malformed');
+  });
+
+  test('.. that stays inside the root is still a path', () => {
+    assert.equal(classifyEntry('libs/x/../y/z.ts', fs), 'file');
+  });
+
+  test('an absolute entry is malformed', () => {
+    assert.equal(classifyEntry('/etc/passwd', fs), 'malformed');
+    assert.equal(classifyEntry('C:\\Windows\\x.ts', fs), 'malformed');
+  });
+
+  test('a walk with isSymbolicLink neither descends into nor counts a link', () => {
+    const linked = {
+      ...makeProbe({ ...TREE, 'libs/x/link': 'dir', 'libs/x/link/secret.ts': 'file', 'libs/x/filelink.ts': 'file' }),
+      isSymbolicLink: (p) => p === 'libs/x/link' || p === 'libs/x/filelink.ts',
+    };
+    assert.deepEqual([...normalizePlanFiles(['libs/x'], linked).files], ['libs/x/a.ts', 'libs/x/b.ts', 'libs/x/nested/c.ts']);
+  });
+
+  test('without isSymbolicLink the walk is unchanged', () => {
+    const plain = makeProbe({ ...TREE, 'libs/x/link': 'dir', 'libs/x/link/secret.ts': 'file' });
+    assert.ok(normalizePlanFiles(['libs/x'], plain).files.includes('libs/x/link/secret.ts'));
   });
 });

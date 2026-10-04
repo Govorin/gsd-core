@@ -30,6 +30,7 @@ interface VerifyModule {
     raw: boolean,
     options?: { strict?: boolean; phase?: string }
   ): void;
+  cmdVerifyMutation(cwd: string, args: readonly string[], raw: boolean): void;
 }
 
 interface RouteVerifyCommandOptions {
@@ -104,6 +105,9 @@ function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyComman
         const { phaseDir, phase, strict } = parseVerifyGatesArgs(args.slice(2));
         verify.cmdVerifyGates(cwd, phaseDir, raw, { strict, phase });
       },
+      // mn-verify-gate's mutation spot-check step: `verify mutation --phase <N>` (the step
+      // dispatcher's form) or `verify mutation <phase-dir>`; records, the gate judges.
+      mutation: () => verify.cmdVerifyMutation(cwd, args.slice(2), raw),
     },
   });
 }

@@ -17,6 +17,8 @@ import planningWorkspace = require('./planning-workspace.cjs');
 import frontmatterMod = require('./frontmatter.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-gates.cjs is an export= CommonJS module
 import verifyGates = require('./verify-gates.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-mutation.cjs is a CommonJS module
+import verifyMutation = require('./verify-mutation.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- state.cjs is an export= CommonJS module
 import stateMod = require('./state.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- model-profiles.cjs is an export= CommonJS module
@@ -2789,6 +2791,7 @@ export = {
   // the only verify subcommand that WRITES, and mixing a recorder into a file
   // of reporters is how a reporter grows a side effect nobody expects.
   cmdVerifyGates: verifyGates.cmdVerifyGates,
+  cmdVerifyMutation: verifyMutation.cmdVerifyMutation,
   cmdStampCodebaseMap,
   STATE_HEAD_ADVISORY_COMMITS,
 };

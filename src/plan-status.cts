@@ -11,8 +11,8 @@
  *          such a plan can never gain a matching `*-SUMMARY.md` and would otherwise
  *          pin its phase at `completed: false` forever.
  *   D-00b  `in_progress` is understood by the second reader
- *          (capabilities/mn-verify-gate/scripts/orphan-plans.mjs:136-153), which
- *          treats a stranded `in_progress` (no SUMMARY) as an orphaned plan.
+ *          (`check mn-orphan-plans`, src/gate-mn-plan-status.cts), which treats a
+ *          stranded `in_progress` (no SUMMARY) as an orphaned plan.
  *
  * So `superseded` and `in_progress` must keep meaning exactly what their existing
  * readers already take them to mean. This module gives all four values ONE

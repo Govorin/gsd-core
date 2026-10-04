@@ -37,7 +37,7 @@ import { load as yamlLoad, dump as yamlDump, FAILSAFE_SCHEMA, YAMLException } fr
 // The plan lifecycle vocabulary, its normalisation, and the blocked_reason ceiling
 // live in exactly ONE place (src/plan-status.cts). Nothing here re-declares any of
 // them: `status` already ships with two independent readers hardcoding its literals
-// (src/plan-scan.cts:67, orphan-plans.mjs:136-153) and this validator would have been
+// (src/plan-scan.cts:67, check mn-orphan-plans in src/gate-mn-plan-status.cts) and this validator would have been
 // a third list free to drift. plan-status.cts is a LEAF module (zero src/ imports),
 // which is what makes this edge safe — frontmatter.cts is itself required by 20+
 // modules including plan-scan.cts, so any back-edge would close an import cycle.
