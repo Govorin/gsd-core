@@ -248,6 +248,38 @@ describe('mn zod-fieldtable: rendering', () => {
     assert.equal(doc(obj({ a: { type: 'string' } })).split('\n')[2], derivedMarker(zf.ZOD_FIELDTABLE_SOURCE));
   });
 
+  // Plan 5.7b: the marker records what the command read, so `diagrams check`
+  // can re-run it and compare instead of trusting the marker.
+  test('the marker source records the input kind, project-relative target and export, and parses back', () => {
+    const cwd = path.join(path.sep, 'p', 'proj');
+    const cases = [
+      [{ kind: 'file', target: path.join(cwd, 'src', 'thing.schema.ts') }, 'Thing', 'zod-fieldtable file=src/thing.schema.ts export=Thing'],
+      [{ kind: 'json-schema', path: path.join(cwd, 'schemas', 'my thing--v2.json') }, 'Thing', 'zod-fieldtable json-schema=schemas/my%20thing%2D-v2.json export=Thing'],
+      [{ kind: 'module', target: '@x/dtos' }, 'CreateDto', 'zod-fieldtable module=@x/dtos export=CreateDto'],
+    ];
+    for (const [source, exportName, expected] of cases) {
+      const origin = zf.zodFieldtableOrigin(source, exportName, cwd);
+      assert.equal(origin, expected);
+      assert.doesNotThrow(() => derivedMarker(origin), 'the marker accepts it: no newline, "--" or ">"');
+      const back = zf.parseZodFieldtableOrigin(origin);
+      const target = source.kind === 'module' ? source.target : path.relative(cwd, source.kind === 'file' ? source.target : source.path).split(path.sep).join('/');
+      assert.deepEqual(back, { kind: source.kind, target, exportName });
+    }
+    for (const bad of ['zod-fieldtable', 'zod-fieldtable file=a.ts', 'zod-fieldtable other=a.ts export=X', 'zod-fieldtable file=a.ts export=', 'plan-graph file=a export=X', 'zod-fieldtable file=%E0 export=X']) {
+      assert.equal(zf.parseZodFieldtableOrigin(bad), null, bad);
+    }
+  });
+
+  test('runZodFieldtable writes the recorded origin into the marker', (t) => {
+    const dir = createTempDir('gsd-zf-origin-');
+    t.after(() => cleanup(dir));
+    fs.mkdirSync(path.join(dir, 'schemas'));
+    fs.writeFileSync(path.join(dir, 'schemas', 'a.json'), JSON.stringify(obj({ a: { type: 'string' } })));
+    const r = zf.runZodFieldtable({ cwd: dir, source: { kind: 'json-schema', path: path.join(dir, 'schemas', 'a.json') }, exportName: 'A' });
+    assert.equal(r.ok, true);
+    assert.equal(r.markdown.split('\n')[2], derivedMarker('zod-fieldtable json-schema=schemas/a.json export=A'));
+  });
+
   test('the ER block is exactly the builder output for the spec, and appears only when the schema nests', () => {
     const flat = obj({ a: { type: 'string' } });
     const nested = obj({ a: obj({ b: { type: 'string' } }) });

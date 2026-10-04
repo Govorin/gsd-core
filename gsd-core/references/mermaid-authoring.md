@@ -28,14 +28,14 @@ a keyword (`end`, `class`, `state`, `loop`, …). Quote any label holding bracke
   `id[[...]]`, `id[(...)]`, `id((...))`, `id{...}`, `id{{...}}`; links `-->` `---` `-.->` `-.-` `==>` `===`,
   labels `-->|text|` or `-- text -->`; chains `A --> B --> C`; `subgraph id["title"]` … `end` (one level,
   `direction` inside); `classDef name style`, `class a,b name`, `id:::name`; `linkStyle N style`.
-- **stateDiagram-v2** — declare every state: `state "Label" as Id` or `Id : Label` (never a bare
-  `state Id` — mermaid reads it on into the next `{`); then
+- **stateDiagram-v2** — a state is `state "Label" as Id`, `Id : Label`, or just named by a transition
+  (never a bare `state Id` — mermaid reads it on into the next `{`); then
   `A --> B : label`, `[*]`; one level of `state Id { … }` (a line naming a grouped state goes inside its
   group); `note left|right of Id : text`; `classDef` / `class`.
 - **classDiagram** — `class Id`, `class Id["Label"]`, `class Id { <<interface>> +field +method(args) Ret }`,
   `Id : +member`, `<<annotation>> Id`; relations `--|>` `..|>` `--*` `--o` `-->` `..>` `--` and their
   reversed forms `<|--` `<|..` `*--` `o--` `<--` `<..`, set off by spaces, optional `"card"` and `: label`.
-  Declare every class before relating it. Generics as `~T~`, never `<T>`.
+  A class named only by a relation or `Id : member` is declared there. Generics as `~T~`, never `<T>`.
 - **erDiagram** — `ENTITY { type name PK|FK|UK "comment" }`; `A ||--o{ B : label` with `|o || }o }|` /
   `o| || o{ |{` and `--` or `..`.
 - **sequenceDiagram** — `participant Id as Label`, `actor Id as Label` (declare before the first message);
@@ -44,8 +44,8 @@ a keyword (`end`, `class`, `state`, `loop`, …). Quote any label holding bracke
 
 Refused everywhere: `%%{init}%%` and front matter, `click`, `style`, `&` chaining, nested subgraphs or
 composite states, choice/fork/join, `par`/`rect`/`critical`/`break`/`activate`/`box`, `+`/`-` activation,
-namespaces and notes in class diagrams, entity aliases. A refused block is a warning: rewrite it in the
-subset rather than keep it.
+namespaces and notes in class diagrams, entity aliases. A refused block is a warning in docs and a blocker
+in a DESIGN.md (none of its names were checked): rewrite it in the subset rather than keep it.
 
 ## Identifiers
 
@@ -57,12 +57,16 @@ subset rather than keep it.
   `%% gsd:external C, P`. Those ids are not looked up.
 - **States** are looked up only when the block names where they are defined:
   `%% gsd:source src/order/order-status.ts#OrderStatus` (an enum, a string-literal union, a const object,
-  `z.enum([...])`, a Python `Enum`, a Prisma/SQL enum). Without it the diagram is reported unverifiable.
+  `z.enum([...])`, a Python `Enum`, a Prisma/SQL enum). Without it the diagram is unverifiable — a warning
+  in docs, a blocker in a DESIGN.md.
 - **DESIGN.md is written before the code.** A name the same document introduces — a `## Layer Placement`
   row, a declaration in a `## Contracts` code block, a row of a Contracts table — counts as planned. Once
   frontmatter says `contracts_superseded: true`, every name must exist in the code.
 - **Derived blocks** — a block under a `<!-- gsd:derived … -->` or `<!-- DERIVED. … -->` comment in the same
-  section — were produced by a command and are not re-checked by name. Paste them as emitted; never edit.
+  section — are re-generated and compared, not trusted: a `source=` the check can re-run (`zod-fieldtable`
+  records its inputs) must match, and a derived state diagram with `%% gsd:source` must draw every member.
+  A marker nothing can re-run is a blocker and the block's names are checked as written (a flowchart
+  excepted). Paste derived output as emitted; never edit it.
 
 Verdicts: `declared` / `planned` / `external` pass; `ambiguous` (declared as another kind or owner, only
 mentioned, or found only in a language the recognizer does not parse) is a warning; `absent` (spelled

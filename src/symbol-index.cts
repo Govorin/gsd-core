@@ -916,7 +916,12 @@ export function looseMatches(index: SymbolIndex, name: string, kinds: readonly D
 // ─── Members of a named symbol (`%% gsd:source path#Symbol`) ─────────────────
 
 export type MembersResult =
-  | { ok: true; members: string[]; at: string }
+  /**
+   * `members` — every spelling, flat (a state may be drawn by either);
+   * `groups` — the spellings of each member (`Paid = 'paid'` → `['Paid', 'paid']`),
+   * for a caller that must know which members a diagram left out.
+   */
+  | { ok: true; members: string[]; groups: string[][]; at: string }
   | { ok: false; reason: 'file_missing' | 'symbol_absent' | 'unsupported_language' };
 
 function stringLiterals(text: string): string[] {
@@ -942,28 +947,35 @@ export function symbolMembers(root: string, relFile: string, symbol: string): Me
   const starts = lineStarts(text);
   const sym = escapeRegex(symbol);
   const at = (offset: number): string => `${relFile}:${lineAt(starts, offset)}`;
-  const bodyMembers = (open: number): string[] => {
+  const found = (groups: string[][], offset: number): MembersResult => {
+    const kept = groups.filter((g) => g.length > 0);
+    return { ok: true, members: kept.flat(), groups: kept, at: at(offset) };
+  };
+  const each = (names: string[]): string[][] => names.map((n) => [n]);
+  const bodyMembers = (open: number): string[][] => {
     const close = matchBracket(code, open);
     if (close === -1) return [];
-    const out: string[] = [];
+    const out: string[][] = [];
     for (const s of segmentStarts(code, open, close)) {
       const seg = codeWithStrings.slice(s, close).split(/[\n,;]/)[0];
+      const group: string[] = [];
       const k = /^\s*(?:(['"])([^'"\n]+)\1|([A-Za-z_$][\w$]*))/.exec(seg);
-      if (k !== null) out.push(k[2] ?? k[3]);
-      out.push(...stringLiterals(seg.slice(seg.search(/[=:]/) + 1 || seg.length)));
+      if (k !== null) group.push(k[2] ?? k[3]);
+      group.push(...stringLiterals(seg.slice(seg.search(/[=:]/) + 1 || seg.length)));
+      out.push(group);
     }
     return out;
   };
   let m: RegExpExecArray | null;
   if (lang === 'ts') {
     if ((m = new RegExp(`${TS_PREFIX}(?:const[ \\t]+)?enum[ \\t]+${sym}\\b[^{]*\\{`, 'm').exec(code)) !== null) {
-      return { ok: true, members: bodyMembers(m.index + m[0].length - 1), at: at(m.index) };
+      return found(bodyMembers(m.index + m[0].length - 1), m.index);
     }
     if ((m = new RegExp(`${TS_PREFIX}type[ \\t]+${sym}\\b[^=]*=`, 'm').exec(code)) !== null) {
       const from = m.index + m[0].length;
       const stop = code.slice(from).search(/;|\n[ \t]*\n|\n(?=\S)(?![ \t]*\|)/);
       const rhs = codeWithStrings.slice(from, stop === -1 ? undefined : from + stop);
-      return { ok: true, members: stringLiterals(rhs), at: at(m.index) };
+      return found(each(stringLiterals(rhs)), m.index);
     }
     if ((m = new RegExp(`${TS_PREFIX}(?:const|let|var)[ \\t]+${sym}\\b[^=]*=[ \\t]*`, 'm').exec(code)) !== null) {
       const rhsAt = m.index + m[0].length;
@@ -972,12 +984,12 @@ export function symbolMembers(root: string, relFile: string, symbol: string): Me
       if ((mm = /^z\s*\.\s*enum\s*\(\s*\[/.exec(rhs)) !== null) {
         const open = rhsAt + mm[0].length - 1;
         const close = matchBracket(code, open);
-        return { ok: true, members: stringLiterals(codeWithStrings.slice(open, close === -1 ? undefined : close)), at: at(m.index) };
+        return found(each(stringLiterals(codeWithStrings.slice(open, close === -1 ? undefined : close))), m.index);
       }
-      if (rhs.startsWith('{')) return { ok: true, members: bodyMembers(rhsAt), at: at(m.index) };
+      if (rhs.startsWith('{')) return found(bodyMembers(rhsAt), m.index);
       if (rhs.startsWith('[')) {
         const close = matchBracket(code, rhsAt);
-        return { ok: true, members: stringLiterals(codeWithStrings.slice(rhsAt, close === -1 ? undefined : close)), at: at(m.index) };
+        return found(each(stringLiterals(codeWithStrings.slice(rhsAt, close === -1 ? undefined : close))), m.index);
       }
     }
     return { ok: false, reason: 'symbol_absent' };
@@ -985,7 +997,7 @@ export function symbolMembers(root: string, relFile: string, symbol: string): Me
   if (lang === 'py') {
     if ((m = new RegExp(`^([ \\t]*)class[ \\t]+${sym}\\b[^:\\n]*:`, 'm').exec(code)) !== null) {
       const base = m[1].length;
-      const out: string[] = [];
+      const out: string[][] = [];
       const after = code.slice(m.index + m[0].length).split('\n').slice(1);
       const afterStr = codeWithStrings.slice(m.index + m[0].length).split('\n').slice(1);
       for (let j = 0; j < after.length; j++) {
@@ -993,34 +1005,34 @@ export function symbolMembers(root: string, relFile: string, symbol: string): Me
         if (l.trim() === '') continue;
         if (l.length - l.replace(/^[ \t]+/, '').length <= base) break;
         const mm = /^\s*([A-Za-z_]\w*)\s*=/.exec(l);
-        if (mm !== null) out.push(mm[1], ...stringLiterals(afterStr[j].slice(afterStr[j].indexOf('=') + 1)));
+        if (mm !== null) out.push([mm[1], ...stringLiterals(afterStr[j].slice(afterStr[j].indexOf('=') + 1))]);
       }
-      return { ok: true, members: out, at: at(m.index) };
+      return found(out, m.index);
     }
     return { ok: false, reason: 'symbol_absent' };
   }
   if (lang === 'go') {
-    const out: string[] = [];
+    const out: string[][] = [];
     let first = -1;
     for (const mm of codeWithStrings.matchAll(new RegExp(`^[ \\t]*(?:const[ \\t]+)?([A-Za-z_]\\w*)[ \\t]+${sym}[ \\t]*=[ \\t]*(.*)$`, 'gm'))) {
       if (first === -1) first = mm.index ?? 0;
-      out.push(mm[1], ...stringLiterals(mm[2]));
+      out.push([mm[1], ...stringLiterals(mm[2])]);
     }
     if (first === -1) return { ok: false, reason: 'symbol_absent' };
-    return { ok: true, members: out, at: at(first) };
+    return found(out, first);
   }
   if (lang === 'prisma') {
     if ((m = new RegExp(`^enum[ \\t]+${sym}[ \\t]*\\{`, 'm').exec(code)) !== null) {
       const open = m.index + m[0].length - 1;
       const close = matchBracket(code, open);
-      return { ok: true, members: words(code.slice(open + 1, close === -1 ? undefined : close)), at: at(m.index) };
+      return found(each(words(code.slice(open + 1, close === -1 ? undefined : close))), m.index);
     }
     return { ok: false, reason: 'symbol_absent' };
   }
   if ((m = new RegExp(`create[ \\t\\n]+type[ \\t\\n]+(?:[\\w"]+\\.)?"?${sym}"?[ \\t\\n]+as[ \\t\\n]+enum[ \\t\\n]*\\(`, 'i').exec(code)) !== null) {
     const open = m.index + m[0].length - 1;
     const close = matchBracket(code, open);
-    return { ok: true, members: stringLiterals(codeWithStrings.slice(open, close === -1 ? undefined : close)), at: at(m.index) };
+    return found(each(stringLiterals(codeWithStrings.slice(open, close === -1 ? undefined : close))), m.index);
   }
   return { ok: false, reason: 'symbol_absent' };
 }

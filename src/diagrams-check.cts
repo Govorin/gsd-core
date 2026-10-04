@@ -23,10 +23,26 @@
  *     `%% gsd:source path#Symbol`; without one the diagram is unverifiable;
  *   - flowchart — syntax only (its ids are arbitrary node names).
  *
- * Findings: `absent` → BLOCKER; `ambiguous`, an unverifiable diagram and a
- * block outside the subset → WARNING. A block marked derived (a
- * `<!-- gsd:derived … -->` or `<!-- DERIVED. … -->` comment before it) was
- * produced by a command, so its identifiers are not re-checked.
+ * Findings: `absent` → BLOCKER; `ambiguous` → WARNING. A block outside the
+ * subset, an unterminated fence, a stateDiagram with no `%% gsd:source` and a
+ * participant label that is not an identifier are WARNINGs in `docs` mode and BLOCKERs in `design` mode (the blocking
+ * architecture gate): there, a block whose names could not be looked up must
+ * not pass as if they had been (review M4).
+ *
+ * Derived blocks (a `<!-- gsd:derived source=… -->` or `<!-- DERIVED. … -->`
+ * comment before the fence) are checked for FRESHNESS, not trusted on the
+ * marker's word — the marker is text the same model could have written
+ * (review M5, plan 5.7b):
+ *   - a marker whose `source=` names a registered regenerator
+ *     (`zod-fieldtable <kind>=<target> export=<Name>`) is regenerated; a
+ *     block that differs from the regeneration is `derived_stale` (BLOCKER),
+ *     one that cannot be regenerated is `derived_unverifiable` (BLOCKER);
+ *   - a derived stateDiagram with `%% gsd:source` is regenerated as a
+ *     vocabulary: every state must be a member (as for any state diagram) and
+ *     every member must be drawn — a missing one is `derived_stale`;
+ *   - any other marker grants nothing: the block is checked like an authored
+ *     one and, unless it is a flowchart (syntax only either way), the marker
+ *     itself is `derived_unverifiable` (BLOCKER).
  *
  * DESIGN.md is written BEFORE the code. In `design` mode a name the same
  * document introduces — a `## Layer Placement` row, a declaration in a
@@ -54,6 +70,8 @@ import {
   extractDeclarations,
 } from './symbol-index.cjs';
 import type { SymbolIndex, DeclKind, LookupResult, Language, Decl } from './symbol-index.cjs';
+import { parseZodFieldtableOrigin, runZodFieldtable } from './mn-zod-fieldtable.cjs';
+import type { ZodFieldtableSource } from './mn-zod-fieldtable.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import frontmatterModule = require('./frontmatter.cjs');
 
@@ -78,11 +96,20 @@ export interface IdResult {
   note?: string;
 }
 
+/**
+ * How a derived block was verified: `fresh` (equal to its regeneration, or a
+ * state diagram drawing exactly its source's members), `stale`, or
+ * `unverifiable` (nothing could regenerate it — checked as authored).
+ */
+export type Freshness = 'fresh' | 'stale' | 'unverifiable';
+
 export interface DiagramReport {
   /** Document line of the opening fence. */
   line: number;
   type: DiagramType | null;
   derived: boolean;
+  /** Set exactly when `derived` is. */
+  freshness?: Freshness;
   syntax: 'ok' | ParseFailureReason;
   ids: IdResult[];
 }
@@ -92,9 +119,17 @@ export type Severity = 'BLOCKER' | 'WARNING';
 export interface Finding {
   line: number;
   severity: Severity;
-  category: 'diagram_syntax' | 'diagram_identifier';
+  category: 'diagram_syntax' | 'diagram_identifier' | 'diagram_derived';
   claim: string;
-  reason: ParseFailureReason | 'absent' | 'ambiguous' | 'unverifiable' | 'relation_absent' | 'unterminated';
+  reason:
+    | ParseFailureReason
+    | 'absent'
+    | 'ambiguous'
+    | 'unverifiable'
+    | 'relation_absent'
+    | 'unterminated'
+    | 'derived_stale'
+    | 'derived_unverifiable';
   message: string;
 }
 
@@ -110,10 +145,19 @@ export interface CheckReport {
 /** Built on first need: a document whose blocks are all flowcharts or derived never walks the tree. */
 export type IndexProvider = () => SymbolIndex;
 
+/**
+ * Regenerates the document a derived marker's `source=` names, or says it
+ * cannot. `null` = no regenerator is registered for that source.
+ */
+export type RegenerateResult = { ok: true; markdown: string } | { ok: false; message: string };
+export type DerivedRegenerator = (source: string, root: string) => RegenerateResult | null;
+
 export interface CheckOptions {
   mode: CheckMode;
   root: string;
   index: IndexProvider;
+  /** Absent = no regenerator: every derived block that needs one is unverifiable. */
+  regenerate?: DerivedRegenerator;
 }
 
 // ─── Planned names (DESIGN.md) ───────────────────────────────────────────────
@@ -219,6 +263,10 @@ function walkSteps(steps: readonly SequenceStep[], path: string, visit: (m: Sequ
 
 interface DiagramContext {
   parsed: ParseSuccess;
+  /** The block sits under a derived marker and nothing regenerated it. */
+  derived: boolean;
+  /** Set when a derived state diagram was compared with its source's members. */
+  freshness?: Freshness;
   external: Set<string>;
   /** Document line of the block's first content line, minus one. */
   offset: number;
@@ -326,7 +374,7 @@ function checkSequenceDiagram(ctx: DiagramContext): void {
     if (!/^[A-Za-z_$][\w$]*$/.test(name)) {
       nameOf.set(p.id, null);
       ctx.findings.push({
-        line: ctx.offset + line, severity: 'WARNING', category: 'diagram_identifier', claim: name, reason: 'unverifiable',
+        line: ctx.offset + line, severity: unverifiableSeverity(ctx.opts.mode), category: 'diagram_identifier', claim: name, reason: 'unverifiable',
         message: `participant ${JSON.stringify(name)} is not an identifier — label it with the class/module name, or mark it %% gsd:external ${p.id}`,
       });
       continue;
@@ -401,12 +449,13 @@ function checkStateDiagram(ctx: DiagramContext): void {
   const { lines, directives } = ctx.parsed;
   if (directives.sources.length === 0) {
     ctx.findings.push({
-      line: ctx.offset + ctx.parsed.line, severity: 'WARNING', category: 'diagram_identifier', claim: 'stateDiagram', reason: 'unverifiable',
+      line: ctx.offset + ctx.parsed.line, severity: unverifiableSeverity(ctx.opts.mode), category: 'diagram_identifier', claim: 'stateDiagram', reason: 'unverifiable',
       message: 'state names are not checked: add %% gsd:source <path>#<Enum> naming where the states are defined',
     });
     return;
   }
   const members = new Set<string>();
+  const groups: string[][] = [];
   for (const src of directives.sources) {
     const claim: Claim = { id: `${src.path}#${src.symbol}`, kind: 'source', line: src.line, kinds: [] };
     const contained = tryWithinRoot(src.path, ctx.opts.root, PathAcceptance.RelativeOnly);
@@ -417,35 +466,112 @@ function checkStateDiagram(ctx: DiagramContext): void {
     }
     record(ctx, claim, { verdict: 'declared', at: res.at });
     for (const m of res.members) members.add(m);
+    groups.push(...res.groups);
   }
   if (members.size === 0) return;
+  const drawn = new Set<string>();
   for (const s of spec.states) {
     const claim: Claim = { id: s.id, kind: 'state', line: lines[`state:${s.id}`], kinds: [] };
     const known = members.has(s.id) || (s.label !== undefined && members.has(s.label));
+    drawn.add(s.id);
+    if (s.label !== undefined) drawn.add(s.label);
     record(ctx, claim, known ? { verdict: 'declared' } : { verdict: 'absent', note: `is not a member of ${directives.sources.map((x) => x.symbol).join(' / ')}` });
   }
+  if (!ctx.derived) return;
+  // A derived state diagram claims to BE its source's vocabulary: regenerate
+  // that vocabulary and compare in both directions (an authored one may draw a
+  // subset). Extra states are already `absent` above.
+  // A member is drawn when any of its spellings is (`Paid` or `'paid'`).
+  const missing = groups.filter((g) => !g.some((n) => drawn.has(n))).map((g) => g[0]);
+  ctx.freshness = missing.length === 0 ? 'fresh' : 'stale';
+  for (const m of missing) {
+    ctx.findings.push({
+      line: ctx.offset + ctx.parsed.line, severity: 'BLOCKER', category: 'diagram_derived', claim: m, reason: 'derived_stale',
+      message: `member ${m} of ${directives.sources.map((x) => x.symbol).join(' / ')} is not drawn — the derived diagram is stale; regenerate it`,
+    });
+  }
+}
+
+/** A diagram whose names could not be looked up: advisory in docs, blocking in a design (the gate). */
+function unverifiableSeverity(mode: CheckMode): Severity {
+  return mode === 'design' ? 'BLOCKER' : 'WARNING';
 }
 
 // ─── Document ────────────────────────────────────────────────────────────────
 
 const DERIVED_RE = /^<!--\s*(?:gsd:derived\b|DERIVED\.)/;
+/** `derivedMarker()`'s shape (`src/mermaid.cts`): `source=` up to its fixed suffix. */
+const MARKER_SOURCE_RE = /^<!--\s*gsd:derived\s+source=(.+?)\s+—\s+regenerated, do not hand-edit\s*-->$/;
+
+interface DerivedMarker {
+  /** The marker's `source=`; `null` for a template `<!-- DERIVED. … -->` or a hand-written marker. */
+  source: string | null;
+}
+
+function markerOf(line: string): DerivedMarker {
+  const m = MARKER_SOURCE_RE.exec(line);
+  return { source: m === null ? null : m[1] };
+}
 
 /**
- * True when a derived marker governs the fence: the marker sits above it in the
- * same section, with no heading and no other code block in between (a
+ * The derived marker governing the fence, or `null`: the marker sits above it
+ * in the same section, with no heading and no other code block in between (a
  * generator may put a `Command:` line or a field table between its marker and
  * its diagram — `gsd_run mn zod-fieldtable` does). A document whose first line
  * is the marker is derived as a whole.
  */
-function isDerived(lines: string[], fenceIdx: number): boolean {
-  const first = lines.find((l) => l.trim() !== '');
-  if (first !== undefined && /^<!--\s*gsd:derived\b/.test(first.trim())) return true;
+function derivedMarkerFor(lines: string[], fenceIdx: number): DerivedMarker | null {
   for (let k = fenceIdx - 1; k >= 0; k--) {
     const t = lines[k].trim();
-    if (DERIVED_RE.test(t)) return true;
-    if (/^#{1,6}\s/.test(t) || /^(?:```|~~~)/.test(t)) return false;
+    if (DERIVED_RE.test(t)) return markerOf(t);
+    if (/^#{1,6}\s/.test(t) || /^(?:```|~~~)/.test(t)) break;
   }
-  return false;
+  const first = lines.find((l) => l.trim() !== '');
+  if (first !== undefined && /^<!--\s*gsd:derived\b/.test(first.trim())) return markerOf(first.trim());
+  return null;
+}
+
+/** The body of every closed mermaid fence in `markdown`, verbatim. */
+function mermaidBodies(markdown: string): string[] {
+  const lines = markdown.split('\n');
+  return scanFencedBlocks(lines)
+    .filter((b) => b.closeLineIdx !== -1 && b.infoString.split(/\s/)[0].toLowerCase() === 'mermaid')
+    .map((b) => lines.slice(b.openLineIdx + 1, b.closeLineIdx).join('\n'));
+}
+
+const trimLines = (text: string): string => text.split('\n').map((l) => l.trimEnd()).join('\n').trim();
+
+/**
+ * Regenerate a marker's source and compare: `fresh` when one of the
+ * regenerated mermaid blocks equals this one (trailing whitespace aside),
+ * `stale` when none does, `null` when no regenerator is registered.
+ */
+function regenerated(
+  marker: DerivedMarker,
+  body: string,
+  opts: CheckOptions,
+): { freshness: Freshness; message: string } | null {
+  if (marker.source === null || opts.regenerate === undefined) return null;
+  const res = opts.regenerate(marker.source, opts.root);
+  if (res === null) return null;
+  if (!res.ok) return { freshness: 'unverifiable', message: `source=${marker.source} could not be regenerated: ${res.message}` };
+  const want = trimLines(body);
+  return mermaidBodies(res.markdown).some((b) => trimLines(b) === want)
+    ? { freshness: 'fresh', message: '' }
+    : { freshness: 'stale', message: `differs from what source=${marker.source} generates now — the derived block is stale; regenerate it, never hand-edit it` };
+}
+
+function unverifiableDerived(line: number, marker: DerivedMarker | null, regen: { message: string } | null): Finding {
+  const source = marker?.source ?? null;
+  const why = regen !== null
+    ? regen.message
+    : source === null
+      ? 'the marker names no source this check can regenerate'
+      : `no regenerator is registered for source=${source}`;
+  return {
+    line, severity: 'BLOCKER', category: 'diagram_derived', claim: source === null ? 'derived marker' : `source=${source}`, reason: 'derived_unverifiable',
+    message: `${why} — a derived block must be reproducible: regenerate it with the command that produced it, or remove the marker so its names are checked as written`,
+  };
 }
 
 export function modeFor(file: string): CheckMode {
@@ -463,36 +589,54 @@ export function checkDiagrams(markdown: string, opts: CheckOptions): CheckReport
     const superseded = fm['contracts_superseded'] === true || fm['contracts_superseded'] === 'true';
     planned = superseded ? null : plannedNames(markdown);
   }
+  const syntaxSeverity = unverifiableSeverity(opts.mode);
   for (const b of scanFencedBlocks(docLines)) {
     if (b.infoString.split(/\s/)[0].toLowerCase() !== 'mermaid') continue;
     const fenceLine = b.openLineIdx + 1;
     if (b.closeLineIdx === -1) {
       diagrams.push({ line: fenceLine, type: null, derived: false, syntax: 'syntax', ids: [] });
-      findings.push({ line: fenceLine, severity: 'WARNING', category: 'diagram_syntax', claim: 'mermaid', reason: 'unterminated', message: 'the mermaid fence is never closed' });
+      findings.push({ line: fenceLine, severity: syntaxSeverity, category: 'diagram_syntax', claim: 'mermaid', reason: 'unterminated', message: 'the mermaid fence is never closed' });
       continue;
     }
-    const derived = isDerived(docLines, b.openLineIdx);
+    const marker = derivedMarkerFor(docLines, b.openLineIdx);
+    const derived = marker !== null;
     const text = docLines.slice(b.openLineIdx + 1, b.closeLineIdx).join('\n');
     const parsed = parseMermaid(text);
+    // A registered regenerator settles a derived block whatever its syntax.
+    const regen = marker === null ? null : regenerated(marker, text, opts);
+    if (regen !== null && regen.freshness !== 'unverifiable') {
+      diagrams.push({
+        line: fenceLine, type: parsed.ok ? parsed.diagram.type : null, derived, freshness: regen.freshness,
+        syntax: parsed.ok ? 'ok' : parsed.reason, ids: [],
+      });
+      if (regen.freshness === 'stale') {
+        findings.push({ line: fenceLine, severity: 'BLOCKER', category: 'diagram_derived', claim: `source=${marker?.source ?? ''}`, reason: 'derived_stale', message: regen.message });
+      }
+      continue;
+    }
     if (!parsed.ok) {
       const line = fenceLine + parsed.line;
-      diagrams.push({ line: fenceLine, type: null, derived, syntax: parsed.reason, ids: [] });
+      diagrams.push({ line: fenceLine, type: null, derived, ...(derived ? { freshness: 'unverifiable' as const } : {}), syntax: parsed.reason, ids: [] });
       findings.push({
-        line, severity: 'WARNING', category: 'diagram_syntax', claim: docLines[line - 1]?.trim() ?? '', reason: parsed.reason,
+        line, severity: syntaxSeverity, category: 'diagram_syntax', claim: docLines[line - 1]?.trim() ?? '', reason: parsed.reason,
         message: `${parsed.message} (column ${parsed.col}) — keep to the subset or rewrite the block`,
       });
+      if (derived) findings.push(unverifiableDerived(fenceLine, marker, regen));
       continue;
     }
     const report: DiagramReport = { line: fenceLine, type: parsed.diagram.type, derived, syntax: 'ok', ids: [] };
     diagrams.push(report);
-    if (derived) continue;
     const ctx: DiagramContext = {
-      parsed, external: new Set(parsed.directives.external), offset: fenceLine, opts, planned, ids: report.ids, findings,
+      parsed, derived, external: new Set(parsed.directives.external), offset: fenceLine, opts, planned, ids: report.ids, findings,
     };
     checkClassDiagram(ctx);
     checkSequenceDiagram(ctx);
     checkErDiagram(ctx);
     checkStateDiagram(ctx);
+    if (!derived) continue;
+    report.freshness = ctx.freshness ?? 'unverifiable';
+    // A flowchart is syntax-only whether derived or not: its marker hides nothing.
+    if (ctx.freshness === undefined && parsed.diagram.type !== 'flowchart') findings.push(unverifiableDerived(fenceLine, marker, regen));
   }
   findings.sort((a, b) => a.line - b.line);
   return {
@@ -507,6 +651,34 @@ export function checkDiagrams(markdown: string, opts: CheckOptions): CheckReport
 
 // ─── I/O ─────────────────────────────────────────────────────────────────────
 
+/**
+ * The regenerators `diagrams check` knows. Each re-runs the command a marker
+ * names, from the inputs the marker records, inside the project root:
+ *   - `zod-fieldtable <kind>=<target> export=<Name>` → `gsd_run mn zod-fieldtable`
+ *     (a JSON Schema is read; a TS file or module is loaded in the project's
+ *     own runtime, exactly as the command that produced the block did).
+ * A bare `source=zod-fieldtable` (written before the marker recorded its
+ * inputs) cannot be re-run: unverifiable, regenerate it once.
+ */
+export function defaultRegenerator(source: string, root: string): RegenerateResult | null {
+  const name = source.trim().split(/\s+/)[0];
+  if (name !== 'zod-fieldtable') return null;
+  const origin = parseZodFieldtableOrigin(source);
+  if (origin === null) {
+    return { ok: false, message: 'the marker does not record the schema it was generated from (re-run gsd_run mn zod-fieldtable — current output records it)' };
+  }
+  let zsource: ZodFieldtableSource;
+  if (origin.kind === 'module') {
+    zsource = { kind: 'module', target: origin.target };
+  } else {
+    const contained = tryWithinRoot(origin.target, root, PathAcceptance.RelativeOnly);
+    if (contained === null) return { ok: false, message: `${origin.kind} ${JSON.stringify(origin.target)} is outside the project` };
+    zsource = origin.kind === 'file' ? { kind: 'file', target: contained } : { kind: 'json-schema', path: contained };
+  }
+  const res = runZodFieldtable({ cwd: root, source: zsource, exportName: origin.exportName });
+  return res.ok ? { ok: true, markdown: res.markdown } : { ok: false, message: res.message };
+}
+
 export type RunResult =
   | ({ ok: true; file: string; root: string; scanned: number; skipped: number; strict_failed: boolean } & CheckReport)
   | { ok: false; reason: 'file_unreadable' | 'root_missing'; message: string };
@@ -520,6 +692,8 @@ export interface RunOptions {
   strict?: boolean;
   /** Test seam: replaces the index builder. */
   buildIndex?: (root: string) => SymbolIndex;
+  /** Test seam: replaces `defaultRegenerator`. */
+  regenerate?: DerivedRegenerator;
 }
 
 export function runDiagramsCheck(opts: RunOptions): RunResult {
@@ -539,7 +713,9 @@ export function runDiagramsCheck(opts: RunOptions): RunResult {
     if (built === null) built = (opts.buildIndex ?? buildSymbolIndex)(opts.root);
     return built;
   };
-  const report = checkDiagrams(markdown, { mode: opts.mode ?? modeFor(opts.file), root: opts.root, index });
+  const report = checkDiagrams(markdown, {
+    mode: opts.mode ?? modeFor(opts.file), root: opts.root, index, regenerate: opts.regenerate ?? defaultRegenerator,
+  });
   const usedIndex = built as SymbolIndex | null;
   return {
     ok: true,
