@@ -21,36 +21,36 @@
  * Asymmetry: a file declared but not changed is NOT a finding (`undelivered`, reported). The
  * executor may legitimately discover an edit is unnecessary.
  *
- * ── Which commits are the phase ─────────────────────────────────────────
+ * ── Which commits are the phase: the evaluation-scope resolver ──────────
  *
- * `git merge-base` is useless on a single autonomous branch; GSD sets no phase tags; a bare
- * conventional-commit scope (`feat(03-xx):`) collides across projects in one monorepo (`03` was
- * both rpg and savor). What works is the PATH ANCHOR: commits that touched the phase directory.
+ * The phase's commits come from the one resolver every gate shares (`resolveEvaluationScope`,
+ * src/gate-evaluation-scope.cts; ADR-5057 §4, #5164): the commits its SUMMARYs list under
+ * `## Task Commits`, reachable from HEAD. That answers the same question the script answered with a
+ * path anchor plus subject-scope siblings (`git log --all`), without guessing from commit subjects —
+ * so another project's interleaved commit in a monorepo never enters the radius (the resolver names
+ * it in `outsideUnion` instead), and neither does a commit on another branch.
  *
- * But the range between the first and last anchored commit is ALSO wrong — measured: 27 commits
- * between phase 03's ends, 3 of them rpg's, giving 95 "undeclared" files that had nothing to do with
- * rpg. So the radius is the UNION OF THE DIFFS of the selected commits (`git show --numstat`), and
- * interleaved work of other projects never enters the sample.
+ * When the phase lists no task commits yet, the resolver falls back to the phase window (from the
+ * commit that first added the phase directory to HEAD) and says so: `scopeStatus: 'degraded'`. The
+ * gate still judges that wider evidence, and the payload carries the status, its reason and its
+ * source, so a reader can tell a clean scope from a wide one. When the phase directory has never been
+ * committed, the radius is the working tree. `--base <ref>` (by hand) evaluates only what came after
+ * `<ref>` (the resolver's `since`) plus the uncommitted tree — the "phase in progress" question.
  *
- * Selection has a mandatory second step: the GSD executor commits code and planning docs
- * SEPARATELY (`feat(rpg-02-09):` touches libs/, `docs(rpg-02-09):` touches .planning/), so the path
- * anchor alone sees only the docs — measured as `changed=0` against 73 declared files, a false green
- * that looks like evidence. Commits carrying a QUALIFIED scope READ from the anchored commits (never
- * guessed; a purely numeric scope is ambiguous and dropped) are added.
- *
- * Resolution order: `--base <ref>` (range mode, for a phase in progress) → path-anchored selection →
- * working tree (the phase has committed nothing yet). Uncommitted work joins the radius only in the
- * first and last mode: for a committed phase a dirty tree belongs to someone else — measured, it put
- * the same 5-7 "undeclared" files into all nine phases of one project at once.
+ * Uncommitted work joins the radius only in those last two modes: for a committed phase a dirty tree
+ * belongs to someone else — measured, it put the same 5-7 "undeclared" files into all nine phases of
+ * one project at once.
  *
  * ── The rest ─────────────────────────────────────────────────────────────
  *
- * - Paths are compared from the git ROOT (the gate runs from a project inside a monorepo, and
- *   `files_modified` are written from the repository root).
+ * - The scope is resolved from the git ROOT, and paths compare from it: the gate runs from a project
+ *   inside a monorepo, and `files_modified` are written from the repository root.
  * - No plans, or plans that declare nothing, is "could not check" — not a pass: an empty declaration
  *   compared against anything reads green while nothing was compared.
- * - Planning artifacts (`.planning/**`) are excluded: GSD writes them and no plan declares them.
- * - Not a git repository, an unresolvable `--base`, or a git command that fails: "could not check".
+ * - Planning artifacts (`.planning/**`, at any depth) and lockfiles are excluded — GSD writes the
+ *   first, the resolver excludes both from every scope, and no plan declares them.
+ * - Not a git repository, a scope the resolver cannot read, an unresolvable `--base`, or a git
+ *   command that fails: "could not check".
  *
  * `files_modified` is read through the shared frontmatter parser (block list, inline list, blank
  * lines inside the block, inline comments), the plan files through plan-scan.
@@ -58,10 +58,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { execGit as execGitSeam } from './shell-command-projection.cjs';
 import type { GateResult } from './gate-verdict.cjs';
 import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
+import { resolveEvaluationScope, SCOPE_EXCLUSION_PATHSPECS } from './gate-evaluation-scope.cjs';
+import type { EvaluationScope, GitRunner } from './gate-evaluation-scope.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
@@ -69,33 +71,8 @@ const { extractFrontmatter } = frontmatterMod;
 import planScanMod = require('./plan-scan.cjs');
 const { scanPhasePlans } = planScanMod;
 
-/** One git invocation's result: `ok` is a zero exit with no spawn error. */
-export interface GitRun {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-}
-
-/** The git seam: argv (never a shell string) run in `cwd`. Injected so tests need no repository. */
-export type RunGit = (args: readonly string[], cwd: string) => GitRun;
-
-/** History listings (`log --all`, `show --numstat`) on a large monorepo exceed the 1 MiB default. */
-const GIT_MAX_BUFFER = 64 * 1024 * 1024;
-const GIT_TIMEOUT_MS = 30_000;
-
-/** Production git: array argv, bounded in time and output, no terminal prompts. */
-export const productionRunGit: RunGit = (args, cwd) => {
-  const r = spawnSync('git', [...args], {
-    cwd,
-    encoding: 'utf8',
-    maxBuffer: GIT_MAX_BUFFER,
-    timeout: GIT_TIMEOUT_MS,
-    windowsHide: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never' },
-  });
-  return { ok: !r.error && r.status === 0, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
-};
+/** The git seam — the resolver's own runner type, so its exit-code reading (1 = "no") holds. */
+export type RunGit = GitRunner;
 
 /** A git command whose failure means the gate could not look. */
 class GitFailure extends Error {}
@@ -107,10 +84,16 @@ export interface BlastRadiusOptions {
   strictBudget: boolean;
 }
 
-interface ChangeStat {
+export interface ChangeStat {
   added: number;
   deleted: number;
 }
+
+/**
+ * The resolver's reason suffix for a phase directory no commit ever added: there is no phase window,
+ * because the phase has committed nothing — its radius is the working tree.
+ */
+const NO_PHASE_START_ANCHOR = ':no-phase-start-anchor';
 
 /** `files_modified` (or `files-modified`) of one plan, as declared strings. */
 function declaredFilesOf(text: string): string[] {
@@ -125,10 +108,8 @@ function normalizeDeclared(entry: string): string {
   return entry.replace(/^\.\//, '').replace(/^\/+/, '');
 }
 
-const SCOPE_RE = /^[a-z]+\(([^)]+)\)/i;
-
-/** Parse `git --numstat` lines into path → stat, keeping a rename's TARGET path. */
-function accumulateNumstat(text: string, into: Map<string, ChangeStat>): void {
+/** Parse `git --numstat` lines into `into` (path → stat), keeping a rename's TARGET path. */
+export function foldNumstat(text: string, into: Map<string, ChangeStat>): void {
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line);
@@ -144,74 +125,37 @@ function accumulateNumstat(text: string, into: Map<string, ChangeStat>): void {
   }
 }
 
-interface Radius {
-  blocks: string[];
-  how: string;
-  /** null in range mode (`--base`): the range is not a commit selection. */
-  commits: string[] | null;
-}
-
-function collectRadius(git: (args: readonly string[]) => string, phaseRel: string, base: string | undefined, tryGit: (args: readonly string[]) => GitRun): Radius {
-  if (base !== undefined) {
-    const resolved = tryGit(['rev-parse', '--verify', `${base}^{commit}`]);
-    if (!resolved.ok) throw new GitFailure(`--base ${base} is not a resolvable commit`);
-    const sha = resolved.stdout.trim();
-    return {
-      blocks: [git(['diff', '--numstat', sha, 'HEAD'])],
-      how: `--base ${base} (range mode; interleaved commits from other projects are NOT filtered out)`,
-      commits: null,
-    };
-  }
-
-  const anchored = tryGit(['log', '--format=%H', '--all', '--', phaseRel]);
-  const commits = anchored.ok ? anchored.stdout.split('\n').filter(Boolean) : [];
-  if (commits.length === 0) return { blocks: [], how: 'working tree only — phase dir has no commits yet', commits: [] };
-
-  const scopes = new Set<string>();
-  for (const c of commits) {
-    const m = SCOPE_RE.exec(git(['log', '-1', '--format=%s', c]).trim());
-    // A qualified scope carries a letter (`rpg-02-09`); a numeric one (`03`, `3.4.12`) is ambiguous.
-    if (m && /[a-z]/i.test(m[1])) scopes.add(m[1]);
-  }
-
-  const selected = new Set(commits);
-  if (scopes.size > 0) {
-    for (const line of git(['log', '--format=%H\t%s', '--all']).split('\n')) {
-      const tab = line.indexOf('\t');
-      if (tab === -1) continue;
-      const m = SCOPE_RE.exec(line.slice(tab + 1));
-      if (m && scopes.has(m[1])) selected.add(line.slice(0, tab));
-    }
-  }
-
-  // `-m --first-parent` unfolds a merge against its first parent: without it a merge yields an
-  // empty numstat and its work is lost.
-  const list = [...selected];
-  return {
-    blocks: list.map((c) => git(['show', '--format=', '--numstat', '-m', '--first-parent', c])),
-    how:
-      `path-anchored on ${phaseRel} (${commits.length} commit(s)) + ` +
-      `${list.length - commits.length} scope-sibling(s) [${[...scopes].join(', ') || 'none'}]`,
-    commits: list,
-  };
-}
-
 const isPlanningArtifact = (p: string): boolean => p.includes('/.planning/') || p.startsWith('.planning/');
 
+/** Line counts for the resolved scope: per task commit, or over the degraded phase window. */
+function scopeNumstat(scope: EvaluationScope, git: (args: string[]) => string): Map<string, ChangeStat> {
+  const stats = new Map<string, ChangeStat>();
+  if (scope.source === 'task-commits') {
+    for (const commit of scope.commits) {
+      foldNumstat(git(['-c', 'core.quotepath=off', 'show', '--first-parent', '--pretty=format:', '--numstat', commit.sha, '--', '.', ...SCOPE_EXCLUSION_PATHSPECS]), stats);
+    }
+  } else if (scope.source === 'phase-range' && scope.rangeBase !== null) {
+    foldNumstat(git(['-c', 'core.quotepath=off', 'diff', '--numstat', scope.rangeBase, 'HEAD', '--', '.', ...SCOPE_EXCLUSION_PATHSPECS]), stats);
+  }
+  return stats;
+}
+
 /** The gate's body against a resolved phase directory, with git injected. */
-export function computeBlastRadius(projectDir: string, phaseDir: string, options: BlastRadiusOptions, runGit: RunGit): GateResult {
-  const top = runGit(['rev-parse', '--show-toplevel'], projectDir);
-  if (!top.ok) return mnUnresolvable('mn-blast-radius: not a git repository — blast radius is undefined without history', { phaseDir });
+export function computeBlastRadius(projectDir: string, phaseDir: string, options: BlastRadiusOptions, runGit: RunGit = execGitSeam): GateResult {
+  const top = runGit(['rev-parse', '--show-toplevel'], { cwd: projectDir });
+  if (top.exitCode !== 0 || top.timedOut) {
+    return mnUnresolvable('mn-blast-radius: not a git repository — blast radius is undefined without history', { phaseDir });
+  }
   const repoRoot = top.stdout.trim();
-  const tryGit = (args: readonly string[]): GitRun => runGit(args, repoRoot);
-  const git = (args: readonly string[]): string => {
-    const r = tryGit(args);
-    if (!r.ok) throw new GitFailure(`git ${args.join(' ')} failed: ${r.stderr.trim()}`);
+  const git = (args: string[]): string => {
+    const r = runGit(args, { cwd: repoRoot });
+    if (r.exitCode !== 0 || r.timedOut) throw new GitFailure(`git ${args[0] === '-c' ? args[2] : args[0]} failed: ${r.stderr.trim()}`);
     return r.stdout;
   };
 
   // git prints the realpath of the root; compare against the realpath of the phase.
-  const phaseRel = path.relative(fs.realpathSync(repoRoot), fs.realpathSync(phaseDir)).split(path.sep).join('/');
+  const realPhaseDir = fs.realpathSync(phaseDir);
+  const phaseRel = path.relative(fs.realpathSync(repoRoot), realPhaseDir).split(path.sep).join('/');
 
   const scan = scanPhasePlans(phaseDir);
   const planFiles = [...scan.allPlanFiles].sort();
@@ -236,21 +180,37 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     );
   }
 
-  let radius: Radius;
+  // Resolved from the git root: the scope's paths, like `files_modified`, are repository-relative.
+  const scope = resolveEvaluationScope(
+    repoRoot,
+    { kind: 'phase', phase: path.basename(phaseDir), phaseDir: realPhaseDir },
+    { execGit: runGit, includeFiles: true, ...(options.base !== undefined ? { since: options.base } : {}) },
+  );
+  const neverCommitted =
+    scope.status === 'unresolvable' && options.base === undefined && (scope.reason ?? '').endsWith(NO_PHASE_START_ANCHOR);
+  if (scope.status === 'unresolvable' && !neverCommitted) {
+    return mnUnresolvable(`mn-blast-radius: the phase's commits could not be resolved (${scope.reason ?? 'unknown'})`, {
+      phaseDir,
+      scopeStatus: scope.status,
+      scopeReason: scope.reason,
+    });
+  }
+
+  const includeDirty = options.base !== undefined || neverCommitted;
+  const changed = new Map<string, ChangeStat>();
   try {
-    radius = collectRadius(git, phaseRel, options.base, tryGit);
+    if (!neverCommitted) {
+      const stats = scopeNumstat(scope, git);
+      for (const file of scope.changedFiles) changed.set(file, stats.get(file) ?? { added: 0, deleted: 0 });
+    }
+    if (includeDirty) {
+      // An empty tree or no HEAD yet simply has no uncommitted edits.
+      const dirty = runGit(['diff', '--numstat', 'HEAD'], { cwd: repoRoot });
+      if (dirty.exitCode === 0) foldNumstat(dirty.stdout, changed);
+    }
   } catch (err) {
     if (err instanceof GitFailure) return mnUnresolvable(`mn-blast-radius: ${err.message}`, { phaseDir });
     throw err;
-  }
-
-  const includeDirty = options.base !== undefined || (radius.commits !== null && radius.commits.length === 0);
-  const changed = new Map<string, ChangeStat>();
-  for (const block of radius.blocks) accumulateNumstat(block, changed);
-  if (includeDirty) {
-    // An empty tree or no HEAD yet simply has no uncommitted edits.
-    const dirty = tryGit(['diff', '--numstat', 'HEAD']);
-    if (dirty.ok) accumulateNumstat(dirty.stdout, changed);
   }
 
   const undeclared: Array<{ path: string } & ChangeStat> = [];
@@ -273,8 +233,12 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
   const details = {
     phaseDir,
     phaseRel,
-    baseStrategy: radius.how,
-    commits: radius.commits === null ? null : radius.commits.length,
+    scopeStatus: neverCommitted ? 'working-tree' : scope.status,
+    scopeSource: neverCommitted ? 'working-tree' : scope.source,
+    scopeReason: scope.reason,
+    commits: neverCommitted ? 0 : scope.commits.length,
+    outsideUnion: neverCommitted ? [] : scope.outsideUnion,
+    unreachable: neverCommitted ? [] : scope.unreachable,
     workingTreeIncluded: includeDirty,
     plans: planFiles.length,
     declared: declared.size,
@@ -286,9 +250,10 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     overBudget,
   };
 
+  const widened = !neverCommitted && scope.status === 'degraded' ? ` (scope degraded: ${scope.reason ?? 'unknown'})` : '';
   if (undeclared.length > 0) {
     return mnFinding(
-      `mn-blast-radius: ${undeclared.length} file(s) changed that no plan in this phase declared ` +
+      `mn-blast-radius: ${undeclared.length} file(s) changed that no plan in this phase declared${widened} ` +
         `(${undeclared.slice(0, 10).map((u) => u.path).join(', ')}${undeclared.length > 10 ? ', …' : ''}) — ` +
         'either the executor went outside the task, or the plan was incomplete. Add the paths to the owning ' +
         'PLAN.md files_modified, or revert the stray change.',
@@ -296,9 +261,9 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     );
   }
   if (options.strictBudget && (overBudget.files || overBudget.lines)) {
-    return mnFinding(`mn-blast-radius: over budget with --strict-budget (${changedFiles} files, ${changedLines} lines)`, details);
+    return mnFinding(`mn-blast-radius: over budget with --strict-budget (${changedFiles} files, ${changedLines} lines)${widened}`, details);
   }
-  return mnPass(`mn-blast-radius: OK — every changed file (${changedFiles}) was declared by a plan in this phase`, details);
+  return mnPass(`mn-blast-radius: OK — every changed file (${changedFiles}) was declared by a plan in this phase${widened}`, details);
 }
 
 const BOOLEAN_FLAGS = new Set(['--strict-budget', '--json']);
@@ -313,7 +278,7 @@ function flagValue(args: readonly string[], name: string): string | undefined {
  * `gsd_run check mn-blast-radius <phase> [--base <ref>] [--max-files N] [--max-lines N] [--strict-budget]`
  * (the flags are for a person; the gate dispatch passes only the phase).
  */
-export function evaluateMnBlastRadius(input: MnGateInput, runGit: RunGit = productionRunGit): GateResult {
+export function evaluateMnBlastRadius(input: MnGateInput, runGit: RunGit = execGitSeam): GateResult {
   const options: BlastRadiusOptions = {
     base: flagValue(input.args, '--base'),
     maxFiles: Number(flagValue(input.args, '--max-files') ?? '0') || 0,

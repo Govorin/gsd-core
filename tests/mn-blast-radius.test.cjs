@@ -2,16 +2,17 @@
 
 /**
  * `gsd_run check mn-blast-radius` — compares what a phase CHANGED against what it DECLARED
- * (src/gate-mn-blast-radius.cts; replaces capabilities/mn-verify-gate/scripts/blast-radius.mjs).
+ * (src/gate-mn-blast-radius.cts).
  *
  * The rule: a file changed but declared in no PLAN.md means either the executor left the task's
  * boundary, or the plan was incomplete and nobody noticed. Both need a human, and neither is
  * visible to tests, lint or types — an undeclared edit compiles exactly like a declared one.
  *
- * Two layers: real-git fixtures for the history the gate reads (path anchor, scope siblings,
- * working tree, `--base` range mode), and an injected `RunGit` for the failure modes a real
- * repository cannot easily produce. Assertions are on the verdict (`block`, `status`) and its typed
- * fields (`undeclared`, `undelivered`, `overBudget`, …), never on message text.
+ * The phase's commits come from the shared evaluation-scope resolver (the commits its SUMMARYs list
+ * under `## Task Commits`; the phase window, flagged `degraded`, when none are listed yet; the working
+ * tree when the phase has committed nothing). Two layers: real-git fixtures for that history, and an
+ * injected git runner for failure modes a real repository cannot easily produce. Assertions are on
+ * the verdict (`block`, `status`) and its typed fields, never on message text.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -21,14 +22,20 @@ const path = require('node:path');
 const { runGit } = require('./helpers/process-seam.cjs');
 const { createTempGitProject, cleanup } = require('./helpers.cjs');
 const { createMnProject, makePhase, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
-const { evaluateMnBlastRadius, computeBlastRadius } = require('../gsd-core/bin/lib/gate-mn-blast-radius.cjs');
+const { evaluateMnBlastRadius, computeBlastRadius, foldNumstat } = require('../gsd-core/bin/lib/gate-mn-blast-radius.cjs');
 
 const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
 /** A plan declaring the files it intends to touch. */
-function plan(files, extra = '') {
+function plan(files) {
   const list = files.map((f) => `  - ${f}`).join('\n');
-  return `---\nwave: 1\nfiles_modified:\n${list}\n${extra}status: complete\n---\n\n# plan\n`;
+  return `---\nwave: 1\nfiles_modified:\n${list}\nstatus: complete\n---\n\n# plan\n`;
+}
+
+/** A SUMMARY whose `## Task Commits` section lists `shas` — the resolver's evidence of the phase. */
+function summary(shas) {
+  const rows = shas.map((sha, i) => `${i + 1}. **Task ${i + 1}: work** - \`${sha}\` (feat)`).join('\n');
+  return `---\nphase: 01\n---\n\n# Summary\n\n## Task Commits\n\n${rows}\n\n## Notes\n`;
 }
 
 describe('check mn-blast-radius (real git)', () => {
@@ -45,19 +52,26 @@ describe('check mn-blast-radius (real git)', () => {
     cleanup(repo);
   });
 
-  function writePlan(name, files, extra) {
-    fs.writeFileSync(path.join(phaseDir, name), plan(files, extra));
+  function writePlan(name, files) {
+    fs.writeFileSync(path.join(phaseDir, name), plan(files));
   }
 
-  /** Write files (repo-relative) and commit them with `message`. */
-  function commit(files, message) {
+  /** Write files (repo-relative), commit them with `message`, return the commit sha. */
+  function commit(files, message, cwd = repo) {
     for (const [rel, body] of Object.entries(files)) {
       const full = path.join(repo, rel);
       fs.mkdirSync(path.dirname(full), { recursive: true });
       fs.writeFileSync(full, body);
     }
-    runGit(['add', '-A'], { cwd: repo });
-    runGit(['commit', '-m', message, '--no-verify'], { cwd: repo });
+    runGit(['add', '-A'], { cwd });
+    runGit(['commit', '--allow-empty', '-m', message, '--no-verify'], { cwd });
+    return runGit(['rev-parse', 'HEAD'], { cwd: repo }).stdout.trim();
+  }
+
+  /** Record the task commits of the phase in its SUMMARY and commit it. */
+  function summarize(shas) {
+    fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), summary(shas));
+    commit({}, 'docs(01-01): summary');
   }
 
   const gate = (extra = []) => evaluateMnBlastRadius({ projectDir: repo, args: [phaseNumber, ...extra] }).payload;
@@ -94,36 +108,69 @@ describe('check mn-blast-radius (real git)', () => {
 
   test('an unresolvable --base is unresolvable', () => {
     writePlan('01-01-PLAN.md', ['src/a.ts']);
+    commit({}, 'docs(01): plan');
     const v = gate(['--base', 'no-such-ref']);
     assert.equal(v.status, 'unresolvable');
+    assert.equal(typeof v.scopeReason, 'string');
   });
 
-  // ── the comparison itself (range mode, as the script's own tests ran it) ──
+  // ── the comparison, on the phase's task commits ───────────────────────────
 
-  test('accepts a phase whose changes were all declared', () => {
+  test('accepts a phase whose task commits touched only declared files', () => {
     writePlan('01-01-PLAN.md', ['src/declared.ts']);
-    commit({ 'src/declared.ts': 'export const a = 1;\n' }, 'feat(01): declared change');
-    const v = gate(['--base', 'HEAD~1']);
+    commit({}, 'docs(01-01): plan');
+    const task = commit({ 'src/declared.ts': 'export const a = 1;\n' }, 'feat(01-01): declared change');
+    summarize([task.slice(0, 7)]);
+    const v = gate();
     assert.equal(v.block, false);
+    assert.equal(v.scopeStatus, 'resolved');
+    assert.equal(v.scopeSource, 'task-commits');
+    assert.equal(v.commits, 1);
     assert.equal(v.matched, 1);
-    assert.equal(v.commits, null, 'range mode is not a commit selection');
+    assert.equal(v.workingTreeIncluded, false);
   });
 
-  test('reports a file changed but declared in no plan, naming it', () => {
+  test('reports a file a task commit changed but no plan declared, with its line counts', () => {
     writePlan('01-01-PLAN.md', ['src/declared.ts']);
-    commit({ 'src/declared.ts': 'export const a = 1;\n' }, 'feat(01): declared');
-    commit({ 'src/undeclared.ts': 'export const b = 2;\n' }, 'feat(01): undeclared');
-    const v = gate(['--base', 'HEAD~2']);
+    commit({}, 'docs(01-01): plan');
+    const task = commit({ 'src/declared.ts': '1\n', 'src/undeclared.ts': 'a\nb\n' }, 'feat(01-01): declared and stray');
+    summarize([task]);
+    const v = gate();
     assert.equal(v.block, true);
     assert.equal(v.status, 'finding');
-    assert.deepEqual(undeclaredPaths(v), ['src/undeclared.ts']);
-    assert.deepEqual(v.undeclared[0], { path: 'src/undeclared.ts', added: 1, deleted: 0 });
+    assert.deepEqual(v.undeclared, [{ path: 'src/undeclared.ts', added: 2, deleted: 0 }]);
+    assert.equal(v.changedLines, 3);
+  });
+
+  test('another project\'s commit inside the phase window is outside the union, not undeclared', () => {
+    // The monorepo case the script fought with subject scopes: the resolver's phase commits are the
+    // ones the SUMMARY lists, so interleaved work is only reported, by name, in outsideUnion.
+    writePlan('01-01-PLAN.md', ['src/declared.ts']);
+    commit({}, 'docs(01-01): plan');
+    const task = commit({ 'src/declared.ts': '1\n' }, 'feat(01-01): declared');
+    commit({ 'other/elsewhere.ts': '1\n' }, 'feat(other-03): another project');
+    const second = commit({ 'src/declared.ts': '2\n' }, 'feat(01-01): declared again');
+    summarize([task, second]);
+    const v = gate();
+    assert.equal(v.block, false);
+    assert.deepEqual(v.outsideUnion, ['other/elsewhere.ts']);
+  });
+
+  test('a listed commit not reachable from HEAD is named in unreachable', () => {
+    writePlan('01-01-PLAN.md', ['src/declared.ts']);
+    commit({}, 'docs(01-01): plan');
+    const task = commit({ 'src/declared.ts': '1\n' }, 'feat(01-01): declared');
+    summarize([task, 'deadbeefcafe']);
+    const v = gate();
+    assert.equal(v.block, false);
+    assert.deepEqual(v.unreachable, ['deadbeefcafe']);
   });
 
   test('does not report a declared file that went unchanged — it is undelivered, not a finding', () => {
     writePlan('01-01-PLAN.md', ['src/touched.ts', 'src/never-written.ts']);
-    commit({ 'src/touched.ts': 'export const a = 1;\n' }, 'feat(01): partial');
-    const v = gate(['--base', 'HEAD~1']);
+    commit({}, 'docs(01-01): plan');
+    summarize([commit({ 'src/touched.ts': '1\n' }, 'feat(01-01): partial')]);
+    const v = gate();
     assert.equal(v.block, false);
     assert.deepEqual(v.undelivered, ['src/never-written.ts']);
   });
@@ -131,9 +178,11 @@ describe('check mn-blast-radius (real git)', () => {
   test('unions declarations across every plan in the phase', () => {
     writePlan('01-01-PLAN.md', ['src/one.ts']);
     writePlan('01-02-PLAN.md', ['src/two.ts']);
-    commit({ 'src/one.ts': 'export const a = 1;\n' }, 'feat(01): one');
-    commit({ 'src/two.ts': 'export const b = 2;\n' }, 'feat(01): two');
-    const v = gate(['--base', 'HEAD~2']);
+    commit({}, 'docs(01): plans');
+    const one = commit({ 'src/one.ts': '1\n' }, 'feat(01-01): one');
+    const two = commit({ 'src/two.ts': '2\n' }, 'feat(01-02): two');
+    summarize([one, two]);
+    const v = gate();
     assert.equal(v.block, false);
     assert.equal(v.declared, 2);
     assert.equal(v.plans, 2);
@@ -141,67 +190,65 @@ describe('check mn-blast-radius (real git)', () => {
 
   test('reads every files_modified shape: inline list, blank line in the block, ./ prefix, comment', () => {
     fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '---\nfiles_modified: [src/a.ts, "src/b.ts"]\n---\n');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-02-PLAN.md'),
-      '---\nfiles_modified:\n  - ./src/c.ts\n\n  - src/d.ts # the second file\n---\n',
-    );
-    commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n', 'src/c.ts': '3\n', 'src/d.ts': '4\n' }, 'feat(01): four');
-    const v = gate(['--base', 'HEAD~1']);
+    fs.writeFileSync(path.join(phaseDir, '01-02-PLAN.md'), '---\nfiles_modified:\n  - ./src/c.ts\n\n  - src/d.ts # the second file\n---\n');
+    commit({}, 'docs(01): plans');
+    summarize([commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n', 'src/c.ts': '3\n', 'src/d.ts': '4\n' }, 'feat(01-01): four')]);
+    const v = gate();
     assert.equal(v.block, false, JSON.stringify(v.undeclared));
     assert.equal(v.matched, 4);
   });
 
-  test('planning artifacts are excluded from the comparison', () => {
+  test('planning artifacts and lockfiles are excluded from the comparison', () => {
     writePlan('01-01-PLAN.md', ['src/a.ts']);
-    commit({ 'src/a.ts': '1\n', '.planning/STATE.md': '# state\n' }, 'feat(01): a');
-    const v = gate(['--base', 'HEAD~1']);
-    assert.equal(v.block, false);
+    commit({}, 'docs(01-01): plan');
+    summarize([commit({ 'src/a.ts': '1\n', '.planning/STATE.md': '# state\n', 'package-lock.json': '{}\n' }, 'feat(01-01): a')]);
+    const v = gate();
+    assert.equal(v.block, false, JSON.stringify(v.undeclared));
     assert.equal(v.changedFiles, 1);
   });
 
   test('a rename counts its target path', () => {
     commit({ 'src/old-name.ts': 'export const a = 1;\n' }, 'chore: seed');
     writePlan('01-01-PLAN.md', ['src/new-name.ts']);
+    commit({}, 'docs(01-01): plan');
     runGit(['mv', 'src/old-name.ts', 'src/new-name.ts'], { cwd: repo });
-    runGit(['commit', '-m', 'refactor(01): rename', '--no-verify'], { cwd: repo });
-    const v = gate(['--base', 'HEAD~1']);
+    runGit(['commit', '-m', 'refactor(01-01): rename', '--no-verify'], { cwd: repo });
+    summarize([runGit(['rev-parse', 'HEAD'], { cwd: repo }).stdout.trim()]);
+    const v = gate();
     assert.equal(v.block, false, JSON.stringify(v.undeclared));
   });
 
-  // ── which commits are the phase ───────────────────────────────────────────
-
-  test('path-anchored selection: commits that touched the phase directory are the radius', () => {
-    writePlan('01-01-PLAN.md', ['src/a.ts']);
-    commit({ 'src/a.ts': '1\n' }, 'feat(01): a with its plan');
-    const v = gate();
-    assert.equal(v.block, false);
-    assert.equal(v.commits, 1);
-    assert.equal(v.workingTreeIncluded, false, 'a committed phase does not own the dirty tree');
-  });
-
-  test('a code commit with the anchored commit\'s qualified scope joins the radius', () => {
-    // The executor commits code and docs separately; the path anchor alone sees only the docs.
-    writePlan('01-01-PLAN.md', ['src/declared.ts']);
+  test('a project inside a monorepo compares paths from the repository root', () => {
+    const appDir = path.join(repo, 'apps', 'demo');
+    const app = makePhase(appDir, { '01-01-PLAN.md': plan(['libs/demo/a.ts']) }, 'example');
     commit({}, 'docs(demo-01-01): plan');
-    commit({ 'src/stray.ts': '1\n' }, 'feat(demo-01-01): code outside the declaration');
-    const v = gate();
-    assert.equal(v.block, true, 'the scope sibling must be read');
-    assert.deepEqual(undeclaredPaths(v), ['src/stray.ts']);
+    const task = commit({ 'libs/demo/a.ts': '1\n', 'libs/demo/stray.ts': '1\n' }, 'feat(demo-01-01): code');
+    fs.writeFileSync(path.join(app.phaseDir, '01-01-SUMMARY.md'), summary([task]));
+    commit({}, 'docs(demo-01-01): summary');
+    const v = evaluateMnBlastRadius({ projectDir: appDir, args: [app.phaseNumber] }).payload;
+    assert.deepEqual(undeclaredPaths(v), ['libs/demo/stray.ts']);
+    assert.equal(v.matched, 1);
   });
 
-  test('a purely numeric scope is ambiguous and pulls in no siblings', () => {
-    writePlan('01-01-PLAN.md', ['src/declared.ts']);
-    commit({}, 'docs(01): plan');
-    commit({ 'src/elsewhere.ts': '1\n' }, 'feat(01): another project\'s phase 01');
+  // ── no task commits yet: the degraded phase window, then the working tree ─
+
+  test('a committed phase with no SUMMARY yet is judged on the phase window, flagged degraded', () => {
+    writePlan('01-01-PLAN.md', ['src/a.ts']);
+    commit({}, 'docs(01-01): plan');
+    commit({ 'src/a.ts': '1\n', 'src/b.ts': '1\n' }, 'feat(01-01): a and b');
     const v = gate();
-    assert.equal(v.block, false, 'a bare 01 scope must not glue unrelated work onto the phase');
+    assert.equal(v.scopeStatus, 'degraded');
+    assert.equal(v.scopeSource, 'phase-range');
+    assert.equal(v.scopeReason, 'no-summary');
+    assert.deepEqual(undeclaredPaths(v), ['src/b.ts']);
   });
 
   test('a committed phase ignores uncommitted edits in the tree', () => {
     // Measured: a dirty tree put the same 5-7 "undeclared" files into all nine phases of a project.
     commit({ 'src/someone-elses.ts': '1\n' }, 'chore: seed');
     writePlan('01-01-PLAN.md', ['src/a.ts']);
-    commit({ 'src/a.ts': '1\n' }, 'feat(01): a');
+    commit({}, 'docs(01-01): plan');
+    summarize([commit({ 'src/a.ts': '1\n' }, 'feat(01-01): a')]);
     fs.writeFileSync(path.join(repo, 'src', 'someone-elses.ts'), '2\n');
     const v = gate();
     assert.equal(v.workingTreeIncluded, false);
@@ -213,37 +260,54 @@ describe('check mn-blast-radius (real git)', () => {
     writePlan('01-01-PLAN.md', ['src/declared.ts']);
     fs.writeFileSync(path.join(repo, 'src', 'tracked.ts'), '2\n');
     const v = gate();
+    assert.equal(v.scopeStatus, 'working-tree');
     assert.equal(v.workingTreeIncluded, true);
     assert.deepEqual(undeclaredPaths(v), ['src/tracked.ts']);
   });
 
+  // ── --base: only what came after <ref>, plus the uncommitted tree ─────────
+
+  test('--base judges the commits after <ref> and the dirty tree', () => {
+    writePlan('01-01-PLAN.md', ['src/declared.ts']);
+    commit({}, 'docs(01-01): plan');
+    commit({ 'src/early.ts': '1\n' }, 'feat(01-01): before the base');
+    const base = runGit(['rev-parse', 'HEAD'], { cwd: repo }).stdout.trim();
+    commit({ 'src/declared.ts': '1\n' }, 'feat(01-01): after the base');
+    const v = gate(['--base', base]);
+    assert.equal(v.block, false, JSON.stringify(v.undeclared));
+    assert.equal(v.workingTreeIncluded, true);
+
+    fs.writeFileSync(path.join(repo, 'src', 'early.ts'), '2\n');
+    assert.deepEqual(undeclaredPaths(gate(['--base', base])), ['src/early.ts']);
+  });
+
   // ── volume reports, never blocks (unless asked) ───────────────────────────
 
-  test('over a --max-files budget is reported but does not block', () => {
+  function twoDeclaredFiles() {
     writePlan('01-01-PLAN.md', ['src/a.ts', 'src/b.ts']);
-    commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n' }, 'feat(01): two');
-    const v = gate(['--base', 'HEAD~1', '--max-files', '1']);
+    commit({}, 'docs(01-01): plan');
+    summarize([commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n' }, 'feat(01-01): two')]);
+  }
+
+  test('over a --max-files budget is reported but does not block', () => {
+    twoDeclaredFiles();
+    const v = gate(['--max-files', '1']);
     assert.equal(v.block, false, 'size alone is not a defect');
     assert.deepEqual(v.overBudget, { files: true, lines: false });
   });
 
   test('a budget exactly met is within budget; one over is over', () => {
-    writePlan('01-01-PLAN.md', ['src/a.ts', 'src/b.ts']);
-    commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n' }, 'feat(01): two');
-    assert.equal(gate(['--base', 'HEAD~1', '--max-files', '3']).overBudget.files, false, 'limit+1 budget');
-    assert.equal(gate(['--base', 'HEAD~1', '--max-files', '2']).overBudget.files, false, 'limit');
-    assert.equal(gate(['--base', 'HEAD~1', '--max-files', '1']).overBudget.files, true, 'limit-1 budget');
-    assert.equal(gate(['--base', 'HEAD~1', '--max-lines', '2']).overBudget.lines, false);
-    assert.equal(gate(['--base', 'HEAD~1', '--max-lines', '1']).overBudget.lines, true);
+    twoDeclaredFiles();
+    assert.equal(gate(['--max-files', '3']).overBudget.files, false, 'limit+1 budget');
+    assert.equal(gate(['--max-files', '2']).overBudget.files, false, 'limit');
+    assert.equal(gate(['--max-files', '1']).overBudget.files, true, 'limit-1 budget');
+    assert.equal(gate(['--max-lines', '2']).overBudget.lines, false);
+    assert.equal(gate(['--max-lines', '1']).overBudget.lines, true);
   });
 
   test('--strict-budget turns an over-budget phase into a finding, even before the phase', () => {
-    writePlan('01-01-PLAN.md', ['src/a.ts', 'src/b.ts']);
-    commit({ 'src/a.ts': '1\n', 'src/b.ts': '2\n' }, 'feat(01): two');
-    const v = evaluateMnBlastRadius({
-      projectDir: repo,
-      args: ['--strict-budget', phaseNumber, '--base', 'HEAD~1', '--max-files', '1'],
-    }).payload;
+    twoDeclaredFiles();
+    const v = evaluateMnBlastRadius({ projectDir: repo, args: ['--strict-budget', phaseNumber, '--max-files', '1'] }).payload;
     assert.equal(v.block, true);
     assert.equal(v.status, 'finding');
   });
@@ -252,7 +316,8 @@ describe('check mn-blast-radius (real git)', () => {
 
   test('gsd_run check mn-blast-radius "${PHASE_DIR}" prints the verdict', () => {
     writePlan('01-01-PLAN.md', ['src/declared.ts']);
-    commit({ 'src/undeclared.ts': '1\n' }, 'feat(01): stray with plan');
+    commit({}, 'docs(01-01): plan');
+    summarize([commit({ 'src/undeclared.ts': '1\n' }, 'feat(01-01): stray')]);
     const payload = runMnCheck(repo, 'mn-blast-radius', [path.relative(repo, phaseDir)]);
     assert.equal(payload.block, true);
     assert.deepEqual(payload.undeclared.map((u) => u.path), ['src/undeclared.ts']);
@@ -273,40 +338,29 @@ describe('check mn-blast-radius (injected git)', () => {
   });
 
   const options = { maxFiles: 0, maxLines: 0, strictBudget: false };
+  const ok = (stdout) => ({ exitCode: 0, stdout, stderr: '', signal: null, error: null, timedOut: false });
+  const fail = (exitCode, timedOut = false) => ({ exitCode, stdout: '', stderr: 'boom', signal: null, error: null, timedOut });
 
-  /** A fake git answering by the first argv words; anything unlisted fails. */
-  function fakeGit(answers) {
-    return (args) => {
-      const key = args.slice(0, 2).join(' ');
-      if (key === 'rev-parse --show-toplevel') return { ok: true, stdout: `${projectDir}\n`, stderr: '' };
-      const answer = answers[key];
-      return answer === undefined ? { ok: false, stdout: '', stderr: `unexpected git ${args.join(' ')}` } : answer;
-    };
-  }
-
-  test('a git command that fails mid-selection is unresolvable, never a pass', () => {
-    const v = computeBlastRadius(projectDir, phaseDir, options, fakeGit({
-      'log --format=%H': { ok: true, stdout: 'abc\n', stderr: '' },
-    })).payload;
+  test('a non-repository is unresolvable before anything else is read', () => {
+    const v = computeBlastRadius(projectDir, phaseDir, options, () => fail(128)).payload;
     assert.equal(v.status, 'unresolvable');
   });
 
-  test('merge numstat and brace renames are folded into target paths', () => {
-    const v = computeBlastRadius(projectDir, phaseDir, options, fakeGit({
-      'log --format=%H': { ok: true, stdout: 'abc\n', stderr: '' },
-      'log -1': { ok: true, stdout: 'docs: plan\n', stderr: '' },
-      'show --format=': { ok: true, stdout: '3\t1\tsrc/{old => a}.ts\n-\t-\tsrc/bin.png\n', stderr: '' },
-    })).payload;
-    assert.deepEqual(v.undeclared.map((u) => [u.path, u.added, u.deleted]), [['src/bin.png', 0, 0]]);
-    assert.equal(v.matched, 1);
+  test('a git that times out inside the resolver is unresolvable, never a pass', () => {
+    const runner = (args) => (args[0] === 'rev-parse' && args[1] === '--show-toplevel' ? ok(projectDir) : fail(1, true));
+    const v = computeBlastRadius(projectDir, phaseDir, options, runner).payload;
+    assert.equal(v.status, 'unresolvable');
+    assert.equal(v.scopeStatus, 'unresolvable');
   });
 
-  test('a failing anchor lookup degrades to the working tree, as before', () => {
-    const v = computeBlastRadius(projectDir, phaseDir, options, fakeGit({
-      'diff --numstat': { ok: true, stdout: '1\t0\tsrc/a.ts\n', stderr: '' },
-    })).payload;
-    assert.equal(v.workingTreeIncluded, true);
-    assert.equal(v.block, false);
+  test('foldNumstat folds brace renames to the target and binary counts to zero', () => {
+    const stats = new Map();
+    foldNumstat('3\t1\tsrc/{old => a}.ts\n-\t-\tsrc/bin.png\n2\t0\tdocs/x.md => docs/y.md\nnot a numstat line\n', stats);
+    assert.deepEqual([...stats], [
+      ['src/a.ts', { added: 3, deleted: 1 }],
+      ['src/bin.png', { added: 0, deleted: 0 }],
+      ['docs/y.md', { added: 2, deleted: 0 }],
+    ]);
   });
 });
 
