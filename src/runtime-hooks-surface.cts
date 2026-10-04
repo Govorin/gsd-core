@@ -44,6 +44,7 @@ import {
   resolveHookScripts,
   buildHookBusEntries,
 } from './host-integration-adapters/imperative-hook-bus.cjs';
+import { findWorktreeCreateHook } from './worktree-base-ref.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import shellCmdProjection = require('./shell-command-projection.cjs');
 const {
@@ -3029,8 +3030,7 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
     // permissionDecision protocol the guards emit is Claude Code's. The pin is
     // registered on SessionStart alone: Claude Code re-fires SessionStart with
     // source "compact" after a compaction, and PostCompact cannot add context.
-    // gsd-worktree-provision.js is deliberately absent — Claude's WorktreeCreate
-    // replaces worktree creation and that hook does not create one.
+    // gsd-worktree-provision.js owns WorktreeCreate + WorktreeRemove (below).
     if (FORK_ENFORCEMENT_RUNTIMES.has(runtime)) {
       // One literal buildHookCommand line per hook: tests/workflow-guard-registration
       // scans for exactly that shape.
@@ -3062,6 +3062,47 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
         } else if (!present && !fs.existsSync(file)) {
           console.warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
         }
+      }
+
+      // gsd-worktree-provision.js on WorktreeCreate + WorktreeRemove. A
+      // WorktreeCreate hook REPLACES Claude Code's `git worktree add`: it creates
+      // the checkout (from local HEAD) and prints its path. WorktreeRemove is its
+      // pair — the harness never deletes a branch a hook created. Registered in
+      // settings.json, not the plugin hooks.json: the hooks reference documents
+      // these events for settings files only. All matching hooks run in
+      // parallel, so a second creator would race this one for the same
+      // worktree: a WorktreeCreate handler that is not ours — in the settings
+      // being written, or in either settings layer beside it on disk
+      // (findWorktreeCreateHook, which exempts this hook) — means the user owns
+      // creation, and neither event is claimed. An unparseable layer counts:
+      // a creator in it cannot be ruled out.
+      const worktreeProvisionCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-worktree-provision.js', hookOpts) : localCmd('gsd-worktree-provision.js');
+      const worktreeProvisionFile = path.join(targetDir, 'hooks', 'gsd-worktree-provision.js');
+      const handlersOf = (event: string): HookEntry[] =>
+        (Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []).flatMap((entry: HookGroup) =>
+          entry && Array.isArray(entry.hooks) ? entry.hooks : []
+        );
+      const isProvision = (h: HookEntry): boolean => referencesHook(h as Record<string, unknown>, 'gsd-worktree-provision');
+      const foreignCreators = handlersOf('WorktreeCreate').filter((h) => !isProvision(h));
+      const layerCreator = findWorktreeCreateHook(targetDir, undefined, null);
+      if (foreignCreators.length > 0 || layerCreator) {
+        const where = layerCreator ? layerCreator.file : 'the settings being written';
+        console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
+      } else if (!fs.existsSync(worktreeProvisionFile)) {
+        console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
+      } else if (worktreeProvisionCommand) {
+        const worktreeEvents: Array<{ event: string; timeout: number }> = [
+          { event: 'WorktreeCreate', timeout: FORK_WORKTREE_CREATE_TIMEOUT_S },
+          { event: 'WorktreeRemove', timeout: FORK_WORKTREE_REMOVE_TIMEOUT_S },
+        ];
+        let added = false;
+        for (const { event, timeout } of worktreeEvents) {
+          if (handlersOf(event).some(isProvision)) continue;
+          if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
+          settings.hooks[event].push({ hooks: [{ type: 'command', command: worktreeProvisionCommand, timeout }] });
+          added = true;
+        }
+        if (added) console.log(`  ${green}✓${reset} Configured worktree provisioning hook (WorktreeCreate from local HEAD + WorktreeRemove)`);
       }
     }
     // ── end mn fork enforcement hooks ──────────────────────────────────────────
@@ -3428,6 +3469,15 @@ const FORK_EXIT_GATE_TIMEOUT_S = 620;
 // one missing reminder, not a bypassed gate, so it keeps an advisory budget
 // rather than BLOCKING_GUARD_TIMEOUT_S.
 const FORK_PIN_TIMEOUT_S = 5;
+// gsd-worktree-provision.js on WorktreeCreate: `git worktree add` (bounded at
+// 120 s), then an optional install under its own 600 s cap, then — under the
+// strict policy — a rollback `git worktree remove` (120 s), plus headroom for
+// the git queries. A host timeout mid-creation would orphan a half-made
+// worktree, so the budget covers the hook's own worst case.
+const FORK_WORKTREE_CREATE_TIMEOUT_S = 900;
+// WorktreeRemove: one `git worktree remove --force` (120 s — it deletes
+// installed dependencies too) plus the branch-reachability queries.
+const FORK_WORKTREE_REMOVE_TIMEOUT_S = 180;
 
 const KIMI_BLOCKING_GUARD_NAMES: readonly string[] = BLOCKING_GUARD_NAMES.filter(
   (name) => !KIMI_UNREGISTERED_BLOCKING_GUARDS.includes(name),
@@ -3644,6 +3694,8 @@ export = {
   KIMI_UNREGISTERED_BLOCKING_GUARDS,
   KIMI_BLOCKING_GUARD_NAMES,
   FORK_BLOCKING_GUARD_NAMES,
+  FORK_WORKTREE_CREATE_TIMEOUT_S,
+  FORK_WORKTREE_REMOVE_TIMEOUT_S,
 
   // Shared
   stageTransitiveHookLibs,
