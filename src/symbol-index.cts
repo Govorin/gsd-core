@@ -439,13 +439,15 @@ function segmentStarts(code: string, open: number, close: number): number[] {
   return out;
 }
 
-function lineStarts(text: string): number[] {
+/** Offset of the first character of every line (`starts[0]` is 0). */
+export function lineStarts(text: string): number[] {
   const starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
   return starts;
 }
 
-function lineAt(starts: number[], offset: number): number {
+/** 1-based line number of `offset`, given `lineStarts(text)`. */
+export function lineAt(starts: number[], offset: number): number {
   let lo = 0;
   let hi = starts.length - 1;
   while (lo < hi) {

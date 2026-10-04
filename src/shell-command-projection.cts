@@ -702,7 +702,12 @@ export const GIT_STABLE_LOCALE_ENV: Readonly<Record<string, string>> = Object.fr
   LANGUAGE: '',
 });
 
-export function execGit(args: string[], opts: { cwd?: string; env?: Record<string, string>; timeout?: number } = {}): SpawnResultOutput {
+/**
+ * `maxBuffer` (bytes of stdout/stderr, Node's default 1 MiB) is for a caller whose output grows
+ * with the repository — a whole-window `git log --numstat`; an overflow kills git and arrives as
+ * `error.code === 'ENOBUFS'`.
+ */
+export function execGit(args: string[], opts: { cwd?: string; env?: Record<string, string>; timeout?: number; maxBuffer?: number } = {}): SpawnResultOutput {
   // Non-interactive defaults: a hung credential prompt or terminal-input
   // probe must surface as a timeout, not block the tool forever. The locale
   // is pinned so the text callers match on is git's untranslated text.
@@ -720,6 +725,7 @@ export function execGit(args: string[], opts: { cwd?: string; env?: Record<strin
     encoding: 'utf-8',
     stdio: 'pipe',
     timeout: opts.timeout ?? 10_000,
+    ...(opts.maxBuffer !== undefined ? { maxBuffer: opts.maxBuffer } : {}),
     windowsHide: true,
   });
   return _spawnResult(result, 'git');
