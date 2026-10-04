@@ -388,7 +388,7 @@ describe('SIZE: discuss-phase progressive disclosure (#717 byte budget)', () => 
   const SUBDIR = path.join(WORKFLOWS_DIR, 'discuss-phase');
 
   test('mode files exist for every documented mode', () => {
-    const expected = ['power', 'all', 'auto', 'chain', 'text', 'batch', 'analyze', 'default', 'advisor'];
+    const expected = ['power', 'all', 'auto', 'chain', 'text', 'batch', 'analyze', 'default', 'advisor', 'grill'];
     for (const mode of expected) {
       const p = path.join(SUBDIR, 'modes', `${mode}.md`);
       assert.ok(
@@ -432,9 +432,9 @@ describe('SIZE: discuss-phase progressive disclosure (#717 byte budget)', () => 
     );
   });
 
-  test('parent dispatches to all extracted modes (auto, chain, all, advisor)', () => {
+  test('parent dispatches to all extracted modes (auto, chain, all, advisor, grill)', () => {
     const parent = fs.readFileSync(path.join(WORKFLOWS_DIR, 'discuss-phase.md'), 'utf-8');
-    for (const mode of ['auto', 'chain', 'all', 'advisor']) {
+    for (const mode of ['auto', 'chain', 'all', 'advisor', 'grill']) {
       assert.ok(
         new RegExp(`discuss-phase/modes/${mode}\\.md`).test(parent),
         `Parent discuss-phase.md must reference workflows/discuss-phase/modes/${mode}.md`
