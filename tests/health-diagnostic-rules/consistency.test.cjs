@@ -301,11 +301,12 @@ describe("C004 — PLAN missing 'wave' in frontmatter", () => {
 
 describe('CONSISTENCY_RULES composition (matrix row 9)', () => {
   // #5118: W030 (a verification report `status` outside the closed set) is reused
-  // from phase-structure the same way W006/W007 are reused from roadmap-disk.
-  test('exactly W006, W007, W030, C001-C004 — 7 entries, no duplicates', () => {
+  // from phase-structure the same way W006/W007 are reused from roadmap-disk;
+  // the fork's W031 (the same defect with an unambiguous legacy value) with it.
+  test('exactly W006, W007, W030, W031, C001-C004 — 8 entries, no duplicates', () => {
     const codes = CONSISTENCY_RULES.map((r) => r.code).sort();
-    assert.deepEqual(codes, ['C001', 'C002', 'C003', 'C004', 'W006', 'W007', 'W030']);
-    assert.equal(new Set(codes).size, 7);
+    assert.deepEqual(codes, ['C001', 'C002', 'C003', 'C004', 'W006', 'W007', 'W030', 'W031']);
+    assert.equal(new Set(codes).size, 8);
   });
 });
 

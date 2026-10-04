@@ -3,7 +3,7 @@
 /**
  * Tests for `src/health-diagnostic-rules/phase-structure.cts` (Phase 11,
  * #3309, ADR-3180 §8.2/§8.3/§8.5) — the "Phase directory structure" rule
- * group: W005, W023, I001, W009.
+ * group: W005, W023, I001, W009, W030 (#5118) and the fork's W031.
  *
  * Design:       .gsd/phase/refactor-3309-health-diagnostic-rule-table/40-design.md
  *
@@ -294,41 +294,137 @@ describe('rule/severity 1:1 (§8.2 rule 1)', () => {
 //
 // MECHANICAL MUTATION of the rule's own positive fixture: the passing report
 // `makeCompletePhaseDir` writes, with its `status: passed` token replaced by
-// `verified` (#4817's real-world value). The owner (`isPhaseComplete`) keeps
-// its no-throw contract and the snapshot carries the typed error, so the rule
-// reports the file instead of health failing on the defect it diagnoses.
+// an out-of-set value. The owner (`isPhaseComplete`) keeps its no-throw
+// contract and the snapshot carries the typed error, so the rule reports the
+// file instead of health failing on the defect it diagnoses. `passed-degraded`
+// is a real legacy value (live-projects census, fork 3.4a): it could mean a
+// gap or an accepted degradation, so W030 proposes and never rewrites.
+// `verified` — the one unambiguous legacy value — is W031's, not W030's.
+
+function writeReport(cwd, status) {
+  baseFixture(cwd);
+  makeCompletePhaseDir(cwd, '.planning/phases/01-foo');
+  writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', `---\nstatus: ${status}\n---\n`);
+}
 
 describe('W030 — verification report status outside the closed set', () => {
-  test('MECHANICAL MUTATION: a report whose status is `verified` fires W030 naming the file and the accepted set', (t) => {
+  test('MECHANICAL MUTATION: a report whose status is `passed-degraded` fires W030 naming the file, the accepted set and the proposed value', (t) => {
     const cwd = createTempDir('gsd-5118-w030-');
     t.after(() => cleanup(cwd));
-    baseFixture(cwd);
-    makeCompletePhaseDir(cwd, '.planning/phases/01-foo');
-    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', '---\nstatus: verified\n---\n');
+    writeReport(cwd, 'passed-degraded');
 
     const snap = buildPlanningSnapshot(cwd);
     const diagnostics = ruleByCode['W030'].check(snap);
     assert.deepEqual(diagnostics.map((d) => d.code), ['W030']);
     assert.match(diagnostics[0].message, /01-VERIFICATION\.md/);
-    assert.match(diagnostics[0].message, /"verified"/);
+    assert.match(diagnostics[0].message, /"passed-degraded"/);
     assert.match(diagnostics[0].message, /passed \| gaps_found \| human_needed/);
     assert.equal(diagnostics[0].severity, 'warning');
     assert.equal(diagnostics[0].remedy.action, 'advise');
+    // The proposal rides as data: the gate-closing value first, `passed` as
+    // the owner's alternative, and the reason.
+    const { args } = diagnostics[0].remedy;
+    assert.equal(args.suggested, 'gaps_found');
+    assert.equal(args.alternative, 'passed');
+    assert.match(args.reason, /degradation/);
+    assert.match(args.file, /01-VERIFICATION\.md$/);
+    assert.match(args.command, /^Suggested: `status: gaps_found` \(or `passed`\) — /);
     // #2617: command surfaces are projected per runtime; the fix text names no
-    // command at all (a hardcoded `/gsd-...` would be wrong on Codex).
-    const remedyText = JSON.stringify(diagnostics[0].remedy);
-    assert.match(remedyText, /delete the report and re-run the phase verification/);
-    assert.doesNotMatch(remedyText, /\/gsd-|\$gsd-|gsd:/);
+    // command at all (a hardcoded `/gsd-...` would be wrong on Codex). Checked
+    // on the fix sentence — `args.file` is a path and may contain anything.
+    assert.match(args.command, /delete the report and re-run the phase verification/);
+    assert.doesNotMatch(args.command, /\/gsd-|\$gsd-|gsd:/);
+  });
+
+  test('every ambiguous legacy value from the live-projects census gets its own proposal', (t) => {
+    const expected = [
+      ['passed_with_human_verification', 'human_needed', 'passed'],
+      ['passed_with_open_checkpoint', 'human_needed', null],
+      ['passed-degraded', 'gaps_found', 'passed'],
+      ['PASS-WITH-FLAGS', 'gaps_found', 'passed'],
+    ];
+    for (const [status, suggested, alternative] of expected) {
+      const cwd = createTempDir('gsd-3-4a-w030-census-');
+      t.after(() => cleanup(cwd));
+      writeReport(cwd, status);
+      const [diagnostic, ...rest] = ruleByCode['W030'].check(buildPlanningSnapshot(cwd));
+      assert.deepEqual(rest, [], status);
+      assert.equal(diagnostic.remedy.args.suggested, suggested, status);
+      assert.equal(diagnostic.remedy.args.alternative, alternative, status);
+      assert.deepEqual(ruleByCode['W031'].check(buildPlanningSnapshot(cwd)), [], `${status} is not W031`);
+    }
+  });
+
+  test('a spelling variant of a closed-set member is proposed as that member, not rewritten', (t) => {
+    for (const [status, suggested] of [['Passed', 'passed'], ['gaps-found', 'gaps_found'], ['HUMAN NEEDED', 'human_needed'], ['Verified', 'passed']]) {
+      const cwd = createTempDir('gsd-3-4a-w030-variant-');
+      t.after(() => cleanup(cwd));
+      writeReport(cwd, status);
+      const [diagnostic] = ruleByCode['W030'].check(buildPlanningSnapshot(cwd));
+      assert.equal(diagnostic.remedy.args.suggested, suggested, status);
+      assert.equal(diagnostic.remedy.args.alternative, null, status);
+      assert.match(diagnostic.remedy.args.reason, /spelling variant/, status);
+    }
+  });
+
+  test('an unknown value carries no proposal and says the verdict must be read from the report', (t) => {
+    const cwd = createTempDir('gsd-3-4a-w030-unknown-');
+    t.after(() => cleanup(cwd));
+    writeReport(cwd, 'some_unknown_status');
+    const [diagnostic] = ruleByCode['W030'].check(buildPlanningSnapshot(cwd));
+    assert.equal(diagnostic.remedy.args.suggested, null);
+    assert.equal(diagnostic.remedy.args.reason, null);
+    assert.match(diagnostic.remedy.args.command, /^No known mapping for this value/);
+  });
+
+  test('`verified` is not W030 — it is the one unambiguous value, reported as W031', (t) => {
+    const cwd = createTempDir('gsd-3-4a-w030-verified-');
+    t.after(() => cleanup(cwd));
+    writeReport(cwd, 'verified');
+    assert.deepEqual(ruleByCode['W030'].check(buildPlanningSnapshot(cwd)), []);
   });
 
   test('baseline: an in-set status (passed / gaps_found / human_needed) produces no W030', (t) => {
     for (const status of ['passed', 'gaps_found', 'human_needed']) {
       const cwd = createTempDir(`gsd-5118-w030-neg-${status}-`);
       t.after(() => cleanup(cwd));
-      baseFixture(cwd);
-      makeCompletePhaseDir(cwd, '.planning/phases/01-foo');
-      writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', `---\nstatus: ${status}\n---\n`);
+      writeReport(cwd, status);
       assert.deepEqual(ruleByCode['W030'].check(buildPlanningSnapshot(cwd)), [], status);
+    }
+  });
+});
+
+// ─── W031 — unambiguous legacy verification status (fork 3.4a) ─────────────
+//
+// MECHANICAL MUTATION: the same passing report with `status: verified` — the
+// value six trade-mind and two ucars reports carry (live-projects census).
+
+describe('W031 — verification report carries an unambiguous legacy status', () => {
+  test('MECHANICAL MUTATION: `status: verified` fires W031 with a NONE-risk normalizeVerificationStatus remedy to `passed`', (t) => {
+    const cwd = createTempDir('gsd-3-4a-w031-');
+    t.after(() => cleanup(cwd));
+    writeReport(cwd, 'verified');
+
+    const diagnostics = ruleByCode['W031'].check(buildPlanningSnapshot(cwd));
+    assert.deepEqual(diagnostics.map((d) => d.code), ['W031']);
+    const [diagnostic] = diagnostics;
+    assert.equal(diagnostic.severity, 'warning');
+    assert.match(diagnostic.message, /01-VERIFICATION\.md/);
+    assert.match(diagnostic.message, /legacy status "verified"/);
+    assert.deepEqual(
+      { action: diagnostic.remedy.action, risk: diagnostic.remedy.risk, from: diagnostic.remedy.args.from, to: diagnostic.remedy.args.to },
+      { action: 'normalizeVerificationStatus', risk: 'none', from: 'verified', to: 'passed' },
+    );
+    assert.match(diagnostic.remedy.args.file, /01-foo[\\/]01-VERIFICATION\.md$/);
+    assert.equal(ruleByCode['W031'].repairable, true);
+  });
+
+  test('baseline: in-set and ambiguous statuses produce no W031', (t) => {
+    for (const status of ['passed', 'gaps_found', 'human_needed', 'passed-degraded', 'Verified', 'VERIFIED']) {
+      const cwd = createTempDir('gsd-3-4a-w031-neg-');
+      t.after(() => cleanup(cwd));
+      writeReport(cwd, status);
+      assert.deepEqual(ruleByCode['W031'].check(buildPlanningSnapshot(cwd)), [], status);
     }
   });
 });

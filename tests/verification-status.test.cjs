@@ -5053,8 +5053,11 @@ describe('#5118 D: every CLI surface translates the out-of-set error once, centr
     assert.equal(retry.exitCode, 0, `a corrected report must complete without waiting on a stale lock: ${retry.error}`);
   });
 
+  // `passed-degraded` (a real legacy value with more than one meaning) is the
+  // W030 case; `verified` — the one unambiguous legacy value — is reported as
+  // the repairable W031 instead (fork 3.4a, V37c).
   test('V37: validate health survives the out-of-set report, exits 0, and reports the file as W030', (t) => {
-    const bad = project(t, 'verified');
+    const bad = project(t, 'passed-degraded');
     const res = runGsdTools(['validate', 'health'], bad.projectDir);
     assert.equal(res.exitCode, 0, `health must not crash on the defect it diagnoses: ${res.error}`);
     const report = JSON.parse(res.output);
@@ -5065,7 +5068,7 @@ describe('#5118 D: every CLI surface translates the out-of-set error once, centr
   });
 
   test('V37b: validate consistency survives the out-of-set report, exits 0, and reports W030', (t) => {
-    const bad = project(t, 'verified');
+    const bad = project(t, 'passed-degraded');
     const res = runGsdTools(['validate', 'consistency'], bad.projectDir);
     assert.equal(res.exitCode, 0, `consistency must not crash on the defect it diagnoses: ${res.error}`);
     const report = JSON.parse(res.output);
@@ -5075,6 +5078,18 @@ describe('#5118 D: every CLI surface translates the out-of-set error once, centr
     const control = project(t, 'passed');
     const clean = JSON.parse(runGsdTools(['validate', 'consistency'], control.projectDir).output);
     assert.equal((clean.warnings || []).some((w) => w.code === 'W030'), false, 'control: no W030 on an in-set report');
+  });
+
+  test('V37c: `status: verified` survives health and consistency (exit 0) as the repairable W031, not W030', (t) => {
+    const bad = project(t, 'verified');
+    for (const command of ['health', 'consistency']) {
+      const res = runGsdTools(['validate', command], bad.projectDir);
+      assert.equal(res.exitCode, 0, `${command}: ${res.error}`);
+      const report = JSON.parse(res.output);
+      const codes = (report.warnings || []).map((w) => w.code);
+      assert.equal(codes.filter((c) => c === 'W031').length, 1, `${command}: ${JSON.stringify(report.warnings)}`);
+      assert.equal(codes.includes('W030'), false, `${command}: ${JSON.stringify(report.warnings)}`);
+    }
   });
 });
 

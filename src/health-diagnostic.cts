@@ -112,7 +112,9 @@ const CONSISTENCY_RULES: Rule[] = [
   // #5118: W030 (a verification report status outside the closed set) is
   // REUSED too — the snapshot carries the error, and a diagnostics surface
   // reports it as a finding instead of failing on the defect it diagnoses.
-  ...phaseStructureMod.RULES.filter((r) => r.code === 'W030'),
+  // W031 (the fork's legacy-synonym status) rides with it: the same report
+  // defect, split only by whether `--repair` may rewrite it.
+  ...phaseStructureMod.RULES.filter((r) => r.code === 'W030' || r.code === 'W031'),
   ...consistencyMod.RULES,
 ];
 
@@ -135,7 +137,7 @@ import stateMod = require('./state.cjs');
 const { writeStateMd, assertVerificationReportsReadable } = stateMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import frontmatter = require('./frontmatter.cjs');
-const { extractFrontmatter } = frontmatter;
+const { extractFrontmatter, spliceFrontmatter } = frontmatter;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import stateTransitionMod = require('./state-transition.cjs');
 const { rebuildStateTransaction } = stateTransitionMod;
@@ -173,7 +175,7 @@ function evaluateRules(snapshot: PlanningSnapshot): Diagnostic[] {
 }
 
 /**
- * Evaluate `CONSISTENCY_RULES` (W006/W007/W030 + C001-C004) against `snapshot` —
+ * Evaluate `CONSISTENCY_RULES` (W006/W007/W030/W031 + C001-C004) against `snapshot` —
  * `validate.consistency`'s evaluator entry point, mirroring `evaluateRules`
  * exactly but over the smaller, command-specific rule subset.
  */
@@ -319,7 +321,8 @@ interface RepairOutcome {
  * shape, collapsed to one seam here since every case now shares one
  * caller).
  */
-function runRepairAction(cwd: string, action: RemedyAction, paths: RepairPaths): RepairOutcome {
+function runRepairAction(cwd: string, remedy: Remedy, paths: RepairPaths): RepairOutcome {
+  const { action, args } = remedy;
   const { rootBase, configPath, statePath, milestonesPath, milestonesArchiveDir } = paths;
 
   switch (action) {
@@ -423,6 +426,34 @@ function runRepairAction(cwd: string, action: RemedyAction, paths: RepairPaths):
       return { success: true, detail: `Backfilled ${backfilled} milestone(s) into MILESTONES.md` };
     }
 
+    case REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS: {
+      // W031: one report, one scalar. The file comes from the snapshot's own
+      // phase scan; it is still contained to `.planning/` before the write,
+      // and the value is re-read so a report edited since the check is left
+      // alone. `spliceFrontmatter` keeps every other key's text and the body.
+      const file = String(args['file']);
+      const from = String(args['from']);
+      const to = String(args['to']);
+      const rel = path.relative(cwd, file).split(path.sep).join('/');
+      const inside = path.relative(rootBase, file);
+      if (inside.startsWith('..') || path.isAbsolute(inside)) {
+        return { success: false, path: rel, error: `not applied: ${rel} is outside the planning directory` };
+      }
+      const content = fs.readFileSync(file, 'utf-8');
+      const fm = extractFrontmatter(content, file) as Record<string, unknown>;
+      const raw = fm['status'];
+      const current = typeof raw === 'string' ? raw.trim() : raw;
+      if (current !== from) {
+        return {
+          success: false,
+          path: rel,
+          error: `not applied: status is now ${JSON.stringify(current)}, not ${JSON.stringify(from)} — re-run the health check`,
+        };
+      }
+      platformWriteSync(file, spliceFrontmatter(content, { ...fm, status: to }));
+      return { success: true, path: rel, detail: `status: ${from} -> ${to}` };
+    }
+
     default:
       return { success: false, error: `no repair handler registered for action "${action}"` };
   }
@@ -517,7 +548,7 @@ function applyRepairs(
     }
 
     try {
-      const outcome = runRepairAction(cwd, remedy.action, paths);
+      const outcome = runRepairAction(cwd, remedy, paths);
       if (outcome.extraDetails) {
         for (const extra of outcome.extraDetails) {
           details.push({ code, action: extra.action, success: extra.success, ...(extra.path ? { path: extra.path } : {}) });

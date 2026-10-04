@@ -3,7 +3,8 @@
  * ADR-3180 §8.2/§8.3/§8.5).
  *
  * Group: "Phase directory structure" (design doc, "Rule table organization"
- * table) — W005, W023, I001, W009, and W030 (#5118).
+ * table) — W005, W023, I001, W009, W030 (#5118), and the fork's W031 (a
+ * legacy status with exactly one meaning, repairable).
  *
  * Ported behavior-preserving from `cmdValidateHealth`
  * (`src/verify.cts:1893-1990`, the exact call sites for W005/W023/I001/W009),
@@ -47,7 +48,7 @@ type PlanningSnapshot = ReturnType<typeof planningSnapshotMod.buildPlanningSnaps
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import healthDiagnosticMod = require('../health-diagnostic-types.cjs');
-const { SEVERITY, adviseRemedy } = healthDiagnosticMod;
+const { SEVERITY, REMEDY_ACTION, REMEDY_RISK, adviseRemedy } = healthDiagnosticMod;
 type Diagnostic = healthDiagnosticMod.Diagnostic;
 type Rule = healthDiagnosticMod.Rule;
 
@@ -64,6 +65,12 @@ const { isPhaseDirName } = validateMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseIdMod = require('../phase-id.cjs');
 const { extractPhaseToken, normalizePhaseName, comparePhaseNum } = phaseIdMod;
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import verificationMod = require('../verification.cjs');
+// The closed set the reader accepts — W030 folds a spelling variant onto it.
+const { VERIFIER_STATUSES } = verificationMod;
+type VerifierStatus = verificationMod.VerifierStatus;
 
 // #5060: the Phase Status Module owns the status-label ladder.
 import { phaseStatusFromFacts, toDisplayLabel } from '../phase-status.cjs';
@@ -183,6 +190,94 @@ function checkW009(snapshot: PlanningSnapshot): Diagnostic[] {
   return diagnostics;
 }
 
+// ─── Legacy report statuses — what each one should become ──────────────────
+//
+// Reports written before the closed set (#4817/#5118) carry values the reader
+// now refuses. The owner of each phase decides what a report meant; health
+// can only say what the value most likely meant and why. Exactly one entry is
+// unambiguous: `verified` is the old spelling of `passed` — same verdict, no
+// judgement to make — so it alone becomes W031, which `--repair` rewrites.
+// Every other value is W030 with a proposal. Where a value could mean either
+// a pass or something still open, the proposal is the value that keeps the
+// gate closed (`gaps_found` / `human_needed`), and `passed` is named as the
+// alternative the owner may pick after reading the report.
+
+interface StatusProposal {
+  suggested: VerifierStatus;
+  alternative: VerifierStatus | null;
+  reason: string;
+}
+
+const UNAMBIGUOUS_LEGACY_STATUSES: ReadonlyMap<string, { to: VerifierStatus; reason: string }> = new Map([
+  ['verified', { to: 'passed', reason: 'the pre-closed-set spelling of `passed` — the same verdict' }],
+]);
+
+const AMBIGUOUS_LEGACY_STATUSES: ReadonlyMap<string, StatusProposal> = new Map<string, StatusProposal>([
+  ['passed_with_human_verification', {
+    suggested: 'human_needed',
+    alternative: 'passed',
+    reason: 'the report asks for a human check; `passed` only if that check has already been done',
+  }],
+  ['passed_with_open_checkpoint', {
+    suggested: 'human_needed',
+    alternative: null,
+    reason: 'an open checkpoint is waiting on a person',
+  }],
+  ['passed-degraded', {
+    suggested: 'gaps_found',
+    alternative: 'passed',
+    reason: 'a degradation is a gap; `passed` only if the degradation was accepted',
+  }],
+  ['PASS-WITH-FLAGS', {
+    suggested: 'gaps_found',
+    alternative: 'passed',
+    reason: 'the flags may be gaps or accepted notes; `passed` only if every flag was accepted',
+  }],
+]);
+
+/**
+ * The proposal for an out-of-set value that is not unambiguous: a known
+ * legacy value, or a spelling variant of a closed-set member (`Passed`,
+ * `gaps-found`) — a variant is still a proposal, not a rewrite, because the
+ * reader rejects it on purpose (#4817) and the owner confirms it. `null` when
+ * nothing is known about the value.
+ */
+function proposeVerificationStatus(raw: unknown): StatusProposal | null {
+  if (typeof raw !== 'string') return null;
+  const known = AMBIGUOUS_LEGACY_STATUSES.get(raw);
+  if (known) return known;
+  const folded = raw.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  const legacy = UNAMBIGUOUS_LEGACY_STATUSES.get(folded);
+  if (legacy) {
+    return {
+      suggested: legacy.to,
+      alternative: null,
+      reason: `a spelling variant of \`${folded}\`, ${legacy.reason}; confirm that is what the report means`,
+    };
+  }
+  if ((VERIFIER_STATUSES as ReadonlySet<string>).has(folded)) {
+    return {
+      suggested: folded as VerifierStatus,
+      alternative: null,
+      reason: `a spelling variant of \`${folded}\`; confirm that is what the report means`,
+    };
+  }
+  return null;
+}
+
+function unambiguousNormalization(raw: unknown): { to: VerifierStatus; reason: string } | null {
+  return typeof raw === 'string' ? UNAMBIGUOUS_LEGACY_STATUSES.get(raw) ?? null : null;
+}
+
+const W030_RECOVERY =
+  'Set the report frontmatter `status` to one of passed | gaps_found | human_needed, or delete the report and re-run the phase verification';
+
+function w030Fix(proposal: StatusProposal | null): string {
+  if (!proposal) return `No known mapping for this value — read the report and pick the verdict it records. ${W030_RECOVERY}`;
+  const alternative = proposal.alternative ? ` (or \`${proposal.alternative}\`)` : '';
+  return `Suggested: \`status: ${proposal.suggested}\`${alternative} — ${proposal.reason}. ${W030_RECOVERY}`;
+}
+
 // ─── W030 — verification report status outside the closed set (#5118) ─────
 //
 // `isPhaseComplete` absorbs an out-of-set report `status` (its no-throw
@@ -190,20 +285,64 @@ function checkW009(snapshot: PlanningSnapshot): Diagnostic[] {
 // diagnostics surface must survive the defect it diagnoses, so health reports
 // the file instead of failing with `verification_status_invalid` like the
 // query surfaces do: `validate health` (exit 0) lists each such report as one
-// W030 finding, built from the error the snapshot carries.
+// W030 finding, built from the error the snapshot carries. The fix names the
+// proposed value and why; an unambiguous legacy value is W031 instead.
 
 function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const phase of snapshot.phases.value) {
     const invalid = phase.verificationStatusError;
-    if (!invalid) continue;
+    if (!invalid || unambiguousNormalization(invalid.rawStatus)) continue;
+    const proposal = proposeVerificationStatus(invalid.rawStatus);
+    const advice = adviseRemedy(w030Fix(proposal));
+    // The proposal also rides as data, so a caller migrating reports reads
+    // the suggestion instead of parsing the fix sentence.
+    const remedy = {
+      ...advice,
+      args: {
+        ...advice.args,
+        file: invalid.file,
+        suggested: proposal ? proposal.suggested : null,
+        alternative: proposal ? proposal.alternative : null,
+        reason: proposal ? proposal.reason : null,
+      },
+    };
     diagnostics.push({
       code: 'W030',
       severity: SEVERITY.WARNING,
       message: `Phase ${phase.dir}: ${invalid.message}`,
-      remedy: adviseRemedy(
-        'Set the report frontmatter `status` to one of passed | gaps_found | human_needed, or delete the report and re-run the phase verification',
-      ),
+      remedy,
+    });
+  }
+  return diagnostics;
+}
+
+// ─── W031 — verification report carries an unambiguous legacy status ───────
+//
+// The one case with no judgement in it: the value is a legacy spelling of a
+// closed-set member. `--repair` rewrites the frontmatter `status` scalar only
+// (`normalizeVerificationStatus`, `health-diagnostic.cts`), leaving every
+// other key and the report body byte-identical.
+
+function checkW031(snapshot: PlanningSnapshot): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  for (const phase of snapshot.phases.value) {
+    const invalid = phase.verificationStatusError;
+    if (!invalid) continue;
+    const normalization = unambiguousNormalization(invalid.rawStatus);
+    if (!normalization) continue;
+    const from = invalid.rawStatus as string;
+    diagnostics.push({
+      code: 'W031',
+      severity: SEVERITY.WARNING,
+      message:
+        `Phase ${phase.dir}: verification report ${JSON.stringify(invalid.file)} has legacy status ` +
+        `${JSON.stringify(from)} — ${normalization.reason}; the closed set spells it \`${normalization.to}\``,
+      remedy: {
+        action: REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS,
+        risk: REMEDY_RISK.NONE,
+        args: { file: invalid.file, from, to: normalization.to },
+      },
     });
   }
   return diagnostics;
@@ -246,6 +385,13 @@ const RULES: Rule[] = [
     description: 'Phase verification report status is outside the closed set',
     repairable: false,
     check: checkW030,
+  },
+  {
+    code: 'W031',
+    severity: SEVERITY.WARNING,
+    description: 'Phase verification report status is a legacy synonym of a closed-set value (`verified`)',
+    repairable: true,
+    check: checkW031,
   },
 ];
 

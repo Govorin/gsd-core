@@ -1,6 +1,6 @@
 # How to recover from an invalid verification status
 
-**Goal:** Get a phase passing again when a command fails with `verification_status_invalid`, `/gsd-health` reports `W030`, or `verification status` answers `phase_dir_not_found`.
+**Goal:** Get a phase passing again when a command fails with `verification_status_invalid`, `/gsd-health` reports `W030` or `W031`, or `verification status` answers `phase_dir_not_found`.
 
 **Prerequisites:** A phase directory under `.planning/phases/` (the examples use `.planning/phases/01-foo`) and shell access to run `gsd-tools`.
 
@@ -20,20 +20,26 @@ Error: Verification report "/path/to/project/.planning/phases/01-foo/01-VERIFICA
 
 The command exits 1 and prints nothing to stdout. The value in the message is quoted, control characters are escaped, and it is cut at 120 characters.
 
-`/gsd-health` (`validate health`) reports the same file as warning `W030` and exits 0, so the check does not fail on the defect it diagnoses:
+`/gsd-health` (`validate health`) reports the same file as a warning and exits 0, so the check does not fail on the defect it diagnoses. For `verified` that warning is `W031` (see below); for any other value it is `W030`, here for `status: passed-degraded`:
 
 ```json
 {
   "code": "W030",
-  "message": "Phase 01-foo: Verification report \"/path/to/project/.planning/phases/01-foo/01-VERIFICATION.md\" has status \"verified\", which is outside the closed set — accepted values: passed | gaps_found | human_needed. ...",
-  "fix": "Set the report frontmatter `status` to one of passed | gaps_found | human_needed, or delete the report and re-run the phase verification",
+  "message": "Phase 01-foo: Verification report \"/path/to/project/.planning/phases/01-foo/01-VERIFICATION.md\" has status \"passed-degraded\", which is outside the closed set — accepted values: passed | gaps_found | human_needed. ...",
+  "fix": "Suggested: `status: gaps_found` (or `passed`) — a degradation is a gap; `passed` only if the degradation was accepted. Set the report frontmatter `status` to one of passed | gaps_found | human_needed, or delete the report and re-run the phase verification",
   "repairable": false
 }
 ```
 
 `W030` is not auto-fixable, so `/gsd-health --repair` leaves it in place. Open the file named in the message.
 
+For a value health recognizes, the `fix` starts with a proposal and its reason, as above. The proposal is the value that keeps the gate closed; the alternative is the one to pick when the report shows the work did pass. An unknown value says `No known mapping for this value` — read the report and pick the verdict it records.
+
 Legacy values fail the same way: `Passed`, `pending`, and `partial` are no longer folded into a known status.
+
+### `W031`: `status: verified`
+
+`verified` is the older spelling of `passed`, with no other meaning, so `/gsd-health` reports it as `W031` (`"repairable": true`) and `/gsd-health --repair` rewrites the report's frontmatter `status:` to `passed`. Nothing else in the file changes. If the report was edited after the check and no longer says `verified`, or its path is outside `.planning/`, the repair is skipped and listed as failed in `repairs_performed`.
 
 ---
 

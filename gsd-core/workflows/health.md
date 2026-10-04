@@ -250,6 +250,7 @@ Report final status.
 | W028 | warning | A GSD-owned install scope shadows another on this machine | No |
 | W029 | warning | .planning/ matches a gitignore rule but is still tracked by git (gitignore has no effect on already-tracked files) | No |
 | W030 | warning | Phase verification report status is outside the closed set | No |
+| W031 | warning | Phase verification report status is a legacy synonym of a closed-set value (`verified`) | Yes |
 | I001 | info | Plan without SUMMARY (may be in progress) | No |
 | I010 | info | Resolved CWD reported alongside the E010 home-directory guard | No |
 
@@ -266,6 +267,7 @@ Note: this table is **generated** — do not hand-edit it. It is produced by `no
 | addNyquistKey | Add workflow.nyquist_validation: true to config.json | None — matches existing default |
 | addAiIntegrationPhaseKey | Add workflow.ai_integration_phase: true to config.json | None — matches existing default |
 | backfillMilestones | Synthesize missing MILESTONES.md entries from `.planning/milestones/vX.Y-ROADMAP.md` snapshots | None — additive only; triggered by `--backfill` flag |
+| normalizeVerificationStatus | Rewrite a VERIFICATION report's frontmatter `status` from an unambiguous legacy synonym (`verified`) to its closed-set value (`passed`); other keys and the body are untouched | None — same verdict, closed-set spelling; a value with more than one meaning stays a W030 finding |
 
 **Not repairable (too risky):**
 - PROJECT.md, ROADMAP.md content

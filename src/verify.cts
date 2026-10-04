@@ -1858,6 +1858,8 @@ function repairFixText(slash: (name: string) => string, action: string): string 
       return `Run ${slash('health')} --repair to add key`;
     case REMEDY_ACTION.BACKFILL_MILESTONES:
       return `Run ${slash('health')} --backfill to synthesize missing entries from archive snapshots`;
+    case REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS:
+      return `Run ${slash('health')} --repair to rewrite the report's status to its closed-set value`;
     default:
       return '';
   }
