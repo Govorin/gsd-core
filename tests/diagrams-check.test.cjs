@@ -272,6 +272,11 @@ describe('gsd-tools diagrams check', () => {
       const r = runGsdTools(args, root);
       assert.equal(r.success, false, args.join(' '));
     }
+    // Review L5: a document that cannot be read is not a missing phase — the JSON error names
+    // what actually happened.
+    const missing = runGsdTools(['--json-errors', 'diagrams', 'check', '--file', 'docs/missing.md'], root);
+    assert.equal(missing.success, false);
+    assert.equal(JSON.parse(missing.error).reason, 'diagrams_source_unavailable');
     const empty = check('docs/a.md');
     assert.deepEqual([empty.diagram_count, empty.blocker_count, empty.scanned], [0, 0, 0], 'no diagram, no index walk');
   });

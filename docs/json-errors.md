@@ -187,7 +187,7 @@ caller, byte-identical to pre-#3912 behavior. See
 ### `error(message, reason)`
 
 `error()`'s `reason` argument now maps onto a declared outcome name (`USAGE`, `NO_INPUT`,
-`UNAVAILABLE`, `INTERNAL`, or `FAIL`) via a fixed table over all 27 `ERROR_REASON` members.
+`UNAVAILABLE`, `INTERNAL`, or `FAIL`) via a fixed table over all 28 `ERROR_REASON` members.
 
 - **Under `v1`, the mapping is recorded but never projected.** `error()` still throws
   `ExitError(1)` unconditionally, exactly as before — stderr and the exit code are byte-identical to
@@ -300,6 +300,12 @@ text (unstable).
 |------|-------------|
 | `graphify_no_graph` | Graphify query or diff when no graph has been built |
 | `graphify_invalid_query` | Graphify query with a malformed query string |
+
+### Diagrams errors
+
+| Code | When emitted |
+|------|-------------|
+| `diagrams_source_unavailable` | `diagrams check` when the `--file` document cannot be read or `--root` is not a directory — the check could not look |
 
 ### Hook / security errors
 

@@ -96,7 +96,7 @@ function routeDiagramsCommand({ args, cwd, raw, error, _diagramsCheck }: RouteDi
           ...(modeArg !== null ? { mode: modeArg } : {}),
         });
         if (!result.ok) {
-          error(`diagrams check: cannot look — ${result.message}`, ERROR_REASON.PHASE_NOT_FOUND);
+          error(`diagrams check: cannot look — ${result.message}`, ERROR_REASON.DIAGRAMS_SOURCE_UNAVAILABLE);
           return;
         }
         output(result, raw, `${dc.summaryText(result)}\n`);

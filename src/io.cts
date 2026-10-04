@@ -394,6 +394,9 @@ const ERROR_REASON = Object.freeze({
   // human_needed`) — verification.cts's VerificationStatusError, translated
   // once, centrally, by gsd-tools.cjs. Never read as "no result" at exit 0.
   VERIFICATION_STATUS_INVALID: 'verification_status_invalid',
+  // `diagrams check`: the document named by --file cannot be read, or --root is not a
+  // directory — the check could not look (review L5: was reported as phase_not_found).
+  DIAGRAMS_SOURCE_UNAVAILABLE: 'diagrams_source_unavailable',
   // generic
   USAGE: 'usage',
   UNKNOWN: 'unknown',
@@ -479,7 +482,7 @@ function formatDiagnosticToken(value: string): string {
 
 /**
  * Map an ERROR_REASON wire value onto a declared outcome name (#3912,
- * ADR-3889 §4). Closed over the 27-member enum: every reason gets an
+ * ADR-3889 §4). Closed over the 28-member enum: every reason gets an
  * explicit entry below, so a 28th member added without a mapping falls
  * through to the `?? 'FAIL'` default rather than silently mis-projecting —
  * and tests/A1 iterates `Object.values(ERROR_REASON)`, so that default is
@@ -538,6 +541,8 @@ const REASON_TO_OUTCOME: Readonly<Record<string, string>> = Object.freeze({
   // the reader accepts — a broken prerequisite of the query, the same shape
   // as SUMMARY_EXTRACT_UNPARSEABLE just above.
   [ERROR_REASON.VERIFICATION_STATUS_INVALID]: 'UNAVAILABLE',
+  // The diagrams check could not read what it was pointed at — a missing input, not a finding.
+  [ERROR_REASON.DIAGRAMS_SOURCE_UNAVAILABLE]: 'UNAVAILABLE',
 
   // Self-failure: the run itself broke, not its inputs.
   [ERROR_REASON.SDK_FAIL_FAST]: 'INTERNAL',
