@@ -624,10 +624,16 @@ absent = enabled applies, so the defaults below are the effective ones.
   `55ccdbdc2` (pre-existing: `BACKLOG.md` in the #2269 call-site sweep). **Lesson:**
   a branch's own test list is not enough for shipped-markdown or registry
   changes — run `test:affected` before handing a branch over.
-- **Open:** `emitted-attribution` against `upstream/next` reports the
-  `Emitted-Drift-Ack-Growth: gsd-executor.md` trailer of `b1b7c8401` as stale —
-  4.4 shrank the executor below upstream. The remedy the gate prints is amending
-  that commit; history is not rewritten here, and the grammar has no withdrawal.
+- **Ack lifecycle** (`73292af83`): `emitted-attribution` against `upstream/next`
+  reported the `Emitted-Drift-Ack-Growth: gsd-executor.md` trailer of `b1b7c8401`
+  as stale — 4.4 shrank the executor below upstream — and the only remedy was
+  amending that commit. **A long-lived fork's range is its whole history**, cited
+  by hash here and in tags, so an ack needs a lifecycle, not an amend: a later
+  commit carries `Emitted-Drift-Ack-Withdraw-<Kind>: <key> — <reason>`. Strict —
+  only an earlier, still-live ack of the same kind and key can be withdrawn; a
+  withdrawal acknowledges nothing. Rules: ADR-3942 fork amendment, CONTEXT.md
+  `RULESET.EMITTED_ATTRIBUTION.withdraw`. The executor ack is withdrawn by the
+  commit that records this entry.
 
 ### Long-lived state
 
