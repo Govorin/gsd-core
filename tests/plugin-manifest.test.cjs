@@ -914,17 +914,17 @@ describe('D: always-on hook contract drift guard', () => {
     assert.deepEqual(wiringOf(map, 'gsd-exit-gate.js'), [{ event: 'SubagentStop', matcher: '', timeout: EXIT_GATE_BUDGET_S }]);
   });
 
-  test('mn fork: gsd-worktree-provision.js is NOT wired on WorktreeCreate', () => {
-    // A Claude Code WorktreeCreate hook REPLACES `git worktree add`: the host
-    // uses the path the hook prints on stdout and fails creation when the hook
-    // prints none (hooks reference, "WorktreeCreate output"; upstream #4588
-    // relies on the same contract). gsd-worktree-provision.js equips a worktree
-    // that already exists and prints no path, so wiring it here would fail every
-    // `isolation: "worktree"` spawn. It ships (build-hooks, MANAGED_HOOKS) for a
-    // future wiring point; until then it stays out of the plugin manifest.
+  test('mn fork: gsd-worktree-provision.js is wired by the installer, not by the plugin manifest', () => {
+    // gsd-worktree-provision.js implements Claude Code's WorktreeCreate contract
+    // (it creates the worktree and prints its path) and is registered on
+    // WorktreeCreate/WorktreeRemove by the installer in settings.json
+    // (tests/install-minimal-hooks.test.cjs). The hooks reference documents
+    // those events for settings files only, so the plugin manifest must not
+    // claim them: a second WorktreeCreate creator would race the first.
     const map = buildHookMap();
     assert.deepEqual(wiringOf(map, 'gsd-worktree-provision.js'), []);
-    assert.equal(map.WorktreeCreate, undefined, 'no GSD hook may claim WorktreeCreate without creating the worktree');
+    assert.equal(map.WorktreeCreate, undefined, 'WorktreeCreate is registered through settings.json only');
+    assert.equal(map.WorktreeRemove, undefined, 'WorktreeRemove is registered through settings.json only');
   });
 });
 

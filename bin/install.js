@@ -9103,10 +9103,12 @@ function uninstall(isGlobal, runtime = DEFAULT_RUNTIME) {
     // Includes the 3 Qwen-only events added in #788 (SubagentStop, Stop,
     // PreCompact, also registered for Claude in #770), the 3 Antigravity-only
     // events added in #776 (BeforeAgent, AfterAgent, BeforeModel), and the
-    // Claude-only FileChanged event added in #770 — safe to iterate for all
-    // runtimes; installs that don't register these events simply find no
-    // entries and skip.
-    for (const eventName of ['SessionStart', 'PostToolUse', 'AfterTool', 'PreToolUse', 'BeforeTool', 'SubagentStop', 'Stop', 'PreCompact', 'BeforeAgent', 'AfterAgent', 'BeforeModel', 'FileChanged']) {
+    // Claude-only FileChanged event added in #770, and the mn fork's Claude-only
+    // WorktreeCreate/WorktreeRemove pair (gsd-worktree-provision.js — left
+    // behind, a WorktreeCreate entry pointing at a deleted script would fail
+    // every worktree creation) — safe to iterate for all runtimes; installs
+    // that don't register these events simply find no entries and skip.
+    for (const eventName of ['SessionStart', 'PostToolUse', 'AfterTool', 'PreToolUse', 'BeforeTool', 'SubagentStop', 'Stop', 'PreCompact', 'BeforeAgent', 'AfterAgent', 'BeforeModel', 'FileChanged', 'WorktreeCreate', 'WorktreeRemove']) {
       if (settings.hooks && settings.hooks[eventName]) {
         const before = JSON.stringify(settings.hooks[eventName]);
         settings.hooks[eventName] = settings.hooks[eventName]

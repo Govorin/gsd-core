@@ -1581,6 +1581,58 @@ describe('findWorktreeCreateHook (#4588)', () => {
     assert.deepStrictEqual(found, { file: LAYERS[0], kind: 'hook' });
   });
 
+  // mn fork: GSD's own gsd-worktree-provision.js creates the worktree from the invoking
+  // checkout's HEAD by construction, so it alone does not withhold the "head" trust.
+  const gsdHandler = { type: 'command', command: 'node "/home/user/.claude/hooks/gsd-worktree-provision.js"' };
+  const withCreate = (groups) => JSON.stringify({ hooks: { WorktreeCreate: groups } });
+
+  test('a layer holding only GSD\'s gsd-worktree-provision.js (string or args form) is not a finding', () => {
+    const argsForm = { type: 'command', command: 'node', args: ['/repo/.claude/hooks/gsd-worktree-provision.js'] };
+    for (const [label, groups] of [
+      ['string command', [{ hooks: [gsdHandler] }]],
+      ['args form', [{ hooks: [argsForm] }]],
+      ['two GSD groups', [{ hooks: [gsdHandler] }, { hooks: [argsForm] }]],
+    ]) {
+      const found = findWorktreeCreateHook(claudeDir, { readFile: settingsReader({ [LAYERS[1]]: withCreate(groups) }) }, USER_CLAUDE_DIR);
+      assert.strictEqual(found, null, label);
+    }
+  });
+
+  test('any other WorktreeCreate handler beside GSD\'s is still a finding — it could fork from anywhere', () => {
+    const foreign = { type: 'command', command: 'make-worktree.sh' };
+    for (const [label, groups] of [
+      ['same group', [{ hooks: [gsdHandler, foreign] }]],
+      ['separate group', [{ hooks: [gsdHandler] }, { hooks: [foreign] }]],
+      ['non-command handler naming the hook', [{ hooks: [{ type: 'http', url: 'http://x/gsd-worktree-provision.js' }] }]],
+      ['empty group beside GSD', [{ hooks: [gsdHandler] }, { hooks: [] }]],
+    ]) {
+      const found = findWorktreeCreateHook(claudeDir, { readFile: settingsReader({ [LAYERS[1]]: withCreate(groups) }) }, USER_CLAUDE_DIR);
+      assert.deepStrictEqual(found, { file: LAYERS[1], kind: 'hook' }, label);
+    }
+  });
+
+  test('GSD\'s hook in one layer does not hide a foreign hook in another', () => {
+    const found = findWorktreeCreateHook(claudeDir, {
+      readFile: settingsReader({
+        [LAYERS[1]]: withCreate([{ hooks: [gsdHandler] }]),
+        [LAYERS[2]]: HOOK_SETTINGS,
+      }),
+    }, USER_CLAUDE_DIR);
+    assert.deepStrictEqual(found, { file: LAYERS[2], kind: 'hook' });
+  });
+
+  test('worktree base-check keeps the "head" trust when the only WorktreeCreate hook is GSD\'s', () => {
+    const settings = JSON.stringify({ worktree: { baseRef: 'head' }, hooks: { WorktreeCreate: [{ hooks: [gsdHandler] }] } });
+    const result = cmdWorktreeBaseCheck('/repo', [], {
+      readFile: settingsReader({ [LAYERS[1]]: settings }),
+      write: () => {},
+      userClaudeDir: null,
+      execGit: () => { throw new Error('the trusted "head" verdict needs no git'); },
+    });
+    assert.strictEqual(result.shouldDegrade, false);
+    assert.strictEqual(result.reason, 'baseref-head');
+  });
+
   test('user/global layer is read only when userClaudeDir is given and differs from claudeDir (#4588)', () => {
     const readPaths = [];
     const readFile = (p) => { readPaths.push(p); return null; };

@@ -297,6 +297,26 @@ export function resolveEffectiveBaseRef(
   return null;
 }
 
+/** GSD's WorktreeCreate hook (mn fork): creates the worktree from the invoking checkout's HEAD. */
+const GSD_WORKTREE_PROVISION_HOOK = 'gsd-worktree-provision.js';
+
+/** A `command` handler whose command line (string or args form) runs GSD's provisioning hook. */
+function isGsdWorktreeProvisionHandler(handler: unknown): boolean {
+  if (handler === null || typeof handler !== 'object' || Array.isArray(handler)) return false;
+  const rec = handler as Record<string, unknown>;
+  if (rec.type !== undefined && rec.type !== 'command') return false;
+  const args: unknown[] = Array.isArray(rec.args) ? (rec.args as unknown[]) : [];
+  const parts: unknown[] = [rec.command, ...args];
+  return parts.some((part) => typeof part === 'string' && part.includes(GSD_WORKTREE_PROVISION_HOOK));
+}
+
+/** A hook group made up only of GSD provisioning handlers (an empty group is not one). */
+function isGsdWorktreeProvisionGroup(group: unknown): boolean {
+  if (group === null || typeof group !== 'object' || Array.isArray(group)) return false;
+  const handlers = (group as Record<string, unknown>).hooks;
+  return Array.isArray(handlers) && handlers.length > 0 && handlers.every(isGsdWorktreeProvisionHandler);
+}
+
 /**
  * Looks for a Claude Code `WorktreeCreate` hook in the settings layers that
  * resolveEffectiveBaseRef reads (#4588). Such a hook replaces the harness's own worktree
@@ -312,7 +332,8 @@ export function resolveEffectiveBaseRef(
  *   3. <userClaudeDir>/settings.json (only when provided and a different directory)
  *
  * Returns the first finding in that order, or null:
- *   - kind 'hook'        — `hooks.WorktreeCreate` is present and not an empty list.
+ *   - kind 'hook'        — `hooks.WorktreeCreate` is present and not an empty list, and is
+ *                          not solely GSD's own provisioning hook (below).
  *   - kind 'unparseable' — the file exists but is not valid JSON/JSONC. Fails closed: a hook
  *                          in it cannot be ruled out, and a false degrade costs a sequential
  *                          wave where false trust costs every executor halting at exit 42.
@@ -323,6 +344,14 @@ export function resolveEffectiveBaseRef(
  * hooks from managed policy settings, a --settings file, plugins, agent frontmatter and
  * SDK registrations; those stay invisible to this check, and the spawn-time exit-42 guard
  * remains the backstop for them.
+ *
+ * A layer whose WorktreeCreate entries are ALL GSD's own `gsd-worktree-provision.js` (the mn
+ * fork registers it there) is not a finding: that hook runs `git worktree add -b
+ * worktree-<name> <path> <HEAD sha>` from the invoking checkout, so the worktree forks from the
+ * orchestrator HEAD by construction — exactly what `"head"` asserts. This is attribution by
+ * the hook's identity, which the code fixes, not by a worktree left on disk (the inference
+ * #4921 rejects). Any other handler beside it still makes the layer a finding: all matching
+ * hooks run, and the other one could emit a directory forked from anywhere.
  */
 export function findWorktreeCreateHook(
   claudeDir: string,
@@ -356,6 +385,7 @@ export function findWorktreeCreateHook(
     if (hooks === null || typeof hooks !== 'object' || Array.isArray(hooks)) continue;
     const entry = (hooks as Record<string, unknown>).WorktreeCreate;
     if (entry == null || (Array.isArray(entry) && entry.length === 0)) continue;
+    if (Array.isArray(entry) && entry.every(isGsdWorktreeProvisionGroup)) continue;
     return { file, kind: 'hook' };
   }
   return null;

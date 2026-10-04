@@ -2646,8 +2646,48 @@ describe('enh-770: Claude install is idempotent for the new hook events', () => 
     // SessionStart re-fires with source "compact" after a compaction; PostCompact
     // cannot add context, so the pin is never registered there.
     assert.strictEqual(count('PostCompact', 'gsd-pin-invariants'), 0);
-    // WorktreeCreate replaces creation; the provisioning hook must never claim it.
-    assert.strictEqual(hooksForEvent(s2, 'WorktreeCreate').length, 0);
+    // The provisioning hook owns worktree creation and its paired cleanup.
+    assert.strictEqual(count('WorktreeCreate', 'gsd-worktree-provision'), 1);
+    assert.strictEqual(count('WorktreeRemove', 'gsd-worktree-provision'), 1);
+  });
+
+  test('mn fork: gsd-worktree-provision is the sole WorktreeCreate creator, with budgets covering its own worst case', () => {
+    const { FORK_WORKTREE_CREATE_TIMEOUT_S, FORK_WORKTREE_REMOVE_TIMEOUT_S } = require('../gsd-core/bin/lib/runtime-hooks-surface.cjs');
+    const s = install(false, 'claude', { installerMigrations: [] }).settings;
+    const handlers = (event) => (s.hooks[event] || []).flatMap((g) => g.hooks || []);
+    const create = handlers('WorktreeCreate');
+    const remove = handlers('WorktreeRemove');
+    assert.strictEqual(create.length, 1, 'two WorktreeCreate creators would race for one worktree');
+    assert.ok(String(create[0].command).includes('gsd-worktree-provision'));
+    assert.strictEqual(create[0].timeout, FORK_WORKTREE_CREATE_TIMEOUT_S);
+    assert.strictEqual(remove.length, 1);
+    assert.strictEqual(remove[0].timeout, FORK_WORKTREE_REMOVE_TIMEOUT_S);
+    // The hook's own worst case: worktree add 120 s + install 600 s + strict rollback 120 s.
+    assert.ok(FORK_WORKTREE_CREATE_TIMEOUT_S > 120 + 600 + 120, 'the host budget must outlast the hook');
+    assert.ok(FORK_WORKTREE_REMOVE_TIMEOUT_S > 120);
+  });
+
+  test('mn fork: a user-owned WorktreeCreate hook is left alone — neither worktree event is claimed', () => {
+    const own = { hooks: [{ type: 'command', command: 'bash ./make-svn-checkout.sh' }] };
+    const first = install(false, 'claude', { installerMigrations: [] });
+    first.settings.hooks.WorktreeCreate = [own];
+    delete first.settings.hooks.WorktreeRemove;
+    persistSettings(first.settingsPath, first.settings);
+    process.chdir(tmpDir);
+    const s = install(false, 'claude', { installerMigrations: [] }).settings;
+    assert.deepStrictEqual(s.hooks.WorktreeCreate, [own]);
+    assert.strictEqual(hooksForEvent(s, 'WorktreeRemove').filter((c) => String(c).includes('gsd-worktree-provision')).length, 0);
+  });
+
+  test('mn fork: a WorktreeCreate hook in the sibling settings layer also keeps both worktree events unclaimed', () => {
+    // A local install writes .claude/settings.local.json; Claude Code merges it
+    // with .claude/settings.json, so a creator there would race ours.
+    const shared = path.join(tmpDir, '.claude', 'settings.json');
+    persistSettings(shared, { hooks: { WorktreeCreate: [{ hooks: [{ type: 'command', command: 'bash ./make-svn-checkout.sh' }] }] } });
+    const result = install(false, 'claude', { installerMigrations: [] });
+    assert.notStrictEqual(result.settingsPath, shared, 'precondition: the install writes the other layer');
+    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeCreate').length, 0);
+    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeRemove').length, 0);
   });
 
   test('re-running after persisted first install does not duplicate FileChanged hook', () => {
@@ -2678,6 +2718,9 @@ describe('enh-770: Uninstall removes new hook event entries', () => {
 
     const result = install(false, 'claude', { installerMigrations: [] });
     persistSettings(result.settingsPath, result.settings);
+    // Precondition for the WorktreeCreate/WorktreeRemove half of the test below.
+    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeCreate').length, 1);
+    assert.strictEqual(hooksForEvent(result.settings, 'WorktreeRemove').length, 1);
   });
 
   afterEach(() => {
@@ -2690,7 +2733,9 @@ describe('enh-770: Uninstall removes new hook event entries', () => {
     const settingsPath = path.join(tmpDir, '.claude', 'settings.json');
     if (!fs.existsSync(settingsPath)) return; // file removed entirely is fine
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-    for (const event of ['SubagentStop', 'Stop', 'PreCompact', 'FileChanged']) {
+    // WorktreeCreate/WorktreeRemove (mn fork): an entry left pointing at the
+    // deleted hook script would fail every worktree creation after uninstall.
+    for (const event of ['SubagentStop', 'Stop', 'PreCompact', 'FileChanged', 'WorktreeCreate', 'WorktreeRemove']) {
       const cmds = hooksForEvent(settings, event);
       assert.strictEqual(cmds.length, 0,
         `After uninstall, ${event} should have 0 hooks; got: ${JSON.stringify(cmds)}`);

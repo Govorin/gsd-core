@@ -126,7 +126,12 @@
     "workflow.worktree_provision": {
       "type": "boolean",
       "default": false,
-      "description": "Equip a new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings.local.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js (WorktreeCreate); on runtimes without that event the existing dispatch path is unchanged."
+      "description": "Equip each new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings*.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind the main checkout than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js, which the installer registers on Claude Code's WorktreeCreate/WorktreeRemove: that hook replaces the harness's own creation whether or not this key is on — it creates <main checkout>/.claude/worktrees/<name> on branch worktree-<name> from the local HEAD (never a stale origin/HEAD) and copies .worktreeinclude files; this key adds the equipment. A failed equipment step warns on stderr unless workflow.worktree_provision_strict is on. Runtimes without that event keep their existing dispatch path."
+    },
+    "workflow.worktree_provision_strict": {
+      "type": "boolean",
+      "default": false,
+      "description": "Refuse the worktree when an equipment step fails (a tool-config or .worktreeinclude copy, the node_modules link, the install command) instead of warning on stderr. The half-equipped worktree and its branch are removed again before the hook exits non-zero, so a creation Claude Code reports as failed leaves nothing on disk. Off by default: an agent that may not need the missing piece is better served by a worktree than by none, and refusing isolation over an optional convenience is how people come to turn it off. Only consulted when workflow.worktree_provision is on."
     },
     "workflow.worktree_deps": {
       "type": "enum",
@@ -136,7 +141,7 @@
         "none"
       ],
       "default": "link",
-      "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree: the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it."
+      "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree (the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it) unless workflow.worktree_provision_strict is on."
     },
     "workflow.worktree_install_command": {
       "type": "string",

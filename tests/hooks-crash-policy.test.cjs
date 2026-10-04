@@ -19,9 +19,13 @@
  *                             call crash(ON_CRASH, ...) at all (no declared
  *                             policy) are t.skip()'d with an explicit reason
  *                             — never silently passed via a bare return.
+ *                             A row with `crashExit` (a hook whose protocol
+ *                             has no allow-on-crash) asserts that registered
+ *                             code instead.
  *   C4 stdin never closes   — spawn with no stdin input and never end it;
  *                             assert the process still terminates (via its
- *                             own bounded stdin-timeout -> allow()) instead
+ *                             own bounded stdin-timeout -> allow(), or the
+ *                             row's registered `stdinTimeoutExit`) instead
  *                             of hanging on the parent's outer spawn timeout.
  *
  * The table is the single source of truth: a guard test at the bottom
@@ -48,6 +52,7 @@ const { gitOrThrow, GIT_FIXTURE_TIMEOUT_MS } = require('./helpers/git-fixture.cj
 const { PROBE_TIMEOUT_MS, STAGED_HOOK_SCRIPT_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 const { ensureBuiltHooks } = require('../scripts/run-tests.cjs');
 const { BLOCKING_GUARD_PROBE_TIMEOUT_MS } = require('../hooks/lib/git-probe.js');
+const { exitCodeFor } = require('../hooks/lib/exit-code-registry.js');
 
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 
@@ -142,7 +147,17 @@ before(() => {
   const aigProject = tempDir('hooks-crash-aig-');
   fs.mkdirSync(path.join(aigProject, '.planning', 'config.json'), { recursive: true });
 
-  fixtures = { mainRepo, worktreePath, wgProject, roadmapPath, wfRepo, aigProject };
+  // --- gsd-worktree-provision.js: a plain repository with one commit — its
+  // allow case is a real WorktreeCreate (the hook creates the worktree). -----
+  const provisionRepo = tempDir('hooks-crash-provision-');
+  gitOrThrow(['init', '-q', provisionRepo], { timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+  gitOrThrow(['-C', provisionRepo, 'config', 'user.email', 'hooks-crash@test.local'], { timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+  gitOrThrow(['-C', provisionRepo, 'config', 'user.name', 'hooks-crash'], { timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+  fs.writeFileSync(path.join(provisionRepo, 'seed.txt'), 'seed\n');
+  gitOrThrow(['-C', provisionRepo, 'add', '-A'], { timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+  gitOrThrow(['-C', provisionRepo, 'commit', '-m', 'seed'], { timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+
+  fixtures = { mainRepo, worktreePath, wgProject, roadmapPath, wfRepo, aigProject, provisionRepo };
 });
 
 after(() => {
@@ -393,11 +408,23 @@ const TABLE = [
     declaredOnCrash: 'allow',
     allow: () => ({ payload: { tool_name: 'Read' } }),
   },
+  // gsd-worktree-provision.js is a Claude Code WorktreeCreate hook: success
+  // means printing a created worktree's path, so there is no allow-on-crash —
+  // printing nothing IS failure on that event. A malformed payload is refused
+  // as UNAVAILABLE (input unreadable) and an unclosed stdin the same way; both
+  // codes come from the ADR-3889 registry. Its refusal matrix (invalid name,
+  // occupied path, stale base, strict equipment failure) is driven through
+  // the same seam in tests/mn-worktree-provision.test.cjs.
   {
     file: 'gsd-worktree-provision.js',
     stdinTimeoutMs: 3000,
-    declaredOnCrash: 'allow',
-    allow: () => ({ payload: { cwd: os.tmpdir() } }), // workflow.worktree_provision unset -> inert
+    declaredOnCrash: null, // never calls crash(): there is no policy to choose on this event
+    crashExit: 'UNAVAILABLE',
+    stdinTimeoutExit: 'UNAVAILABLE',
+    allow: () => ({
+      payload: { hook_event_name: 'WorktreeCreate', name: 'crash-policy-allow', cwd: fixtures.provisionRepo },
+      cwd: fixtures.provisionRepo,
+    }),
   },
 ];
 
@@ -481,6 +508,15 @@ describe('hooks-crash-policy: C3 crash -> declared ON_CRASH policy', () => {
 
   for (const row of TABLE) {
     test(`${row.file}: malformed-JSON crash honors declared policy`, (t) => {
+      if (row.crashExit) {
+        // A hook whose protocol has no allow-on-crash (WorktreeCreate): the
+        // malformed payload is a refusal with a registered, non-zero code.
+        const r = runHook(row.file, { payload: MALFORMED_JSON });
+        assert.equal(r.outcome, OUTCOME.EXITED, `expected a clean exit; got ${r.outcome} stderr=${r.stderr}`);
+        assert.equal(r.exitCode, exitCodeFor(row.crashExit), `stdout=${r.stdout} stderr=${r.stderr}`);
+        assert.equal(r.stdout, '', 'a refusal emits nothing on stdout');
+        return;
+      }
       if (!row.declaredOnCrash) {
         t.skip(
           `${row.file} never calls crash(ON_CRASH, ...) — its outer catch calls allow()/nothing ` +
@@ -526,7 +562,8 @@ describe('hooks-crash-policy: C4 stdin never closes -> bounded termination, not 
         `${outerTimeoutMs}ms spawn bound; got ${r.outcome} (a TIMED_OUT/KILLED outcome here means ` +
         `the hook hung on stdin instead of self-terminating). stderr=${r.stderr}`
       );
-      assert.equal(r.exitCode, 0, `expected the stdin-timeout's allow() fallback (exit 0); stdout=${r.stdout} stderr=${r.stderr}`);
+      const expectedExit = row.stdinTimeoutExit ? exitCodeFor(row.stdinTimeoutExit) : 0;
+      assert.equal(r.exitCode, expectedExit, `expected the stdin-timeout's fallback (exit ${expectedExit}); stdout=${r.stdout} stderr=${r.stderr}`);
     });
   }
 });
