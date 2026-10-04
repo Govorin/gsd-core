@@ -49,7 +49,7 @@ import agentInstallCheck = require('./agent-install-check.cjs');
 const { checkAgentsInstalled, checkCodexModelPosture, checkCodexSandboxPosture } = agentInstallCheck;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import ioMod = require('./io.cjs');
-const { output, error } = ioMod;
+const { output, error, ERROR_REASON } = ioMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseIdMod = require('./phase-id.cjs');
 const { normalizePhaseName, matchPhaseDirs } = phaseIdMod;
@@ -61,7 +61,15 @@ import roadmapParserMod = require('./roadmap-parser.cjs');
 const { stripShippedMilestones } = roadmapParserMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- health-diagnostic.cjs is an export= CommonJS module
 import healthDiagnosticMod = require('./health-diagnostic.cjs');
-const { SEVERITY: HEALTH_SEVERITY, REMEDY_ACTION, REMEDY_RISK, evaluateRules, evaluateConsistencyRules, applyRepairs } = healthDiagnosticMod;
+const {
+  SEVERITY: HEALTH_SEVERITY,
+  REMEDY_ACTION,
+  REMEDY_RISK,
+  RULES: HEALTH_RULES,
+  evaluateRules,
+  evaluateConsistencyRules,
+  applyRepairs,
+} = healthDiagnosticMod;
 type HealthDiagnostic = healthDiagnosticMod.Diagnostic;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-snapshot.cjs is an export= CommonJS module
 import planningSnapshotMod = require('./planning-snapshot.cjs');
@@ -1859,7 +1867,9 @@ function repairFixText(slash: (name: string) => string, action: string): string 
     case REMEDY_ACTION.BACKFILL_MILESTONES:
       return `Run ${slash('health')} --backfill to synthesize missing entries from archive snapshots`;
     case REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS:
-      return `Run ${slash('health')} --repair to rewrite the report's status to its closed-set value`;
+      // `--only W031` keeps the run to this one rewrite — bare `--repair` also
+      // applies every other non-destructive remedy (config.json, MILESTONES.md).
+      return `Run ${slash('health')} --repair --only W031 to rewrite the report's status to its closed-set value`;
     default:
       return '';
   }
@@ -1941,11 +1951,46 @@ function cmdValidateConsistency(cwd: string, raw: boolean): void {
   output({ passed, errors, warnings, warning_count: warnings.length }, raw, passed ? 'passed' : 'failed');
 }
 
+/**
+ * `validate health --only <CODE[,CODE…]>`: the diagnostic codes whose remedies
+ * `--repair`/`--backfill` may apply in this run, or `null` when `--only` was
+ * not given (every non-destructive remedy, as before). Found while repairing
+ * live projects: `--repair` applied every remedy at once, so normalizing one
+ * report's `status` (W031) also rewrote config.json (W008/W016) and
+ * backfilled MILESTONES.md (W018). Codes are case-insensitive and must be
+ * codes the rule table reports; reporting is never narrowed, only repair.
+ * A usage error — an empty list, an unknown code, `--only` with neither
+ * `--repair` nor `--backfill` — exits with the registry's USAGE outcome
+ * (ADR-3889) before anything is read.
+ */
+function parseRepairScope(only: unknown, repair: boolean, backfill: boolean): Set<string> | null {
+  if (only === null || only === undefined) return null;
+  const tokens = (typeof only === 'string' ? only : '').split(',').map((t) => t.trim().toUpperCase());
+  if (tokens.some((t) => t.length === 0)) {
+    error('--only needs a comma-separated list of health codes, e.g. `--only W031` or `--only W031,W030`', ERROR_REASON.USAGE);
+  }
+  const known = new Set(HEALTH_RULES.map((r) => r.code));
+  const unknown = tokens.filter((t) => !known.has(t));
+  if (unknown.length > 0) {
+    const repairable = HEALTH_RULES.filter((r) => r.repairable).map((r) => r.code);
+    error(
+      `--only: unknown health code ${unknown.map((t) => ioMod.formatDiagnosticToken(t)).join(', ')} — ` +
+      `pass codes validate health reports (repairable: ${repairable.join(', ')})`,
+      ERROR_REASON.USAGE,
+    );
+  }
+  if (!repair && !backfill) {
+    error('--only selects which repairs run — pass it with --repair (or --backfill)', ERROR_REASON.USAGE);
+  }
+  return new Set(tokens);
+}
+
 function cmdValidateHealth(
   cwd: string,
   options: Record<string, unknown>,
   raw: boolean,
 ): Record<string, unknown> | undefined {
+  const repairScope = parseRepairScope(options['only'], Boolean(options['repair']), Boolean(options['backfill']));
   const resolved = path.resolve(cwd);
   if (resolved === os.homedir()) {
     output(
@@ -2067,7 +2112,10 @@ function cmdValidateHealth(
   // alone now actually trigger `backfillMilestones` — the disclosed latent-
   // bug fix from `verify.cts:2504`'s previously-unreachable inner gate (see
   // design doc "Known limits").
-  const repairResult = applyRepairs(cwd, diagnostics, Boolean(options['repair']), Boolean(options['backfill']));
+  // `--only` narrows the diagnostics handed to the dispatcher, never the ones
+  // reported above.
+  const repairCandidates = repairScope === null ? diagnostics : diagnostics.filter((d) => repairScope.has(d.code));
+  const repairResult = applyRepairs(cwd, repairCandidates, Boolean(options['repair']), Boolean(options['backfill']));
   // The legacy `repairs_performed` shape never carried a `code` field —
   // strip it before it reaches JSON output.
   const repairActions = repairResult.details.map(({ code: _code, ...rest }) => rest);

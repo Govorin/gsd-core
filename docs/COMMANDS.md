@@ -1142,12 +1142,14 @@ v1.40.0, [#2792](https://github.com/open-gsd/gsd-core/issues/2792)).
 | Flag | Description |
 |------|-------------|
 | `--repair` | Auto-fix recoverable issues |
+| `--only CODES` | With `--repair`/`--backfill`: fix only the listed codes (comma-separated, e.g. `W031`) |
 | `--backfill` | Synthesize missing MILESTONES.md entries from `.planning/milestones/vX.Y-ROADMAP.md` snapshots |
 | `--context` | Probe context-window utilization; warns at 60 %, critical at 70 % |
 
 ```bash
 /gsd-health                         # Check integrity
 /gsd-health --repair                # Check and fix
+/gsd-health --repair --only W031     # Fix only legacy report statuses
 /gsd-health --backfill              # Backfill missing MILESTONES.md entries
 /gsd-health --context               # Context-utilization triage
 ```
@@ -1168,7 +1170,7 @@ a git repo — "unknown" is reported as unknown, not as fresh.
 
 **Verification report status outside the closed set (`W030`).** A phase's `*-VERIFICATION.md` may carry only `status: passed`, `gaps_found`, or `human_needed`. Any other value — `verified`, `Passed`, `stale`, a number — is a hard error for every other command that reads the report (`verification_status_invalid`); `/gsd-health` instead reports the file as a WARNING naming the value and the accepted set, so the check itself never fails on the defect it diagnoses. Set the report's frontmatter `status:` to an accepted value, or delete the report and re-run the phase's verification with `/gsd-execute-phase` (a deleted report reads `missing`, which routes there). The fix names a proposed value and why: for a known legacy value (`passed-degraded`, `passed_with_human_verification`, `passed_with_open_checkpoint`, `PASS-WITH-FLAGS`) or a spelling variant (`Passed`, `gaps-found`) it proposes the value that keeps the gate closed and names `passed` as the alternative when the report could also mean a pass; the same proposal is in the finding's data. Not auto-fixable: which verdict the report records is the owner's call. Health checks every report the other commands read — every phase directory under `.planning/phases/` and every archived `milestones/*-phases/` directory — and labels an archived one with its milestone (`Phase v1.0/01-foo`). See [`verification status`](CLI-TOOLS.md#verification-status-the-verification-verdict-5118).
 
-**Legacy synonym of a closed-set status (`W031`).** `status: verified` has exactly one meaning — the verifier's older spelling of `passed` — so it is reported as `W031` instead of `W030`, and `--repair` rewrites that one frontmatter scalar to `passed` (`normalizeVerificationStatus`) — in an archived report too. Every other key, comments and the report body stay byte-identical; a report whose `status` changed after the check, or a path outside `.planning/`, is left alone and reported as a failed repair.
+**Legacy synonym of a closed-set status (`W031`).** `status: verified` has exactly one meaning — the verifier's older spelling of `passed` — so it is reported as `W031` instead of `W030`, and `--repair` rewrites that one frontmatter scalar to `passed` (`normalizeVerificationStatus`) — in an archived report too. `--repair --only W031` does only that, leaving config.json and MILESTONES.md alone. Every other key, comments and the report body stay byte-identical; a report whose `status` changed after the check, or a path outside `.planning/`, is left alone and reported as a failed repair.
 
 **Verification report frontmatter does not parse (`W032`).** A report whose frontmatter block is not YAML — usually a nested key indented under a scalar, such as `re_verification: true` followed by indented keys — has no readable `status`. Every other command that reads it refuses it with `verification_status_invalid` instead of treating it as a report with no status; `/gsd-health` reports it as a WARNING naming the line the parser stopped at and its reason. Not auto-fixable: fix the YAML, or delete the report and re-run the phase's verification.
 

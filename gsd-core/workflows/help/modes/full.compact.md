@@ -295,7 +295,7 @@ Every command below is also a live `/gsd-*` slash command, grouped by purpose.
 
 ### Diagnostics & Maintenance
 
-- **`/gsd:health [--repair] [--context]`** — Diagnoses planning-directory health, optionally repairs.
+- **`/gsd:health [--repair] [--only CODES] [--context]`** — Diagnoses planning-directory health, optionally repairs (only the listed codes with `--only`).
 - **`/gsd:forensics [problem description]`** — Post-mortem investigation for failed GSD workflows.
 - **`/gsd:undo --last N | --phase NN | --plan NN-MM`** — Safe git revert using the phase manifest with dependency checks.
 - **`/gsd:docs-update [--force] [--verify-only]`** — Generates/updates docs verified against the codebase.

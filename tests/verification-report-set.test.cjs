@@ -206,7 +206,7 @@ describe('listVerificationReports — active (every directory) and archived phas
 // ─── Coverage parity: what audit-open refuses, health reports ──────────────
 
 describe('audit-open ↔ validate health parity (the live-repair defect)', () => {
-  test('an archived `status: verified`: audit-open refuses it, health reports W031 for the same file, `--repair` fixes it', (t) => {
+  test('an archived `status: verified`: audit-open refuses it, health reports W031 for the same file, `--repair --only W031` fixes it and nothing else', (t) => {
     const root = createTempProject('gsd-fuf-parity-');
     t.after(() => cleanup(root));
     writeProject(root);
@@ -221,10 +221,13 @@ describe('audit-open ↔ validate health parity (the live-repair defect)', () =>
     const report = healthJson(root);
     const w031 = report.warnings.filter((w) => w.code === 'W031');
     assert.equal(w031.length, 1, JSON.stringify(report.warnings));
+    assert.ok(report.warnings.some((w) => w.code === 'W008'), 'fixture sanity: a config.json repair is also available');
 
-    const repaired = healthJson(root, ['--repair']);
-    assert.ok(repaired.repairs_performed.some((r) => r.action === 'normalizeVerificationStatus' && r.success));
+    const configBefore = fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8');
+    const repaired = healthJson(root, ['--repair', '--only', 'W031']);
+    assert.deepEqual(repaired.repairs_performed.map((r) => [r.action, r.success]), [['normalizeVerificationStatus', true]]);
     assert.equal(fs.readFileSync(archived, 'utf-8'), '---\nstatus: passed\n---\n# Old\n');
+    assert.equal(fs.readFileSync(path.join(root, '.planning', 'config.json'), 'utf-8'), configBefore, 'config.json untouched');
 
     const ok = runGsdTools(['--json-errors', 'audit-open', '--json'], root);
     assert.equal(ok.exitCode, 0, ok.error);

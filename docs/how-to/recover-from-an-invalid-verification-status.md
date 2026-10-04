@@ -39,7 +39,7 @@ Legacy values fail the same way: `Passed`, `pending`, and `partial` are no longe
 
 ### `W031`: `status: verified`
 
-`verified` is the older spelling of `passed`, with no other meaning, so `/gsd-health` reports it as `W031` (`"repairable": true`) and `/gsd-health --repair` rewrites the report's frontmatter `status:` to `passed` — archived reports under `.planning/milestones/` included. Nothing else in the file changes. If the report was edited after the check and no longer says `verified`, or its path is outside `.planning/`, the repair is skipped and listed as failed in `repairs_performed`.
+`verified` is the older spelling of `passed`, with no other meaning, so `/gsd-health` reports it as `W031` (`"repairable": true`) and `/gsd-health --repair` rewrites the report's frontmatter `status:` to `passed` — archived reports under `.planning/milestones/` included. Nothing else in the file changes. `/gsd-health --repair --only W031` makes that the only repair in the run, leaving config.json and MILESTONES.md as they are. If the report was edited after the check and no longer says `verified`, or its path is outside `.planning/`, the repair is skipped and listed as failed in `repairs_performed`.
 
 ### `W032`: the frontmatter does not parse
 

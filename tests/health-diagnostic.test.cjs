@@ -747,7 +747,7 @@ describe('W031 — normalizeVerificationStatus repair (fork 3.4a)', () => {
     const w031 = report.warnings.find((w) => w.code === 'W031');
     assert.ok(w031, JSON.stringify(report.warnings));
     assert.equal(w031.repairable, true);
-    assert.match(w031.fix, /--repair to rewrite the report's status/);
+    assert.match(w031.fix, /--repair --only W031 to rewrite the report's status/);
 
     const repaired = run({ repair: true });
     assert.ok(

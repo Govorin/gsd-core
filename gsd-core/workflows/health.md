@@ -17,17 +17,21 @@ RESPONSE_LANGUAGE=$(gsd_run query config-get response_language --raw --default "
 <step name="parse_args">
 **Parse arguments:**
 
-Check if `--repair`, `--backfill`, or `--context` flags are present in the command arguments.
+Check if `--repair`, `--backfill`, `--only`, or `--context` flags are present in the command arguments.
 
 ```
 REPAIR_FLAG=""
 BACKFILL_FLAG=""
+ONLY_FLAG=""
 CONTEXT_MODE=""
 if arguments contain "--repair"; then
   REPAIR_FLAG="--repair"
 fi
 if arguments contain "--backfill"; then
   BACKFILL_FLAG="--backfill"
+fi
+if arguments contain "--only <CODES>"; then
+  ONLY_FLAG="--only <CODES>"
 fi
 if arguments contain "--context"; then
   CONTEXT_MODE="true"
@@ -37,6 +41,12 @@ fi
 If `CONTEXT_MODE` is set, jump to the `context_check` step and skip the
 integrity validation steps. The two modes are orthogonal — context utilization
 has nothing to do with `.planning/` directory health.
+
+`--only <CODES>` is a comma-separated list of health codes (`W031`, `W031,W030`). It limits which
+findings `--repair`/`--backfill` may fix in this run — every finding is still reported. Pass the
+user's list through unchanged as one argument (only letters, digits and commas); the tool refuses an
+unknown code, an empty list, or `--only` without `--repair`/`--backfill` with a usage error — show
+that error and stop.
 </step>
 
 <step name="context_check">
@@ -70,7 +80,7 @@ health output, the two modes are independent diagnostics.
 **Run health validation:**
 
 ```bash
-gsd_run query validate.health $REPAIR_FLAG $BACKFILL_FLAG
+gsd_run query validate.health $REPAIR_FLAG $BACKFILL_FLAG $ONLY_FLAG
 ```
 
 Parse JSON output:
@@ -195,7 +205,9 @@ Ask user if they want to run repairs:
 Would you like to run /gsd:health --repair to fix N issues automatically?
 ```
 
-If yes, re-run with --repair flag and display results.
+If yes, re-run with --repair flag and display results. If the user wants only some of them fixed,
+re-run with `--repair --only <CODES>` naming those codes (a repair of one report's status should
+not also rewrite config.json).
 </step>
 
 <step name="verify_repairs">

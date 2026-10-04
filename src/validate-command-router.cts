@@ -31,7 +31,7 @@ import { classifyContextUtilization, STATES } from './context-utilization.cjs';
 
 interface VerifyModule {
   cmdValidateConsistency(cwd: string, raw: boolean): void;
-  cmdValidateHealth(cwd: string, opts: { repair: boolean; backfill: boolean }, raw: boolean): void;
+  cmdValidateHealth(cwd: string, opts: { repair: boolean; backfill: boolean; only: string | null }, raw: boolean): void;
   cmdValidateAgents(cwd: string, raw: boolean): void;
 }
 
@@ -58,9 +58,15 @@ function routeValidateCommand({ verify, args, cwd, raw, output: outputFn, error 
       // Keep health on CJS for now so fix hints are rendered via runtime-slash
       // helpers (codex expects $gsd-* command shape).
       health: () => {
-        const repairFlag = args.includes('--repair');
-        const backfillFlag = args.includes('--backfill');
-        verify.cmdValidateHealth(cwd, { repair: repairFlag, backfill: backfillFlag }, raw);
+        // `positionals: 'rest'` keeps this command's long-standing tolerance of
+        // flags it does not read (callers pass `--json`); only the three below
+        // are extracted.
+        const opts = parseNamedArgsOrExit(args, { booleanFlags: ['repair', 'backfill'], valueFlags: ['only'], positionals: 'rest' }, error);
+        // A bare `--only` (no list) must not read as "no --only" — that would
+        // widen a narrowed repair back to every remedy. `''` makes
+        // cmdValidateHealth refuse it as a usage error.
+        const only = args.includes('--only') ? (opts['only'] as string | null) ?? '' : null;
+        verify.cmdValidateHealth(cwd, { repair: opts['repair'] === true, backfill: opts['backfill'] === true, only }, raw);
       },
       agents: () => verify.cmdValidateAgents(cwd, raw),
       // context: CJS-only — complex inline logic using classifyContextUtilization
