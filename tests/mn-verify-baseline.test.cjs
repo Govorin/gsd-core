@@ -363,7 +363,15 @@ describe('verify baseline — the round trip execute-phase makes', () => {
   test('the gate file runs a query gate with the phase number', () => {
     // The shipped instruction is the contract the runtime follows (source-text-is-the-product).
     const text = fs.readFileSync(GATE_FILE, 'utf8');
-    assert.ok(text.includes('gsd_run check ${hook.check.query} "${PHASE_NUMBER}" --raw'), 'the emulation below follows this line');
+    // Quoted: an unquoted ${hook.check.query} word-splits (SC2086, lint-workflow-shellcheck).
+    assert.ok(text.includes('gsd_run check "${hook_check_query}" "${PHASE_NUMBER}" --raw'), 'the emulation below follows this line');
+  });
+
+  test('execute-phase dispatches the gate file as an entry point, so it inherits the response language', () => {
+    // A bare path mention does not count as a dispatch (lint-response-language-coverage);
+    // the stub has to read and execute it, the way the sibling wave:post gate file is reached.
+    const host = fs.readFileSync(path.join(ROOT, 'gsd-core', 'workflows', 'execute-phase.md'), 'utf8');
+    assert.ok(host.includes('read and execute `gsd-core/workflows/execute-phase/steps/execute-pre-gate-hooks.md`'));
   });
 
   function dispatch() {

@@ -416,7 +416,7 @@ Read `activeHooks` in-context (do NOT pipe through a shell parser). Empty or abs
 
 **Step dispatch:** dispatch every `kind == "step"` hook per @gsd-core/references/loop-hook-dispatch.md (skip when none), before the gates below. ⚠ Validate `ref.command` in-context before any shell use.
 
-**Gate dispatch:** evaluate every `kind == "gate"` hook per `gsd-core/workflows/execute-phase/steps/execute-pre-gate-hooks.md`. A blocking gate that blocks HALTs the run here — no executor is spawned, no wave starts.
+**Gate dispatch:** read and execute `gsd-core/workflows/execute-phase/steps/execute-pre-gate-hooks.md` for each `kind == "gate"` hook. A blocking gate that blocks HALTs the run — no executor is spawned, no wave starts.
 </step>
 
 <step name="cross_ai_delegation">
