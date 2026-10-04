@@ -418,6 +418,7 @@
   "gsd-core/workflows/autonomous/steps/converge-loop.md",
   "gsd-core/workflows/autonomous/steps/gaps-found.md",
   "gsd-core/workflows/autonomous/steps/human-needed.md",
+  "gsd-core/workflows/autonomous/steps/phase-budget.md",
   "gsd-core/workflows/autonomous/steps/spec-phase.md",
   "gsd-core/workflows/check-todos.md",
   "gsd-core/workflows/cleanup.md",

@@ -585,18 +585,11 @@ Re-filter incomplete phases using discover_phases logic: keep phases where `phas
 
 Check for blockers in the Blockers/Concerns section. If blockers are found, go to handle_blocker with the blocker description.
 
-**Phase budget.** Increment `PHASES_RUN`. If `MAX_PHASES` is set and `PHASES_RUN >= MAX_PHASES`, stop here — a run that ends because it chose to is reviewable; one that ends because the context filled is not. Print:
+**Phase budget.** Increment `PHASES_RUN`. If `MAX_PHASES` is set:
 
-```
- GSD ► AUTONOMOUS ▸ PHASE BUDGET REACHED
-
- Ran ${PHASES_RUN} phase(s) — the limit set by --max-phases / workflow.autonomous_max_phases.
- Work so far is committed and verified; nothing is half-applied.
-
- Resume with: /gsd:autonomous --from ${next_phase}${TO_PHASE ? " --to " + TO_PHASE : ""}
-```
-
-Then proceed to the lifecycle step as a partial completion (it skips audit/complete/cleanup), and exit cleanly.
+<!-- gsd:section id="phase-budget" when="always" -->
+If `section_manifest` is `null` or `"phase-budget"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/phase-budget.md`. Otherwise skip — do not read the file.
+<!-- /gsd:section -->
 
 If incomplete phases remain: proceed to next phase, loop back to execute_phase.
 

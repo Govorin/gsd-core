@@ -45,6 +45,11 @@
         "id": "gaps-found",
         "when": "always",
         "read": "gsd-core/workflows/autonomous/steps/gaps-found.md"
+      },
+      {
+        "id": "phase-budget",
+        "when": "always",
+        "read": "gsd-core/workflows/autonomous/steps/phase-budget.md"
       }
     ],
     "code-review": [

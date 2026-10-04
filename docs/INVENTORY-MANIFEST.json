@@ -696,6 +696,7 @@
       "autonomous/steps/converge-loop.md",
       "autonomous/steps/gaps-found.md",
       "autonomous/steps/human-needed.md",
+      "autonomous/steps/phase-budget.md",
       "autonomous/steps/spec-phase.md",
       "code-review/steps/dispatch-fix.md",
       "code-review/steps/structural-pre-pass.md",
