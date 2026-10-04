@@ -1,41 +1,22 @@
 'use strict';
 
 /**
- * The drift pin holding wave-normalize.mjs's classification equal to src/.
+ * The "one import" pin: `check mn-wave-collision` (expand mode) classifies and resolves entries
+ * through src/files-modified-normalize.cts and nothing else.
  *
- * ── Why the logic is duplicated at all ────────────────────────────────────
+ * ── What this file used to guard, and what is left ────────────────────────
  *
- * `capabilities/mn-verify-gate/scripts/wave-normalize.mjs` re-expresses the
- * classification proven in `src/files-modified-normalize.cts`. It cannot import
- * it: capability scripts are installed to `~/.gsd/capabilities/.../scripts/` and
- * run as separate node processes, where `src/` does not exist. The established
- * convention in this fork is to duplicate the shape under a comment naming the
- * source (cf. `contract-drift.mjs:322`, `orphan-plans.mjs`'s status literals).
+ * `wave-normalize.mjs` carried a second copy of the four-way classification because a script run
+ * from `$HOME` could not import `src/`; this file ran both copies on one corpus and failed on the
+ * first disagreement. The gate now imports the module (src/gate-mn-waves.cts), so a second
+ * classifier no longer exists to drift.
  *
- * A comment is not enforcement. Two independent implementations of the same
- * four-way classification that can drift apart is precisely the failure this
- * fork has already paid for once. So this file runs BOTH on identical inputs
- * and fails on the first disagreement.
- *
- * ── Why it runs the gate instead of importing it ──────────────────────────
- *
- * wave-normalize.mjs executes at module top level and reaches `process.exit`
- * before any export would be reachable, exactly like orphan-plans.mjs. A
- * dynamic `import()` of it would terminate the test process. So the gate's side
- * is observed through its `--json` output — a typed surface, `JSON.parse`d, not
- * grepped (local/no-source-grep) — while the reference side is called directly
- * as a function.
- *
- * Observing behaviour is also the stronger claim: an exported constant would
- * prove the gate *declares* the same rules; running it proves the gate *acts*
- * on them.
- *
- * ── What is compared ──────────────────────────────────────────────────────
- *
- * For each input entry, both implementations must agree on `kind` AND on the
- * sorted `resolved` list. Agreement on kind alone would let the two disagree
- * about which files a directory covers — the very thing normalisation exists to
- * decide.
+ * What CAN still drift is the step in front of it: the gate reads `files_modified` out of a PLAN.md
+ * through the Plan Document Module (`parsePlanDocument`) before normalising. A reader that drops,
+ * splits, unquotes or reorders entries would make the gate classify something other than what the
+ * plan declared. So for every corpus shape — each one the live trees actually contain — the gate's
+ * view of a one-plan phase must equal `normalizePlanFiles` applied directly to the declared list:
+ * same entries in the same order, same kind, same resolved files, same `declaredNothing`.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -43,28 +24,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
-const { createTempDir, cleanup } = require('./helpers.cjs');
-
-const {
-  normalizePlanFiles,
-} = require('../gsd-core/bin/lib/files-modified-normalize.cjs');
-
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'wave-normalize.mjs',
-);
-
-const RUN_TIMEOUT_MS = 30000;
+const { cleanup } = require('./helpers.cjs');
+const { createMnProject, makePhase, writeFiles } = require('./helpers/mn-gate-fixture.cjs');
+const { normalizePlanFiles } = require('../gsd-core/bin/lib/files-modified-normalize.cjs');
+const { analyzeWaveCollision } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
 
 /**
- * The corpus. Each shape is one the live trees actually contain, so a
- * disagreement here is a disagreement about real input rather than about a
- * case neither implementation will ever meet.
+ * The corpus. Each shape is one the live trees actually contain, so a disagreement here is a
+ * disagreement about real input.
  */
 const CORPUS = [
   // ── plain files ──
@@ -96,18 +63,13 @@ const CORPUS = [
   [''],
 ];
 
-describe('wave-normalize classification does not drift from src/', () => {
-  let root;
-  let phaseDir;
+describe('the waves gate reads files_modified through the one normalizer', () => {
+  let projectDir;
 
   beforeEach(() => {
-    root = createTempDir('gsd-wave-drift-');
-    phaseDir = path.join(root, '.planning', 'phases', '01-x');
-    fs.mkdirSync(phaseDir, { recursive: true });
-
-    // One tree, shared by both implementations. Deliberately mixed depth so a
-    // walker that stops at the first level disagrees with one that recurses.
-    for (const rel of [
+    projectDir = createMnProject('gsd-wave-drift-');
+    // Mixed depth, so a walker that stops at the first level disagrees with one that recurses.
+    writeFiles(projectDir, Object.fromEntries([
       'libs/m/testing/a.ts',
       'libs/m/testing/b.ts',
       'libs/m/testing/README.md',
@@ -116,21 +78,17 @@ describe('wave-normalize classification does not drift from src/', () => {
       'libs/m/top.ts',
       'tsconfig.base.json',
       'CLAUDE.md',
-    ]) {
-      const abs = path.join(root, rel);
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, 'x\n');
-    }
-    fs.mkdirSync(path.join(root, 'libs/m/empty-dir'), { recursive: true });
+    ].map((rel) => [rel, 'x\n'])));
+    fs.mkdirSync(path.join(projectDir, 'libs/m/empty-dir'), { recursive: true });
   });
 
   afterEach(() => {
-    cleanup(root);
+    cleanup(projectDir);
   });
 
-  /** The three-method FsProbe the reference implementation takes. */
+  /** The three-method FsProbe of the reference call, over the same tree. */
   function probe() {
-    const abs = (p) => (p === '' ? root : path.join(root, p));
+    const abs = (p) => (p === '' ? projectDir : path.join(projectDir, p));
     return {
       exists: (p) => fs.existsSync(abs(p)),
       isDirectory: (p) => {
@@ -144,89 +102,45 @@ describe('wave-normalize classification does not drift from src/', () => {
     };
   }
 
-  /** Run the gate over a one-plan phase and return its parsed view of it. */
+  /** The gate's view of a one-plan phase declaring `entries`. */
   function gateView(entries) {
     const list = entries.map((e) => `  - ${JSON.stringify(e)}`).join('\n');
-    fs.writeFileSync(
-      path.join(phaseDir, '01-01-PLAN.md'),
-      `---\nphase: 01-x\nwave: 1\nfiles_modified:\n${list}\n---\n\n# a\n`,
-    );
-
-    const r = runNode([SCRIPT, '--dir', phaseDir, '--root', root, '--json'], {
-      timeoutMs: RUN_TIMEOUT_MS,
+    const { phaseDir } = makePhase(projectDir, {
+      '01-01-PLAN.md': `---\nphase: 01-x\nwave: 1\nfiles_modified:\n${list}\n---\n\n# a\n`,
     });
-    assert.equal(r.outcome, OUTCOME.EXITED, 'the gate must run to completion');
-    assert.notEqual(r.exitCode, 2, `the gate could not check: ${r.stderr}`);
-
-    const out = JSON.parse(r.stdout);
-    // A plan with no parseable entries still appears; an empty corpus entry
-    // yields a plan with zero entries rather than no plan.
-    return out.plans[0];
+    const analysis = analyzeWaveCollision(projectDir, phaseDir, 'expand');
+    assert.ok(analysis.plans, `the gate could not check: ${JSON.stringify(analysis)}`);
+    return analysis.plans[0];
   }
 
   for (const entries of CORPUS) {
     const label = entries.length === 0 ? '(no entries)' : entries.join(' + ');
 
-    test(`both implementations agree on: ${label}`, () => {
+    test(`the gate's view equals normalizePlanFiles for: ${label}`, () => {
       const reference = normalizePlanFiles(entries, probe());
       const gate = gateView(entries);
 
-      assert.equal(
-        gate.entries.length,
-        reference.entries.length,
-        'the two must keep the same number of entries after dropping blanks',
+      assert.deepEqual(
+        gate.entries.map((e) => [e.declared, e.kind, [...e.resolved], e.unresolved]),
+        reference.entries.map((e) => [e.declared, e.kind, [...e.resolved], e.unresolved]),
+        `the plan reader changed what the normalizer saw for ${label}`,
       );
-
-      for (let i = 0; i < reference.entries.length; i++) {
-        const ref = reference.entries[i];
-        const got = gate.entries[i];
-
-        assert.equal(
-          got.declared,
-          ref.declared,
-          `entry ${i} declared text drifted for ${label}`,
-        );
-        assert.equal(
-          got.kind,
-          ref.kind,
-          `entry ${i} ("${ref.declared}") classified as ${got.kind} by the gate but ` +
-            `${ref.kind} by src/files-modified-normalize.cts`,
-        );
-        // Agreement on kind alone would let the two disagree about WHICH files a
-        // directory covers — the decision normalisation exists to make.
-        assert.deepEqual(
-          got.resolved,
-          [...ref.resolved],
-          `entry ${i} ("${ref.declared}") resolved differently`,
-        );
-        assert.equal(got.unresolved, ref.unresolved, `entry ${i} unresolved flag drifted`);
-      }
-
-      // D-65: the refusal-to-declare flag is derived the same way on both sides.
-      assert.equal(
-        gate.declaredNothing,
-        reference.declaredNothing,
-        `declaredNothing drifted for ${label}`,
-      );
-      assert.deepEqual(gate.files, [...reference.files], `the union drifted for ${label}`);
+      // D-65: the refusal-to-declare flag is derived from the declared list, as read.
+      assert.equal(gate.declaredNothing, reference.declaredNothing, `declaredNothing drifted for ${label}`);
+      assert.deepEqual([...gate.files], [...reference.files], `the union drifted for ${label}`);
     });
   }
 
-  test('a stale glob and an empty declaration stay distinguishable on BOTH sides', () => {
-    // D-66 is a property of the semantics, not of one implementation's report.
-    // Both sides must produce empty `files` for a stale glob while keeping
-    // `declaredNothing` false — otherwise the split exists only in the printer.
-    const staleRef = normalizePlanFiles(['does-not-exist/**'], probe());
-    const emptyRef = normalizePlanFiles([], probe());
+  test('a stale glob and an empty declaration stay distinguishable through the plan reader', () => {
+    // D-66 is a property of the semantics, not of one report: a stale glob has empty `files` while
+    // keeping `declaredNothing` false.
+    const stale = gateView(['does-not-exist/**']);
+    assert.deepEqual([...stale.files], []);
+    assert.equal(stale.declaredNothing, false);
+    assert.equal(stale.entries[0].unresolved, true);
 
-    assert.deepEqual([...staleRef.files], []);
-    assert.equal(staleRef.declaredNothing, false);
-    assert.deepEqual([...emptyRef.files], []);
-    assert.equal(emptyRef.declaredNothing, true);
-
-    const staleGate = gateView(['does-not-exist/**']);
-    assert.deepEqual(staleGate.files, []);
-    assert.equal(staleGate.declaredNothing, false);
-    assert.equal(staleGate.entries[0].unresolved, true);
+    const empty = gateView([]);
+    assert.deepEqual([...empty.files], []);
+    assert.equal(empty.declaredNothing, true);
   });
 });

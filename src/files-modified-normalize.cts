@@ -102,6 +102,11 @@ export interface FsProbe {
   readonly isDirectory: (path: string) => boolean;
   /** Paths relative to root, one level. Order is NOT guaranteed by the caller. */
   readonly readDir: (path: string) => readonly string[];
+  /**
+   * Optional: is the path a symbolic link? When provided, a walk neither descends into nor counts
+   * a symlink (T-03-01) — it is not what a plan intends to write, and following it leaves the tree.
+   */
+  readonly isSymbolicLink?: (path: string) => boolean;
 }
 
 /**
@@ -137,6 +142,24 @@ function looksLikeProse(text: string): boolean {
 }
 
 /**
+ * Does the path leave the root? An absolute path, or `..` climbing above the start (T-03-01), is
+ * not a file the plan will create but an entry this module refuses to resolve.
+ */
+function escapesRoot(p: string): boolean {
+  if (p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p)) return true;
+  let depth = 0;
+  for (const seg of p.split('/')) {
+    if (seg === '..') {
+      depth--;
+      if (depth < 0) return true;
+    } else if (seg !== '.' && seg !== '') {
+      depth++;
+    }
+  }
+  return false;
+}
+
+/**
  * Classify a declared entry into exactly one of four kinds.
  *
  * Order of decision is load-bearing:
@@ -151,6 +174,8 @@ function looksLikeProse(text: string): boolean {
  *      failures with two different remedies, which D-66 forbids merging. The
  *      plan's stated order put the wildcard test first; the measurement
  *      overturned it.
+ *   1b. An entry escaping the root (absolute, or `..` above it) → `malformed`
+ *      (T-03-01): never resolved against a tree outside the project.
  *   2. Wildcard → `glob`.
  *   3. Existing directory → `directory`.
  *   4. Otherwise → `file`. A non-existent concrete path stays `file` with
@@ -161,6 +186,7 @@ export function classifyEntry(declared: string, fs: FsProbe): EntryKind {
   const p = normalizePath(declared);
   if (p === '') return 'malformed';
   if (looksLikeProse(p)) return 'malformed';
+  if (escapesRoot(p)) return 'malformed';
   if (p.includes('*') || p.includes('?')) return 'glob';
   if (fs.exists(p) && fs.isDirectory(p)) return 'directory';
   return 'file';
@@ -185,6 +211,7 @@ function walkDirectory(fs: FsProbe, dir: string, depth = 0): string[] {
   const out: string[] = [];
   for (const name of sortedChildren(fs, dir)) {
     const child = dir === '' ? name : `${dir}/${name}`;
+    if (fs.isSymbolicLink?.(child) === true) continue;
     if (fs.isDirectory(child)) out.push(...walkDirectory(fs, child, depth + 1));
     else out.push(child);
   }

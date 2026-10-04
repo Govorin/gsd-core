@@ -5143,4 +5143,7 @@ export = {
   computeDependencyLevels,
   buildShortFormToId,
   normalizeDependencyToken,
+  // The one depends_on token resolver, so a consumer judging edges (mn-verify-gate's
+  // `check mn-wave-solve`) cannot disagree with computeDependencyLevels about which plan a token names.
+  resolveDependencyId,
 };

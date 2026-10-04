@@ -376,6 +376,19 @@ type FrontmatterValueLike = string | string[] | Record<string, unknown>;
  *                 that never had a path to give it). Kept for call-site
  *                 signature compatibility only.
  */
+/**
+ * A path-list field (`files_modified`, `files_deleted`): a YAML list, or a single scalar path.
+ * A key written with no value (`files_modified:` and nothing under it) parses as an empty MAP, and
+ * a map is not a path: it declares nothing. Stringifying it produced the entry `[object Object]`,
+ * which turned "declared no files" into "declared one unparseable entry".
+ */
+function pathListField(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String);
+  if (typeof value === 'string') return value === '' ? [] : [value];
+  if (typeof value === 'number' || typeof value === 'boolean') return [String(value)];
+  return [];
+}
+
 function parsePlanDocument(content: string, _planPath = ''): PlanDocument {
   const xmlTasks = parseXmlTasks(content);
   const tasks = xmlTasks.length > 0 ? xmlTasks : parseMarkdownTasks(content);
@@ -405,19 +418,8 @@ function parsePlanDocument(content: string, _planPath = ''): PlanDocument {
     autonomous = fmAutonomous === 'true' || String(fmAutonomous) === 'true';
   }
 
-  let filesModified: string[] = [];
-  const fmFiles = frontmatterField(fields, 'files_modified') || frontmatterField(fields, 'files-modified');
-  if (fmFiles) {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- FrontmatterValue scalar-to-string
-    filesModified = Array.isArray(fmFiles) ? fmFiles.map(String) : [String(fmFiles)];
-  }
-
-  let filesDeleted: string[] = [];
-  const fmDeleted = frontmatterField(fields, 'files_deleted') || frontmatterField(fields, 'files-deleted');
-  if (fmDeleted) {
-    // eslint-disable-next-line @typescript-eslint/no-base-to-string -- FrontmatterValue scalar-to-string
-    filesDeleted = Array.isArray(fmDeleted) ? fmDeleted.map(String) : [String(fmDeleted)];
-  }
+  const filesModified = pathListField(frontmatterField(fields, 'files_modified') || frontmatterField(fields, 'files-modified'));
+  const filesDeleted = pathListField(frontmatterField(fields, 'files_deleted') || frontmatterField(fields, 'files-deleted'));
 
   let agentHint: string | null = null;
   const fmAgentHint = frontmatterField(fields, 'agent_hint');

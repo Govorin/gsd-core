@@ -242,6 +242,22 @@ describe('plan-document: frontmatter field absorption (#5026) — before/after p
     assert.equal(doc.type, null);
   });
 
+  test('a path-list key written with no value declares nothing, never "[object Object]"', () => {
+    // `files_modified:` with nothing under it parses as an empty map. Stringifying the map made
+    // "declared no files" read as one unparseable entry (found porting mn-verify-gate's waves gate).
+    const doc = parsePlanDocument(`---
+wave: 1
+files_modified:
+files_deleted:
+autonomous: true
+---
+<task type="auto"><name>x</name></task>
+`);
+    assert.deepEqual(doc.filesModified, []);
+    assert.deepEqual(doc.filesDeleted, []);
+    assert.equal(doc.declaredWave, 1);
+  });
+
   test('every field present with scalar values reads verbatim/coerced per field', () => {
     const doc = parsePlanDocument(`---
 wave: 2
