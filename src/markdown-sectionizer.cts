@@ -916,11 +916,50 @@ export function extractTaggedBlocks(content: string, tagName: string, allowAttri
   if (typeof content !== 'string' || content.length === 0) return [];
   if (typeof tagName !== 'string' || tagName.length === 0) return [];
 
+  return scanTaggedBlocks(content, tagName, allowAttributes).map((block) => block.body);
+}
+
+/** A `<tagName …>…</tagName>` block located by `scanTaggedBlocks`. */
+export interface TaggedBlockRecord {
+  /** The opening tag's attribute text, untrimmed (`' name="x"'`); `''` for a bare `<tag>`. */
+  attributes: string;
+  /** The block body — exactly what `extractTaggedBlocks` returns for it. */
+  body: string;
+  /** String offset of the opening `<`. */
+  start: number;
+  /** String offset of the first body character. */
+  bodyStart: number;
+  /** String offset just past the closing `</tagName>`. */
+  end: number;
+}
+
+/**
+ * `extractTaggedBlocks` with positions and the opening tag's attributes: the
+ * same blocks, from the same ReDoS-safe pattern (same nesting rule — a block
+ * ends at the next opening of its tag, so an unterminated outer opener is not
+ * a block), for callers that must say WHERE a block is or read its
+ * attributes (`<step name="…" condition="…">`).
+ */
+export function scanTaggedBlocks(content: string, tagName: string, allowAttributes = false): TaggedBlockRecord[] {
+  if (typeof content !== 'string' || content.length === 0) return [];
+  if (typeof tagName !== 'string' || tagName.length === 0) return [];
+
   const pattern = taggedBlockPattern(tagName, 'g', allowAttributes);
-  const results: string[] = [];
+  const closeLength = `</${tagName}>`.length;
+  const results: TaggedBlockRecord[] = [];
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
-    results.push(match[1]);
+    const body = match[1];
+    const end = match.index + match[0].length;
+    const bodyStart = end - closeLength - body.length;
+    const openerLength = bodyStart - match.index;
+    results.push({
+      attributes: match[0].slice(1 + tagName.length, openerLength - 1),
+      body,
+      start: match.index,
+      bodyStart,
+      end,
+    });
   }
   return results;
 }
