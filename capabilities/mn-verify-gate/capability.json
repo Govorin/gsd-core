@@ -7,7 +7,7 @@
   "tier": "full",
   "requires": [],
   "engines": {
-    "gsd": ">=1.9.0"
+    "gsd": ">=1.15.0"
   },
   "runtimeCompat": {
     "supported": [
@@ -34,12 +34,12 @@
     "workflow.mn_security_enforce": {
       "type": "boolean",
       "default": false,
-      "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+      "description": "Block ship on open threats in SECURITY.md (threats_open must be 0). Unlike core workflow.security_enforcement, which blocks when the phase wrote no SECURITY.md, this gate declares the artifact optional: a phase with no SECURITY.md passes — absence of threats is not a defect. A SECURITY.md that exists is always read."
     },
     "workflow.mn_windows_enforce": {
       "type": "boolean",
       "default": false,
-      "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+      "description": "Block ship on open broken windows in WINDOWS.md (open_count must be 0). Unlike core workflow.windows_enforce, the artifact is optional: a phase with no WINDOWS.md passes. A WINDOWS.md that exists is always read."
     },
     "workflow.assertion_ratchet": {
       "type": "boolean",
@@ -353,9 +353,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VALIDATION.md",
+          "field": "nyquist_compliant",
+          "equals": true
         }
       },
       "when": "workflow.nyquist_enforce",
@@ -366,9 +367,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VERIFICATION.md",
+          "field": "truths_unproven",
+          "equals": 0
         }
       },
       "when": "workflow.verify_enforce",
@@ -379,9 +381,10 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "VERIFICATION.md",
+          "field": "gates.all_passed",
+          "equals": true
         }
       },
       "when": "workflow.verify_gates_enforce",
@@ -418,9 +421,11 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "SECURITY.md",
+          "field": "threats_open",
+          "equals": 0,
+          "optional": true
         }
       },
       "when": "workflow.mn_security_enforce",
@@ -431,9 +436,11 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
-          "timeout": 20
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "WINDOWS.md",
+          "field": "open_count",
+          "equals": 0,
+          "optional": true
         }
       },
       "when": "workflow.mn_windows_enforce",

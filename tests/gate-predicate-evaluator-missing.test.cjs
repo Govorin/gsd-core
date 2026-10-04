@@ -197,3 +197,69 @@ test('buildPredicateDeps reports an artifact removed before its frontmatter read
     /predicate artifact disappeared before it could be read/,
   );
 });
+
+// ── optional: true — an absent artifact passes, a present one is always read ──
+//
+// A phase with no threats writes no SECURITY.md; demanding one would block ship for the absence
+// of a problem (mn-verify-gate's mn_security_enforce / mn_windows_enforce). `optional` relaxes
+// exactly that one case and nothing else.
+
+test('artifact-frontmatter-equals optional: an absent artifact passes and says why', () => {
+  const res = evaluatePredicate(
+    { ...basePredicate, optional: true },
+    dummyCtx,
+    dummyDeps({ findPhaseArtifact: () => null }),
+  );
+  assert.equal(res.block, false);
+  assert.equal(res.details.artifactNotFound, true);
+  assert.equal(res.details.optional, true);
+});
+
+test('artifact-frontmatter-equals optional: a present artifact that contradicts still blocks', () => {
+  const res = evaluatePredicate(
+    { ...basePredicate, optional: true },
+    dummyCtx,
+    dummyDeps({ readFrontmatter: () => ({ open_count: '1' }) }),
+  );
+  assert.equal(res.block, true);
+  assert.equal(res.details.match, false);
+  assert.equal(res.details.actual, '1');
+});
+
+test('artifact-frontmatter-equals optional: a present artifact without the field still blocks', () => {
+  const res = evaluatePredicate(
+    { ...basePredicate, optional: true },
+    dummyCtx,
+    dummyDeps({ readFrontmatter: () => ({}) }),
+  );
+  assert.equal(res.block, true);
+  assert.equal(res.details.match, false);
+});
+
+test('artifact-frontmatter-equals optional: false and an absent key both keep the fail-closed rule', () => {
+  for (const predicate of [{ ...basePredicate, optional: false }, basePredicate]) {
+    const res = evaluatePredicate(predicate, dummyCtx, dummyDeps({ findPhaseArtifact: () => null }));
+    assert.equal(res.block, true);
+    assert.equal(res.details.artifactNotFound, true);
+    assert.equal(res.details.optional, undefined);
+  }
+});
+
+test('artifact-frontmatter-equals optional must be a boolean', () => {
+  for (const optional of ['true', 1, null, {}]) {
+    assert.throws(
+      () => evaluatePredicate({ ...basePredicate, optional }, dummyCtx, dummyDeps()),
+      /"optional" must be a boolean/,
+    );
+  }
+});
+
+test('artifact-frontmatter-equals optional with real deps: a missing phase directory is an absent artifact', () => {
+  const res = evaluatePredicate(
+    { ...basePredicate, optional: true },
+    { cwd: os.tmpdir(), phaseDir: path.join(os.tmpdir(), 'gsd-test-no-such-phase-dir-optional') },
+    buildPredicateDeps(),
+  );
+  assert.equal(res.block, false);
+  assert.equal(res.details.artifactNotFound, true);
+});
