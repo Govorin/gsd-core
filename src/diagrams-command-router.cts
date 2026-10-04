@@ -32,6 +32,7 @@ import io = require('./io.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cjsCommandRouterAdapter = require('./cjs-command-router-adapter.cjs');
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
+import { buildProjectSymbolIndex } from './symbol-index.cjs';
 
 const { output, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -92,11 +93,14 @@ function routeDiagramsCommand({ args, cwd, raw, error, _diagramsCheck }: RouteDi
         const result = dc.runDiagramsCheck({
           file,
           root,
+          // Identifiers are looked up across the whole repository, not only under the project
+          // directory: a monorepo sub-project's code lives beside it (review M6).
+          buildIndex: buildProjectSymbolIndex,
           strict: args.includes('--strict'),
           ...(modeArg !== null ? { mode: modeArg } : {}),
         });
         if (!result.ok) {
-          error(`diagrams check: cannot look — ${result.message}`, ERROR_REASON.PHASE_NOT_FOUND);
+          error(`diagrams check: cannot look — ${result.message}`, ERROR_REASON.DIAGRAMS_SOURCE_UNAVAILABLE);
           return;
         }
         output(result, raw, `${dc.summaryText(result)}\n`);

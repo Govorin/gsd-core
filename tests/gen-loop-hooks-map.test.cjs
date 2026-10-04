@@ -78,6 +78,29 @@ describe('gen-loop-hooks-map: the sources are the registry\'s own data', () => {
   });
 });
 
+describe('gen-loop-hooks-map: declarations are read in an order no machine setting can change', () => {
+  let root;
+
+  beforeEach(() => {
+    root = createTempDir('gsd-loop-hooks-order-');
+    // Code-point order and ICU collation disagree on case: B < a by code point, a < B by most
+    // locales. A generator whose output follows LANG fails its own sync check elsewhere. (Names
+    // that differ only in case would collide on a case-insensitive filesystem.)
+    for (const id of ['c-cap', 'B-cap', 'a-cap']) {
+      fs.mkdirSync(path.join(root, 'capabilities', id), { recursive: true });
+      fs.writeFileSync(path.join(root, 'capabilities', id, 'capability.json'), JSON.stringify({ id, role: 'feature' }));
+    }
+  });
+
+  afterEach(() => {
+    cleanup(root);
+  });
+
+  test('capabilities are read in code-point order of their directory names', () => {
+    assert.deepEqual(gen.readDeclared(root).map((d) => d.capId), ['B-cap', 'a-cap', 'c-cap']);
+  });
+});
+
 describe('gen-loop-hooks-map --check / --write (CLI, --target fixture)', () => {
   let dir;
   beforeEach(() => {

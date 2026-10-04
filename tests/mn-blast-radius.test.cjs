@@ -142,18 +142,59 @@ describe('check mn-blast-radius (real git)', () => {
     assert.equal(v.changedLines, 3);
   });
 
-  test('another project\'s commit inside the phase window is outside the union, not undeclared', () => {
-    // The monorepo case the script fought with subject scopes: the resolver's phase commits are the
-    // ones the SUMMARY lists, so interleaved work is only reported, by name, in outsideUnion.
+  // Review M7: the task commits are the executor's own report. A commit it did not list must not take
+  // its files out of the radius; another project's or a sibling phase's commit must not enter it.
+  test('a commit the SUMMARY leaves out still counts: its undeclared files block, marked unlisted-commit', () => {
     writePlan('01-01-PLAN.md', ['src/declared.ts']);
     commit({}, 'docs(01-01): plan');
     const task = commit({ 'src/declared.ts': '1\n' }, 'feat(01-01): declared');
-    commit({ 'other/elsewhere.ts': '1\n' }, 'feat(other-03): another project');
+    commit({ 'src/stray.ts': 'a\nb\n' }, 'feat(01-01): not reported');
     const second = commit({ 'src/declared.ts': '2\n' }, 'feat(01-01): declared again');
     summarize([task, second]);
     const v = gate();
-    assert.equal(v.block, false);
-    assert.deepEqual(v.outsideUnion, ['other/elsewhere.ts']);
+    assert.equal(v.block, true);
+    assert.deepEqual(v.undeclared, [{ path: 'src/stray.ts', via: 'unlisted-commit', added: 2, deleted: 0 }]);
+  });
+
+  test('a sibling phase\'s declared file inside the window is attributed to it, not undeclared here', () => {
+    const sibling = makePhase(repo, { '02-01-PLAN.md': plan(['src/parallel.ts']) }, 'parallel');
+    assert.ok(sibling.phaseDir);
+    writePlan('01-01-PLAN.md', ['src/declared.ts']);
+    commit({}, 'docs(01-01): plan');
+    const task = commit({ 'src/declared.ts': '1\n' }, 'feat(01-01): declared');
+    commit({ 'src/parallel.ts': '1\n' }, 'feat(02-01): parallel work');
+    const second = commit({ 'src/declared.ts': '2\n' }, 'feat(01-01): declared again');
+    summarize([task, second]);
+    const v = gate();
+    assert.equal(v.block, false, JSON.stringify(v.undeclared));
+    assert.deepEqual(v.attributedElsewhere, ['src/parallel.ts']);
+  });
+
+  test('another project\'s commit inside the phase window (monorepo) is outside the union, not undeclared', () => {
+    const appDir = path.join(repo, 'apps', 'demo');
+    const app = makePhase(appDir, { '01-01-PLAN.md': plan(['libs/demo/a.ts']) }, 'example');
+    commit({}, 'docs(demo-01-01): plan');
+    const task = commit({ 'libs/demo/a.ts': '1\n' }, 'feat(demo-01-01): a');
+    commit({ 'apps/other/elsewhere.ts': '1\n', 'libs/other/b.ts': '1\n' }, 'feat(other-03): another project');
+    const second = commit({ 'libs/demo/a.ts': '2\n' }, 'feat(demo-01-01): a again');
+    fs.writeFileSync(path.join(app.phaseDir, '01-01-SUMMARY.md'), summary([task, second]));
+    commit({}, 'docs(demo-01-01): summary');
+    const v = evaluateMnBlastRadius({ projectDir: appDir, args: [app.phaseNumber] }).payload;
+    assert.equal(v.block, false, JSON.stringify(v.undeclared));
+    assert.deepEqual(v.outsideUnion, ['apps/other/elsewhere.ts', 'libs/other/b.ts']);
+    assert.deepEqual(v.attributedElsewhere, ['apps/other/elsewhere.ts', 'libs/other/b.ts']);
+  });
+
+  test('degraded phase window in a monorepo keeps only the project\'s files', () => {
+    const appDir = path.join(repo, 'apps', 'demo');
+    const app = makePhase(appDir, { '01-01-PLAN.md': plan(['libs/demo/a.ts']) }, 'example');
+    commit({}, 'docs(demo-01-01): plan');
+    commit({ 'libs/demo/a.ts': '1\n', 'libs/demo/stray.ts': '1\n' }, 'feat(demo-01-01): code');
+    commit({ 'apps/other/elsewhere.ts': '1\n' }, 'feat(other-03): another project');
+    const v = evaluateMnBlastRadius({ projectDir: appDir, args: [app.phaseNumber] }).payload;
+    assert.equal(v.scopeStatus, 'degraded');
+    assert.deepEqual(undeclaredPaths(v), ['libs/demo/stray.ts']);
+    assert.deepEqual(v.attributedElsewhere, ['apps/other/elsewhere.ts']);
   });
 
   test('a listed commit not reachable from HEAD is named in unreachable', () => {

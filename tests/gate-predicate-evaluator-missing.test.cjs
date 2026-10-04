@@ -203,11 +203,16 @@ test('buildPredicateDeps reports an artifact removed before its frontmatter read
 // A phase with no threats writes no SECURITY.md; demanding one would block ship for the absence
 // of a problem (mn-verify-gate's mn_security_enforce / mn_windows_enforce). `optional` relaxes
 // exactly that one case and nothing else.
+//
+// "A phase" is the operative word: optional is judged inside a known phase directory. Without one
+// (an empty --phase-dir) nothing can be ruled absent, and the gate blocks (review L3).
+
+const phaseCtx = { cwd: '/fake/project', phaseDir: '/fake/project/.planning/phases/01-x' };
 
 test('artifact-frontmatter-equals optional: an absent artifact passes and says why', () => {
   const res = evaluatePredicate(
     { ...basePredicate, optional: true },
-    dummyCtx,
+    phaseCtx,
     dummyDeps({ findPhaseArtifact: () => null }),
   );
   assert.equal(res.block, false);
@@ -218,7 +223,7 @@ test('artifact-frontmatter-equals optional: an absent artifact passes and says w
 test('artifact-frontmatter-equals optional: a present artifact that contradicts still blocks', () => {
   const res = evaluatePredicate(
     { ...basePredicate, optional: true },
-    dummyCtx,
+    phaseCtx,
     dummyDeps({ readFrontmatter: () => ({ open_count: '1' }) }),
   );
   assert.equal(res.block, true);
@@ -229,11 +234,25 @@ test('artifact-frontmatter-equals optional: a present artifact that contradicts 
 test('artifact-frontmatter-equals optional: a present artifact without the field still blocks', () => {
   const res = evaluatePredicate(
     { ...basePredicate, optional: true },
-    dummyCtx,
+    phaseCtx,
     dummyDeps({ readFrontmatter: () => ({}) }),
   );
   assert.equal(res.block, true);
   assert.equal(res.details.match, false);
+});
+
+test('artifact-frontmatter-equals optional without a phase directory blocks — it never falls back to the cwd', () => {
+  for (const ctx of [dummyCtx, { ...phaseCtx, phaseDir: '' }]) {
+    let looked = false;
+    const res = evaluatePredicate(
+      { ...basePredicate, optional: true },
+      ctx,
+      dummyDeps({ findPhaseArtifact: () => { looked = true; return null; } }),
+    );
+    assert.equal(res.block, true);
+    assert.equal(res.details.phaseDirMissing, true);
+    assert.equal(looked, false, 'no artifact lookup in a directory that is not the phase');
+  }
 });
 
 test('artifact-frontmatter-equals optional: false and an absent key both keep the fail-closed rule', () => {

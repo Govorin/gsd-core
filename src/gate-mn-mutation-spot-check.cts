@@ -13,6 +13,9 @@
  *   no VERIFICATION.md, no record          → UNRESOLVABLE: the step never ran (run `verify mutation`).
  *   record of other code (digest differs)  → UNRESOLVABLE: the record is stale — the phase's files
  *                                            changed after it was taken.
+ *   a mutant still on disk (restore journal → UNRESOLVABLE: a run is in progress or was killed
+ *   holds a pending entry, or is unreadable)  mid-mutant; the tree is not the code under review.
+ *                                            The step restores it on its next run.
  */
 
 import fs from 'node:fs';
@@ -20,6 +23,7 @@ import type { GateResult } from './gate-verdict.cjs';
 import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { MUTATION_RECORD_KEY, MUTATION_STATUS, digestCandidates, mutationCandidates } from './verify-mutation.cjs';
+import { readRestoreJournal } from './mutation-restore-journal.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
@@ -42,6 +46,21 @@ function count(record: Record<string, unknown>, key: string): number {
 /** `gsd_run check mn-mutation-spot-check <phase>` */
 export function evaluateMnMutationSpotCheck(input: MnGateInput): GateResult {
   return withMnPhase('mn-mutation-spot-check', input, ({ phaseDir }) => {
+    const journal = readRestoreJournal(input.projectDir);
+    if (journal.kind === 'unreadable') {
+      return mnUnresolvable(
+        `mn-mutation-spot-check: the restore journal ${journal.journalPath} is unreadable (${journal.why}) — a mutant may be on disk; inspect it before judging`,
+        { journalPath: journal.journalPath, mutantOnDisk: true },
+      );
+    }
+    if (journal.kind === 'held' && journal.pending !== null) {
+      const { pending } = journal;
+      return mnUnresolvable(
+        `mn-mutation-spot-check: ${pending.file} still carries a mutant (${pending.label}, line ${pending.line}) — a run (pid ${journal.pid}) ` +
+          `is in progress or was killed mid-mutant, so the tree is not the code under review; ${RUN_STEP} (it restores the file first)`,
+        { journalPath: journal.journalPath, mutantOnDisk: true, mutantFile: pending.file },
+      );
+    }
     const verificationPath = verificationPathFor(phaseDir);
     let text: string;
     try {

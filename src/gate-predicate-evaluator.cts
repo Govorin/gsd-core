@@ -205,6 +205,16 @@ function evaluateArtifactFrontmatterEquals(
   if (optional !== undefined && typeof optional !== 'boolean') {
     throw new Error('artifact-frontmatter-equals predicate "optional" must be a boolean');
   }
+  if (optional === true && !isNonEmptyString(ctx.phaseDir)) {
+    // `optional` lets a known phase lack the artifact. With no phase directory there is no known
+    // phase: falling back to the cwd would find nothing and pass every phase, so the gate fails
+    // closed instead (review L3; the script it replaced refused an empty --dir).
+    return {
+      block: true,
+      message: `Artifact matching ${artifactSuffix} is optional only within a known phase, and no phase directory was given — nothing can be ruled absent`,
+      details: { kind: 'artifact-frontmatter-equals', optional: true, phaseDirMissing: true },
+    };
+  }
   const targetDir = isNonEmptyString(ctx.phaseDir) ? ctx.phaseDir : ctx.cwd;
   const filePath = deps.findPhaseArtifact(targetDir, artifactSuffix);
   if (!filePath && optional === true) {

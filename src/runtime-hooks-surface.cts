@@ -44,7 +44,8 @@ import {
   resolveHookScripts,
   buildHookBusEntries,
 } from './host-integration-adapters/imperative-hook-bus.cjs';
-import { findWorktreeCreateHook } from './worktree-base-ref.cjs';
+import { findUserLayerWorktreeProvision, findWorktreeCreateHook } from './worktree-base-ref.cjs';
+import { getGlobalConfigDir } from './runtime-homes.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import shellCmdProjection = require('./shell-command-projection.cjs');
 const {
@@ -3076,6 +3077,11 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
       // (findWorktreeCreateHook, which exempts this hook) — means the user owns
       // creation, and neither event is claimed. An unparseable layer counts:
       // a creator in it cannot be ruled out.
+      // One registration per user (review M2): the user layer and a project's
+      // local layer carry different command lines for this same hook, so both
+      // would run for one name and race on `git worktree add -b`. A local
+      // install therefore defers to a user-layer registration — and drops the
+      // project registration an earlier local install left behind.
       const worktreeProvisionCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-worktree-provision.js', hookOpts) : localCmd('gsd-worktree-provision.js');
       const worktreeProvisionFile = path.join(targetDir, 'hooks', 'gsd-worktree-provision.js');
       const handlersOf = (event: string): HookEntry[] =>
@@ -3085,9 +3091,24 @@ function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts)
       const isProvision = (h: HookEntry): boolean => referencesHook(h as Record<string, unknown>, 'gsd-worktree-provision');
       const foreignCreators = handlersOf('WorktreeCreate').filter((h) => !isProvision(h));
       const layerCreator = findWorktreeCreateHook(targetDir, undefined, null);
+      const userClaudeDir = isGlobal ? null : getGlobalConfigDir('claude');
+      const userLayerProvision =
+        userClaudeDir !== null && path.resolve(userClaudeDir) !== path.resolve(targetDir) ? findUserLayerWorktreeProvision(userClaudeDir) : null;
       if (foreignCreators.length > 0 || layerCreator) {
         const where = layerCreator ? layerCreator.file : 'the settings being written';
         console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
+      } else if (userLayerProvision) {
+        for (const event of ['WorktreeCreate', 'WorktreeRemove']) {
+          if (!Array.isArray(settings.hooks[event])) continue;
+          const kept = (settings.hooks[event] as HookGroup[])
+            .map((group: HookGroup) =>
+              group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((h: HookEntry) => !isProvision(h)) } : group
+            )
+            .filter((group: HookGroup) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+          if (kept.length > 0) settings.hooks[event] = kept;
+          else delete settings.hooks[event];
+        }
+        console.log(`  ${green}✓${reset} Worktree provisioning hook already registered for this user (${userLayerProvision}) — not registered again for the project`);
       } else if (!fs.existsSync(worktreeProvisionFile)) {
         console.warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
       } else if (worktreeProvisionCommand) {

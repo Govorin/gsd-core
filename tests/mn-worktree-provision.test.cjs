@@ -19,6 +19,12 @@
  *   - an invalid name / occupied path / existing branch refuses with nothing created;
  *   - an equipment failure warns by default and, under the strict policy, refuses AND rolls
  *     the half-made worktree back (a creation reported as failed must leave nothing behind);
+ *   - equipment happens only in a GSD project (`.planning/config.json` inside the repository):
+ *     the hook replaces creation in every git project, and a GSD default must not reach the rest;
+ *   - `claude --worktree "#123"` arrives as `pr-123` and is based on origin's head of that
+ *     request, with the harness's per-host fetch table;
+ *   - a warning raised at creation reaches the first session in that worktree (SessionStart,
+ *     gsd-pin-invariants.js) through the worktree's git dir, once;
  *   - WorktreeRemove deletes the worktree, and the branch only when no work would be lost.
  */
 
@@ -27,14 +33,18 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { runHook, OUTCOME } = require('./helpers/process-seam.cjs');
+const { runHook, runNode, OUTCOME } = require('./helpers/process-seam.cjs');
 const { gitOrThrow } = require('./helpers/git-fixture.cjs');
 const { createTempDir, createTempGitProject, cleanup, TEST_ENV_BASE } = require('./helpers.cjs');
+const { createFixture } = require('./fixtures/index.cjs');
 const { STAGED_HOOK_SCRIPT_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 const { exitCodeFor } = require('../hooks/lib/exit-code-registry.js');
 
 const HOOK = path.join(__dirname, '..', 'hooks', 'gsd-worktree-provision.js');
+const PIN_HOOK = path.join(__dirname, '..', 'hooks', 'gsd-pin-invariants.js');
 const provision = require(HOOK);
+const pin = require(PIN_HOOK);
+const notice = require('../hooks/lib/worktree-notice.js');
 const { REFUSAL } = provision;
 
 const EXIT = {
@@ -141,6 +151,114 @@ describe('WorktreeCreate: creates the worktree and prints only its path', () => 
     assert.equal(inner.exitCode, EXIT.PASS, `stderr=${inner.stderr}`);
     assert.equal(inner.stdout, managedPath(repo, 'inner'), 'not nested inside the outer checkout');
   });
+
+  test('a name the harness accepts is accepted: "/" becomes "+" in path and branch, a leading dot is fine', () => {
+    const slashed = create(repo, { name: 'feature/login' });
+    assert.equal(slashed.exitCode, EXIT.PASS, `stderr=${slashed.stderr}`);
+    assert.equal(slashed.stdout, managedPath(repo, 'feature+login'));
+    assert.equal(git(slashed.stdout, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-feature+login');
+
+    const dotted = create(repo, { name: '.scratch' });
+    assert.equal(dotted.exitCode, EXIT.PASS, `stderr=${dotted.stderr}`);
+    assert.equal(dotted.stdout, managedPath(repo, '.scratch'));
+  });
+
+  test('WorktreeRemove takes a "/" name back down, branch included', () => {
+    const made = create(repo, { name: 'feature/gone' });
+    assert.equal(made.exitCode, EXIT.PASS, `stderr=${made.stderr}`);
+    assert.equal(remove(repo, made.stdout).exitCode, EXIT.PASS);
+    assert.equal(fs.existsSync(made.stdout), false);
+    assert.equal(branchExists(repo, 'worktree-feature+gone'), false);
+  });
+});
+
+describe('WorktreeCreate: a pull/merge request (`claude --worktree "#123"`)', () => {
+  // Claude Code maps `--worktree "#123"` (or a PR/MR URL) to the name `pr-123`
+  // before any hook runs and passes only that name — so `pr-<n>` is what the
+  // hook receives for `#123`, and it must base the worktree on that change's
+  // head fetched from origin, as the harness's own git path does.
+  let repo;
+  let origin;
+  let localHead;
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-pr-');
+    origin = createTempDir('wt-provision-origin-');
+    gitOrThrow(['init', '-q', '--bare', origin]);
+    git(repo, ['remote', 'add', 'origin', origin]);
+    localHead = git(repo, ['rev-parse', 'HEAD']);
+  });
+  afterEach(() => {
+    cleanup(repo);
+    cleanup(origin);
+  });
+
+  /** Publish a commit the local HEAD does not have at `ref` on origin; returns its sha. */
+  function publishChange(ref, file) {
+    const home = git(repo, ['rev-parse', '--abbrev-ref', 'HEAD']);
+    git(repo, ['checkout', '-q', '-b', 'change-src']);
+    const sha = commit(repo, file, `change for ${ref}`);
+    git(repo, ['push', '-q', 'origin', `change-src:${ref}`]);
+    git(repo, ['checkout', '-q', home]);
+    git(repo, ['branch', '-q', '-D', 'change-src']);
+    return sha;
+  }
+
+  test('"#123" → pr-123: based on origin pull/123/head, not the local HEAD', () => {
+    const prHead = publishChange('refs/pull/123/head', 'pr.txt');
+    const r = create(repo, { name: 'pr-123' });
+    assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+    assert.equal(r.stdout, managedPath(repo, 'pr-123'), 'the harness location for a PR worktree');
+    assert.equal(git(r.stdout, ['rev-parse', 'HEAD']), prHead);
+    assert.equal(git(r.stdout, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-pr-123');
+    assert.notEqual(prHead, localHead, 'negative control: the two candidate bases differ');
+  });
+
+  test('on a host that is neither github.com nor gitlab.com, merge-requests/<n>/head is tried after pull/<n>/head', () => {
+    const mrHead = publishChange('refs/merge-requests/45/head', 'mr.txt');
+    const result = provision.createWorktree({ name: 'pr-45', cwd: repo });
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(result.prNumber, 45);
+    assert.equal(git(result.path, ['rev-parse', 'HEAD']), mrHead);
+  });
+
+  test('a request origin does not have → UNAVAILABLE, nothing created', () => {
+    const r = create(repo, { name: 'pr-77' });
+    assertRefused(r, EXIT.UNAVAILABLE);
+    assert.equal(fs.existsSync(managedPath(repo, 'pr-77')), false);
+    assert.equal(branchExists(repo, 'worktree-pr-77'), false);
+    assert.equal(provision.createWorktree({ name: 'pr-77', cwd: repo }).code, REFUSAL.PULL_REQUEST_FETCH_FAILED);
+  });
+
+  test('no remote named origin → UNAVAILABLE, nothing created', () => {
+    git(repo, ['remote', 'remove', 'origin']);
+    assert.equal(provision.createWorktree({ name: 'pr-5', cwd: repo }).code, REFUSAL.PULL_REQUEST_FETCH_FAILED);
+    assert.equal(fs.existsSync(managedPath(repo, 'pr-5')), false);
+  });
+
+  test('a request head is not measured against workflow.worktree_max_base_lag', () => {
+    const prHead = publishChange('refs/pull/9/head', 'old-pr.txt');
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none', worktree_copy_tools: false, worktree_max_base_lag: 1 });
+    commit(repo, 'main-1.txt', '1');
+    commit(repo, 'main-2.txt', '2');
+    const result = provision.createWorktree({ name: 'pr-9', cwd: repo });
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(git(result.path, ['rev-parse', 'HEAD']), prHead);
+  });
+
+  test('the name → request mapping and the per-host fetch table match the harness', () => {
+    assert.equal(provision.pullRequestNumber('pr-123'), 123);
+    for (const notOne of ['pr-0', 'pr-', 'pr-12a', 'PR-12', 'xpr-12', 'pr-0123']) {
+      assert.equal(provision.pullRequestNumber(notOne), null, notOne);
+    }
+    assert.deepEqual(provision.pullRequestRefs('github.com', 7), ['pull/7/head']);
+    assert.deepEqual(provision.pullRequestRefs('gitlab.com', 7), ['merge-requests/7/head']);
+    assert.deepEqual(provision.pullRequestRefs('git.corp.example', 7), ['pull/7/head', 'merge-requests/7/head']);
+    assert.deepEqual(provision.pullRequestRefs(null, 7), ['pull/7/head', 'merge-requests/7/head']);
+    assert.equal(provision.remoteHost('https://github.com/o/r.git'), 'github.com');
+    assert.equal(provision.remoteHost('ssh://git@gitlab.com:2222/g/r.git'), 'gitlab.com');
+    assert.equal(provision.remoteHost('git@github.com:o/r.git'), 'github.com');
+    assert.equal(provision.remoteHost('/srv/repos/r.git'), null);
+  });
 });
 
 describe('WorktreeCreate: refusals leave nothing behind and print no path', () => {
@@ -150,16 +268,23 @@ describe('WorktreeCreate: refusals leave nothing behind and print no path', () =
   });
   afterEach(() => cleanup(repo));
 
+  // The harness validates names before any hook runs ("/"-separated segments of
+  // [A-Za-z0-9._-], no "."/".." segment, no ".git" segment); this matrix is what
+  // it refuses, plus names no git branch can carry.
   for (const [label, name] of [
     ['a missing name', undefined],
     ['an empty name', ''],
     ['a non-string name', 7],
     ['a traversal', '../escape'],
-    ['a path separator', 'a/b'],
-    ['a leading dot', '.hidden'],
+    ['a ".." segment mid-name', 'a/../b'],
+    ['a "." segment', 'a/./b'],
+    ['an empty segment', 'a//b'],
+    ['a leading slash', '/abs'],
+    ['a ".git" segment', 'x/.GIT.'],
     ['a double dot', 'a..b'],
     ['a trailing .lock', 'x.lock'],
     ['a shell metacharacter', 'x;rm'],
+    ['a raw "#" reference (the harness never passes one: it sends pr-<n>)', '#123'],
   ]) {
     test(`${label} → USAGE, nothing created`, () => {
       const r = create(repo, name === undefined ? {} : { name });
@@ -284,10 +409,100 @@ describe('WorktreeCreate: equipment', () => {
     assert.deepEqual(typed.failures.map((f) => f.step), ['dependencies']);
   });
 
+  test('a strict rollback that cannot finish says what it left behind instead of claiming a clean slate', () => {
+    writeConfig(repo, {
+      worktree_provision: true,
+      worktree_provision_strict: true,
+      worktree_deps: 'install',
+      worktree_install_command: 'exit 1',
+    });
+    // Fault injection at the git seam: the branch deletion of the rollback fails.
+    const gitWithFailingBranchDelete = (args, cwd, opts) =>
+      args[0] === 'branch' && args[1] === '-D'
+        ? { ok: false, status: 1, stdout: '', stderr: 'injected: cannot delete', error: null }
+        : provision.runGit(args, cwd, opts);
+    const typed = provision.createWorktree({ name: 'half-undone', cwd: repo }, { git: gitWithFailingBranchDelete });
+    assert.equal(typed.code, REFUSAL.PROVISION_FAILED);
+    assert.equal(typed.leftBehind.length, 1);
+    assert.ok(typed.leftBehind[0].includes('worktree-half-undone'), typed.leftBehind[0]);
+    assert.ok(!typed.reason.includes('removed again'), typed.reason);
+    assert.equal(branchExists(repo, 'worktree-half-undone'), true, 'the injected failure really left the branch');
+
+    const clean = provision.createWorktree({ name: 'fully-undone', cwd: repo });
+    assert.deepEqual(clean.leftBehind, [], 'negative control: a rollback that finishes leaves nothing');
+    assert.ok(clean.reason.includes('removed again'));
+  });
+
   test('strict with nothing failing creates normally', () => {
     writeConfig(repo, { worktree_provision: true, worktree_provision_strict: true, worktree_deps: 'none' });
     const r = create(repo, { name: 'strict-ok' });
     assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+  });
+});
+
+describe('WorktreeCreate: equipment only in a GSD project (.planning/config.json in the repository)', () => {
+  // The hook replaces worktree creation in EVERY git project on the machine;
+  // a GSD default must not reach a repository that never chose GSD.
+  const equipmentBait = (dir) => {
+    fs.writeFileSync(path.join(dir, '.mcp.json'), '{"servers":{}}');
+    fs.mkdirSync(path.join(dir, 'node_modules'));
+  };
+  const equipped = (worktree) =>
+    fs.existsSync(path.join(worktree, '.mcp.json')) || fs.existsSync(path.join(worktree, 'node_modules'));
+  const ON = { worktree_provision: true };
+
+  test('a project without .planning/ → worktree created from HEAD, no equipment', (t) => {
+    const repo = createFixture({ prefix: 'wt-provision-nogsd-', git: true, planning: false, projectDoc: false });
+    t.after(() => cleanup(repo));
+    assert.equal(fs.existsSync(path.join(repo, '.planning')), false, 'precondition: not a GSD project');
+    equipmentBait(repo);
+    const head = git(repo, ['rev-parse', 'HEAD']);
+
+    const r = create(repo, { name: 'plain' });
+    assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+    assert.equal(git(r.stdout, ['rev-parse', 'HEAD']), head);
+    assert.equal(equipped(r.stdout), false);
+  });
+
+  test('a .planning/config.json in an ancestor OUTSIDE the repository does not make it a GSD project', (t) => {
+    const outer = createTempDir('wt-provision-ancestor-');
+    t.after(() => cleanup(outer));
+    writeConfig(outer, ON);
+    const repo = path.join(outer, 'nested');
+    fs.mkdirSync(repo);
+    gitOrThrow(['init', '-q', repo]);
+    git(repo, [...IDENTITY, 'commit', '-q', '--allow-empty', '-m', 'init']);
+    equipmentBait(repo);
+
+    const r = create(repo, { name: 'nested' });
+    assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+    assert.equal(equipped(r.stdout), false, 'the ancestor config belongs to another project');
+    assert.equal(provision.findPlanningRoot(repo, { sourceTop: repo, mainRoot: repo }), null);
+  });
+
+  test('.planning/ without config.json is not a GSD project; adding the config makes it one', (t) => {
+    const repo = createTempGitProject('wt-provision-noconfig-');
+    t.after(() => cleanup(repo));
+    equipmentBait(repo);
+    const bare = create(repo, { name: 'no-config' });
+    assert.equal(bare.exitCode, EXIT.PASS, `stderr=${bare.stderr}`);
+    assert.equal(equipped(bare.stdout), false);
+
+    writeConfig(repo, ON);
+    const gsd = create(repo, { name: 'with-config' });
+    assert.equal(gsd.exitCode, EXIT.PASS, `stderr=${gsd.stderr}`);
+    assert.equal(equipped(gsd.stdout), true, 'positive control: the same repository with the config is equipped');
+  });
+
+  test('from a linked worktree whose checkout lacks the (untracked) config, the main checkout\'s config applies', (t) => {
+    const repo = createTempGitProject('wt-provision-mirror-');
+    t.after(() => cleanup(repo));
+    writeConfig(repo, ON); // written, never committed
+    const outer = create(repo, { name: 'outer-gsd' });
+    assert.equal(outer.exitCode, EXIT.PASS, `stderr=${outer.stderr}`);
+    assert.equal(fs.existsSync(path.join(outer.stdout, '.planning', 'config.json')), false, 'precondition');
+    const mainRoot = fs.realpathSync.native(repo);
+    assert.equal(provision.findPlanningRoot(outer.stdout, { sourceTop: outer.stdout, mainRoot }), mainRoot);
   });
 });
 
@@ -337,6 +552,238 @@ describe('WorktreeCreate: base freshness from a linked worktree', () => {
   });
 });
 
+describe('WorktreeCreate warnings reach the first session in the worktree (SessionStart via gsd-pin-invariants)', () => {
+  // stdout carries only the path, so a warning on stderr reaches nobody but
+  // Claude Code's debug log. It is recorded in the worktree's git dir and the
+  // first SessionStart there hands it to the agent, once.
+  let repo;
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-notice-');
+  });
+  afterEach(() => cleanup(repo));
+
+  const sessionStart = (cwd, event = 'SessionStart', source = 'startup') =>
+    runNode([PIN_HOOK], {
+      input: JSON.stringify({ hook_event_name: event, source, cwd }),
+      cwd,
+      env: { ...TEST_ENV_BASE },
+      timeoutMs: STAGED_HOOK_SCRIPT_TIMEOUT_MS,
+    });
+
+  const failingInstall = { worktree_provision: true, worktree_deps: 'install', worktree_install_command: 'exit 1', worktree_copy_tools: false };
+
+  test('a warned creation records the warning inside the git dir; the first session receives it, the next does not', () => {
+    writeConfig(repo, failingInstall);
+    const made = create(repo, { name: 'warned' });
+    assert.equal(made.exitCode, EXIT.PASS, `stderr=${made.stderr}`);
+
+    const gitDir = git(made.stdout, ['rev-parse', '--path-format=absolute', '--git-dir']);
+    const noticeFile = path.join(gitDir, notice.NOTICE_DIR, notice.NOTICE_FILE);
+    assert.ok(fs.existsSync(noticeFile), 'recorded in the worktree\'s git dir');
+    assert.equal(git(made.stdout, ['status', '--porcelain']), '', 'nothing lands in the working tree');
+
+    const first = sessionStart(made.stdout);
+    assert.equal(first.outcome, OUTCOME.EXITED, `stderr=${first.stderr}`);
+    assert.equal(first.exitCode, 0);
+    const out = JSON.parse(first.stdout);
+    assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
+    const context = out.hookSpecificOutput.additionalContext;
+    assert.ok(context.includes('dependencies'), context);
+    assert.ok(context.includes('install exited 1'), context);
+    assert.ok(context.includes('worktree-warned'), 'names the worktree it is about');
+
+    const stamped = JSON.parse(fs.readFileSync(noticeFile, 'utf8'));
+    assert.equal(typeof stamped.delivered_at, 'string', 'marked as read');
+
+    const again = sessionStart(made.stdout, 'SessionStart', 'compact');
+    assert.equal(again.exitCode, 0);
+    assert.equal(again.stdout.trim(), '', 'delivered once — not repeated after a compaction');
+  });
+
+  test('an event that cannot carry context does not consume the notice', () => {
+    writeConfig(repo, failingInstall);
+    const made = create(repo, { name: 'kept-for-later' });
+    assert.equal(made.exitCode, EXIT.PASS, `stderr=${made.stderr}`);
+    const silent = sessionStart(made.stdout, 'PostCompact');
+    assert.equal(silent.stdout.trim(), '');
+    const first = sessionStart(made.stdout);
+    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.additionalContext.includes('install exited 1'));
+  });
+
+  test('the notice precedes the pin when both apply, and arrives even with workflow.pin_invariants off', () => {
+    writeConfig(repo, { ...failingInstall, pin_invariants: false });
+    const made = provision.createWorktree({ name: 'pin-off', cwd: repo });
+    assert.equal(made.outcome, 'created');
+    assert.ok(made.noticePath, 'the created result names where the notice went');
+    const out = pin.sessionStartOutput({ hook_event_name: 'SessionStart', cwd: made.path });
+    assert.ok(out.hookSpecificOutput.additionalContext.startsWith('WORKTREE PROVISIONING'));
+  });
+
+  test('a clean creation records nothing, and a session there gets no notice', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none', worktree_copy_tools: false });
+    const made = provision.createWorktree({ name: 'clean', cwd: repo });
+    assert.equal(made.outcome, 'created');
+    assert.equal(made.noticePath, null);
+    const gitDir = git(made.path, ['rev-parse', '--path-format=absolute', '--git-dir']);
+    assert.equal(fs.existsSync(path.join(gitDir, notice.NOTICE_DIR, notice.NOTICE_FILE)), false);
+    assert.equal(pin.sessionStartOutput({ hook_event_name: 'SessionStart', cwd: made.path }), null);
+  });
+
+  test('the main checkout never reads a notice (only linked worktrees carry one)', () => {
+    assert.equal(notice.linkedWorktreeGitDir(repo), null);
+  });
+
+  test('warning list bound: MAX_WARNINGS shown, the rest counted', () => {
+    const at = (n) => ({ schema: 1, branch: 'b', warnings: Array.from({ length: n }, (_, i) => ({ step: `s${i}`, reason: 'r' })) });
+    const lines = (n) => notice.formatNotice(at(n)).split('\n').filter((l) => l.startsWith('- '));
+    assert.equal(lines(notice.MAX_WARNINGS - 1).length, notice.MAX_WARNINGS - 1);
+    assert.equal(lines(notice.MAX_WARNINGS).length, notice.MAX_WARNINGS);
+    const over = lines(notice.MAX_WARNINGS + 1);
+    assert.equal(over.length, notice.MAX_WARNINGS + 1);
+    assert.equal(over.at(-1), '- (1 more not shown)');
+  });
+});
+
+describe('WorktreeCreate: two registrations of this hook create one worktree (review M2)', () => {
+  // Claude Code runs every matching WorktreeCreate handler in parallel; GSD registered globally
+  // AND in the project means two copies for one name. The create lock serializes them: the
+  // second waits, then finds the finished worktree. Driven with an injected sleep and pid probe —
+  // the "other creator" acts inside the wait, no timing involved.
+  let repo;
+  let lockPath;
+  const OTHER_PID = 2147483646;
+
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-lock-');
+    lockPath = path.join(fs.realpathSync.native(repo), '.git', 'gsd-worktree-create', 'x.lock');
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+  });
+  afterEach(() => cleanup(repo));
+
+  test('a creator that finds the lock held waits, then reuses the worktree the holder made — same path, nothing doubled', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    let waits = 0;
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      {
+        config: null,
+        isAlive: (pid) => pid === OTHER_PID && fs.existsSync(lockPath),
+        sleep: () => {
+          waits += 1;
+          // The other creator finishes: its worktree exists, its lock is released.
+          git(repo, ['worktree', 'add', '-q', '-b', 'worktree-x', managedPath(repo, 'x'), 'HEAD']);
+          fs.unlinkSync(lockPath);
+        },
+      },
+    );
+    assert.equal(waits, 1);
+    assert.equal(result.outcome, 'reused', JSON.stringify(result));
+    assert.equal(result.path, managedPath(repo, 'x'));
+    assert.equal(fs.existsSync(lockPath), false, 'the waiter releases what it took');
+  });
+
+  test('a lock left by a dead creator is taken over: the worktree is created, the lock released', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      { config: null, isAlive: () => false, sleep: () => assert.fail('a stale lock is not waited on') },
+    );
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(fs.existsSync(lockPath), false);
+  });
+
+  test('a holder that never finishes: refused once the wait runs out, nothing created', () => {
+    fs.writeFileSync(lockPath, String(OTHER_PID));
+    let now = 0;
+    const result = provision.createWorktree(
+      { name: 'x', cwd: repo },
+      { config: null, isAlive: () => true, lockWaitMs: 1000, clock: { now: () => now }, sleep: () => { now += 600; } },
+    );
+    assert.equal(result.code, REFUSAL.CREATE_LOCKED);
+    assert.equal(fs.existsSync(managedPath(repo, 'x')), false);
+    assert.equal(branchExists(repo, 'worktree-x'), false);
+    assert.equal(fs.readFileSync(lockPath, 'utf8'), String(OTHER_PID), 'the live holder keeps its lock');
+  });
+
+  test('an uncontended create takes and releases the lock', () => {
+    const result = provision.createWorktree({ name: 'x', cwd: repo }, { config: null });
+    assert.equal(result.outcome, 'created', JSON.stringify(result));
+    assert.equal(fs.existsSync(lockPath), false);
+  });
+});
+
+describe('WorktreeCreate: a local install\'s hooks still run in the worktree (review L7)', () => {
+  // A local install registers "$CLAUDE_PROJECT_DIR"/.claude/hooks/…, and .claude/hooks is
+  // gitignored. Inside the worktree CLAUDE_PROJECT_DIR is the worktree, so a verbatim copy of
+  // settings.local.json points every hook — SessionStart's pin-invariants, which delivers this
+  // hook's own warnings, included — at a missing file.
+  let repo;
+  let main;
+  const PIN_CMD = 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/gsd-pin-invariants.js';
+
+  beforeEach(() => {
+    repo = createTempGitProject('wt-provision-local-');
+    main = fs.realpathSync.native(repo);
+    fs.writeFileSync(path.join(repo, '.gitignore'), '.claude/hooks/\n.claude/settings.local.json\n.claude/worktrees/\n');
+    commit(repo, 'tracked.sh', 'echo tracked\n');
+    // The local install: the real hook scripts under the gitignored .claude/hooks.
+    fs.cpSync(path.dirname(HOOK), path.join(repo, '.claude', 'hooks'), { recursive: true });
+  });
+  afterEach(() => cleanup(repo));
+
+  function writeLocalSettings(settings) {
+    fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), JSON.stringify(settings, null, 2));
+  }
+
+  test('project-dir paths missing in the worktree point at the source checkout; paths it carries, and everything else, stay', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none' });
+    writeLocalSettings({
+      permissions: { allow: ['Bash(npm test)'] },
+      hooks: {
+        SessionStart: [{ hooks: [{ type: 'command', command: PIN_CMD }] }],
+        PostToolUse: [{ hooks: [{ type: 'command', command: 'bash "$CLAUDE_PROJECT_DIR/tracked.sh"' }] }],
+        Stop: [{ hooks: [{ type: 'command', command: 'node ${CLAUDE_PROJECT_DIR}/.claude/hooks/nowhere.js' }] }],
+      },
+    });
+    const made = provision.createWorktree({ name: 'local', cwd: repo });
+    assert.equal(made.outcome, 'created', JSON.stringify(made));
+    const copied = JSON.parse(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8'));
+    const pinPath = path.join(main, '.claude', 'hooks', 'gsd-pin-invariants.js');
+    assert.equal(copied.hooks.SessionStart[0].hooks[0].command, `node "${pinPath}"`);
+    assert.equal(copied.hooks.PostToolUse[0].hooks[0].command, 'bash "$CLAUDE_PROJECT_DIR/tracked.sh"', 'the worktree carries tracked.sh');
+    assert.equal(copied.hooks.Stop[0].hooks[0].command, 'node ${CLAUDE_PROJECT_DIR}/.claude/hooks/nowhere.js', 'missing on both sides: nothing to point at');
+    assert.deepEqual(copied.permissions, { allow: ['Bash(npm test)'] });
+    assert.ok(made.notes.some((n) => n.includes('.claude/settings.local.json (1)')), made.notes.join(' | '));
+  });
+
+  test('the provisioning warning reaches the first session through the copied SessionStart hook', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'install', worktree_install_command: 'exit 1' });
+    writeLocalSettings({ hooks: { SessionStart: [{ hooks: [{ type: 'command', command: PIN_CMD }] }] } });
+    const made = provision.createWorktree({ name: 'warned-local', cwd: repo });
+    assert.equal(made.outcome, 'created', JSON.stringify(made));
+    assert.equal(fs.existsSync(path.join(made.path, '.claude', 'hooks', 'gsd-pin-invariants.js')), false, 'precondition: hooks are not in the worktree');
+
+    const command = JSON.parse(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8')).hooks.SessionStart[0].hooks[0].command;
+    const script = /^node "(.+)"$/.exec(command)[1];
+    const first = runNode([script], {
+      input: JSON.stringify({ hook_event_name: 'SessionStart', source: 'startup', cwd: made.path }),
+      cwd: made.path,
+      env: { ...TEST_ENV_BASE, CLAUDE_PROJECT_DIR: made.path },
+      timeoutMs: STAGED_HOOK_SCRIPT_TIMEOUT_MS,
+    });
+    assert.equal(first.outcome, OUTCOME.EXITED, `stderr=${first.stderr}`);
+    assert.equal(first.exitCode, 0, first.stderr);
+    assert.ok(JSON.parse(first.stdout).hookSpecificOutput.additionalContext.includes('install exited 1'));
+  });
+
+  test('a settings file that is not JSON is copied verbatim', () => {
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'none' });
+    fs.writeFileSync(path.join(repo, '.claude', 'settings.local.json'), '{ not json "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.js');
+    const made = provision.createWorktree({ name: 'odd', cwd: repo });
+    assert.equal(fs.readFileSync(path.join(made.path, '.claude', 'settings.local.json'), 'utf8'), '{ not json "$CLAUDE_PROJECT_DIR"/.claude/hooks/x.js');
+  });
+});
+
 describe('WorktreeRemove: cleans up what WorktreeCreate made', () => {
   let repo;
   beforeEach(() => {
@@ -379,6 +826,25 @@ describe('WorktreeRemove: cleans up what WorktreeCreate made', () => {
     git(repo, ['worktree', 'add', '--detach', elsewhere, 'HEAD']);
     assertRefused(remove(repo, elsewhere), EXIT.UNAVAILABLE);
     assert.ok(fs.existsSync(elsewhere));
+  });
+
+  test('a directory already gone drops only ITS registration, never another missing worktree\'s', (t) => {
+    // An unreachable worktree elsewhere (an unmounted disk, say) is not this hook's to forget.
+    const elsewhere = createTempDir('wt-provision-unmounted-');
+    t.after(() => cleanup(elsewhere));
+    git(repo, ['worktree', 'add', '--detach', elsewhere, 'HEAD']);
+    cleanup(elsewhere);
+    const made = create(repo, { name: 'gone-alone' });
+    cleanup(made.stdout);
+
+    const r = remove(repo, made.stdout);
+    assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+    const registered = git(repo, ['worktree', 'list', '--porcelain'])
+      .split('\n')
+      .filter((l) => l.startsWith('worktree '))
+      .map((l) => fs.realpathSync.native(path.dirname(l.slice('worktree '.length))) + path.sep + path.basename(l.slice('worktree '.length)));
+    assert.ok(registered.includes(fs.realpathSync.native(path.dirname(elsewhere)) + path.sep + path.basename(elsewhere)), 'the other missing worktree stays registered');
+    assert.ok(!registered.includes(made.stdout), 'this one is forgotten');
   });
 
   test('a directory already gone counts as removed', () => {

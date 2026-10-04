@@ -139,6 +139,12 @@ describe('the shared step dispatcher runs command refs', () => {
     assert.ok(INVOCATION, 'loop-hook-dispatch.md § step no longer states the gsd_run ${ref.command} invocation');
     assert.match(INVOCATION, /--phase "\$\{PHASE_NUMBER\}"/, 'the invocation hands the step a phase number');
   });
+
+  // A command step may run for minutes by design (`verify mutation`: one suite run per mutant in
+  // a nine-minute budget). Left at the Bash default of two minutes, the call is killed mid-run.
+  test('the reference makes the command-step call with the ten-minute Bash timeout', () => {
+    assert.match(DISPATCH_STEP, /`timeout: 600000`/, 'loop-hook-dispatch.md § step must ask for timeout: 600000 explicitly');
+  });
 });
 
 describe('command-ref capability steps have a caller', () => {

@@ -37,12 +37,25 @@
 // running plan, nothing pinned in CLAUDE.md and no open blocker → silent.
 // This hook never blocks: it emits `additionalContext` and exits 0. It cannot
 // fail a session, only fail to help.
+//
+// Worktree provisioning notice. SessionStart is also the one point where a
+// session started inside a freshly created worktree can be told what its
+// creation could not provide: gsd-worktree-provision.js (WorktreeCreate) can
+// only print the worktree path on stdout, so a warning it raises would
+// otherwise reach nobody but Claude Code's debug log. It records them in the
+// worktree's git dir; this hook delivers them once, ahead of the pin, and
+// stamps them delivered (hooks/lib/worktree-notice.js). The notice is a
+// one-time report of the creation, not a standing constraint: it is delivered
+// in any git project (the provision hook runs in all of them), regardless of
+// `workflow.pin_invariants`, outside the pin budget, and never repeated after a
+// compaction.
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
 const { HOOK_ON_CRASH, allow, crash } = require('./lib/hook-exit.js');
+const { takeNotice, formatNotice } = require('./lib/worktree-notice.js');
 
 const DEFAULT_BUDGET = 2000;
 const PIN_OPEN = '<!-- gsd:pinned -->';
@@ -316,15 +329,26 @@ function main() {
     clearTimeout(stdinTimeout);
     let output = null;
     try {
-      const data = JSON.parse(input);
-      const cwd = (data && typeof data.cwd === 'string' && data.cwd) || process.cwd();
-      const pin = buildPin(cwd);
-      if (pin) output = pinOutput(data, pin.context);
+      output = sessionStartOutput(JSON.parse(input));
     } catch {
       crash(HOOK_ON_CRASH.ALLOW, undefined); // a pin that cannot be built must never disturb a session
     }
     allow(output || undefined);
   });
+}
+
+/**
+ * The whole stdout payload for one hook invocation, or null for silence: the
+ * worktree provisioning notice (taken — stamped delivered — only when the
+ * event can carry it), then the pin.
+ */
+function sessionStartOutput(data, { now } = {}) {
+  const cwd = (data && typeof data.cwd === 'string' && data.cwd) || process.cwd();
+  if (!pinOutput(data, '')) return null; // an event that cannot carry context consumes nothing
+  const pin = buildPin(cwd);
+  const notice = takeNotice(cwd, { now });
+  const parts = [notice ? formatNotice(notice) : null, pin ? pin.context : null].filter(Boolean);
+  return parts.length ? pinOutput(data, parts.join('\n\n')) : null;
 }
 
 /**
@@ -350,6 +374,7 @@ if (require.main === module) {
 module.exports = {
   buildPin,
   pinOutput,
+  sessionStartOutput,
   findRunningPlan,
   readWaiting,
   readPinnedBlock,

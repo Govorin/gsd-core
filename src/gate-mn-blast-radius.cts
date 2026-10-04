@@ -26,9 +26,16 @@
  * The phase's commits come from the one resolver every gate shares (`resolveEvaluationScope`,
  * src/gate-evaluation-scope.cts; ADR-5057 §4, #5164): the commits its SUMMARYs list under
  * `## Task Commits`, reachable from HEAD. That answers the same question the script answered with a
- * path anchor plus subject-scope siblings (`git log --all`), without guessing from commit subjects —
- * so another project's interleaved commit in a monorepo never enters the radius (the resolver names
- * it in `outsideUnion` instead), and neither does a commit on another branch.
+ * path anchor plus subject-scope siblings (`git log --all`), without guessing from commit subjects.
+ * A commit on another branch never enters the radius.
+ *
+ * The task commits are the executor's own report, so they cannot be the whole evidence: a commit it
+ * leaves out would take its files out of the radius. Files changed in the phase window outside the
+ * listed commits (`outsideUnion`) are therefore attributed: inside the project's territory (its
+ * directory, or any directory its plans declare files in — a monorepo app's code lives in libs/) and
+ * declared by no plan of the project, they are this phase's and block (`via: 'unlisted-commit'`);
+ * another project's interleaved commit, or a file a sibling phase declared, is only reported in
+ * `attributedElsewhere`. The degraded phase window is filtered the same way (review M7).
  *
  * When the phase lists no task commits yet, the resolver falls back to the phase window (from the
  * commit that first added the phase directory to HEAD) and says so: `scopeStatus: 'degraded'`. The
@@ -70,6 +77,9 @@ const { extractFrontmatter } = frontmatterMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
 import planScanMod = require('./plan-scan.cjs');
 const { scanPhasePlans } = planScanMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
+import phaseLocatorMod = require('./phase-locator.cjs');
+const { listMilestonePhaseDirs } = phaseLocatorMod;
 
 /** The git seam — the resolver's own runner type, so its exit-code reading (1 = "no") holds. */
 export type RunGit = GitRunner;
@@ -126,6 +136,59 @@ export function foldNumstat(text: string, into: Map<string, ChangeStat>): void {
 }
 
 const isPlanningArtifact = (p: string): boolean => p.includes('/.planning/') || p.startsWith('.planning/');
+
+/**
+ * Which repository paths belong to THIS project, and which files another phase of it declared.
+ *
+ * The project's territory is its own directory (the whole tree when the project is the repository)
+ * plus every directory its plans — any phase — declare files in: a monorepo app keeps its code in
+ * libs/ beside it. A file changed in the phase window inside that territory, by a commit the SUMMARY
+ * does not list, and declared by no plan of the project, is this phase's unaccounted change; one
+ * outside it (another project's interleaved commit) or declared by a sibling phase (parallel work)
+ * is attributed elsewhere and only reported.
+ */
+interface ProjectAttribution {
+  inProject(file: string): boolean;
+  declaredElsewhere: Set<string>;
+}
+
+function declaredDirOf(entry: string): string {
+  const glob = entry.indexOf('*');
+  const plain = glob === -1 ? entry : entry.slice(0, glob);
+  const dir = glob === -1 ? path.posix.dirname(plain) : plain.replace(/\/+$/, '');
+  return dir === '.' ? '' : dir;
+}
+
+function projectAttribution(repoRoot: string, projectDir: string, phaseDir: string): ProjectAttribution {
+  const projectRel = path.relative(fs.realpathSync(repoRoot), fs.realpathSync(projectDir)).split(path.sep).join('/');
+  const territory = new Set<string>(projectRel === '' ? [''] : [projectRel]);
+  const declaredElsewhere = new Set<string>();
+  const phasesDir = path.dirname(phaseDir);
+  // Unscoped (no cwd): every phase directory of the project, sentinels (999.x backlog) excluded.
+  const siblings: string[] = listMilestonePhaseDirs(phasesDir).value;
+  const own = path.basename(phaseDir);
+  for (const name of siblings) {
+    const dir = path.join(phasesDir, name);
+    for (const planFile of scanPhasePlans(dir).allPlanFiles) {
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(dir, planFile), 'utf8');
+      } catch {
+        continue;
+      }
+      for (const entry of declaredFilesOf(text)) {
+        const norm = normalizeDeclared(entry);
+        territory.add(declaredDirOf(norm));
+        if (name !== own && !norm.includes('*')) declaredElsewhere.add(norm);
+      }
+    }
+  }
+  const roots = [...territory];
+  return {
+    inProject: (file) => roots.some((r) => r === '' || file === r || file.startsWith(`${r}/`)), // allow-handrolled-containment: attribution of repo-relative git paths to a project, not a filesystem boundary
+    declaredElsewhere,
+  };
+}
 
 /** Line counts for the resolved scope: per task commit, or over the degraded phase window. */
 function scopeNumstat(scope: EvaluationScope, git: (args: string[]) => string): Map<string, ChangeStat> {
@@ -197,11 +260,39 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
   }
 
   const includeDirty = options.base !== undefined || neverCommitted;
+  const attribution = projectAttribution(repoRoot, projectDir, phaseDir);
+  const ownedHere = (file: string): boolean =>
+    declared.has(file) || (attribution.inProject(file) && !attribution.declaredElsewhere.has(file));
   const changed = new Map<string, ChangeStat>();
+  // Window files this phase does not answer for: another project's, or a sibling phase's.
+  const attributedElsewhere = new Set<string>();
+  // Files changed in the window, inside the project, by commits the SUMMARY does not list.
+  const unlisted = new Set<string>();
   try {
     if (!neverCommitted) {
       const stats = scopeNumstat(scope, git);
-      for (const file of scope.changedFiles) changed.set(file, stats.get(file) ?? { added: 0, deleted: 0 });
+      for (const file of scope.changedFiles) {
+        // The degraded phase window is the whole tree's history between two commits; in a monorepo
+        // it interleaves other projects' work (measured: 95 false "undeclared"). Keep what is ours.
+        if (scope.source === 'phase-range' && !ownedHere(file)) {
+          attributedElsewhere.add(file);
+          continue;
+        }
+        changed.set(file, stats.get(file) ?? { added: 0, deleted: 0 });
+      }
+      // Review M7: the task commits are the executor's own report. A commit it left out of the SUMMARY
+      // must not take its files out of the radius — inside the project and declared by no plan of it,
+      // they are this phase's unaccounted change.
+      for (const file of scope.outsideUnion) {
+        if (isPlanningArtifact(file) || changed.has(file)) continue;
+        if (ownedHere(file) && !declared.has(file)) unlisted.add(file);
+        else if (!declared.has(file)) attributedElsewhere.add(file);
+      }
+      if (unlisted.size > 0 && scope.rangeBase !== null) {
+        const unlistedStats = new Map<string, ChangeStat>();
+        foldNumstat(git(['-c', 'core.quotepath=off', 'diff', '--numstat', scope.rangeBase, 'HEAD', '--', ...unlisted]), unlistedStats);
+        for (const file of unlisted) changed.set(file, unlistedStats.get(file) ?? { added: 0, deleted: 0 });
+      }
     }
     if (includeDirty) {
       // An empty tree or no HEAD yet simply has no uncommitted edits.
@@ -213,14 +304,14 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     throw err;
   }
 
-  const undeclared: Array<{ path: string } & ChangeStat> = [];
+  const undeclared: Array<{ path: string; via?: 'unlisted-commit' } & ChangeStat> = [];
   let matched = 0;
   let changedLines = 0;
   for (const [file, stat] of changed) {
     if (isPlanningArtifact(file)) continue;
     changedLines += stat.added + stat.deleted;
     if (declared.has(file)) matched++;
-    else undeclared.push({ path: file, ...stat });
+    else undeclared.push(unlisted.has(file) ? { path: file, via: 'unlisted-commit', ...stat } : { path: file, ...stat });
   }
   undeclared.sort((a, b) => b.added + b.deleted - (a.added + a.deleted));
   const undelivered = [...declared.keys()].filter((p) => !changed.has(p));
@@ -238,6 +329,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     scopeReason: scope.reason,
     commits: neverCommitted ? 0 : scope.commits.length,
     outsideUnion: neverCommitted ? [] : scope.outsideUnion,
+    attributedElsewhere: [...attributedElsewhere].sort(),
     unreachable: neverCommitted ? [] : scope.unreachable,
     workingTreeIncluded: includeDirty,
     plans: planFiles.length,

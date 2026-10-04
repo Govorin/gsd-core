@@ -12,8 +12,9 @@
  * the dispatch to surface.
  *
  * No DESIGN.md → `skip`, not a block: the design step is optional (`workflow.architecture_design`)
- * and a phase without one has nothing to check. A design that exists but cannot be read → block
- * with `status: 'unresolvable'` (fail-closed: a gate that could not look must not pass).
+ * and a phase without one has nothing to check. A phase directory that cannot be read (missing,
+ * not a directory), or a design that exists but cannot be read → block with
+ * `status: 'unresolvable'` (fail-closed: a gate that could not look must not pass).
  *
  * Argv after the verb: `<phase-dir> [phase-req-ids]` (the plan:post named-query convention).
  */
@@ -25,7 +26,7 @@ import type { GateResult } from './gate-verdict.cjs';
 import { resolveContainedPath } from './gate-phase-context.cjs';
 import { runDiagramsCheck } from './diagrams-check.cjs';
 import type { Finding } from './diagrams-check.cjs';
-import { buildSymbolIndex } from './symbol-index.cjs';
+import { buildProjectSymbolIndex } from './symbol-index.cjs';
 import type { SymbolIndex } from './symbol-index.cjs';
 
 /** A phase design document: `DESIGN.md` or `<N>-DESIGN.md`. */
@@ -53,8 +54,18 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
   let entries: string[];
   try {
     entries = fs.readdirSync(phaseDir).filter((f) => DESIGN_FILE.test(f)).sort();
-  } catch {
-    entries = [];
+  } catch (err) {
+    // A phase directory that does not exist (or is not a directory) is not "a phase without a
+    // design": the gate could not look, and a gate that could not look must not pass — the same
+    // reading the mn-* gates give an unresolvable phase (review L4).
+    return gateVerdict('block', true, {
+      block: true,
+      passed: false,
+      status: 'unresolvable',
+      files: [],
+      findings: [],
+      message: `could not read the phase directory ${path.relative(projectDir, phaseDir) || phaseDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`,
+    });
   }
   if (entries.length === 0) {
     return gateVerdict('skip', false, {
@@ -69,7 +80,7 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
 
   let shared: SymbolIndex | null = null;
   const buildIndex = (root: string): SymbolIndex => {
-    if (shared === null) shared = (input.buildIndex ?? buildSymbolIndex)(root);
+    if (shared === null) shared = (input.buildIndex ?? buildProjectSymbolIndex)(root);
     return shared;
   };
   const files: Array<{ file: string; diagram_count: number; blocker_count: number; warning_count: number }> = [];
