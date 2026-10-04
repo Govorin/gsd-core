@@ -340,12 +340,12 @@ Behavior differences from the pre-refactor router:
 
 "Which commits and which files does this gate or workflow step evaluate?" has one owner. Before it existed, `code-review`, `quick`, `execute-plan`, `execute-phase`, the `gsd-code-reviewer` agents, `ui-safety-gate`, `tdd-review-checkpoint`, `decision-coverage-verify` and `verify schema-drift` each derived their own answer (`HEAD~1..HEAD`, `DIFF_BASE..HEAD`, `git log --all`), and the answers disagreed with each other and with the work they meant to scope.
 
-`resolveEvaluationScope(projectDir, unit, options)` takes a unit — a phase, a plan (`<phase>-<plan>`) or a quick task id — and returns:
+`resolveEvaluationScope(projectDir, unit, options)` takes a unit — a phase, a plan (`<phase>-<plan>`), a quick task id, or a window (the work that landed on a ref since a duration, a UTC date, a ref or `last`; [ADR-5208](adr/5208-window-review-unit.md)) — and returns:
 
 | Field | Meaning |
 |-------|---------|
 | `status` | `resolved` (exactly the unit's own commits), `degraded` (the preferred evidence was absent or empty, so `files` come from wider evidence; `reason` says why) or `unresolvable` (git or the phase could not be read, including a git timeout; `files` is empty and means "could not look"). A plan or quick unit that matches nothing is `resolved` with `reason: no-matching-commits` (or `empty-after-exclusions` when its commits touched only excluded paths): git was read and the answer is "none", and the verb reports it as `advisory`, not `pass` |
-| `source` | `task-commits`, `plan-subjects`, `quick-subjects`, `phase-range` or `none` |
+| `source` | `task-commits`, `plan-subjects`, `quick-subjects`, `phase-range`, `window-commits` or `none` |
 | `commits` | the unit's commits (`sha`, `subject`, optionally `body` and `files`) |
 | `changedFiles` / `files` / `missingOnDisk` | every path the commits touched; the subset that exists on disk (the reviewable set); the subset that no longer exists, **by name** |
 | `outsideUnion` | files changed in the phase window by commits that are *not* the unit's, by name |
@@ -359,6 +359,7 @@ The design rules:
 - **An empty union never becomes an empty scope.** A phase with no SUMMARY, no task rows, no reachable task commits, or only planning paths degrades to the phase-directory range and reports `degraded` with the reason. A phase directory git has never seen, or an unreadable repository, is `unresolvable`.
 - **Plan commits are matched on the subject.** `<type>(<phase>-<plan>):` is anchored, tolerant of zero padding (`03-01`, `3-1`) and of decimal, N-segment and letter-suffixed phase numbers, and escapes every metacharacter, so `03-01` never matches `03-010`.
 - **Every git call is bounded** by the `execGit` seam; a timeout or a missing git is `unresolvable`, never a throw and never an empty scope.
+- **A window is a commit set, not a diff** ([ADR-5208](adr/5208-window-review-unit.md)). It is `base..until`, where `base` is a ref, the tip recorded in `.planning/reviews/LAST-WINDOW.json` (`last`), or the newest first-parent commit older than the boundary (a commit exactly on the boundary is inside), so a branch merged inside the window counts although its commits are older. A merge contributes only what it changed against every parent (`--cc`). Each commit names its phase (SUMMARY `## Task Commits`, active and archived) or `unattributed`; an empty window degrades with `empty-window`, and `last` with no recorded tip is `unresolvable` (`no-last-window-marker`).
 
 Workflows reach it as `gsd_run check evaluation-scope`:
 
@@ -368,6 +369,7 @@ gsd_run check evaluation-scope --plan <phase>-<plan> --raw                # a pl
                                                                           #   --milestone-bound, --committed-since <date>,
                                                                           #   --pathspec <glob> (repeatable)
 gsd_run check evaluation-scope --quick <quick-id> --include-files --raw   # a quick task
+gsd_run check evaluation-scope --window <7d|YYYY-MM-DD|ref|last> [--until <ref>] --raw   # a window
 ```
 
 The verb is a resolver, not a policy: it always reports `block: false`, and the caller decides what a `degraded` or `unresolvable` scope means. `scripts/lint-evaluation-scope-drift.cjs` fails CI when a gate module, `verify`, a workflow or an agent derives its own range again (`git log … --all`, `git diff … ..HEAD`, a `HEAD~N` anchor, a hand-rolled phase-start anchor, a commit-message lookup); its allowlist pins exact non-scope sites and is drained, never renewed.

@@ -25,6 +25,11 @@ const {
   planSubjectPattern,
   isSafeRefArgument,
   SCOPE_EXCLUSION_PATHSPECS,
+  parseWindowSince,
+  parseLastWindowMarker,
+  formatLastWindowMarker,
+  lastWindowMarkerPath,
+  UNATTRIBUTED,
 } = require('../gsd-core/bin/lib/gate-evaluation-scope.cjs');
 
 const IDENTITY = {
@@ -610,5 +615,317 @@ describe('resolveEvaluationScope — what a scope says when it finds little', ()
     const scope = resolveEvaluationScope(dir, { kind: 'phase', phase: '3' });
     assert.equal(scope.status, 'degraded');
     assert.deepEqual(scope.files, ['src/root.js']);
+  });
+});
+
+// ─── The window unit (ADR-5208, extending ADR-5057 §4) ───────────────────────
+
+/** 2026-09-27T00:00:00Z — the boundary every dated window test measures against. */
+const BOUNDARY = Date.UTC(2026, 8, 27) / 1000;
+const DAY = 86400;
+
+/** A repository whose every commit carries an explicit committer (and author) date. */
+function makeDatedRepo(scaffoldAt = BOUNDARY - 30 * DAY) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-scope-window-'));
+  dirs.push(dir);
+  const run = (args, at) => {
+    const dated = at === undefined ? {} : { GIT_COMMITTER_DATE: `@${at} +0000`, GIT_AUTHOR_DATE: `@${at} +0000` };
+    return gitOrThrow(args, { cwd: dir, env: { ...process.env, ...IDENTITY, ...dated } }).trim();
+  };
+  const git = (...args) => run(args);
+  git('init', '--initial-branch=main');
+  git('config', 'user.email', 'test@test.io');
+  git('config', 'user.name', 'Test');
+  write(dir, '.planning/config.json', '{}');
+  write(dir, `${PHASE_DIR}/03-CONTEXT.md`, 'context\n');
+  git('add', '.');
+  run(['commit', '-m', 'docs(03): scaffold phase'], scaffoldAt);
+  return { dir, git, run };
+}
+
+/** Commit one file at `at` (epoch seconds); returns the full sha. */
+function commitAt(repo, rel, message, at, content = `${rel} ${at}\n`) {
+  write(repo.dir, rel, content);
+  repo.git('add', rel);
+  repo.run(['commit', '-m', message], at);
+  return repo.git('rev-parse', 'HEAD');
+}
+
+function windowScope(repo, since, options = {}, until) {
+  const unit = until === undefined ? { kind: 'window', since } : { kind: 'window', since, until };
+  return resolveEvaluationScope(repo.dir, unit, options);
+}
+
+function writeMarker(repo, tip) {
+  write(repo.dir, '.planning/reviews/LAST-WINDOW.json', formatLastWindowMarker({
+    tip, since: '7d', until: 'HEAD', reviewedAt: '2026-09-27T00:00:00.000Z', review: '.planning/reviews/2026-09-27-window/REVIEW.md',
+  }));
+}
+
+describe('resolveEvaluationScope — window unit', () => {
+  test('[boundary] a commit exactly on the date boundary is inside; one second earlier is outside', () => {
+    for (const [offset, inside] of [[-1, false], [0, true], [1, true]]) {
+      const repo = makeDatedRepo();
+      const edge = commitAt(repo, 'src/edge.js', 'feat: edge', BOUNDARY + offset);
+      const later = commitAt(repo, 'src/later.js', 'feat: later', BOUNDARY + 3600);
+      for (const since of ['2026-09-27', '2026-09-27T00:00:00Z', '2026-09-27T03:00:00+03:00']) {
+        const scope = windowScope(repo, since);
+        assert.equal(scope.status, 'resolved', `${since} offset ${offset}`);
+        assert.deepEqual(scope.commits.map((c) => c.sha), inside ? [later, edge] : [later], `${since} offset ${offset}`);
+        assert.deepEqual(scope.files, inside ? ['src/edge.js', 'src/later.js'] : ['src/later.js']);
+        assert.equal(scope.window.boundary, '2026-09-27T00:00:00.000Z');
+        assert.equal(scope.window.sinceKind, 'date');
+      }
+    }
+  });
+
+  test('[boundary] a duration is measured back from the injected clock, with the same inclusive edge', () => {
+    for (const [offset, inside] of [[-1, false], [0, true], [1, true]]) {
+      const repo = makeDatedRepo();
+      const edge = commitAt(repo, 'src/edge.js', 'feat: edge', BOUNDARY + offset);
+      const clock = { now: () => (BOUNDARY + 7 * DAY) * 1000 };
+      const scope = windowScope(repo, '7d', { clock });
+      assert.equal(scope.window.sinceKind, 'duration');
+      assert.equal(scope.window.boundary, '2026-09-27T00:00:00.000Z');
+      assert.deepEqual(scope.commits.map((c) => c.sha), inside ? [edge] : [], `offset ${offset}`);
+    }
+  });
+
+  test('[happy] the scope is the union of each window commit\'s own files; each commit names its phase or `unattributed`', () => {
+    const repo = makeDatedRepo();
+    const a = commitAt(repo, 'src/a.js', 'feat(03-01): a', BOUNDARY + 10);
+    const loose = commitAt(repo, 'src/loose.js', 'fix: unrelated', BOUNDARY + 20);
+    // A short (7-char) id on the task row still attributes the full sha.
+    const summary = commitAt(repo, `${PHASE_DIR}/03-01-SUMMARY.md`, 'docs(03-01): summary', BOUNDARY + 30,
+      `# Summary\n\n## Task Commits\n\n1. **Task 1: a** - \`${a.slice(0, 7)}\`\n`);
+    const scope = windowScope(repo, '2026-09-27');
+    assert.equal(scope.status, 'resolved');
+    assert.equal(scope.source, 'window-commits');
+    assert.deepEqual(scope.files, ['src/a.js', 'src/loose.js']);
+    assert.deepEqual(scope.commits.map((c) => [c.sha, c.phase]), [[summary, UNATTRIBUTED], [loose, UNATTRIBUTED], [a, '03']]);
+    assert.deepEqual(scope.window.phases, { '03': { dir: PHASE_DIR, commits: [a] } });
+    assert.deepEqual(scope.window.unattributed, [summary, loose]);
+    assert.deepEqual(scope.window.unreadablePhaseDirs, []);
+    assert.deepEqual(scope.commits.find((c) => c.sha === summary).files, [], 'planning paths stay excluded');
+  });
+
+  test('[happy] a commit named by an archived milestone phase is attributed `<milestone>/<phase>`', () => {
+    const repo = makeDatedRepo();
+    const old = commitAt(repo, 'src/old.js', 'feat(01-01): old', BOUNDARY + 10);
+    commitAt(repo, '.planning/milestones/v1.0-phases/01-old/01-01-SUMMARY.md', 'docs: archive', BOUNDARY + 20,
+      `## Task Commits\n\n1. **Task 1: old** - \`${old}\`\n`);
+    const scope = windowScope(repo, '2026-09-27');
+    assert.deepEqual(scope.window.phases, { 'v1.0/01': { dir: '.planning/milestones/v1.0-phases/01-old', commits: [old] } });
+  });
+
+  test('[boundary] merges: merged-in commits count when they LAND in the window; the merge adds only its own edits', () => {
+    const repo = makeDatedRepo();
+    repo.git('checkout', '-b', 'side');
+    // Authored and committed BEFORE the boundary, but it lands on main through a merge inside it.
+    const sideOld = commitAt(repo, 'src/side.js', 'feat: side work', BOUNDARY - 5 * DAY);
+    repo.git('checkout', 'main');
+    const mainNew = commitAt(repo, 'src/main.js', 'feat: main work', BOUNDARY + 10);
+    repo.git('merge', '--no-ff', '--no-commit', 'side');
+    write(repo.dir, 'src/evil.js', 'an edit only the merge commit carries\n');
+    repo.git('add', 'src/evil.js');
+    repo.run(['commit', '-m', 'merge side'], BOUNDARY + 20);
+    const merge = repo.git('rev-parse', 'HEAD');
+    const scope = windowScope(repo, '2026-09-27');
+    assert.equal(scope.status, 'resolved');
+    assert.deepEqual(new Set(scope.commits.map((c) => c.sha)), new Set([merge, mainNew, sideOld]));
+    assert.deepEqual(scope.commits.find((c) => c.sha === merge).files, ['src/evil.js']);
+    assert.deepEqual(scope.files, ['src/evil.js', 'src/main.js', 'src/side.js']);
+    assert.deepEqual(scope.outsideUnion, []);
+    assert.equal(scope.window.base, repo.git('rev-parse', 'HEAD~1~1'), 'base is the newest first-parent commit before the boundary');
+  });
+
+  test('[hostile] a commit inside the window that lives only on another branch is not in scope', () => {
+    const repo = makeDatedRepo();
+    const onMain = commitAt(repo, 'src/main.js', 'feat: main', BOUNDARY + 10);
+    repo.git('checkout', '-b', 'side');
+    commitAt(repo, 'src/side-only.js', 'feat: side only', BOUNDARY + 20);
+    repo.git('checkout', 'main');
+    const scope = windowScope(repo, '2026-09-27');
+    assert.deepEqual(scope.commits.map((c) => c.sha), [onMain]);
+    assert.deepEqual(scope.files, ['src/main.js']);
+    // ...and `until` selects the tip: the same window evaluated on `side` holds both.
+    assert.equal(windowScope(repo, '2026-09-27', {}, 'side').commits.length, 2);
+  });
+
+  test('[happy] a ref form is the commit set `<ref>..until`, not a diff', () => {
+    const repo = makeDatedRepo();
+    const from = commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 10);
+    const b = commitAt(repo, 'src/b.js', 'feat: b', BOUNDARY + 20);
+    const c = commitAt(repo, 'src/c.js', 'feat: c', BOUNDARY + 30);
+    const scope = windowScope(repo, from);
+    assert.equal(scope.window.sinceKind, 'ref');
+    assert.equal(scope.window.base, from);
+    assert.equal(scope.rangeBase, from);
+    assert.deepEqual(scope.commits.map((x) => x.sha), [c, b]);
+    assert.deepEqual(scope.files, ['src/b.js', 'src/c.js']);
+  });
+
+  test('[negative] an empty window degrades and says why — never a clean, empty `resolved`', () => {
+    const repo = makeDatedRepo();
+    commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY - DAY);
+    const scope = windowScope(repo, '2026-09-27');
+    assert.equal(scope.status, 'degraded');
+    assert.equal(scope.reason, 'empty-window');
+    assert.deepEqual(scope.files, []);
+    assert.deepEqual(scope.commits, []);
+    const atTip = windowScope(repo, 'HEAD');
+    assert.equal(atTip.status, 'degraded');
+    assert.equal(atTip.reason, 'empty-window');
+  });
+
+  test('[negative] a window of planning-only commits is an empty scope that says so', () => {
+    const repo = makeDatedRepo();
+    commitAt(repo, `${PHASE_DIR}/03-01-PLAN.md`, 'docs(03-01): plan', BOUNDARY + 10);
+    const scope = windowScope(repo, '2026-09-27');
+    assert.equal(scope.status, 'degraded');
+    assert.equal(scope.reason, 'empty-after-exclusions');
+    assert.equal(scope.commits.length, 1);
+    assert.deepEqual(scope.files, []);
+  });
+
+  test('[boundary] a window that reaches past the root commit has no base: the root commit is inside', () => {
+    const repo = makeDatedRepo(BOUNDARY + 1);
+    const root = repo.git('rev-parse', 'HEAD');
+    const a = commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 2);
+    const scope = windowScope(repo, '2026-09-27');
+    assert.equal(scope.window.base, null);
+    assert.equal(scope.rangeBase, null);
+    assert.deepEqual(scope.commits.map((c) => c.sha), [a, root]);
+    assert.deepEqual(scope.files, ['src/a.js']);
+    assert.deepEqual(scope.outsideUnion, []);
+    assert.equal(windowScope(repo, '9999w', { clock: { now: () => BOUNDARY * 1000 } }).window.base, null, 'a boundary before the epoch');
+  });
+
+  test('[negative] `last` with no recorded window is unresolvable with a reason that says so', () => {
+    const repo = makeDatedRepo();
+    commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 10);
+    const scope = windowScope(repo, 'last');
+    assert.equal(scope.status, 'unresolvable');
+    assert.equal(scope.reason, 'no-last-window-marker');
+    assert.deepEqual(scope.files, []);
+  });
+
+  test('[happy] `last` starts at the recorded tip: only what landed since the previous window review', () => {
+    const repo = makeDatedRepo();
+    const reviewed = commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 10);
+    const next = commitAt(repo, 'src/b.js', 'feat: b', BOUNDARY + 20);
+    writeMarker(repo, reviewed);
+    const scope = windowScope(repo, 'last');
+    assert.equal(scope.status, 'resolved');
+    assert.equal(scope.window.sinceKind, 'last');
+    assert.equal(scope.window.base, reviewed);
+    assert.deepEqual(scope.commits.map((c) => c.sha), [next]);
+  });
+
+  test('[negative] `last` whose tip was rewritten away degrades and names the tip', () => {
+    const repo = makeDatedRepo();
+    const base = repo.git('rev-parse', 'HEAD');
+    const reviewed = commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 10);
+    repo.git('reset', '--hard', base);
+    commitAt(repo, 'src/b.js', 'feat: b rewritten', BOUNDARY + 20);
+    writeMarker(repo, reviewed);
+    const scope = windowScope(repo, 'last');
+    assert.equal(scope.status, 'degraded');
+    assert.equal(scope.reason, 'last-window-tip-not-ancestor');
+    assert.deepEqual(scope.unreachable, [reviewed]);
+    assert.deepEqual(scope.files, ['src/b.js']);
+  });
+
+  test('[negative] a malformed marker and a marker naming no object are unresolvable, each with its own reason', () => {
+    const repo = makeDatedRepo();
+    write(repo.dir, '.planning/reviews/LAST-WINDOW.json', '{"version":1,"tip":"HEAD"}');
+    assert.equal(windowScope(repo, 'last').reason, 'last-window-marker-invalid');
+    writeMarker(repo, 'f'.repeat(40));
+    assert.equal(windowScope(repo, 'last').reason, 'last-window-tip-missing');
+  });
+
+  test('[negative] an unknown ref, a malformed since and a second lower bound are unresolvable', () => {
+    const repo = makeDatedRepo();
+    assert.equal(windowScope(repo, 'no-such-branch').reason, 'window-since-not-found');
+    assert.equal(windowScope(repo, '2026-02-30').reason, 'invalid-window-since');
+    assert.equal(windowScope(repo, '7d', { since: 'HEAD' }).reason, 'window-with-since-option');
+    assert.equal(windowScope(repo, '7d', { ref: 'HEAD' }, 'HEAD').reason, 'window-until-with-ref-option');
+  });
+
+  test('[negative] git missing is unresolvable for a window too', () => {
+    const scope = resolveEvaluationScope('/nowhere', { kind: 'window', since: '7d' }, {
+      execGit: () => ({ exitCode: 127, stdout: '', stderr: '', timedOut: false }),
+    });
+    assert.equal(scope.status, 'unresolvable');
+    assert.equal(scope.reason, 'git-unavailable');
+  });
+
+  test('[boundary] the sha chunk size never changes a window\'s answer', () => {
+    const repo = makeDatedRepo();
+    for (let i = 0; i < 4; i += 1) commitAt(repo, `src/f${i}.js`, `feat: f${i}`, BOUNDARY + i);
+    const expected = windowScope(repo, '2026-09-27');
+    for (const shaChunk of [2, 3, 4, 5]) {
+      const scope = windowScope(repo, '2026-09-27', { shaChunk });
+      assert.deepEqual(scope.files, expected.files, `chunk ${shaChunk}`);
+      assert.deepEqual(scope.commits, expected.commits, `chunk ${shaChunk}`);
+    }
+  });
+});
+
+describe('parseWindowSince and the LAST-WINDOW marker', () => {
+  test('[happy] each form is recognised, in precedence order', () => {
+    assert.deepEqual(parseWindowSince('last'), { kind: 'last', value: 'last' });
+    assert.deepEqual(parseWindowSince('7d'), { kind: 'duration', value: '7d', seconds: 7 * DAY });
+    assert.deepEqual(parseWindowSince('12h'), { kind: 'duration', value: '12h', seconds: 12 * 3600 });
+    assert.deepEqual(parseWindowSince('2w'), { kind: 'duration', value: '2w', seconds: 14 * DAY });
+    assert.deepEqual(parseWindowSince('2026-09-27'), { kind: 'date', value: '2026-09-27', epochSeconds: BOUNDARY });
+    assert.equal(parseWindowSince('2026-09-27T03:00+03:00').epochSeconds, BOUNDARY);
+    assert.deepEqual(parseWindowSince('refs/heads/7d'), { kind: 'ref', value: 'refs/heads/7d' });
+    assert.deepEqual(parseWindowSince('HEAD~3'), { kind: 'ref', value: 'HEAD~3' });
+  });
+
+  test('[hostile] malformed dates, out-of-range durations and option-shaped values are refused, never read as refs', () => {
+    for (const raw of ['', '0d', '10000d', '07d', '2026-02-30', '2026-13-01', '2026-9-1', '2026-09-27T10:00', '2026-09-27T24:00Z', '-7d', '--all', 'a b']) {
+      assert.equal(parseWindowSince(raw), null, JSON.stringify(raw));
+    }
+  });
+
+  test('[happy] a formatted marker parses back; a wrong version or a short tip does not', () => {
+    const tip = 'a'.repeat(40);
+    const marker = { tip, since: 'last', until: 'main', reviewedAt: '2026-09-27T00:00:00.000Z', review: null };
+    assert.deepEqual(parseLastWindowMarker(formatLastWindowMarker(marker)), { version: 1, ...marker });
+    assert.equal(parseLastWindowMarker(JSON.stringify({ ...marker, version: 2 })), null);
+    assert.equal(parseLastWindowMarker(JSON.stringify({ ...marker, version: 1, tip: 'abc1234' })), null);
+    assert.equal(parseLastWindowMarker('not json'), null);
+  });
+
+  test('[happy] the marker lives under the planning dir', () => {
+    assert.equal(lastWindowMarkerPath('/repo'), path.join('/repo', '.planning', 'reviews', 'LAST-WINDOW.json'));
+  });
+});
+
+describe('evaluateEvaluationScope — the --window verb', () => {
+  const messageOf = (args) => evaluateEvaluationScope({ projectDir: '/x', args }).failure.message;
+
+  test('[negative] --window argv conflicts are usage failures naming the problem', () => {
+    assert.match(messageOf(['--window', '7d', '--phase', '3']), /exactly one of/);
+    assert.match(messageOf(['--phase', '3', '--until', 'main']), /--until <ref> requires --window/);
+    assert.match(messageOf(['--window', '7d', '--since', 'HEAD']), /carries its own lower bound/);
+    assert.match(messageOf(['--window', '7d', '--ref', 'HEAD']), /use --until/);
+    assert.match(messageOf(['--window', '0d']), /--window must be last, a duration/);
+  });
+
+  test('[happy] a window verdict carries the window last in the payload; an empty window is advisory', () => {
+    const repo = makeDatedRepo();
+    commitAt(repo, 'src/a.js', 'feat: a', BOUNDARY + 10);
+    const verdict = evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', '2026-09-27', '--until', 'main'] });
+    assert.equal(verdict.outcome, 'pass');
+    assert.deepEqual(Object.keys(verdict.payload), [
+      'unit', 'status', 'source', 'reason', 'commits', 'changedFiles', 'files',
+      'missingOnDisk', 'outsideUnion', 'unreachable', 'rangeBase', 'window',
+    ]);
+    assert.deepEqual(verdict.payload.unit, { kind: 'window', since: '2026-09-27', until: 'main' });
+    assert.equal(evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', 'HEAD'] }).outcome, 'advisory');
+    assert.equal(evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', 'last'] }).outcome, 'skip');
   });
 });
