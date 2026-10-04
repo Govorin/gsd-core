@@ -697,6 +697,7 @@ const EXPECTED_REASON_OUTCOME_3912 = {
   summary_extract_unparseable: 'UNAVAILABLE',
   verification_status_invalid: 'UNAVAILABLE',
   diagrams_source_unavailable: 'UNAVAILABLE',
+  window_review_unresolvable: 'UNAVAILABLE',
   usage: 'USAGE',
   unknown: 'FAIL',
 };
