@@ -622,3 +622,21 @@ describe('erDiagram', () => {
     assert.throws(() => m.erDiagram({ entities: [{ id: 'A', attributes: [{ type: '9int', name: 'x' }] }] }), /start with a letter/);
   });
 });
+
+describe('defect palette', () => {
+  test('every defect class and link style is accepted by the flowchart builder', () => {
+    const classDefs = Object.values(m.DEFECT_CLASS_DEFS);
+    assert.deepEqual(classDefs.map((c) => c.name), ['missing', 'unparsed', 'conflict']);
+    const nodes = classDefs.map((c) => ({ id: `n_${c.name}`, className: c.name }));
+    const edges = [
+      { from: 'n_missing', to: 'n_unparsed', linkStyle: m.DEFECT_LINK_STYLE },
+      { from: 'n_unparsed', to: 'n_conflict', linkStyle: m.WARNING_LINK_STYLE },
+    ];
+    assert.doesNotThrow(() => m.flowchart({ nodes, edges, classDefs }));
+  });
+
+  test('the palette is frozen, so one builder cannot recolour another', () => {
+    assert.ok(Object.isFrozen(m.DEFECT_CLASS_DEFS));
+    assert.ok(Object.isFrozen(m.DEFECT_CLASS_DEFS.missing));
+  });
+});

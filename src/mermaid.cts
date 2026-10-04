@@ -290,6 +290,30 @@ function renderClassDefs(classDefs: readonly ClassDef[], where: string): { lines
   return { lines, names };
 }
 
+// ─── Defect palette ──────────────────────────────────────────────────────────
+
+/**
+ * One look for "this is wrong" across every derived graph (plan, roadmap,
+ * loop-hook maps): a reader who learned it on one diagram reads it on all.
+ * A defect is DRAWN, never dropped — these are the strokes it is drawn with.
+ */
+/** The `linkStyle` of an edge that is a defect (a dependency on nothing, a cycle). */
+export const DEFECT_LINK_STYLE = 'stroke:#d33,stroke-width:2px';
+/** The `linkStyle` of an edge that is legal but worth a look (a warning, not a defect). */
+export const WARNING_LINK_STYLE = 'stroke:#ef6c00,stroke-width:2px';
+
+/**
+ * The defect node classes, by name: `missing` — something referenced that does
+ * not exist (red dashed); `unparsed` — data is there but could not be read
+ * (grey dashed); `conflict` — two sources disagree about the node (red outline).
+ * A builder passes the ones it uses in its `classDefs`.
+ */
+export const DEFECT_CLASS_DEFS: Readonly<Record<'missing' | 'unparsed' | 'conflict', ClassDef>> = Object.freeze({
+  missing: Object.freeze({ name: 'missing', style: 'fill:#fdecea,stroke:#d33,stroke-dasharray:4 3' }),
+  unparsed: Object.freeze({ name: 'unparsed', style: 'fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555' }),
+  conflict: Object.freeze({ name: 'conflict', style: 'fill:#fff,stroke:#d33,stroke-width:3px' }),
+});
+
 // ─── flowchart ───────────────────────────────────────────────────────────────
 
 export type FlowDirection = 'LR' | 'RL' | 'TB' | 'TD' | 'BT';
