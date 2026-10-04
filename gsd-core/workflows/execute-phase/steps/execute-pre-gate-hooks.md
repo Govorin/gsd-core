@@ -26,7 +26,7 @@ CHECK_EXIT=$?
   ⚠ Execution blocked before the first wave by capability gate ({hook.capId}): {GATE_RESULT.message}
   ```
 
-  Then offer what the message names, and nothing else: repair the base (or the check roster) and re-run `/gsd-execute-phase {PHASE_NUMBER}`; or, when the message offers an acceptance command, run it only after the user has explicitly confirmed and given the reason — never choose it on their behalf — then re-run. This halt is **not** bypassed by `onError`, which covers command errors only (step 1).
+  Then offer what the message names, and nothing else: repair the base (or the check roster) and re-run `/gsd:execute-phase {PHASE_NUMBER}`; or, when the message offers an acceptance command, run it only after the user has explicitly confirmed and given the reason — never choose it on their behalf — then re-run. This halt is **not** bypassed by `onError`, which covers command errors only (step 1).
 - **Non-blocking gate (`hook.blocking == false`):** never halts. With `block == true` or a non-empty `message`, print `⚠ {hook.capId} advisory: {GATE_RESULT.message}` and continue.
 - **`block == false`:** continue silently.
 

@@ -403,12 +403,21 @@ describe('execute:pre — real registry empty-resolution + synthetic resolver me
     assert.strictEqual(resolved.activeHooks.length, 1, 'schema default=true must activate hook even with absent config');
   });
 
-  it('[negative] real registry has exactly 0 hooks at execute:pre — guard against accidental registration', () => {
+  it('[negative] real registry holds only the baseline pair at execute:pre — guard against accidental registration', () => {
+    // mn-verify-gate's baseline (fork phase 4.1) is the one intended registration: a step that
+    // records, a blocking gate that judges, both behind a default-off key — which is why the
+    // all-on and no-config resolutions above stay empty. Anything else here is accidental.
     const entry = realRegistry.byLoopPoint['execute:pre'];
     assert.ok(entry, 'execute:pre must be present in real registry byLoopPoint');
-    assert.strictEqual(entry.steps.length, 0, 'execute:pre must have 0 steps in real registry');
+    assert.deepStrictEqual(
+      entry.steps.map((s) => ({ capId: s.capId, command: s.ref.command, when: s.when })),
+      [{ capId: 'mn-verify-gate', command: 'verify baseline', when: 'workflow.verify_gates_baseline' }],
+      'execute:pre must hold only the baseline step');
     assert.strictEqual(entry.contributions.length, 0, 'execute:pre must have 0 contributions in real registry');
-    assert.strictEqual(entry.gates.length, 0, 'execute:pre must have 0 gates in real registry');
+    assert.deepStrictEqual(
+      entry.gates.map((g) => ({ capId: g.capId, query: g.check.query, when: g.when, blocking: g.blocking })),
+      [{ capId: 'mn-verify-gate', query: 'mn-baseline', when: 'workflow.verify_gates_baseline', blocking: true }],
+      'execute:pre must hold only the baseline gate');
   });
 });
 
