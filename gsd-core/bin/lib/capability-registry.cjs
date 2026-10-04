@@ -986,6 +986,11 @@ const capabilities = {
         ],
         "default": "execute:post",
         "description": "Loop point at which the code-review step registers — execute:post reviews once per phase (default); execute:wave:post reviews once per completed wave, scoped to that wave's diff."
+      },
+      "code_review.window_lenses": {
+        "type": "string",
+        "default": "correctness,standards,spec,simplify",
+        "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."
       }
     },
     "steps": [
@@ -6017,6 +6022,7 @@ const configKeys = {
   "workflow.code_review": "code-review",
   "workflow.code_review_depth": "code-review",
   "workflow.code_review_point": "code-review",
+  "code_review.window_lenses": "code-review",
   "review.max_prompt_tokens_per_reviewer.coderabbit": "coderabbit",
   "review.models.codex": "codex",
   "review.max_prompt_tokens_per_reviewer.codex": "codex",
@@ -6271,6 +6277,12 @@ const configSchema = {
       "execute:post",
       "execute:wave:post"
     ]
+  },
+  "code_review.window_lenses": {
+    "owner": "code-review",
+    "type": "string",
+    "default": "correctness,standards,spec,simplify",
+    "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."
   },
   "review.max_prompt_tokens_per_reviewer.coderabbit": {
     "owner": "coderabbit",

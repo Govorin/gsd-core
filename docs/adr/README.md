@@ -273,6 +273,7 @@ These govern the system as it stands. Cite these.
 | [ADR-4641](4641-windows-selector-consolidation.md) | One Windows test selector, and a proportional ceiling on the conformance tier | Accepted | — |
 | [ADR-4780](4780-labeled-arguments-block.md) | Command templates label the user's arguments in a standing `&lt;arguments&gt;` block | Accepted | — |
 | [ADR-4910](4910-planning-document-seam.md) | Planning documents are read and written through one parse → mutate → serialize seam | Accepted | — |
+| [ADR-5208](5208-window-review-unit.md) | The window review unit — evaluation scope over a period, still a union | Accepted | — |
 
 ### Proposed
 
