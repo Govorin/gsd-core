@@ -4,7 +4,7 @@
 
 Источник: `gsd-core/workflows/docs-update.md`. Единицы: 16 шагов `<step>`, 1 секция `gsd:section`. Спавнов: 11 (агенты: `gsd-doc-writer`). Точки цикла: нет.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 22; не называют реальный шаг и не рисуются — **10**; названы по имени шага и нарисованы пунктиром `goto` — 12.
+> **Переходы в прозе** (фразы «перейди к …»): всего 22; не называют реальный шаг и не рисуются — **6**; названы по имени шага и нарисованы пунктиром `goto` — 16.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -32,7 +32,6 @@ flowchart TB
   u_step_scan_for_secrets["scan_for_secrets"]
   u_step_commit_docs["commit_docs"]
   u_step_report["report"]
-  m_detect_runtime_capabilities["detect_runtime_capabilities — такого шага нет"]:::missing
   wf_root --> u_step_init_context
   u_step_init_context --> u_step_classify_project
   u_step_classify_project --> u_step_build_doc_queue
@@ -51,6 +50,7 @@ flowchart TB
   u_step_scan_for_secrets --> u_step_commit_docs
   u_step_commit_docs --> u_step_report
   u_step_build_doc_queue -.->|"goto"| u_step_resolve_modes
+  u_step_preservation_check -.->|"goto"| u_step_dispatch_wave_1
   u_step_preservation_check -.->|"goto"| u_step_verify_only_report
   u_step_dispatch_wave_1 -.->|"goto"| u_step_collect_wave_1
   u_step_collect_wave_1 -.->|"goto"| u_step_dispatch_wave_2
@@ -61,8 +61,6 @@ flowchart TB
   u_step_verify_docs -.->|"goto"| u_step_fix_loop
   u_step_fix_loop -.->|"goto"| u_step_scan_for_secrets
   u_step_scan_for_secrets -.->|"goto"| u_step_commit_docs
-  u_step_preservation_check -.->|"goto"| m_detect_runtime_capabilities
-  linkStyle 28 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -127,7 +125,4 @@ flowchart LR
 
 ## Дефекты
 
-- `dangling-jump`: переход к «detect_runtime_capabilities» (строка 350), такого шага в workflow нет
-- `dangling-jump`: переход к «detect_runtime_capabilities» (строка 351), такого шага в workflow нет
-- `dangling-jump`: переход к «detect_runtime_capabilities» (строка 352), такого шага в workflow нет
-- `dangling-jump`: переход к «detect_runtime_capabilities» (строка 379), такого шага в workflow нет
+Дефектов нет.

@@ -428,6 +428,7 @@
   "gsd-hooks/lib/injection-patterns.js",
   "gsd-hooks/lib/isolation-deny-reason.js",
   "gsd-hooks/lib/isolation-sentinel.js",
+  "gsd-hooks/lib/worktree-notice.js",
   "gsd-hooks/managed-hooks-registry.cjs",
   "gsd-hooks/package.json",
   "scripts/changeset/README.md",

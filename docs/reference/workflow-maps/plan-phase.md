@@ -2,9 +2,9 @@
 
 # plan-phase
 
-Источник: `gsd-core/workflows/plan-phase.md`. Единицы: 39 разделов H2, 6 секций `gsd:section`. Спавнов: 10 (агенты: `gsd-planner`, `gsd-plan-checker`). Точки цикла: `plan:pre`, `plan:post`.
+Источник: `gsd-core/workflows/plan-phase.md`. Единицы: 41 раздел H2, 6 секций `gsd:section`. Спавнов: 10 (агенты: `gsd-planner`, `gsd-plan-checker`). Точки цикла: `plan:pre`, `plan:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 42; не называют реальный шаг и не рисуются — **9**; названы по имени шага и нарисованы пунктиром `goto` — 33.
+> **Переходы в прозе** (фразы «перейди к …»): всего 44; не называют реальный шаг и не рисуются — **9**; названы по имени шага и нарисованы пунктиром `goto` — 35.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -70,7 +70,9 @@ flowchart TB
   subgraph g_11["10. Spawn gsd-plan-checker Agent"]
     u_heading_10__Spawn_gsd_plan_checker_Agent["10. Spawn gsd-plan-checker Agent"]
   end
-  subgraph g_12["11b. Refute Findings (conditional)"]
+  subgraph g_12["11. Handle Checker Return"]
+    u_heading_11__Handle_Checker_Return["11. Handle Checker Return"]
+    u_heading_11a__Filesystem_Fallback__Checker_["11a. Filesystem Fallback (Checker)"]
     u_heading_11b__Refute_Findings__conditional_["11b. Refute Findings (conditional)"]
   end
   subgraph g_13["12. Revision Loop (Max 3 Iterations)"]
@@ -126,7 +128,9 @@ flowchart TB
   u_heading_9a__Filesystem_Fallback__Planner_ --> u_heading_9b__Handle_Phase_Split_Recommendation
   u_heading_9b__Handle_Phase_Split_Recommendation --> u_heading_9c__Handle_Source_Audit_Gaps
   u_heading_9c__Handle_Source_Audit_Gaps --> u_heading_10__Spawn_gsd_plan_checker_Agent
-  u_heading_10__Spawn_gsd_plan_checker_Agent --> u_heading_11b__Refute_Findings__conditional_
+  u_heading_10__Spawn_gsd_plan_checker_Agent --> u_heading_11__Handle_Checker_Return
+  u_heading_11__Handle_Checker_Return --> u_heading_11a__Filesystem_Fallback__Checker_
+  u_heading_11a__Filesystem_Fallback__Checker_ --> u_heading_11b__Refute_Findings__conditional_
   u_heading_11b__Refute_Findings__conditional_ --> u_heading_12__Revision_Loop__Max_3_Iterations_
   u_heading_12__Revision_Loop__Max_3_Iterations_ --> u_heading_12_5__Plan_Bounce__Optional_External_Refinement_
   u_heading_12_5__Plan_Bounce__Optional_External_Refinement_ --> u_heading_13__Requirements_Coverage_Gate
@@ -149,8 +153,10 @@ flowchart TB
   u_heading_9__Handle_Planner_Return -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_9a__Filesystem_Fallback__Planner_ -.->|"goto"| u_heading_8__Spawn_gsd_planner_Agent
   u_heading_9c__Handle_Source_Audit_Gaps -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
-  u_heading_10__Spawn_gsd_plan_checker_Agent -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
-  u_heading_10__Spawn_gsd_plan_checker_Agent -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
+  u_heading_11__Handle_Checker_Return -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
+  u_heading_11__Handle_Checker_Return -.->|"goto"| u_heading_11b__Refute_Findings__conditional_
+  u_heading_11a__Filesystem_Fallback__Checker_ -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
+  u_heading_11a__Filesystem_Fallback__Checker_ -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
   u_heading_11b__Refute_Findings__conditional_ -.->|"goto"| u_heading_12__Revision_Loop__Max_3_Iterations_
   u_heading_12__Revision_Loop__Max_3_Iterations_ -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_13__Requirements_Coverage_Gate -.->|"goto"| u_heading_14__Present_Final_Status
@@ -216,7 +222,6 @@ flowchart LR
   u_heading_5_55__Security_Threat_Model_Gate --> p_plan_pre
   p_plan_post -.-> c_plan_post_mempalace_skill_mempalace_capture
   u_heading_13e__Post_Planning_Gap_Analysis__plan_post_capability_gate_dispatch_ --> p_plan_post
-  linkStyle 11 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -267,19 +272,21 @@ flowchart LR
 | 31 | `9a. Filesystem Fallback (Planner)` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
 | 32 | `9b. Handle Phase Split Recommendation` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
 | 33 | `9c. Handle Source Audit Gaps` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
-| 34 | `10. Spawn gsd-plan-checker Agent` | H2 |  | `gsd-plan-checker` |  | `plan-phase/detail/elaboration.md` |
-| 35 | `11b. Refute Findings (conditional)` | H2 |  |  |  |  |
-| 36 | `12. Revision Loop (Max 3 Iterations)` | H2 |  | `gsd-planner` |  |  |
-| 37 | `12.5. Plan Bounce (Optional External Refinement)` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
-| 38 | `13. Requirements Coverage Gate` | H2 |  |  |  |  |
-| 39 | `13a. Decision Coverage Gate` | H2 |  |  |  |  |
-| 40 | `13b. Record Planning Completion in STATE.md` | H2 |  |  |  |  |
-| 41 | `13c. Annotate ROADMAP with Wave Dependencies and Cross-cutting Constraints` | H2 |  |  |  |  |
-| 42 | `13d. Commit Plans if commit_docs is true` | H2 |  |  |  |  |
-| 43 | `13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)` | H2 |  |  | `plan:post` |  |
-| 44 | `14. Present Final Status` | H2 |  |  |  |  |
-| 45 | `15. Auto-Advance Check` | H2 |  |  |  |  |
+| 34 | `10. Spawn gsd-plan-checker Agent` | H2 |  | `gsd-plan-checker` |  |  |
+| 35 | `11. Handle Checker Return` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
+| 36 | `11a. Filesystem Fallback (Checker)` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
+| 37 | `11b. Refute Findings (conditional)` | H2 |  |  |  |  |
+| 38 | `12. Revision Loop (Max 3 Iterations)` | H2 |  | `gsd-planner` |  |  |
+| 39 | `12.5. Plan Bounce (Optional External Refinement)` | H2 |  |  |  | `plan-phase/detail/elaboration.md` |
+| 40 | `13. Requirements Coverage Gate` | H2 |  |  |  |  |
+| 41 | `13a. Decision Coverage Gate` | H2 |  |  |  |  |
+| 42 | `13b. Record Planning Completion in STATE.md` | H2 |  |  |  |  |
+| 43 | `13c. Annotate ROADMAP with Wave Dependencies and Cross-cutting Constraints` | H2 |  |  |  |  |
+| 44 | `13d. Commit Plans if commit_docs is true` | H2 |  |  |  |  |
+| 45 | `13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)` | H2 |  |  | `plan:post` |  |
+| 46 | `14. Present Final Status` | H2 |  |  |  |  |
+| 47 | `15. Auto-Advance Check` | H2 |  |  |  |  |
 
 ## Дефекты
 
-- `spawn-in-prose`: вызов Agent(… gsd-plan-checker) (gsd-core/workflows/plan-phase.md:1082) записан в прозе, а не в блоке кода (если рядом блок кода — проверьте парность ограничителей ```)
+Дефектов нет.

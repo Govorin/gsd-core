@@ -96,4 +96,4 @@ flowchart LR
 
 ## Дефекты
 
-- `spawn-in-prose`: вызов Agent(… gsd-plan-checker) (gsd-core/workflows/quick/steps/plan-checker-loop.md:71) записан в прозе, а не в блоке кода (если рядом блок кода — проверьте парность ограничителей ```)
+Дефектов нет.

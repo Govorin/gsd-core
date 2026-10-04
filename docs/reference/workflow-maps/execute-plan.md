@@ -89,7 +89,6 @@ flowchart LR
   u_step_verification_failure_gate["verification_failure_gate"]
   u_step_parse_segments --> a_gsd_executor
   u_step_verification_failure_gate -.-> w_gsd_core_workflows_node_repair_md
-  linkStyle 0 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -133,4 +132,4 @@ flowchart LR
 
 ## Дефекты
 
-- `spawn-in-prose`: вызов Agent(… gsd-executor) (gsd-core/workflows/execute-plan.md:146) записан в прозе, а не в блоке кода (если рядом блок кода — проверьте парность ограничителей ```)
+Дефектов нет.

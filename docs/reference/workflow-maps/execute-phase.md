@@ -16,7 +16,7 @@
 flowchart TB
   wf_root(["execute-phase.md"]):::root
   u_step_parse_args["parse_args"]
-  u_step_initialize["initialize<br/>(шаг не закрыт)"]:::unparsed
+  u_step_initialize["initialize"]
   u_step_safe_resume_gate["safe_resume_gate"]
   u_step_check_blocking_antipatterns["check_blocking_antipatterns"]
   u_step_check_interactive_mode["check_interactive_mode"]
@@ -99,7 +99,7 @@ flowchart LR
     w_gsd_core_workflows_transition_md(["workflow#58; transition"]):::workflow
   end
   wf_root(["execute-phase.md (вне шагов)"]):::root
-  u_step_initialize["initialize<br/>(шаг не закрыт)"]
+  u_step_initialize["initialize"]
   u_step_check_interactive_mode["check_interactive_mode"]
   u_step_cross_ai_delegation["cross_ai_delegation"]
   u_step_execute_waves["execute_waves"]
@@ -144,7 +144,7 @@ flowchart LR
 |---|---|---|---|---|---|---|
 | — | (вне единиц) | — | — | `gsd-executor` |  | `execute-phase/detail/elaboration.md`, `execute-phase/steps/partial-wave.md` |
 | 1 | `parse_args` | step |  |  |  |  |
-| 2 | `initialize` | step (не закрыт) |  |  | `execute:post` |  |
+| 2 | `initialize` | step |  |  | `execute:post` |  |
 | 3 | `safe_resume_gate` | step |  |  |  |  |
 | 4 | `check_blocking_antipatterns` | step |  |  |  |  |
 | 5 | `check_interactive_mode` | step |  |  |  | `execute-phase/detail/elaboration.md` |
@@ -166,4 +166,4 @@ flowchart LR
 
 ## Дефекты
 
-- `nested-step`: шаг initialize открыт, но не закрыт до начала следующего шага (строка 84)
+Дефектов нет.

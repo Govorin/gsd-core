@@ -85,8 +85,6 @@ flowchart LR
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
   wf_root --> p_execute_post
-  linkStyle 3 stroke:#d33,stroke-width:2px
-  linkStyle 6 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -112,4 +110,4 @@ flowchart LR
 
 ## Дефекты
 
-- `spawn-in-prose`: вызов Agent(… gsd-plan-checker) (gsd-core/workflows/quick/steps/plan-checker-loop.md:71) записан в прозе, а не в блоке кода (если рядом блок кода — проверьте парность ограничителей ```)
+Дефектов нет.

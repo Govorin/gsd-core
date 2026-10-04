@@ -536,6 +536,7 @@
       "model-catalog.cjs",
       "model-profiles.cjs",
       "model-resolver.cjs",
+      "mutation-restore-journal.cjs",
       "normalize-test-command.cjs",
       "observability/event.cjs",
       "observability/logger.cjs",

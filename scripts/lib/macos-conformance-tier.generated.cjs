@@ -85,6 +85,7 @@ module.exports = {
   "tests/gate-verify-command-paths.unit.test.cjs",
   "tests/gemini-runtime-removed.test.cjs",
   "tests/gen-context-index.test.cjs",
+  "tests/gen-loop-hooks-map.test.cjs",
   "tests/gen-section-manifest.test.cjs",
   "tests/git-base-branch.test.cjs",
   "tests/graphify-query.test.cjs",
