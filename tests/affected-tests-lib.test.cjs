@@ -20,7 +20,7 @@ const {
   runNodeTestFiles,
   changedFilesSinceBase,
 } = require('../scripts/affected-tests-lib.cjs');
-const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/test-env.cjs');
+const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/hermetic-env.cjs');
 const { ExitError } = require('../scripts/lib/cli-exit.cjs');
 
 const { cleanup, createTempDir, createTempGitProject } = require('./helpers.cjs');
@@ -740,7 +740,7 @@ test('listTestFiles: subdir test files are included and selectable by pickAffect
 
 // ---------------------------------------------------------------------------
 // runNodeTestFiles: the affected runner hands tests the SAME hermetic env as
-// run-tests.cjs (scripts/test-env.cjs). Without it a developer's real
+// run-tests.cjs (scripts/hermetic-env.cjs). Without it a developer's real
 // ~/.gsd/defaults.json leaked a #3532 warning into child stderr and turned
 // tests/refactor-trigger-cli.test.cjs red only under test:affected.
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@
     "!scripts/run-tests.cjs",
     "!scripts/affected-tests-lib.cjs",
     "!scripts/run-affected-tests.cjs",
-    "!scripts/test-env.cjs",
+    "!scripts/hermetic-env.cjs",
     "!scripts/lint-no-adhoc-regex-escape.cjs",
     "!scripts/lint-allow-test-rule-refs.cjs",
     "!scripts/lint-verify-lifecycle-writes.cjs",

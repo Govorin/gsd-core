@@ -42,7 +42,7 @@ const { pathToFileURL } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
 const { suiteOf } = require('./lib/suite-detection.cjs');
-const { GSD_HOME_SANDBOX_PREFIX, isolateTestEnv } = require('./test-env.cjs');
+const { GSD_HOME_SANDBOX_PREFIX, isolateTestEnv } = require('./hermetic-env.cjs');
 const {
   resolveLiveConfigRoots,
   resolveExtraWatchTargets,
@@ -1643,7 +1643,7 @@ async function main() {
   const sweepProtectSet = computeSweepProtectSet(selected, runTempRoot);
 
   // Hermeticity: strip the ambient GSD_* routing vars and sandbox GSD_HOME — the
-  // shared definition in scripts/test-env.cjs, which the affected runner applies
+  // shared definition in scripts/hermetic-env.cjs, which the affected runner applies
   // too. Called AFTER setupRunTempRoot so the sandbox lands inside the run root
   // (removed on exit, spared by the sweep via RESERVED_TEMP_PREFIXES).
   isolateTestEnv(process.env);

@@ -33,10 +33,10 @@ const _require = createRequire(import.meta.url);
 // set-but-empty, non-string, or naming a nonexistent file → throws. See that
 // function's doc-comment in scripts/mutation-matrix.cjs for the full contract.
 const { resolveMutationBreak, resolveMutationTestFiles } = _require('./scripts/mutation-matrix.cjs');
-const { isolateTestEnv } = _require('./scripts/test-env.cjs');
+const { isolateTestEnv } = _require('./scripts/hermetic-env.cjs');
 
 // Hermetic env for mutant test runs — the same definition run-tests.cjs and the
-// affected runner apply (scripts/test-env.cjs). The tap runner spawns every test
+// affected runner apply (scripts/hermetic-env.cjs). The tap runner spawns every test
 // process with `{ ...process.env }` and exposes no env option, and Stryker forks
 // its workers after loading this file, so isolating process.env here is the one
 // point that reaches them all — `npm run test:mutation` and CI's

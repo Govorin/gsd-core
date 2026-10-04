@@ -6,7 +6,7 @@ const path = require('node:path');
 
 const { ExitError } = require('./lib/cli-exit.cjs');
 const { suiteOf } = require('./run-tests.cjs');
-const { isolateTestEnv } = require('./test-env.cjs');
+const { isolateTestEnv } = require('./hermetic-env.cjs');
 
 const CRITICAL_PATHS = [
   '.github/workflows/',
@@ -15,7 +15,7 @@ const CRITICAL_PATHS = [
   'scripts/run-tests.cjs',
   'scripts/affected-tests-lib.cjs',
   'scripts/run-affected-tests.cjs',
-  'scripts/test-env.cjs',
+  'scripts/hermetic-env.cjs',
 ];
 
 // Suites that are push-only. PRs must never select or run these.
@@ -397,7 +397,7 @@ function changedFilesSinceBase(repoRoot, baseRef) {
 
 /**
  * Run `files` under `node --test` in argv-bounded chunks, with the same
- * hermetic env run-tests.cjs gives its children (scripts/test-env.cjs). The
+ * hermetic env run-tests.cjs gives its children (scripts/hermetic-env.cjs). The
  * caller's `env` is copied, never mutated; a GSD_HOME sandbox this call created
  * is removed once every chunk has run.
  *

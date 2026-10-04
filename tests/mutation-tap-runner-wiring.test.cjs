@@ -23,7 +23,7 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const yaml = require('js-yaml');
-const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/test-env.cjs');
+const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/hermetic-env.cjs');
 const { createTempDir, cleanup } = require('./helpers.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
@@ -32,7 +32,7 @@ const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'mutation.yml
 
 // Env keys this config is known to read. Every key is saved/restored so a
 // test's env override can never leak into a sibling test.
-// Importing the config also isolates process.env (scripts/test-env.cjs), so the
+// Importing the config also isolates process.env (scripts/hermetic-env.cjs), so the
 // keys that isolation writes or strips are restored too.
 const RELEVANT_ENV_KEYS = [
   'MUTATION_TEST_FILES', 'MUTATION_TEST_CMD', 'MUTATION_BREAK',
@@ -162,7 +162,7 @@ describe('stryker.config.mjs: tap runner contract (#3915)', () => {
 
 // The tap runner spawns mutant test processes with `{ ...process.env }`, so the
 // config isolating process.env is what makes mutation runs as hermetic as
-// run-tests.cjs (scripts/test-env.cjs is the shared definition).
+// run-tests.cjs (scripts/hermetic-env.cjs is the shared definition).
 describe('stryker.config.mjs: hermetic env for mutant test runs', () => {
   test('a developer GSD_HOME and ambient GSD_* vars are replaced by a fresh sandbox', async (t) => {
     const ambient = { GSD_HOME: '/developer/real/home' };
