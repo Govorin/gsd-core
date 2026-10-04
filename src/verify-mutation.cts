@@ -30,8 +30,17 @@
  *   coverage.
  * • A green baseline run first: on a red suite "the mutant was killed" cannot be told from "the
  *   tests were already failing".
- * • The source file is ALWAYS restored — after each run, in `finally`, and on SIGINT/SIGTERM. A
- *   step that leaves a mutation in the working tree is worse than no step.
+ * • A mutant never outlives the process that wrote it. A step that leaves a mutation in the
+ *   working tree is worse than no step. Four layers, because each covers what the one before
+ *   cannot: the original is written back after each run and in `finally`; test runs are spawned
+ *   asynchronously (in their own process group), so a SIGINT/SIGTERM handler really runs while a
+ *   suite is going — it restores, kills the run's whole process tree, and re-raises (a blocking
+ *   spawnSync left the handler dead: the process died of the signal with the mutant on disk); a
+ *   write-ahead restore journal (src/mutation-restore-journal.cts) holds the original bytes while a
+ *   mutant is on disk, and the next run restores from it first — the case no handler can cover
+ *   (SIGKILL, a host's hard timeout); and the step dispatcher runs this step with an explicit
+ *   ten-minute Bash timeout (references/loop-hook-dispatch.md § step), so the budget below is not
+ *   cut short by a two-minute default.
  *
  * The record carries a digest of the candidate files, so the gate can tell a record of THIS code
  * from a stale one left by an earlier run.
@@ -43,8 +52,11 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { isGateUsageFailure } from './gate-verdict.cjs';
+import { acquireRestoreJournal, defaultIsAlive, pendingMutant } from './mutation-restore-journal.cjs';
+import type { RestoreJournal } from './mutation-restore-journal.cjs';
 import { resolveMnPhase } from './gate-mn-support.cjs';
 import { readWorkflowConfigValue } from './gate-config.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
@@ -63,8 +75,9 @@ const { recordVerificationBlock, verificationPathFor } = verifyGates;
 export const MUTATION_DEFAULT_MAX_MUTANTS = 3;
 
 /**
- * The whole step's wall-clock budget: nine minutes, under the ten-minute cap a Bash call has. No
- * mutant starts once it is spent; a run started inside it is bounded by what is left.
+ * The whole step's wall-clock budget: nine minutes, under the ten-minute cap a Bash call has (the
+ * dispatcher must ask for that cap explicitly — the default is two). No mutant starts once it is
+ * spent; a run started inside it is bounded by what is left.
  */
 export const MUTATION_TOTAL_BUDGET_MS = 9 * 60 * 1000;
 
@@ -104,7 +117,16 @@ export interface MutationRunResult {
   signal: string | null;
 }
 
-export type MutationRunner = (command: string, cwd: string, timeoutMs: number) => MutationRunResult;
+/**
+ * One run of the test command. `abort` fires when the step is being torn down by a signal: the
+ * runner must stop the run (its whole process tree) at once.
+ */
+export type MutationRunner = (
+  command: string,
+  cwd: string,
+  timeoutMs: number,
+  abort: AbortSignal,
+) => MutationRunResult | Promise<MutationRunResult>;
 
 type MutationSignal = 'SIGINT' | 'SIGTERM';
 
@@ -125,21 +147,68 @@ export interface MutationDeps {
   /** Writes a source file (mutate and restore). Injected so a failing restore can be simulated. */
   writeFile(file: string, content: string): void;
   signals: MutationSignals;
+  /** Whether the pid holding a restore journal is alive (another run in progress). */
+  isAlive: (pid: number) => boolean;
 }
 
-function defaultRunner(command: string, cwd: string, timeoutMs: number): MutationRunResult {
-  // A shell is required: the configured value is a command line ("npx vitest run"), from the
-  // project's own .planning/config.json — the same trust boundary as `verify gates`. The empty
-  // argv is the (command, args, options) overload, so the timeout sits where
-  // local/require-subprocess-timeout looks for it (passing args with shell:true is DEP0190).
-  const res = spawnSync(command, [], { cwd, shell: true, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 });
-  return { status: res.status, error: (res.error as { code?: string } | undefined) || null, signal: res.signal || null };
+/** POSIX: a run gets its own process group, so the whole tree it spawns can be stopped at once. */
+const RUN_IN_OWN_GROUP = process.platform !== 'win32';
+
+function stopRunTree(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+  try {
+    if (RUN_IN_OWN_GROUP) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch {
+    // Already gone.
+  }
+}
+
+/**
+ * Spawned, never spawnSync: while a suite runs, the event loop must stay free, or a SIGINT/SIGTERM
+ * handler cannot run and the process dies of the signal with the mutant on disk.
+ */
+function defaultRunner(command: string, cwd: string, timeoutMs: number, abort: AbortSignal): Promise<MutationRunResult> {
+  return new Promise((resolve) => {
+    // A shell is required: the configured value is a command line ("npx vitest run"), from the
+    // project's own .planning/config.json — the same trust boundary as `verify gates`. Output is
+    // discarded (the verdict is the exit status); stdout belongs to the JSON this step prints.
+    let child: ChildProcess;
+    try {
+      child = spawn(command, [], { cwd, shell: true, stdio: 'ignore', detached: RUN_IN_OWN_GROUP, windowsHide: true });
+    } catch (err) {
+      resolve({ status: null, error: { code: (err as NodeJS.ErrnoException).code ?? 'ESPAWN' }, signal: null });
+      return;
+    }
+    let settled = false;
+    let timedOut = false;
+    const onAbort = () => stopRunTree(child, 'SIGTERM');
+    // The per-run bound: a run past it is not stopped gently — SIGKILL guarantees the exit event.
+    const timer = setTimeout(() => {
+      timedOut = true;
+      stopRunTree(child, 'SIGKILL');
+    }, timeoutMs);
+    const settle = (result: MutationRunResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      abort.removeEventListener('abort', onAbort);
+      resolve(result);
+    };
+    if (abort.aborted) onAbort();
+    else abort.addEventListener('abort', onAbort, { once: true });
+    child.once('error', (err: NodeJS.ErrnoException) => settle({ status: null, error: { code: err.code ?? 'ESPAWN' }, signal: null }));
+    child.once('exit', (status, signal) =>
+      settle(timedOut ? { status: null, error: { code: 'ETIMEDOUT' }, signal: signal ?? 'SIGKILL' } : { status, error: null, signal }),
+    );
+  });
 }
 
 export function defaultMutationDeps(): MutationDeps {
   return {
     runner: defaultRunner,
     clock: Date,
+    isAlive: defaultIsAlive,
     writeFile: (file, content) => fs.writeFileSync(file, content),
     signals: {
       on: (signal, handler) => {
@@ -240,6 +309,8 @@ export interface MutationOutcome {
   unrunnable: number;
   budgetMs: number;
   reason?: string;
+  /** A file an interrupted earlier run left mutated, restored from the journal before this run. */
+  recovered?: string;
 }
 
 export interface MutationRunOptions {
@@ -257,14 +328,15 @@ function completed(r: MutationRunResult): boolean {
 }
 
 /**
- * Run the spot-check. Every mutated file is restored after its run, in `finally` (any throw), and
- * on SIGINT/SIGTERM (restore, then re-raise). Never writes the record — see `cmdVerifyMutation`.
+ * Run the spot-check. A mutant never outlives the run: every mutated file is restored after its
+ * run, in `finally` (any throw), and on SIGINT/SIGTERM (restore, stop the test run's tree,
+ * re-raise); a restore journal covers what no handler can (see the header). Never writes the
+ * record — see `cmdVerifyMutation`.
  */
-export function runMutationSpotCheck(options: MutationRunOptions): MutationOutcome {
+export async function runMutationSpotCheck(options: MutationRunOptions): Promise<MutationOutcome> {
   const deps: MutationDeps = { ...defaultMutationDeps(), ...(options.deps || {}) };
   const budgetMs = options.budgetMs ?? MUTATION_TOTAL_BUDGET_MS;
-  const runCap = options.runTimeoutMs ?? MUTATION_RUN_TIMEOUT_MS;
-  const { projectDir, phaseDir, command, maxMutants } = options;
+  const { projectDir, maxMutants } = options;
   const outcome: MutationOutcome = {
     status: MUTATION_STATUS.PASSED,
     candidates: 0,
@@ -275,6 +347,63 @@ export function runMutationSpotCheck(options: MutationRunOptions): MutationOutco
     unrunnable: 0,
     budgetMs,
   };
+
+  // First, before anything else: whatever an interrupted run left in the tree goes back — and the
+  // journal this run takes is also the lock against a second run mutating the same tree.
+  const lock = acquireRestoreJournal(projectDir, { isAlive: deps.isAlive });
+  if (lock.kind === 'refused') return { ...outcome, status: MUTATION_STATUS.UNRUNNABLE, reason: lock.reason };
+  const { journal } = lock;
+  if (lock.recovered !== null) outcome.recovered = path.relative(projectDir, lock.recovered);
+
+  const originals = new Map<string, string>();
+  const restoreAll = () => {
+    for (const [file, source] of originals) {
+      deps.writeFile(file, source);
+      originals.delete(file);
+    }
+  };
+  const abort = new AbortController();
+  const detach = () => {
+    deps.signals.off('SIGINT', onSigint);
+    deps.signals.off('SIGTERM', onSigterm);
+  };
+  function onSignal(signal: MutationSignal): void {
+    restoreAll();
+    journal.release();
+    detach();
+    abort.abort();
+    deps.signals.raise(signal);
+  }
+  function onSigint(): void {
+    onSignal('SIGINT');
+  }
+  function onSigterm(): void {
+    onSignal('SIGTERM');
+  }
+  // Installed before the baseline: a signal then still stops the running suite's tree.
+  deps.signals.on('SIGINT', onSigint);
+  deps.signals.on('SIGTERM', onSigterm);
+
+  try {
+    return await spotCheck(options, deps, outcome, { journal, originals, abort: abort.signal });
+  } finally {
+    restoreAll();
+    journal.release();
+    detach();
+  }
+}
+
+interface RunGuard {
+  journal: RestoreJournal;
+  originals: Map<string, string>;
+  abort: AbortSignal;
+}
+
+async function spotCheck(options: MutationRunOptions, deps: MutationDeps, outcome: MutationOutcome, guard: RunGuard): Promise<MutationOutcome> {
+  const { projectDir, phaseDir, command, maxMutants } = options;
+  const { budgetMs } = outcome;
+  const runCap = options.runTimeoutMs ?? MUTATION_RUN_TIMEOUT_MS;
+  const { journal, originals, abort } = guard;
 
   if (command.trim() === '') {
     return {
@@ -291,7 +420,7 @@ export function runMutationSpotCheck(options: MutationRunOptions): MutationOutco
   const started = deps.clock.now();
   const remaining = () => budgetMs - (deps.clock.now() - started);
 
-  const baseline = deps.runner(command, projectDir, Math.max(1, Math.min(runCap, remaining())));
+  const baseline = await deps.runner(command, projectDir, Math.max(1, Math.min(runCap, remaining())), abort);
   if (!completed(baseline)) {
     return {
       ...outcome,
@@ -307,69 +436,42 @@ export function runMutationSpotCheck(options: MutationRunOptions): MutationOutco
     };
   }
 
-  const originals = new Map<string, string>();
-  const restoreAll = () => {
-    for (const [file, source] of originals) {
+  let budgetExhausted = false;
+  for (const rel of candidates) {
+    if (outcome.attempted >= maxMutants) break;
+    const left = remaining();
+    if (left <= 0) {
+      budgetExhausted = true;
+      break;
+    }
+    const file = path.join(projectDir, rel);
+    const source = fs.readFileSync(file, 'utf8');
+    const mutation = mutateOnce(source);
+    if (!mutation) continue;
+
+    // Write-ahead: the journal holds the original BEFORE the mutant reaches the disk.
+    journal.arm(pendingMutant(file, source, mutation.mutated, mutation));
+    originals.set(file, source);
+    deps.writeFile(file, mutation.mutated);
+    let result: MutationRunResult;
+    try {
+      result = await deps.runner(command, projectDir, Math.max(1, Math.min(runCap, left)), abort);
+    } finally {
       deps.writeFile(file, source);
       originals.delete(file);
+      journal.disarm();
     }
-  };
-  const detach = () => {
-    deps.signals.off('SIGINT', onSigint);
-    deps.signals.off('SIGTERM', onSigterm);
-  };
-  function onSignal(signal: MutationSignal): void {
-    restoreAll();
-    detach();
-    deps.signals.raise(signal);
-  }
-  function onSigint(): void {
-    onSignal('SIGINT');
-  }
-  function onSigterm(): void {
-    onSignal('SIGTERM');
-  }
-  deps.signals.on('SIGINT', onSigint);
-  deps.signals.on('SIGTERM', onSigterm);
 
-  let budgetExhausted = false;
-  try {
-    for (const rel of candidates) {
-      if (outcome.attempted >= maxMutants) break;
-      const left = remaining();
-      if (left <= 0) {
-        budgetExhausted = true;
-        break;
-      }
-      const file = path.join(projectDir, rel);
-      const source = fs.readFileSync(file, 'utf8');
-      const mutation = mutateOnce(source);
-      if (!mutation) continue;
-
-      originals.set(file, source);
-      deps.writeFile(file, mutation.mutated);
-      let result: MutationRunResult;
-      try {
-        result = deps.runner(command, projectDir, Math.max(1, Math.min(runCap, left)));
-      } finally {
-        deps.writeFile(file, source);
-        originals.delete(file);
-      }
-
-      const mutant: MutantResult = { file: rel, line: mutation.line, label: mutation.label };
-      if (!completed(result)) {
-        // A run that did not complete is not "killed": the attempt does not count.
-        outcome.unrunnable += 1;
-        if (remaining() <= 0) budgetExhausted = true;
-        continue;
-      }
-      outcome.attempted += 1;
-      if (result.status === 0) outcome.survived.push(mutant);
-      else outcome.killed.push(mutant);
+    const mutant: MutantResult = { file: rel, line: mutation.line, label: mutation.label };
+    if (!completed(result)) {
+      // A run that did not complete is not "killed": the attempt does not count.
+      outcome.unrunnable += 1;
+      if (remaining() <= 0) budgetExhausted = true;
+      continue;
     }
-  } finally {
-    restoreAll();
-    detach();
+    outcome.attempted += 1;
+    if (result.status === 0) outcome.survived.push(mutant);
+    else outcome.killed.push(mutant);
   }
 
   if (outcome.survived.length > 0) return { ...outcome, status: MUTATION_STATUS.SURVIVORS };
@@ -418,6 +520,7 @@ export function buildMutationRecord(outcome: MutationOutcome, ranAt: string, dig
     digest,
     survivors: outcome.survived.map(describeMutant),
     ...(outcome.reason ? { reason: outcome.reason } : {}),
+    ...(outcome.recovered ? { recovered: outcome.recovered } : {}),
   };
 }
 
@@ -447,7 +550,12 @@ export interface CmdVerifyMutationOptions {
  * `gsd_run verify mutation --phase <N>`   (the step dispatcher's form)
  * `gsd_run verify mutation <phase-dir | N>`
  */
-export function cmdVerifyMutation(cwd: string, args: readonly string[], raw: boolean, options: CmdVerifyMutationOptions = {}): void {
+export async function cmdVerifyMutation(
+  cwd: string,
+  args: readonly string[],
+  raw: boolean,
+  options: CmdVerifyMutationOptions = {},
+): Promise<void> {
   const emit = (payload: Record<string, unknown>, exitCode: number) => {
     process.stdout.write(`${raw ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)}\n`);
     process.exitCode = exitCode;
@@ -464,7 +572,7 @@ export function cmdVerifyMutation(cwd: string, args: readonly string[], raw: boo
   }
 
   const { phaseDir } = phase;
-  const outcome = runMutationSpotCheck({
+  const outcome = await runMutationSpotCheck({
     projectDir: cwd,
     phaseDir,
     command: readMutationCommand(cwd),

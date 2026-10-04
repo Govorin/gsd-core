@@ -55,6 +55,10 @@ Dispatch the referenced unit. Exactly one of `ref.skill`, `ref.agent`, or `ref.c
   gsd_run ${ref.command} --phase "${PHASE_NUMBER}" --raw
   ```
 
+  Make this Bash call with `timeout: 600000` (the ten-minute maximum), never the default. A
+  command step may run long by design — `verify mutation` runs the test suite once per mutant
+  inside a nine-minute budget — and the two-minute default would kill it mid-run.
+
 Wait for the result before continuing to the next hook or the next step.
 
 **`supportsReviewerLanes` (optional, boolean).** A `step` entry may carry

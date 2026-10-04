@@ -30,7 +30,7 @@ interface VerifyModule {
     raw: boolean,
     options?: { strict?: boolean; phase?: string }
   ): void;
-  cmdVerifyMutation(cwd: string, args: readonly string[], raw: boolean): void;
+  cmdVerifyMutation(cwd: string, args: readonly string[], raw: boolean): Promise<void>;
 }
 
 interface RouteVerifyCommandOptions {
@@ -76,7 +76,12 @@ function parseVerifyGatesArgs(rest: string[]): { phaseDir: string | undefined; p
   return { phaseDir, phase, strict };
 }
 
-function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyCommandOptions): void {
+/**
+ * Returns the pending promise of an async subcommand (`mutation` spawns test runs without blocking
+ * the event loop) so the host awaits it; the family hub itself dispatches synchronously.
+ */
+function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyCommandOptions): Promise<void> | undefined {
+  let pending: Promise<void> | undefined;
   routeCjsCommandFamily({
     args,
     subcommands: VERIFY_SUBCOMMANDS,
@@ -107,9 +112,12 @@ function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyComman
       },
       // mn-verify-gate's mutation spot-check step: `verify mutation --phase <N>` (the step
       // dispatcher's form) or `verify mutation <phase-dir>`; records, the gate judges.
-      mutation: () => verify.cmdVerifyMutation(cwd, args.slice(2), raw),
+      mutation: () => {
+        pending = verify.cmdVerifyMutation(cwd, args.slice(2), raw);
+      },
     },
   });
+  return pending;
 }
 
 export = {
