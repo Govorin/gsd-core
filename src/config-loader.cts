@@ -12,7 +12,7 @@
  *
  * Dependencies (leaf modules only):
  *   - node:fs / node:os / node:path (stdlib)
- *   - ./configuration.cjs    (normalizeLegacyKeys, isConfigSection, CONFIG_DEFAULTS as CANONICAL_CONFIG_DEFAULTS)
+ *   - ./configuration.cjs    (normalizeLegacyKeys, isConfigSection, isRetiredTopLevelKey, CONFIG_DEFAULTS as CANONICAL_CONFIG_DEFAULTS)
  *   - ./unusable-input.cjs   (warnUnusableInput, UNUSABLE_REASON — #3760)
  *   - ./config-schema.cjs    (VALID_CONFIG_KEYS, DYNAMIC_KEY_PATTERNS)
  *   - ./planning-workspace.cjs (planningDir, planningRoot)
@@ -35,7 +35,7 @@ const { planningDir, planningRoot } = planningWorkspace;
 import coreUtilsModule = require('./core-utils.cjs');
 const { detectSubRepos } = coreUtilsModule;
 // ─── Configuration Module (generated CJS mirror) ────────────────────────────
-import { CONFIG_DEFAULTS as CANONICAL_CONFIG_DEFAULTS, normalizeLegacyKeys, isConfigSection } from './configuration.cjs';
+import { CONFIG_DEFAULTS as CANONICAL_CONFIG_DEFAULTS, normalizeLegacyKeys, isConfigSection, isRetiredTopLevelKey } from './configuration.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import configSchema = require('./config-schema.cjs');
 const { VALID_CONFIG_KEYS, DYNAMIC_KEY_PATTERNS, isCentralConfigKey: _isCentralConfigKeyFn } = configSchema;
@@ -870,7 +870,21 @@ function loadConfigResolvedInternal(cwd: string, options: Record<string, unknown
       // Defensive
     }
 
-    const unknownKeys = Object.keys(parsed).filter(k => !KNOWN_TOP_LEVEL.has(k));
+    // A key GSD's own template once shipped is not the user's mistake, and
+    // "unknown" sends them looking for a typo; name it as retired and point at
+    // the command that removes it.
+    const strayKeys = Object.keys(parsed).filter(k => !KNOWN_TOP_LEVEL.has(k));
+    const retiredKeys = strayKeys.filter(isRetiredTopLevelKey);
+    const unknownKeys = strayKeys.filter(k => !isRetiredTopLevelKey(k));
+    if (retiredKeys.length > 0) {
+      const warnKey = `retired:${retiredKeys.join(',')}`;
+      if (!_warnedUnknownConfigKeys.has(warnKey)) {
+        _warnedUnknownConfigKeys.add(warnKey);
+        process.stderr.write(
+          `gsd-tools: warning: retired config key(s) in .planning/config.json: ${retiredKeys.join(', ')} — GSD no longer reads them; run \`gsd-tools migrate-config\` to remove them\n`
+        );
+      }
+    }
     if (unknownKeys.length > 0) {
       const warnKey = unknownKeys.join(',');
       if (!_warnedUnknownConfigKeys.has(warnKey)) {

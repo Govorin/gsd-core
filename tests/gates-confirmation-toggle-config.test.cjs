@@ -224,6 +224,22 @@ describe('#4974 — loader no longer warns "will be ignored" for a gates block',
       `expected the unknown-key warning for a genuinely bogus top-level key: ${captured}`,
     );
   });
+
+  test('a retired safety block is named as retired, not unknown, beside a genuinely unknown key', (t) => {
+    const proj = createTempProject();
+    t.after(() => cleanup(proj));
+
+    const cfgPath = path.join(proj, '.planning', 'config.json');
+    fs.writeFileSync(cfgPath, JSON.stringify({
+      safety: { always_confirm_destructive: true },
+      totallyBogusKeyXYZ: 1,
+    }, null, 2));
+    if (typeof _resetRuntimeWarningCacheForTests === 'function') _resetRuntimeWarningCacheForTests();
+
+    const captured = loadWithCapturedStderr(proj);
+    assert.match(captured, /retired config key\(s\) in \.planning\/config\.json: safety —[^\n]*migrate-config/);
+    assert.match(captured, /unknown config key\(s\) in \.planning\/config\.json: totallyBogusKeyXYZ —/);
+  });
 });
 
 describe('#4974 — doc/workflow content parity', () => {

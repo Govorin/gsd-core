@@ -1462,9 +1462,10 @@ function cmdConfigPath(cwd: string, _raw: boolean, workstreamContext: Workstream
  * is the Phase 2 acceptance-criteria deliverable for opt-in migration (#3536):
  * users can run `gsd-tools migrate-config` to apply all four legacy-key
  * migrations to their .planning/config.json without having to load any config
- * implicitly via another command.
+ * implicitly via another command. It also drops the keys GSD retired from its
+ * template (#4974), which have no destination to migrate to.
  *
- * Output: JSON object with { migrated, normalizations, wrote } or a human-readable
+ * Output: JSON object with { migrated, normalizations, wrote, retired } or a human-readable
  * summary when --raw is set. Exits 0 in all cases (including no-op).
  *
  * Note: migrateOnDisk() is synchronous; the original CJS used async for
@@ -1510,6 +1511,7 @@ function cmdMigrateConfig(cwd: string, raw: boolean): void {
       const lines = [
         `Migrated: ${String(report.wrote)}`,
         ...(report.normalizations as Array<{ from: string; to: string }>).map(n => `  ${n.from} → ${n.to}`),
+        ...report.retired.map(key => `  ${key} removed (retired — GSD no longer reads it)`),
         ...declinedLines,
       ].join('\n');
       output(lines, true, lines);
