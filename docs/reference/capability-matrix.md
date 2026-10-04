@@ -53,12 +53,12 @@ points.
 | id | role | tier | engines.gsd | extension points | hook kinds | source |
 |---|---|---|---|---|---|---|
 | `ai-integration` | feature | full | `>=1.6.0` | `plan:pre`, `verify:pre` | step, contribution, gate | first-party |
-| `architecture` | feature | full | `>=1.6.0` | `plan:pre`, `plan:post`, `verify:pre` | step, gate | first-party |
+| `architecture` | feature | full | `>=1.6.0` | `plan:pre`, `plan:post`, `verify:pre`, `milestone:post` | step, gate | first-party |
 | `assumption-delta` | feature | full | `>=1.6.0` | `plan:pre` | contribution | first-party |
 | `audit` | feature | full | `>=1.6.0` | — | — | first-party |
 | `broken-windows` | feature | full | `>=1.7.0` | `ship:pre` | gate | first-party |
 | `claude-orchestration` | feature | full | `>=1.7.0` | `plan:post` | contribution | first-party |
-| `code-review` | feature | full | `>=1.6.0` | `execute:wave:post`, `execute:post` | step | first-party |
+| `code-review` | feature | full | `>=1.6.0` | `execute:wave:post`, `execute:post`, `milestone:pre` | step | first-party |
 | `drift` | feature | full | `>=1.6.0` | `plan:pre`, `execute:wave:post` | gate | first-party |
 | `external-job` | feature | full | `>=1.7.0` | `plan:post`, `execute:wave:post` | contribution | first-party |
 | `gap-analysis` | feature | standard | `>=1.6.0` | `plan:post` | gate | first-party |
@@ -73,7 +73,7 @@ points.
 | `profile-pipeline` | feature | full | `>=1.6.0` | — | — | first-party |
 | `refactor-trigger` | feature | full | `>=1.10.0` | `execute:post` | step | first-party |
 | `research` | feature | standard | `>=1.6.0` | `plan:pre` | step | first-party |
-| `retro` | feature | full | `>=1.15.0` | — | — | first-party |
+| `retro` | feature | full | `>=1.15.0` | `execute:post`, `ship:post` | step | first-party |
 | `schema-gate` | feature | full | `>=1.6.0` | `plan:pre` | contribution | first-party |
 | `security` | feature | full | `>=1.6.0` | `plan:pre`, `verify:post`, `ship:pre` | step, contribution, gate | first-party |
 | `tdd` | feature | full | `>=1.6.0` | `plan:pre`, `execute:post` | contribution, gate | first-party |
@@ -186,6 +186,6 @@ and the [capability manifest reference](capability-manifest.md).
 
 - [ADR-1244 — Capability Ecosystem](../adr/1244-capability-ecosystem.md)
 - [The capability trust model](../explanation/capability-trust-model.md) — why the trust rules are structured as they are
-- [The phase loop](../explanation/the-phase-loop.md) — the 12 loop extension points in context
+- [The phase loop](../explanation/the-phase-loop.md) — the loop extension points in context
 - [Capability manifest reference](capability-manifest.md) — the full `capability.json` schema
 - [ADR-857](../adr/857-capability-system.md) — the original capability architecture (D7/D8 extended by ADR-1244)

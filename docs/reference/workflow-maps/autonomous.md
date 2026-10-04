@@ -76,6 +76,7 @@ flowchart LR
     p_execute_post{{"execute#58;post<br/>+1 gates, +0 contributions"}}:::point
     c_execute_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
     c_execute_post_refactor_trigger_command_refactor_evaluate["refactor-trigger#58; command refactor evaluate"]:::capability
+    c_execute_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
     p_verify_post{{"verify#58;post"}}:::point
     c_verify_post_mempalace_skill_mempalace_capture["mempalace#58; skill mempalace-capture"]:::capability
     c_verify_post_nyquist_skill_validate_phase["nyquist#58; skill validate-phase"]:::capability
@@ -95,6 +96,7 @@ flowchart LR
   u_section_human_needed("§ human-needed")
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
+  p_execute_post -.-> c_execute_post_retro_command_retro_stage
   u_step_execute_phase --> p_execute_post
   p_verify_post -.-> c_verify_post_mempalace_skill_mempalace_capture
   p_verify_post -.-> c_verify_post_nyquist_skill_validate_phase

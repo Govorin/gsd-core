@@ -59,6 +59,7 @@ flowchart LR
     p_execute_post{{"execute#58;post<br/>+1 gates, +0 contributions"}}:::point
     c_execute_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
     c_execute_post_refactor_trigger_command_refactor_evaluate["refactor-trigger#58; command refactor evaluate"]:::capability
+    c_execute_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
   end
   u_step_check_config_gate["check_config_gate"]
   u_step_spawn_fixer["spawn_fixer"]
@@ -68,6 +69,7 @@ flowchart LR
   u_step_auto_iteration_loop --> a_gsd_code_fixer
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
+  p_execute_post -.-> c_execute_post_retro_command_retro_stage
   u_step_check_config_gate --> p_execute_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555

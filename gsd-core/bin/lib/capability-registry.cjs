@@ -334,6 +334,11 @@ const capabilities = {
         "default": 0.25,
         "description": "Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%."
       },
+      "architecture.metrics_at_milestone": {
+        "type": "boolean",
+        "default": true,
+        "description": "Measure the architecture when a milestone closes (complete-milestone, milestone:post): gsd-tools arch stage runs arch metrics --compare-last over the configured scope and window and writes .planning/architecture/metrics-<date>.json, the baseline the next close compares against. Deterministic and model-free; whether a survey follows is architecture.survey_at_milestone's call. Off: nothing runs at the close."
+      },
       "architecture.survey_at_milestone": {
         "type": "enum",
         "values": [
@@ -342,7 +347,7 @@ const capabilities = {
           "off"
         ],
         "default": "suggest",
-        "description": "What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt."
+        "description": "What complete-milestone does (after the architecture.metrics_at_milestone measurement) when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt."
       }
     },
     "steps": [
@@ -380,6 +385,16 @@ const capabilities = {
           "DESIGN.md"
         ],
         "when": "workflow.architecture_review",
+        "onError": "skip"
+      },
+      {
+        "point": "milestone:post",
+        "ref": {
+          "command": "arch stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "architecture.metrics_at_milestone",
         "onError": "skip"
       }
     ],
@@ -1048,6 +1063,11 @@ const capabilities = {
         "type": "number",
         "default": 40,
         "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
+      },
+      "code_review.window_at_milestone": {
+        "type": "boolean",
+        "default": true,
+        "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
       }
     },
     "steps": [
@@ -1079,6 +1099,16 @@ const capabilities = {
         "supportsReviewerLanes": true,
         "when": "workflow.code_review",
         "pointFrom": "workflow.code_review_point",
+        "onError": "skip"
+      },
+      {
+        "point": "milestone:pre",
+        "ref": {
+          "command": "review stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.code_review",
         "onError": "skip"
       }
     ],
@@ -4375,7 +4405,7 @@ const capabilities = {
           "off"
         ],
         "default": "suggest",
-        "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
+        "description": "What the retro stage at the end of execute-phase (execute:post) and after ship (ship:post) — `gsd-tools retro stage`, the same answer as `retro signals --decide` — answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
       },
       "retro.signal_threshold": {
         "type": "number",
@@ -4451,7 +4481,28 @@ const capabilities = {
       }
     ],
     "hooks": [],
-    "steps": [],
+    "steps": [
+      {
+        "point": "execute:post",
+        "ref": {
+          "command": "retro stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "retro.enabled",
+        "onError": "skip"
+      },
+      {
+        "point": "ship:post",
+        "ref": {
+          "command": "retro stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "retro.enabled",
+        "onError": "skip"
+      }
+    ],
     "contributions": [],
     "gates": []
   },
@@ -5845,6 +5896,17 @@ const byLoopPoint = {
         "consumes": [],
         "when": "refactor.trigger_enabled",
         "onError": "skip"
+      },
+      {
+        "capId": "retro",
+        "point": "execute:post",
+        "ref": {
+          "command": "retro stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "retro.enabled",
+        "onError": "skip"
       }
     ],
     "contributions": [],
@@ -6175,6 +6237,51 @@ const byLoopPoint = {
         ],
         "when": "mempalace.enabled",
         "onError": "skip"
+      },
+      {
+        "capId": "retro",
+        "point": "ship:post",
+        "ref": {
+          "command": "retro stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "retro.enabled",
+        "onError": "skip"
+      }
+    ],
+    "contributions": [],
+    "gates": []
+  },
+  "milestone:pre": {
+    "steps": [
+      {
+        "capId": "code-review",
+        "point": "milestone:pre",
+        "ref": {
+          "command": "review stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.code_review",
+        "onError": "skip"
+      }
+    ],
+    "contributions": [],
+    "gates": []
+  },
+  "milestone:post": {
+    "steps": [
+      {
+        "capId": "architecture",
+        "point": "milestone:post",
+        "ref": {
+          "command": "arch stage"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "architecture.metrics_at_milestone",
+        "onError": "skip"
       }
     ],
     "contributions": [],
@@ -6197,6 +6304,7 @@ const configKeys = {
   "architecture.cochange_min_support": "architecture",
   "architecture.cochange_min_confidence": "architecture",
   "architecture.survey_growth_threshold": "architecture",
+  "architecture.metrics_at_milestone": "architecture",
   "architecture.survey_at_milestone": "architecture",
   "workflow.assumption_delta": "assumption-delta",
   "workflow.windows_enforce": "broken-windows",
@@ -6212,6 +6320,7 @@ const configKeys = {
   "workflow.code_review_point": "code-review",
   "code_review.window_lenses": "code-review",
   "code_review.window_max_files_per_batch": "code-review",
+  "code_review.window_at_milestone": "code-review",
   "review.max_prompt_tokens_per_reviewer.coderabbit": "coderabbit",
   "review.models.codex": "codex",
   "review.max_prompt_tokens_per_reviewer.codex": "codex",
@@ -6432,11 +6541,17 @@ const configSchema = {
     "default": 0.25,
     "description": "Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%."
   },
+  "architecture.metrics_at_milestone": {
+    "owner": "architecture",
+    "type": "boolean",
+    "default": true,
+    "description": "Measure the architecture when a milestone closes (complete-milestone, milestone:post): gsd-tools arch stage runs arch metrics --compare-last over the configured scope and window and writes .planning/architecture/metrics-<date>.json, the baseline the next close compares against. Deterministic and model-free; whether a survey follows is architecture.survey_at_milestone's call. Off: nothing runs at the close."
+  },
   "architecture.survey_at_milestone": {
     "owner": "architecture",
     "type": "enum",
     "default": "suggest",
-    "description": "What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt.",
+    "description": "What complete-milestone does (after the architecture.metrics_at_milestone measurement) when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt.",
     "values": [
       "suggest",
       "auto",
@@ -6540,6 +6655,12 @@ const configSchema = {
     "type": "number",
     "default": 40,
     "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
+  },
+  "code_review.window_at_milestone": {
+    "owner": "code-review",
+    "type": "boolean",
+    "default": true,
+    "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
   },
   "review.max_prompt_tokens_per_reviewer.coderabbit": {
     "owner": "coderabbit",
@@ -7226,7 +7347,7 @@ const configSchema = {
     "owner": "retro",
     "type": "enum",
     "default": "suggest",
-    "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode.",
+    "description": "What the retro stage at the end of execute-phase (execute:post) and after ship (ship:post) — `gsd-tools retro stage`, the same answer as `retro signals --decide` — answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode.",
     "values": [
       "suggest",
       "auto",

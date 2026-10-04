@@ -53,7 +53,7 @@
 | [cleanup](cleanup.md) | 9 шагов `<step>` | 0 | 0 |  | 0 / 1 | 0 |
 | [code-review-fix](code-review-fix.md) | 10 шагов `<step>` | 3 | 2 | `execute:post` | 0 / 0 | 0 |
 | [code-review](code-review.md) | 11 шагов `<step>`, 2 секции `gsd:section` | 4 | 3 |  | 0 / 4 | 0 |
-| [complete-milestone](complete-milestone.md) | 13 шагов `<step>`, 1 секция `gsd:section` | 0 | 0 |  | 3 / 5 | 0 |
+| [complete-milestone](complete-milestone.md) | 15 шагов `<step>`, 1 секция `gsd:section` | 0 | 0 | `milestone:pre`, `milestone:post` | 3 / 5 | 0 |
 | [debug](debug.md) | 8 разделов H2 | 3 | 1 |  | 3 / 3 | 0 |
 | [diagnose-issues](diagnose-issues.md) | 6 шагов `<step>` | 1 | 1 |  | 3 / 3 | 0 |
 | [discuss-phase-assumptions](discuss-phase-assumptions.md) | 16 шагов `<step>`, 1 секция `gsd:section` | 2 | 2 |  | 3 / 12 | 0 |

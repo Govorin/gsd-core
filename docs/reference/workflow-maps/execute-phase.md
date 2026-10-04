@@ -87,6 +87,7 @@ flowchart LR
     p_execute_post{{"execute#58;post<br/>+1 gates, +0 contributions"}}:::point
     c_execute_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
     c_execute_post_refactor_trigger_command_refactor_evaluate["refactor-trigger#58; command refactor evaluate"]:::capability
+    c_execute_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
     p_execute_pre{{"execute#58;pre<br/>+1 gates, +0 contributions"}}:::point
     c_execute_pre_mn_verify_gate_command_verify_baseline["mn-verify-gate#58; command verify baseline"]:::capability
     p_execute_wave_pre{{"execute#58;wave#58;pre"}}:::point
@@ -116,6 +117,7 @@ flowchart LR
   u_step_verify_phase_goal -->|"через execute-phase/steps/verify-phase-goal.md"| a_gsd_verifier
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
+  p_execute_post -.-> c_execute_post_retro_command_retro_stage
   u_step_initialize --> p_execute_post
   p_execute_pre -.-> c_execute_pre_mn_verify_gate_command_verify_baseline
   u_step_execute_pre_hooks --> p_execute_pre

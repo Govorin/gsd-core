@@ -98,6 +98,7 @@ flowchart LR
     p_execute_post{{"execute#58;post<br/>+1 gates, +0 contributions"}}:::point
     c_execute_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
     c_execute_post_refactor_trigger_command_refactor_evaluate["refactor-trigger#58; command refactor evaluate"]:::capability
+    c_execute_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
   end
   subgraph g_files["Другие workflows и файлы"]
     w_gsd_core_workflows_diagnose_issues_md(["workflow#58; diagnose-issues"]):::workflow
@@ -134,6 +135,7 @@ flowchart LR
   u_step_complete_session --> p_verify_post
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
+  p_execute_post -.-> c_execute_post_retro_command_retro_stage
   u_step_complete_session -->|"через execute-phase/steps/verify-phase-goal.md"| p_execute_post
   wf_root -.-> w_gsd_core_workflows_diagnose_issues_md
   u_step_reconcile_gaps -.-> w_gsd_core_workflows_diagnose_issues_md

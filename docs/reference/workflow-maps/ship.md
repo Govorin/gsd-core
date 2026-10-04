@@ -55,6 +55,7 @@ flowchart LR
   subgraph g_points["Точки цикла и капабилити"]
     p_ship_post{{"ship#58;post"}}:::point
     c_ship_post_mempalace_agent_gsd_mempalace_curator["mempalace#58; agent gsd-mempalace-curator"]:::capability
+    c_ship_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
     p_ship_pre{{"ship#58;pre<br/>+9 gates, +0 contributions"}}:::point
   end
   subgraph g_files["Другие workflows и файлы"]
@@ -64,6 +65,7 @@ flowchart LR
   u_step_filter_planning_commits["filter_planning_commits"]
   u_step_ship_post_capability_dispatch["ship_post_capability_dispatch"]
   p_ship_post -.-> c_ship_post_mempalace_agent_gsd_mempalace_curator
+  p_ship_post -.-> c_ship_post_retro_command_retro_stage
   u_step_ship_post_capability_dispatch --> p_ship_post
   u_step_preflight_checks --> p_ship_pre
   u_step_filter_planning_commits -.-> w_gsd_core_workflows_pr_branch_md
