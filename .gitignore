@@ -341,6 +341,9 @@ build/
 /gsd-core/bin/lib/learnings.cjs
 /gsd-core/bin/lib/gsd2-import.cjs
 /gsd-core/bin/lib/profile-pipeline.cjs
+/gsd-core/bin/lib/session-transcript.cjs
+/gsd-core/bin/lib/retro-signals.cjs
+/gsd-core/bin/lib/retro-inventory.cjs
 /gsd-core/bin/lib/roadmap-upgrade.cjs
 /gsd-core/bin/lib/phases-command-router.cjs
 /gsd-core/bin/lib/verify-command-router.cjs
