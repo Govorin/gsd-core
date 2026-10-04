@@ -80,6 +80,30 @@ const PHASE_NUMBER_TOKEN_SOURCE = '\\d+[A-Z]?(?:\\.\\d+)*';
 const PHASE_DEP_REF_SOURCE =
   `\\bphases?\\s+(${PHASE_NUMBER_TOKEN_SOURCE}(?:(?:\\s*,\\s*(?:and\\s+)?|\\s+and\\s+|\\s*&\\s*|\\s+(?:to|through)\\s+|\\s*-\\s*)${PHASE_NUMBER_TOKEN_SOURCE})*)`;
 
+/**
+ * The phase tokens a depends-on prose value references, in the order written,
+ * each spelling once ("Phases 1 and 2, then Phase 1" → ["1", "2"]). The one
+ * reader of PHASE_DEP_REF_SOURCE's matches, so every consumer (init.manager's
+ * dep_phases, planning-inspect's dependencies, roadmap graph's edges) agrees
+ * on what a reference is. Tokens are returned as written — comparing them is
+ * the caller's (`phaseKeyFromToken`), as is excluding a row's own number.
+ */
+function phaseDepRefs(prose: string): string[] {
+  // allow-adhoc-regex-escape: PHASE_DEP_REF_SOURCE is this module's own reviewed grammar, composed only of PHASE_NUMBER_TOKEN_SOURCE and literals
+  const refRe = new RegExp(PHASE_DEP_REF_SOURCE, 'gi');
+  const tokenRe = new RegExp(PHASE_NUMBER_TOKEN_SOURCE, 'gi');
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const ref of String(prose).matchAll(refRe)) {
+    for (const tok of ref[1].matchAll(tokenRe)) {
+      if (seen.has(tok[0])) continue;
+      seen.add(tok[0]);
+      out.push(tok[0]);
+    }
+  }
+  return out;
+}
+
 // #2528 review: the CASE-FLEXIBLE renderings of the two sources above, for call
 // sites that scan directory names (where a project code or a variant suffix may
 // legitimately be lowercase) and therefore cannot use a case-sensitive class.
@@ -1756,6 +1780,7 @@ export = {
   OPTIONAL_PHASE_TAG_SOURCE,
   PHASE_NUMBER_TOKEN_SOURCE,
   PHASE_DEP_REF_SOURCE,
+  phaseDepRefs,
   CASE_FLEXIBLE_PROJECT_CODE_PREFIX_SOURCE,
   CASE_FLEXIBLE_PHASE_NUMBER_TOKEN_SOURCE,
   PHASE_CONTINUATION_SEGMENT_SOURCE,

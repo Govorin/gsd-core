@@ -1070,15 +1070,9 @@ function extractDependencyTokens(sectionBody: string): string[] {
   // prefix-strip literal is needed here. Self-exclusion (init.manager drops
   // the row's own number) is deliberately NOT applied: this reader has no row
   // context at the extraction site and reports informationally, it does not
-  // gate.
-  const refRe = new RegExp(phaseIdMod.PHASE_DEP_REF_SOURCE, 'gi');
-  const tokenRe = new RegExp(phaseIdMod.PHASE_NUMBER_TOKEN_SOURCE, 'g');
-  const tokens: string[] = [];
-  let refMatch: RegExpExecArray | null;
-  while ((refMatch = refRe.exec(m[1])) !== null) {
-    for (const t of refMatch[1].matchAll(tokenRe)) tokens.push(t[0]);
-  }
-  return sortedUnique(tokens);
+  // gate. The matches are read by phase-id.cts's `phaseDepRefs`, the one
+  // reader every depends-on consumer shares.
+  return sortedUnique(phaseIdMod.phaseDepRefs(m[1]));
 }
 
 /**
