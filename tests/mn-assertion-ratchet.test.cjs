@@ -173,7 +173,8 @@ describe('assertion ratchet', () => {
     writeSpec('a.spec.ts', 1);
     const v = evaluateMnAssertionRatchet({ projectDir: project, args: [] }, { git: () => repo }).payload;
     assert.equal(v.status, 'finding');
-    assert.equal(v.baselineFile, baselineFile());
+    // The root comes back canonical (projectRoots realpaths it, as real git's --show-toplevel is).
+    assert.equal(v.baselineFile, fs.realpathSync(baselineFile()));
   });
 
   test('the phase the dispatcher appends is ignored', () => {

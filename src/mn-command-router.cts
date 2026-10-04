@@ -80,7 +80,7 @@ interface RouteMnCommandOptions {
   _zodFieldtable?: Pick<typeof zodFieldtable, 'runZodFieldtable'>;
   _designRegistry?: Pick<typeof designRegistry, 'runDesignRegistry'>;
   _worktreeGc?: Pick<typeof worktreeGc, 'runWorktreeGc'>;
-  _assertionCount?: Pick<typeof assertionCount, 'resolveRepoRoot' | 'recordAssertionBaseline'>;
+  _assertionCount?: Pick<typeof assertionCount, 'recordAssertionBaseline'>;
 }
 
 /** A non-negative integer flag value, or null when it is not one. */
@@ -210,7 +210,7 @@ function routeAssertionBaseline(opts: RouteMnCommandOptions): void {
     error(BASELINE_USAGE, ERROR_REASON.USAGE);
     return;
   }
-  const repoRoot = ac.resolveRepoRoot(cwd);
+  const repoRoot = projectRoots(cwd).content;
   const pathsArg = flagValue(args, 'paths');
   const rels = pathsArg === null ? [...assertionCount.DEFAULT_ROOTS] : pathsArg.split(/\s+/).filter(Boolean);
   if (rels.length === 0) {

@@ -354,17 +354,24 @@ function realOrResolved(dir: string): string {
   }
 }
 
+/** Runs `git <args>` in `cwd`: its trimmed stdout, or null when git fails. The seam `projectRoots` takes. */
+export type GitRunner = (args: string[], cwd: string) => string | null;
+
+function runGit(args: string[], cwd: string): string | null {
+  const r = execGit(args, { cwd, timeout: 10_000 });
+  return r.exitCode === 0 && r.error === null ? r.stdout : null;
+}
+
 /**
  * THE derivation of a project's content boundary — the declaration index, the
- * `gsd:source` lookup and derived-block regeneration all take their roots from
- * here, so what the index can see and what a recorded path may name never
- * disagree.
+ * `gsd:source` lookup, derived-block regeneration and the assertion baseline
+ * all take their roots from here, so what one tool can see and where another
+ * may point never disagree.
  */
-export function projectRoots(projectDir: string): ProjectRoots {
+export function projectRoots(projectDir: string, git: GitRunner = runGit): ProjectRoots {
   const project = realOrResolved(projectDir);
-  const top = execGit(['rev-parse', '--show-toplevel'], { cwd: project, timeout: 10_000 });
-  const content = top.exitCode === 0 && top.error === null && top.stdout !== '' ? realOrResolved(top.stdout) : project;
-  return { project, content };
+  const top = git(['rev-parse', '--show-toplevel'], project);
+  return { project, content: top ? realOrResolved(top) : project };
 }
 
 /**
