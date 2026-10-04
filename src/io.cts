@@ -401,6 +401,9 @@ const ERROR_REASON = Object.freeze({
   // ref, git unavailable) or a step's input (prepass.json, REVIEW.md) is missing — the window
   // review could not look, which is never an empty review at exit 0.
   WINDOW_REVIEW_UNRESOLVABLE: 'window_review_unresolvable',
+  // `arch cards|report|decide`: the survey step's input (metrics, cards, candidates)
+  // has not been written yet — run the earlier step first.
+  ARCH_INPUT_UNAVAILABLE: 'arch_input_unavailable',
   // generic
   USAGE: 'usage',
   UNKNOWN: 'unknown',
@@ -549,6 +552,8 @@ const REASON_TO_OUTCOME: Readonly<Record<string, string>> = Object.freeze({
   [ERROR_REASON.DIAGRAMS_SOURCE_UNAVAILABLE]: 'UNAVAILABLE',
   // A window review could not look: the window did not resolve, or a step's input is missing.
   [ERROR_REASON.WINDOW_REVIEW_UNRESOLVABLE]: 'UNAVAILABLE',
+  // An architecture survey step ran before the step that writes its input.
+  [ERROR_REASON.ARCH_INPUT_UNAVAILABLE]: 'UNAVAILABLE',
 
   // Self-failure: the run itself broke, not its inputs.
   [ERROR_REASON.SDK_FAIL_FAST]: 'INTERNAL',

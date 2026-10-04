@@ -1109,6 +1109,7 @@ describe('#3897 rung 3: sandbox_mode derivation and the hold list', () => {
   const EXPECTED_SANDBOX_BY_ROLE = {
     'gsd-advisor-researcher': 'read-only',
     'gsd-ai-researcher': 'workspace-write',
+    'gsd-arch-surveyor': 'workspace-write',
     'gsd-architect-reviewer': 'workspace-write',
     'gsd-assumptions-analyzer': 'read-only',
     'gsd-code-fixer': 'workspace-write',
@@ -1137,6 +1138,7 @@ describe('#3897 rung 3: sandbox_mode derivation and the hold list', () => {
     'gsd-planner': 'workspace-write',
     'gsd-project-researcher': 'workspace-write',
     'gsd-research-synthesizer': 'workspace-write',
+    'gsd-retro-analyst': 'workspace-write',
     'gsd-roadmapper': 'workspace-write',
     'gsd-security-auditor': 'read-only',
     'gsd-spec-reviewer': 'workspace-write',
@@ -1220,11 +1222,11 @@ describe('#3897 rung 3: sandbox_mode derivation and the hold list', () => {
       [],
       'CODEX_SANDBOX_HOLDS must be empty after the #4770 lift — a re-hold requires a new recorded decision',
     );
-    // 17 measured at the #4770 lift, plus gsd-system-architect and
-    // gsd-architect-reviewer, and the window review lenses gsd-standards-reviewer
-    // and gsd-spec-reviewer (ADR-5208), which arrived later declaring Write and
-    // were never held.
-    assert.equal(measuredWideningRoles.length, 21, 'sanity: 21 widening roles against the current agents/ tree');
+    // 17 measured at the #4770 lift, plus gsd-system-architect,
+    // gsd-architect-reviewer, the window review lenses gsd-standards-reviewer
+    // and gsd-spec-reviewer (ADR-5208), gsd-arch-surveyor and gsd-retro-analyst
+    // (ADR-5209), which arrived later declaring Write and were never held.
+    assert.equal(measuredWideningRoles.length, 23, 'sanity: 23 widening roles against the current agents/ tree');
     for (const role of measuredWideningRoles) {
       assert.equal(
         EXPECTED_SANDBOX_BY_ROLE[role],

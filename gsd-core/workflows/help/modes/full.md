@@ -651,6 +651,7 @@ The commands above cover the most common day-to-day flows. Every command listed 
 - **`/gsd:validate-phase [phase]`** — Retroactively audit and fill Nyquist validation gaps for a completed phase.
 - **`/gsd:ui-review [phase]`** — Retroactive 6-pillar visual audit of implemented frontend code.
 - **`/gsd:eval-review [phase]`** — Audit an executed AI phase's evaluation coverage and produce an EVAL-REVIEW.md remediation plan.
+- **`/gsd:arch-survey [area…] [--paths p1,p2] [--since 90d|<ref>] [--top N] [--grill]`** — Survey the codebase for deepening opportunities (shallow modules, leaky seams, behaviour smeared across files), refute the candidates, and journal what you decide about each in `.planning/architecture/`.
 - **`/gsd:audit-fix --source <audit-uat> [--severity medium|high|all] [--max N] [--dry-run]`** — Autonomous audit-to-fix pipeline: find issues, classify, fix, test, commit.
 - **`/gsd:add-tests <phase> [additional instructions]`** — Generate tests for a completed phase based on UAT criteria and implementation.
 

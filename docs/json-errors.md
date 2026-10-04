@@ -313,6 +313,12 @@ text (unstable).
 |------|-------------|
 | `window_review_unresolvable` | `review window-*` when the window does not resolve (`--since last` with no `LAST-WINDOW.json`, an unknown ref, git unavailable) or a step's input (`prepass.json`, the window `REVIEW.md`) is missing — the window review could not look |
 
+### Architecture survey errors
+
+| Code | When emitted |
+|------|-------------|
+| `arch_input_unavailable` | `arch cards`, `arch report` or `arch decide` before the step that writes its input: no `metrics-<date>.json`, no `candidates.json`, or an id that is neither a candidate of the survey nor in `DECISIONS.md` |
+
 ### Hook / security errors
 
 | Code | When emitted |

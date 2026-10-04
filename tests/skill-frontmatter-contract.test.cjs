@@ -448,6 +448,10 @@ const { assertWithinAllowlist } = require('../scripts/lib/allowlist-ratchet.cjs'
 const KNOWN_SKILLS = new Set([
   'add-tests.md',
   'ai-integration-phase.md',
+  // Architecture survey (pocock-practices design D1): the third part of the
+  // architecture capability, deliberately not a mode of map-codebase (other
+  // output and lifecycle) nor of the architect reviewer (no DESIGN.md needed).
+  'arch-survey.md',
   'audit-fix.md',
   'audit-milestone.md',
   'audit-uat.md',
@@ -932,7 +936,9 @@ const DEFAULT_BUDGET = 60;
 // takes — the pinned response-language directive and its blank separator — are a
 // coverage contract every workflow carries, not content creep, which is what this
 // budget guards. The ratchet rule is unchanged: actualMax 846, slack 0.
-const FULL_BUDGET = 846;
+// Raised 846 → 847 for the /gsd:arch-survey entry: a new command needs its one
+// line in the complete reference (help ↔ commands parity). Slack stays 0.
+const FULL_BUDGET = 847;
 
 // Grace bands:
 //   SMALL_GRACE — for the tiny brief/default/dispatcher files (≤ ~70 lines):
