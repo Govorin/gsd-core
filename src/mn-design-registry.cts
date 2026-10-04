@@ -249,7 +249,7 @@ export function listSources(root: string): string[] {
   return out;
 }
 
-const EXPORT_RE = /export\s+(?:default\s+)?(?:const|function|class)\s+([A-Z][A-Za-z0-9_]*)/g;
+const EXPORT_RE = /export\s+(?:default\s+)?(?:const|function|class)\s+([A-Z]\w*)/g;
 
 /** Exported PascalCase symbols → the files exporting them, in walk order. */
 export function collectExports(files: Array<{ file: string; text: string }>): Map<string, string[]> {
