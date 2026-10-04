@@ -755,6 +755,12 @@ count was recomputed from the tree (21/20 → 23, retro analyst added). Integrat
   code change. `phase-id (retro-signals)` — the drift scanner read retro's Unicode word-end
   class `(?![\p{L}\p{N}])` as a phase-name check; sanctioned with the dedicated
   `// phase-id-owner:` line (`6fea2ca1e`).
+- **Checks (final tree):** `lint:generated-sync`, `lint`, `lint-test-file-count`,
+  `check:alias-drift`, emitted-attribution against `merge-base(HEAD, upstream/next)` 140/140,
+  `test:mermaid-real` 150/150, `lint:ci` step by step — only `removed-but-needed`. Full
+  `npm test`: 45 367 tests, 4 failures, exactly the reference set (differential attribution,
+  quick-batch byte-identical, removed-but-needed vs origin/next, compact-content partition
+  guard). The compact-content benchmark baseline was refreshed for the complete-milestone growth.
 - **Agents' decisions kept:** the refuter belongs to mn-verify-gate (without it findings are
   `unverified`); `LAST-WINDOW.json` is written only after the window's REVIEW.md, never by the
   stage; retro candidates are never applied, `auto` only spawns the analyst.
