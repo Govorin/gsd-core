@@ -42,6 +42,7 @@ const { pathToFileURL } = require('url');
 const { execFileSync, spawn } = require('child_process');
 const { ExitError, runMain } = require('./lib/cli-exit.cjs');
 const { suiteOf } = require('./lib/suite-detection.cjs');
+const { GSD_HOME_SANDBOX_PREFIX, isolateTestEnv } = require('./test-env.cjs');
 const {
   resolveLiveConfigRoots,
   resolveExtraWatchTargets,
@@ -383,7 +384,7 @@ function defaultMaxUnmeasuredPerChunk(platform) {
 const RUN_TEMP_ROOT_PREFIX = 'gsd-test-run-';
 // Children the runner itself keeps alive across chunks — the sweep must spare
 // them (GSD_HOME's nested-spawn REUSE contract; the chunk-diagnostics events dir).
-const RESERVED_TEMP_PREFIXES = ['gsd-test-home-', 'gsd-run-tests-events-'];
+const RESERVED_TEMP_PREFIXES = [GSD_HOME_SANDBOX_PREFIX, 'gsd-run-tests-events-'];
 
 /**
  * Create (or reuse) this run's private temp root and repoint the env at it.
@@ -1616,15 +1617,6 @@ async function main() {
   // that intermittently failed the scoped CI lane (see ensureBuiltHooks above).
   ensureBuiltHooks();
 
-  // Hermeticity: in-process tests resolve `.planning` via planningDir(cwd), which
-  // honours GSD_PROJECT/GSD_WORKSTREAM. A developer shell inside a GSD workstream
-  // exports GSD_WORKSTREAM, which would redirect fixture STATE.md reads away from
-  // each <tmp>/.planning and silently diverge from the clean CI/Docker env. Strip
-  // them so the local runner matches CI; tests that need them set them explicitly.
-  delete process.env.GSD_PROJECT;
-  delete process.env.GSD_WORKSTREAM;
-  delete process.env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS;
-
   // #4020: bound the run's temp footprint BEFORE any sandbox below mkdtemps, so
   // every child allocation (fixtures, GSD_HOME, events) lands inside one root
   // that is swept between chunks and removed on exit. Announced on stderr so an
@@ -1650,20 +1642,11 @@ async function main() {
   // every ancestor of every selected file that lies INSIDE the run root.
   const sweepProtectSet = computeSweepProtectSet(selected, runTempRoot);
 
-  // Sandbox the overlay home so the loader's global scan ($GSD_HOME/.gsd/capabilities)
-  // cannot read a developer's real installed capabilities during tests (ADR-1244 D2).
-  // IDEMPOTENT: a nested run-tests spawn (e.g. tests/run-tests-harness.test.cjs)
-  // inherits this sandbox via env — it must REUSE it, never mkdtemp a fresh dir per
-  // invocation (that churned ~20+ temp dirs per harness run and amplified Docker load).
-  {
-    const { mkdtempSync } = require('fs');
-    const { join: _join, basename: _basename } = require('path');
-    const { tmpdir } = require('os');
-    const _gh = process.env.GSD_HOME;
-    if (!_gh || !_basename(_gh).startsWith('gsd-test-home-')) {
-      process.env.GSD_HOME = mkdtempSync(_join(tmpdir(), 'gsd-test-home-'));
-    }
-  }
+  // Hermeticity: strip the ambient GSD_* routing vars and sandbox GSD_HOME — the
+  // shared definition in scripts/test-env.cjs, which the affected runner applies
+  // too. Called AFTER setupRunTempRoot so the sandbox lands inside the run root
+  // (removed on exit, spared by the sweep via RESERVED_TEMP_PREFIXES).
+  isolateTestEnv(process.env);
 
   // Log selected files to stderr for CI / harness-test visibility.
   // node:test default reporter doesn't echo filenames, so this gives

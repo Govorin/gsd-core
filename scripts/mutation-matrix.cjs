@@ -672,6 +672,8 @@ for (const [moduleName, entry] of Object.entries(COVERED)) {
 const GLOBAL_TRIGGERS = new Set([
   'stryker.config.mjs',
   'scripts/mutation-matrix.cjs',
+  // The hermetic env stryker.config.mjs applies to every mutant test run.
+  'scripts/test-env.cjs',
 ]);
 
 // Also flag all test files that belong to any covered module as global triggers.

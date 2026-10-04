@@ -1,11 +1,12 @@
 'use strict';
 
 const { execFileSync } = require('node:child_process');
-const { readdirSync, readFileSync, existsSync } = require('node:fs');
+const { readdirSync, readFileSync, existsSync, rmSync } = require('node:fs');
 const path = require('node:path');
 
 const { ExitError } = require('./lib/cli-exit.cjs');
 const { suiteOf } = require('./run-tests.cjs');
+const { isolateTestEnv } = require('./test-env.cjs');
 
 const CRITICAL_PATHS = [
   '.github/workflows/',
@@ -14,6 +15,7 @@ const CRITICAL_PATHS = [
   'scripts/run-tests.cjs',
   'scripts/affected-tests-lib.cjs',
   'scripts/run-affected-tests.cjs',
+  'scripts/test-env.cjs',
 ];
 
 // Suites that are push-only. PRs must never select or run these.
@@ -368,6 +370,22 @@ function pickAffectedTests(changedFiles, allTests, reverseIndex, options = {}) {
 }
 
 function changedFilesSinceBase(repoRoot, baseRef) {
+  // An unresolvable base (the 'origin/main' default in a clone or fork with no
+  // such remote branch) would otherwise surface as a raw `git diff` stack trace
+  // with no hint at the knob that fixes it.
+  try {
+    execFileSync('git', ['rev-parse', '--verify', '--quiet', `${baseRef}^{commit}`], {
+      cwd: repoRoot,
+      stdio: 'ignore',
+    });
+  } catch {
+    throw new ExitError(
+      1,
+      `affected-tests: base ref "${baseRef}" does not resolve to a commit. ` +
+        'Set GSD_AFFECTED_BASE to a ref that exists here, e.g. ' +
+        'GSD_AFFECTED_BASE=$(git merge-base HEAD next) npm run test:affected',
+    );
+  }
   const out = execFileSync(
     'git',
     ['diff', '--name-only', '--no-renames', '--diff-filter=ACMRD', `${baseRef}...HEAD`],
@@ -377,7 +395,25 @@ function changedFilesSinceBase(repoRoot, baseRef) {
   return out.split('\n').map(line => line.trim()).filter(Boolean);
 }
 
-function runNodeTestFiles(repoRoot, files) {
+/**
+ * Run `files` under `node --test` in argv-bounded chunks, with the same
+ * hermetic env run-tests.cjs gives its children (scripts/test-env.cjs). The
+ * caller's `env` is copied, never mutated; a GSD_HOME sandbox this call created
+ * is removed once every chunk has run.
+ *
+ * `env` and `execFile` are injection seams for tests/affected-tests-lib.test.cjs.
+ */
+function runNodeTestFiles(repoRoot, files, { env = process.env, execFile = execFileSync } = {}) {
+  const childEnv = { ...env };
+  const sandbox = isolateTestEnv(childEnv);
+  try {
+    runNodeTestChunks(repoRoot, files, childEnv, execFile);
+  } finally {
+    if (sandbox.created) rmSync(sandbox.gsdHome, { recursive: true, force: true });
+  }
+}
+
+function runNodeTestChunks(repoRoot, files, env, execFile) {
   const defaultConcurrency = process.platform === 'win32' ? 2 : 4;
   const concurrency = process.env.TEST_CONCURRENCY
     ? `--test-concurrency=${process.env.TEST_CONCURRENCY}`
@@ -411,10 +447,10 @@ function runNodeTestFiles(repoRoot, files) {
       console.error(`affected-tests: chunk ${i + 1}/${chunks.length} (${chunks[i].length} files)`);
     }
     try {
-      execFileSync(process.execPath, ['--test', concurrency, ...chunks[i]], {
+      execFile(process.execPath, ['--test', concurrency, ...chunks[i]], {
         cwd: repoRoot,
         stdio: 'inherit',
-        env: { ...process.env },
+        env,
       });
     } catch (error) {
       const code = error.status || 1;
@@ -542,12 +578,14 @@ module.exports = {
   buildForwardGraph,
   buildReverseIndex,
   buildTransitiveReverseIndex,
+  changedFilesSinceBase,
   listTestFiles,
   parseRelativeSpecifiers,
   pickAffectedTests,
   resolveBaseRef,
   resolveRelativeDependency,
   resolveRunPlan,
+  runNodeTestFiles,
   shouldRunFullSuite,
   toPosixPath,
   runAffectedTests,
