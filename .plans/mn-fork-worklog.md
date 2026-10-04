@@ -1,19 +1,19 @@
 # Plan: mn fork — pipeline repair and remaining work
 
-Branch `feat/mn-verify-gate`. Fork of `open-gsd/gsd-core`, tracking `next`.
+Branch `sync/upstream-2026-10` (upstream 1.15 + the fork; becomes local `next`,
+the old one kept as `next-pre-sync`). Earlier work was on `feat/mn-verify-gate`.
+Fork of `open-gsd/gsd-core`, tracking `next`. **Local only** (owner, 2026-10-04):
+no push to `origin`, no upstream issues or PRs; `git fetch upstream` is fine.
 
 `$gsd` = `/Users/govorin/forks/gsd-core` — this repository, exported from `~/.zshrc` alongside `$mn`, so `cd $gsd` works from any shell. Every path below is
 relative to it unless prefixed. The installed runtime that actually executes is
-`~/.claude/gsd-core/` (workflows, templates, `bin/lib/*.cjs`) and
-`~/.gsd/mn-verify-gate/scripts/` (gate scripts); **every edit here must
-be mirrored there or it does not run**. The manifest and fragments of
-`mn-verify-gate` are compiled into the first-party registry and reach the runtime
-through the installer, not through a copy. The scripts deliberately live outside
-`~/.gsd/capabilities/`: the overlay loader scans that directory, and a copy of
-`mn-verify-gate` there collides with the built-in capability ID and prints a
-load error on every `gsd` command. Two differences to watch when mirroring:
-paths (`$gsd/gsd-core/workflows/` ↔ `~/.claude/gsd-core/workflows/`) and command
-namespace (`/gsd:` here, `/gsd-` installed).
+`~/.claude/gsd-core/` (workflows, templates, `bin/lib/*.cjs`); **an edit here
+runs only after `bin/install.js` is re-run**. Since the 1.15 sync `mn-verify-gate`
+has no scripts: its gates are `gsd_run check mn-*` verbs and its tools
+`gsd_run mn …` (`src/*.cts`), so `~/.gsd/mn-verify-gate/` is no longer needed and
+nothing is hand-mirrored. Script names in the sections below are historical; the
+script → verb map is `.plans/mn-verify-gate-to-cli.md`. Command namespace differs:
+`/gsd:` here, `/gsd-` installed.
 
 ---
 
@@ -94,7 +94,17 @@ reason `gsd-agent-isolation-guard` exists.
 | `gsd-prohibition-guard` | PreToolUse | a write outside the running plan's `files_modified` | `prohibition_guard` (`off`/`ask`/`deny`) |
 | `gsd-test-tamper-guard` | PreToolUse | a write that drops assertions or newly skips tests | `test_tamper_guard` (`off`/`ask`/`deny`) |
 | `gsd-exit-gate` | SubagentStop | an executor stopping while the project's own checks are red | `exit_gate` (empty = inert) |
-| `gsd-pin-invariants` | PostCompact, SessionStart | nothing — restates prohibitions, must-haves and open blockers a rewrite dropped | `pin_invariants` (on) |
+| `gsd-pin-invariants` | SessionStart (incl. `source: compact`) | nothing — restates prohibitions, must-haves and open blockers a rewrite dropped | `pin_invariants` (on) |
+
+**Correction (1.15 sync, `498df8846`): the pin never injected anything until then.** It
+printed a top-level `additionalContext`, which Claude Code ignores — SessionStart
+context is read only from `hookSpecificOutput.additionalContext`. And PostCompact,
+the event it was mainly registered for, is observational and cannot add context at
+all; after a compaction Claude Code re-fires SessionStart with `source: "compact"`,
+the documented re-injection point. The pin now emits the SessionStart shape and is
+registered on SessionStart alone; a PostCompact entry an older install left stays
+silent. Its 5 s budget is deliberate (advisory, `726d82334`). It also delivers
+worktree-provision warnings (below).
 
 Each is the live-fire half of a gate that already exists: prohibition ↔
 `blast_radius`, tamper ↔ `assertion_ratchet`, exit-gate ↔ the verifier. They
@@ -272,6 +282,56 @@ Tests: `tests/mn-worktree-provision.test.cjs`, 12 cases — the decision functio
 with each step injected, plus the blocking path end-to-end over two real git
 repositories, because the exit code is what the runtime consumes.
 
+**Correction (1.15 sync): as written above the hook could not run, and never did.**
+WorktreeCreate *replaces* `git worktree add` — the hook must create the checkout
+and print its path; this one only equipped an existing checkout and printed
+nothing, so registering it would have broken every worktree creation. It was
+therefore registered nowhere, and "equip on create" did not exist. Rebuilt to the
+contract (`.plans/worktree-provision-contract.md`):
+
+- **Creates the worktree itself** (`9f674ee2e`): reads `name` from stdin,
+  `<main checkout>/.claude/worktrees/<name>` on branch `worktree-<name>` from the
+  invoking checkout's **local HEAD**; copies `.worktreeinclude` (the harness stops
+  doing it once a hook exists). **stdout is the path and nothing else**, every
+  diagnostic on stderr. Exit codes from the ADR-3889 registry; no fail-open path —
+  printing no path is failure on this event. Stale base refuses before anything
+  exists; equipment failure warns, or refuses and rolls back under
+  `workflow.worktree_provision_strict`.
+- **Paired WorktreeRemove** (same script): removes only worktrees under
+  `.claude/worktrees`, deletes the branch only when its tip is reachable from
+  another ref; a vanished directory drops only its own registration, never a
+  repository-wide `prune`; a rollback that cannot finish says what it left
+  (review L1/L2, `d5ffc3f7a`).
+- **Registered by the installer in `settings.json`** (`6c45ae800`; WorktreeCreate
+  900 s, WorktreeRemove 180 s), not the plugin manifest; claims neither event when
+  a foreign WorktreeCreate hook exists in the layer being written or its sibling.
+  `findWorktreeCreateHook` (#4588) does not count GSD's own hook, so
+  `worktree.baseRef: head` stays trusted and parallel waves stay on.
+- **Uninstall removes the registration** (`a93dc1980`, below).
+- **One creator per name** (`34efdfcc6`, review M2): a global and a local install
+  registered it twice and Claude Code ran both, racing on `worktree add -b`. A
+  local install now defers to a user-layer registration; the hook takes a per-name
+  lock in the git common dir — a second creator waits and reuses, a dead holder's
+  lock is taken over, a wait past the budget refuses (`create-locked`). Copied
+  settings whose `$CLAUDE_PROJECT_DIR/.claude/hooks/*` are gitignored (absent in
+  the worktree) are pointed at the source checkout (review L7).
+- **Equipment only in GSD projects** (`d5ffc3f7a`, 3.13a): `.planning/config.json`
+  inside the repository; elsewhere only create from local HEAD — "absent =
+  enabled" must not spread to projects without `.planning/`.
+- **PR bases** (3.13b): Claude Code turns `--worktree "#123"` / a PR URL into
+  `pr-123` before the hook runs; the hook bases it on `pull/<n>/head` (GitHub),
+  `merge-requests/<n>/head` (GitLab) or the first that fetches, refusing when the
+  fetch fails. Names validated as the harness does; `/` → `+` in path and branch.
+- **Warnings reach the session** (3.13c): a creation that succeeds with warnings
+  records them in the worktree's git dir (`hooks/lib/worktree-notice.js`);
+  `gsd-pin-invariants` hands them to the first SessionStart there and stamps them
+  delivered. Before, they were visible only in Claude Code's debug log.
+
+Side finding: **the built-in mechanism bases agent worktrees on `origin/HEAD`.**
+Here `origin` is the owner's GitHub fork, ~900 commits behind, so every
+`isolation: "worktree"` agent got base `d2ae7fe39`. The hook's local HEAD removes
+that. Tests: `tests/mn-worktree-provision.test.cjs`, 52 cases.
+
 ### Evals from what actually burned us, and the hole the first one found
 
 `tests/qa/enforcement-cases.json` — 14 situations drawn from the retrospectives
@@ -399,13 +459,15 @@ Plan: `.plans/upstream-sync-plan.md`; analysis: `.plans/upstream-1.15-what-to-ta
   passed | gaps_found | human_needed in a report and throws on anything else; an absent
   status routes to `missing`. Upstream's own `scaffold verification` (`commands.cts`)
   still writes `pending` and trips its own reader — fix ours on the sync branch, report theirs.
-- **Blocking fork guards at 120s** (`prohibition-guard`, `test-tamper-guard`). The installer
-  does NOT register fork hooks: they are hand-registered in `~/.claude/settings.json`, so the
-  installer neither updates nor verifies them. `hooks/hooks.json` is the plugin manifest.
+- **Blocking fork guards at 120s** (`prohibition-guard`, `test-tamper-guard`). At the time the
+  installer did not register fork hooks (hand-registered in `~/.claude/settings.json`).
+  *Superseded by the sync:* the installer registers all five on Claude (`be78c0ad8`,
+  `6c45ae800`), migrates the guards off 5 s via `FORK_BLOCKING_GUARD_NAMES` (`726d82334`)
+  and removes them on uninstall (`a93dc1980`).
 - **mn-verify-gate scripts moved to `~/.gsd/mn-verify-gate/scripts/`.** The copy under
   `~/.gsd/capabilities/` collided with the built-in registry entry and printed a load
-  warning on every `gsd` call; a dir without `capability.json` warns too. Upstream keeps no
-  scripts inside capabilities at all (logic lives in `gsd_run` verbs) — the long-term target.
+  warning on every `gsd` call. *Superseded by the sync (3.12):* the scripts are now
+  `gsd_run` verbs and the `scripts/` dir is gone (`e862aa285`, `2691af8b9`).
 - **The `.pen` design contract lives in the repo now** (`gsd-ui-auditor`, `gsd-ui-checker`,
   `gsd-ui-researcher`, `templates/UI-SPEC.md`). It was only in the installed copy, and every
   reinstall moved it to `gsd-local-patches/`. Open: the checker still says "6 dimensions" in
@@ -413,6 +475,83 @@ Plan: `.plans/upstream-sync-plan.md`; analysis: `.plans/upstream-1.15-what-to-ta
   needs globstar in bash; project-specific paths (`bun tools/ui-system/...`) are hard-coded.
 - **Known failing before any of this:** 6 tests on the hooks manifest, 7 in
   `research-agent-profiles` (fork MCP tools in `tools:`), `gsd-executor` over the LARGE cap.
+
+### The upstream 1.15 sync (2026-10-03..04)
+
+Plan `.plans/upstream-sync-plan.md`; per-file conflict decisions
+`.plans/sync-conflict-decisions.md`; script → verb map `.plans/mn-verify-gate-to-cli.md`;
+briefs, reviews and logs in `/Users/govorin/forks/gsd-sync-backups/2026-10-03/`.
+Base `81cb6f8f3` (v1.15.0, the merge-base with `upstream/next`). Waves 1–2 by file
+zone, fix wave 2.5 (F1–F3, L9), wave 3 (mn gates and tools as `gsd_run` verbs,
+worktree provision, mermaid diagrams/maps), follow-ups FU-A..D. Rollback tags
+`sync-pre-msgfix`, `sync-pre-fu`. Each wave was reviewed by an independent
+read-only agent: `review-wave2.md` 4 high / 11 medium / 9 low, `review-wave3.md`
+2 high / 8 medium / 9 low.
+
+**Fork defects the sync surfaced** — wrong before the sync, not merge damage:
+
+| Defect | Fix | Commit |
+|---|---|---|
+| `gsd-worktree-provision` would break WorktreeCreate (no checkout, no path on stdout), so it was registered nowhere | rebuilt to the contract — see "A worktree is a checkout" | `9f674ee2e` |
+| `gsd-pin-invariants` never injected: top-level `additionalContext`, and PostCompact cannot inject | SessionStart (`source: compact`) + `hookSpecificOutput` | `498df8846` |
+| autonomous fork steps (spec-phase, blocking-gates, human-needed, gaps-found) had no `gsd:section` markers, so upstream's section manifest never included them | `when="always"` sections | `1ee725fca` |
+| `MAX_PHASES` read through `gsd_run` in the arg-parsing fence, before the launcher defines `gsd_run` — always the empty default | read after the init fetch, then a lazy step file under the 40960-char cap | `32d12908d`, `3c6ef2540` |
+| feature-vocabulary `--check` vacuous in CI: the source ROADMAP is gitignored, the absent-roadmap path returned ok, `--write` failed on every clone | without a roadmap the committed manifest must exist and agree | `9e394f41f` |
+| three gate tests passed `runNode` a `timeout` key the seam ignores — every bound ran on the 60 s default | `timeoutMs`, named constants | `04b146494` |
+| executor's eager `@`-include of `executor-worktree-capture.md` failed worktree-cleanup #1297 | upstream's inline `<worktree_metadata_capture>` back, orphan removed | `31139f2f9` |
+| `worktree-gc` failed open: an uncountable branch read as 0 commits, blind fallback to `master` — every `worktree-*` branch reapable in a repo without origin/HEAD, main or master | fail closed in the `gsd_run mn worktree-gc` port | `0a77c0c80` |
+| prohibition guard inlined an older, narrower copy of the Kimi #2304 block (H4) | canonical block verbatim, parity-bound | `880833778` |
+| fork write guards outside `BLOCKING_GUARD_NAMES`: the 5→120 s migration skipped them, a 5 s install stayed 5 s (a timed-out guard does not block) (M11) | own `FORK_BLOCKING_GUARD_NAMES` joined to the migration | `726d82334` |
+| uninstall deleted the fork hooks but kept their registrations — after it, every worktree creation failed on a dangling WorktreeCreate; the test was vacuous (read `settings.json`, install wrote `settings.local.json`) (w3 H1/M1/M8) | fork hooks in the managed sets, current-scope settings file, every event swept; test treats a missing file as failure | `a93dc1980` |
+| `--help` lacked five families (mn, refactor, claude-orchestration, scan-sessions, write-profile) | listed + two parity tests against `commandFamilies` | `605a2431f` |
+| literal `~/.claude/hooks/` in a doc comment survived tsc into `worktree-base-ref.cjs` and shipped to Cline | named through the `<userClaudeDir>` parameter | `4a1e230df` |
+| line-keyed `PROSE_ALLOWLIST` entries went stale with each insertion above them (executor 828→842, execute-plan 421) | entries moved | `3c0184c4a`, `f0e235266` |
+| upstream workflow text, found by the map generator, fixed in the fork only: `execute-phase` `initialize` never closed (`safe_resume_gate` inside); `plan-phase` / `quick` checker prompt — outer ` ```markdown ` closed by nested ` ```json `; `docs-update` jumped to a nonexistent `detect_runtime_capabilities`; Pattern A spawn in prose in `execute-plan.md` | closed step, 4-backtick fence, real targets, code block | `7efb4cde4`, `d507afee2` |
+
+`clean-state` `--git-path` is not a sync finding: the original script already
+resolved it from the cwd (the first-draft defect under "A clean tree at ship");
+the port `4e9cae33c` keeps that and the test pins it in a linked worktree.
+
+**Wave-3 port defects** (new code, `review-wave3.md`): mutation step left the mutant
+on SIGTERM because `spawnSync` blocks the handler — async process group + write-ahead
+restore journal in the git dir (H2, `0cbc2df81`); erDiagram attribute regex 2^n
+(24 keys = 1 s) on the blocking gate — one-pass tokenizer (M3, `82b63d638`); plain
+mermaid and implicit states bypassed identifier checks as WARNINGs — declared at
+first use, BLOCKER in design mode (M4, `82b63d638`, `2be88f7fc`); a `gsd:derived`
+marker the checked model could write switched checks off — derived blocks are
+regenerated and compared, `derived_stale` / `derived_unverifiable` (M5/5.7b,
+`2be88f7fc`); declaration index from the project dir gave false `absent` in a
+monorepo — git top level; missing phase dir now unresolvable (M6/L4, `cf2f7a784`);
+blast radius trusted the executor's own SUMMARY commit list — unlisted commits
+attributed, `via: unlisted-commit` (M7, `194d4d167`); optional predicate with an
+empty phase dir passed — fails closed (L3, `68352294f`); L5 `071bde7f3`, L6 `eb62c3e97`.
+
+**Merge regressions caught by review wave 2:** the planner lost "Every threat has a
+Severity" to a size trim — upstream text restored (H2, `b1b7c8401`); `template fill
+verification` still wrote `status: pending` (M9, `9a739ca3b`); the iterate step
+printed all of STATE.md per phase again (L2, `461ecb018`); bare
+`references/honest-verifier.md` cite (M2, `8f280ffcf`).
+
+**Decisions:**
+
+- **H3:** upstream's `live-dom-uat` executor-surface test refused every MCP family
+  beyond context7. Narrowed to its meaning — browser/DOM families refused by prefix,
+  the three code-navigation families (atlas, serena, codebase-memory) a named
+  allowlist, any unreviewed family still fails (`cd8f7615c`). Tools stay on agents.
+- **3.4c:** old plans without `<fails_when>` and `checkpoint:decision` without
+  `auto_select` are **not migrated** — the `<fails_when>` gate fires only at
+  planning (written plans execute), and a decision without `auto_select`
+  escalates to the owner safely.
+- **Capability version is not bumped separately** (3.12c): a native capability's
+  `version` is stamped in lockstep with the package (ADR-1244 D6, guarded by
+  `manifest-version-sync` B2); `engines.gsd >=1.15.0` already names the host
+  surface the `mn` family uses (`605a2431f`).
+- **health W031 repairs only `verified`** (3.4a, `ecad6ca73`): the one legacy status
+  with a single meaning (old spelling of `passed`). Every other out-of-set value
+  stays W030 advisory with a proposed replacement; `--repair` never guesses.
+- **`.plans/` is allowlisted in `lint:retired-runtime-name`** like `docs/research/`
+  (`c34356829`): dated working records, never installed; per-line markers would
+  fork the copy on every carry. `docs/plans/` stays scanned.
 
 ### Long-lived state
 
@@ -496,6 +635,13 @@ function — a coupling invisible to any search for the type name.
 
 ### 7. `verify:pre` steps have no dispatcher
 
+**Closed for `verify:pre` by the 1.15 sync** (`5c6d43b21`): upstream's
+`verify_pre_hooks` dispatches every hook kind through
+`references/loop-hook-dispatch.md`, and the fork's step declares `verify gates`
+so it matches the dispatcher's pattern. `execute:pre` is still declared in
+`execute-phase.md` `points:` with no `render-hooks execute:pre` call. Original
+finding below.
+
 Found while wiring `plan-graph`, by reading — **not** confirmed against a live
 `/gsd-verify-work` run. `workflow.verify_gates_record` is registered as a
 `verify:pre` **step** whose `ref` is `{"command": "gsd_run verify gates ..."}`,
@@ -535,6 +681,34 @@ Recorded so they are not rediscovered.
 - **`intel` capability** — its export extractor does not parse `export type` or `export interface`. In a Zod-first codebase it is blind to most types.
 - **`artifact-frontmatter-equals`** — documented on `next`, absent from published 1.9.1. Any gate declaring it halts instead of checking. Recheck after an upstream release.
 
+## What not to repeat
+
+Lessons from the 1.15 sync, each paid for by a defect above.
+
+- **Never trust `origin/*` as a base.** `origin` is the stale GitHub fork; Claude
+  Code's built-in worktree creation uses `origin/HEAD` and gave agents a base ~900
+  commits old. Create from local HEAD; measure against `upstream/next`.
+- **Read the event's output contract before registering a hook.** PostCompact
+  cannot inject; SessionStart reads only `hookSpecificOutput`; WorktreeCreate must
+  create and print a path. A test has to consume the shape the harness reads, not
+  "it printed something".
+- **No guard outside the canonical block or list.** An inlined copy of a shared
+  block drifts (Kimi normalization); a guard outside `BLOCKING_GUARD_NAMES` misses
+  every migration keyed off it. Join the canonical source and let parity bind it.
+- **A check that passes on absence is not a check.** Wrong settings file read as
+  "removed, fine"; absent roadmap read as ok; an ignored `timeout` key. Treat a
+  missing input as failure and keep a control that must survive.
+- **Fail closed on what cannot be counted** — an unknown commit count, an empty
+  phase dir, an unresolvable main ref.
+- **No marker the checked agent can write may exempt it from the check**
+  (`gsd:derived`).
+- **No line-keyed allowlists in files the fork edits** — every insertion above
+  moves them.
+- **Do not trim upstream text to fit a size budget.** It costs upstream bytes and
+  silently drops pinned items; move fork text into a reference instead.
+- **`spawnSync` and a signal-restore handler do not mix** — the handler never runs
+  while the child does.
+
 ---
 
 ## Notes on working in this fork
@@ -557,7 +731,8 @@ clean and `tests/artifacts.test.cjs` + `phase.test.cjs` run in-tree: 314 tests,
 necessary.
 
 **Pushing requires `gh auth refresh -s workflow`** — upstream touches
-`.github/workflows`, and the current token lacks that scope.
+`.github/workflows`, and the current token lacks that scope. Moot while the fork
+is local-only (since 2026-10-04).
 
 **`rg` is a shell function here, not a binary.** In any subshell or script it is
 absent, and `rg pattern` returns empty with exit 0 — which reads as "not found".
