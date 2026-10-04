@@ -1,0 +1,147 @@
+@~/.claude/gsd-core/references/response-language-directive.md
+
+<purpose>
+Retrospective on a coding session: propose changes to the agent's ENVIRONMENT — checks, reviewer rules, settings, navigation pointers — that remove the friction the session hit. Code counts the friction and checks every claim; the `gsd-retro-analyst` agent supplies only the judgement in between. Nothing is applied by this workflow (ADR-5209).
+</purpose>
+
+<required_reading>
+Read all files referenced by the invoking prompt's execution_context before starting.
+</required_reading>
+
+<available_agent_types>
+Valid GSD subagent types (use exact names — do not fall back to 'general-purpose'):
+- gsd-retro-analyst — turns friction signals and the check inventory into environment candidates
+- gsd-finding-refuter — tries to refute each mechanical candidate (`retro` mode)
+</available_agent_types>
+
+<process>
+
+<step name="parse_arguments">
+Read the `<arguments>` block:
+
+- `--session <id>` / `--last` (default: newest session) and `--since <12h|7d|2w|YYYY-MM-DD>` — passed to `retro prepare` unchanged.
+- `--apply <cand-id>` (optionally `--retro <stem>`) — go to `apply_candidate` and stop there.
+- `--checks` — go to `show_checks` and stop there.
+
+Anything else is a usage error: show the command's `argument-hint` and stop.
+</step>
+
+<step name="prepare">
+The deterministic pass: signals for the session, the inventory of existing checks, the journal state, and this retro's artifact paths. It writes the analyst's input bundle under `.planning/retro/.work/` (self-ignoring) and prints a summary.
+
+```bash
+_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+PREP=$(gsd_run retro prepare ${SELECTION_FLAGS})
+```
+
+- `{"disabled": true}` → print its `message` and stop.
+- A usage error (unknown `--session`, malformed `--since`) → show it and stop.
+- `signals`, `inventoryFindings` and `removalCandidates` all `0` → print "Nothing to retro: no friction signals, no missing or unwired checks, no stale checks." and stop. A model pass with no evidence can only invent advice.
+- `status: "degraded"` → keep going, and tell the user which sources were not read (the bundle's `report.reasons`). On a runtime other than Claude Code the retro works from git, `.planning` and the inventory only.
+- `suggest: false` with signals present → say the friction score is below `retro.signal_threshold` and continue: the user asked for this retro explicitly.
+
+Keep `stem`, `bundle`, `report`, `candidates`, `patches` from `PREP`.
+</step>
+
+<step name="analyze">
+```bash
+ANALYST_MODEL=$(gsd_run query resolve-model gsd-retro-analyst --raw)
+```
+
+<!-- #2517 model-omit-on-inherit -->
+
+> **Model omission (#2517).** Omit the `model` parameter entirely when the value it would carry (`ANALYST_MODEL`) is `"inherit"` or empty. An empty value 404s on runtimes without native tier aliases — the default on non-Claude runtimes. Omitting it inherits the orchestrator's model. See @gsd-core/references/model-profile-resolution.md.
+
+Spawn one fresh analyst (runs in a subagent — no output until it returns, ~1–5 min; expected, not a freeze). Do not read the bundle into this context: the agent reads it.
+
+```
+Agent(subagent_type="gsd-retro-analyst", model="{ANALYST_MODEL}", prompt=<<
+<required_reading>
+- {bundle}
+</required_reading>
+
+<bundle>{bundle}</bundle>
+<report>{report}</report>
+<candidates>{candidates}</candidates>
+<patches>{patches}</patches>
+>>)
+```
+
+Wait for `## RETRO COMPLETE`. If the agent returns without it, report the failure and stop; never write the report yourself.
+</step>
+
+<step name="validate">
+Every candidate must cite evidence the bundle carried, a judgement rule must not target a steering file, and a mechanical candidate must carry a `verify` command. Code checks this, not the orchestrator:
+
+```bash
+CANDS=$(gsd_run retro candidates --retro "${STEM}")
+```
+
+`valid` survives; `dropped` lists each removed candidate with its reasons. Never re-add a dropped candidate.
+</step>
+
+<step name="refute">
+For the `valid` candidates whose category is `mechanical` or `retire-check`, spawn `gsd-finding-refuter` in `retro` mode. It confirms each cited pointer is real and runs each `verify` command: a proposed check must **fire on the incident and stay silent on clean code**.
+
+```
+Agent(subagent_type="gsd-finding-refuter", prompt=<<
+<mode>retro</mode>
+<required_reading>
+- {report}
+- {candidates}
+</required_reading>
+<findings>
+{the valid mechanical and retire-check candidates from CANDS, verbatim}
+</findings>
+>>)
+```
+
+A candidate the refuter marks REFUTED is shown with its evidence under "Refuted", not among the candidates.
+</step>
+
+<step name="present">
+Show, in this order:
+
+1. The header: session, friction score and threshold, status, and any degraded reasons.
+2. The surviving candidates by severity: `id · severity · category — title`, the route (`quick` or `capture`), the target, and the verify command.
+3. Dropped and refuted candidates, one line each with the reason.
+4. The paths: report, candidates, patches.
+5. "Nothing has been applied. To act on one: `/gsd:retro --apply <cand-id>`."
+</step>
+
+<step name="apply_candidate">
+A human chose a candidate. Route it; never apply it from here.
+
+```bash
+CAND=$(gsd_run retro candidates --id "${CAND_ID}" ${RETRO_STEM:+--retro "$RETRO_STEM"})
+```
+
+A usage error (dropped or unknown id) → show it and stop.
+
+- `route: "quick"` (`mechanical`, `retire-check`) → `Skill(skill="gsd-quick", args="<title>: <change>. Target: <target>. Patch: <patch or none>. Done when: <verify> fails on the incident and passes on clean code.")`.
+- `route: "capture"` (`judgement`, `navigation`, `environment`, `steering`) → `Skill(skill="gsd-capture", args="<title>: <change> (target: <target>; from <report>)")`.
+
+After `/gsd:quick` lands a `mechanical` check, ask the user (AskUserQuestion; when `TEXT_MODE` is active — `--text` in the arguments or `workflow.text_mode: true` — ask the same yes/no as a plain-text question instead) whether to journal it, so a check that stops firing becomes a removal candidate later. On yes, with the literal the check prints when it fires:
+
+```bash
+gsd_run retro checks record --id "${CHECK_ID}" --kind "${KIND}" --match "${MATCH}" --retro "${STEM}" --candidate "${CAND_ID}" --signal "${FIRST_SIGNAL}"
+```
+
+After `/gsd:quick` removes a `retire-check` candidate's check, retire its entry: `gsd_run retro checks retire --id "${CHECK_ID}"`.
+</step>
+
+<step name="show_checks">
+```bash
+gsd_run retro checks
+```
+
+Show each journaled check with its state (`fired`, `silent`, `removal-candidate`, `unknown`) and note. A `removal-candidate` has not fired across `retro.check_stale_days`; removing it is the user's call — a later retro proposes it as a `retire-check` candidate.
+</step>
+
+</process>
+
+<success_criteria>
+- [ ] The analyst ran only when the deterministic pass found evidence
+- [ ] Every presented candidate passed `retro candidates`; dropped ones are listed with reasons
+- [ ] No project file was changed by the retro itself; `--apply` routed through `/gsd:quick` or `/gsd:capture`
+</success_criteria>
