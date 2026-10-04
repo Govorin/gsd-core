@@ -132,7 +132,7 @@ function parseStdout(result) {
 }
 
 // The GSD_JSON_ERRORS envelope is exactly ONE JSON line, written last
-// (docs/json-errors.md "Wire format") — but stderr is also the diagnostics
+// (the JSON-errors reference, "Wire format") — but stderr is also the diagnostics
 // channel, so a warning (e.g. the #3532 global-defaults shadow notice) may
 // precede it. Parse the envelope line, not the whole stream.
 function parseStderr(result) {
@@ -994,7 +994,12 @@ describe('refactor-trigger: loop wiring', () => {
       registry,
       config: { refactor: { trigger_enabled: true } },
     });
-    assert.strictEqual(resolved.activeHooks.length, 2, 'both refactor-trigger and code-review must be present');
+    // retro's lifecycle stage (`retro stage`, on by default) shares execute:post too.
+    assert.deepEqual(
+      resolved.activeHooks.map((h) => h.capId).sort(),
+      ['code-review', 'refactor-trigger', 'retro'],
+      'both refactor-trigger and code-review must be present',
+    );
     const codeReview = resolved.activeHooks.find((h) => h.capId === 'code-review');
     assert.ok(codeReview, 'code-review step must still be present alongside refactor-trigger');
     assert.deepEqual(codeReview, {
