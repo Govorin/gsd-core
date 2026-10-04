@@ -90,13 +90,14 @@ Usage: `/gsd:map-codebase`
 
 ### Phase Planning
 
-**`/gsd:discuss-phase <number> [--chain | --analyze | --power | --assumptions] [--batch[=N]]`**
+**`/gsd:discuss-phase <number> [--chain | --analyze | --power | --assumptions | --grill] [--batch[=N]]`**
 Help articulate your vision for a phase before planning.
 
 - `--chain` — chained-prompt discuss flow
 - `--analyze` — deep assumption analysis pass
 - `--power` — power-user mode with extended question set
 - `--assumptions` — surface Claude's implementation assumptions about the phase without an interactive session
+- `--grill` — walk the decision tree one question per round, each with a recommended answer; questions of fact go to a researcher, not to you (or set `workflow.discuss_mode: grill`)
 
 - Captures how you imagine this phase working
 - Creates CONTEXT.md with your vision, essentials, and boundaries
@@ -106,6 +107,7 @@ Help articulate your vision for a phase before planning.
 Usage: `/gsd:discuss-phase 2`
 Usage: `/gsd:discuss-phase 2 --batch`
 Usage: `/gsd:discuss-phase 2 --batch=3`
+Usage: `/gsd:discuss-phase 2 --grill`
 
 **`/gsd:plan-phase <number> [--research] [--skip-research] [--research-phase <N>] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd <file>] [--ingest <path-or-glob>] [--ingest-format <auto|nygard|madr|narrative>] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--tdd] [--mvp] [--granularity <coarse|standard|fine>] [--no-tracer] [--no-reversibility-gates]`**
 Create detailed execution plan for a specific phase.
