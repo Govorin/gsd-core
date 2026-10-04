@@ -51,7 +51,7 @@
     "workflow.assertion_ratchet": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it, and re-record it after a deliberate drop, with `gsd_run mn assertion-baseline`."
     },
     "workflow.data_contract_for_ui": {
       "type": "boolean",

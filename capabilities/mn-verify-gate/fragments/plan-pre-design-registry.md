@@ -16,22 +16,20 @@ If the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creatin
 The registry says what should exist. The disk says what does. Only the second half can be generated:
 
 ```bash
-# canonical — HTML export from Pencil (requires the Pencil app running)
-node "$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs" \
-  --html <export-dir> --code libs/<domain>
+# canonical — HTML export from Pencil (requires the Pencil app running; export inside the project)
+gsd_run mn design-registry --html <export-dir> --code libs/<domain> --raw
 
 # without Pencil — parse the registry table in DESIGN-SYSTEM.md
-node "$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs" \
-  --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain>
+gsd_run mn design-registry --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain> --raw
 ```
 
-It emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it.
+It emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it. Paths must lie inside the project.
 
-Exit codes: `0` checked and clean · `1` checked, components unimplemented (under `--check`) · `2` could not check at all. Treat `2` as a blocked task, not a pass — a missing export and a complete implementation both produce "no missing components" if you only read the summary line.
+When it cannot check at all — no export, no component table, no code — it fails with nothing on stdout. Treat that as a blocked task, not a pass: a missing export and a complete implementation both produce "no missing components" if you only read the summary line. With `--check [--threshold N]` it also fails, after printing the table, when more than N components are unimplemented.
 
 ## What the registry does not decide
 
-The script reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:
+The command reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:
 
 - **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.
 - **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.

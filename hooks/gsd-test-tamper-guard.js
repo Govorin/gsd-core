@@ -274,7 +274,7 @@ function evaluateTestWrite(data, options = {}) {
     `Removing a check is the cheapest way to turn a suite green and the one failure a green ` +
     `suite cannot report. If the assertion is genuinely obsolete — the behaviour it pinned was ` +
     `deliberately removed — say so in the plan's deviation notes and re-record the baseline ` +
-    `(assertion-ratchet.mjs --update); the ratchet at verify:pre reads the same counts this ` +
+    `(gsd_run mn assertion-baseline); the ratchet at verify:pre reads the same counts this ` +
     `guard just read. If it is failing, fix the code it is testing instead.`;
 
   return {
