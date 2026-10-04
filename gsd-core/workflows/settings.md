@@ -483,7 +483,7 @@ Merge new settings into existing config.json:
     "ui_review": true/false,
     "text_mode": true/false,
     "research_before_questions": true/false,
-    "discuss_mode": "discuss" | "assumptions",
+    "discuss_mode": "discuss" | "assumptions" | "grill",
     "skip_discuss": true/false,
     "use_worktrees": true/false,  // never written as true when the runtime's dispatch.isolation is none; omitted entirely when the user chose "Leave unchanged" (#2486)
     "compact_content": true/false

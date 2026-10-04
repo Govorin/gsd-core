@@ -143,6 +143,9 @@ export default tseslint.config(
       'gsd-core/bin/lib/diagrams-check.cjs',
       'gsd-core/bin/lib/diagrams-command-router.cjs',
       'gsd-core/bin/lib/gate-architecture-diagrams.cjs',
+      // Phase 4.5 (grill mode decision tree): tsc-generated — lint the src/*.cts sources.
+      'gsd-core/bin/lib/decision-tree.cjs',
+      'gsd-core/bin/lib/discuss-command-router.cjs',
       // #4917 (epic #4906 Phase 1, ADR-4910): lint src/planning-document.cts, not this.
       'gsd-core/bin/lib/planning-document.cjs',
       // #2401: tsc-generated runtime artifact — lint the src/verify-command-grounding.cts source.

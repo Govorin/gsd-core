@@ -30,6 +30,7 @@ this file under the discuss-phase byte budget (32000 bytes, #717; mirrors the ag
 | `--text` in $ARGUMENTS or `workflow.text_mode: true` | `workflows/discuss-phase/modes/text.md` overlay |
 | `--batch` in $ARGUMENTS | `workflows/discuss-phase/modes/batch.md` overlay |
 | `--analyze` in $ARGUMENTS | `workflows/discuss-phase/modes/analyze.md` overlay |
+| `--grill` in $ARGUMENTS or `workflow.discuss_mode: grill` | `workflows/discuss-phase/modes/grill.md` |
 | ADVISOR_MODE = true (USER-PROFILE.md exists) | `workflows/discuss-phase/modes/advisor.md` |
 | no flags above | `workflows/discuss-phase/modes/default.md` |
 | in `write_context` step | `workflows/discuss-phase/templates/context.md` |
@@ -141,6 +142,7 @@ if [ -f "$HOME/.claude/gsd-core/USER-PROFILE.md" ]; then
 else
   ADVISOR_MODE=false
 fi
+DISCUSS_MODE=$(gsd_run query config-get workflow.discuss_mode --raw 2>/dev/null || echo "discuss")
 ```
 
 - If `--power` in $ARGUMENTS: `Read(workflows/discuss-phase/modes/power.md)` and execute it end-to-end. Do NOT continue with the steps below.
@@ -151,6 +153,7 @@ fi
   - `--text` (or `workflow.text_mode: true`) → Read `workflows/discuss-phase/modes/text.md` before any AskUserQuestion call.
   - `--batch` → Read `workflows/discuss-phase/modes/batch.md` before `discuss_areas`.
   - `--analyze` → Read `workflows/discuss-phase/modes/analyze.md` before `discuss_areas`.
+  - `--grill` or `DISCUSS_MODE` = `grill` (unless `--auto`/`--power`) → Read `workflows/discuss-phase/modes/grill.md` before `present_gray_areas`; it replaces `present_gray_areas` and `discuss_areas`.
   - `ADVISOR_MODE = true` → Read `workflows/discuss-phase/modes/advisor.md` before `analyze_phase` (it changes the discussion flow and adds an `advisor_research` substep).
   - No flags → Read `workflows/discuss-phase/modes/default.md` before `discuss_areas`.
 
@@ -361,6 +364,7 @@ Discussion behavior is defined by the active mode file(s):
 
 - **Advisor mode (ADVISOR_MODE = true):** follow `workflows/discuss-phase/modes/advisor.md` — research-backed comparison tables, table-first selection.
 - **--auto:** follow `workflows/discuss-phase/modes/auto.md` — Claude picks recommended option for every question; no AskUserQuestion. Single-pass cap enforced.
+- **Grill (`--grill` / `workflow.discuss_mode: grill`):** follow `workflows/discuss-phase/modes/grill.md` — one question per round down the decision tree, with a recommended answer.
 - **Default (no flags):** follow `workflows/discuss-phase/modes/default.md` — 4 single-question turns per area, then check whether to continue.
 
 Overlays (combine with the active mode):

@@ -937,6 +937,18 @@ function cmdConfigSet(cwd: string, keyPath: string | undefined, value: string | 
   // Codebase drift detector (#2003)
   const VALID_DRIFT_ACTIONS = ['warn', 'auto-remap'];
   if (kp === 'workflow.drift_action') assertEnumValue(parsedValue, val, VALID_DRIFT_ACTIONS, 'workflow.drift_action');
+  // Phase 4.5 (grill mode): discuss_mode routes /gsd:discuss-phase, and an
+  // unknown value silently fell back to `discuss` — a typo'd `grll` would never
+  // grill. Validated on set only; an existing config keeps routing as before.
+  const VALID_DISCUSS_MODES = ['discuss', 'assumptions', 'grill'];
+  if (kp === 'workflow.discuss_mode') assertEnumValue(parsedValue, val, VALID_DISCUSS_MODES, 'workflow.discuss_mode');
+  // max_discuss_passes caps grill's tree depth (src/decision-tree.cts); a value
+  // below 1 or a fraction would be read back as the default, so refuse it here.
+  if (kp === 'workflow.max_discuss_passes') {
+    if (typeof parsedValue !== 'number' || !Number.isInteger(parsedValue) || parsedValue < 1) {
+      error(`Invalid workflow.max_discuss_passes '${val}'. Must be a positive integer.`);
+    }
+  }
   if (kp === 'workflow.drift_threshold') {
     if (typeof parsedValue !== 'number' || !Number.isInteger(parsedValue) || parsedValue < 1) {
       error(`Invalid workflow.drift_threshold '${val}'. Must be a positive integer.`);

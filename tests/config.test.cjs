@@ -1056,6 +1056,24 @@ describe('config-set research_before_questions and discuss_mode', () => {
     assert.strictEqual(config.workflow.discuss_mode, 'assumptions');
   });
 
+  test('workflow.discuss_mode accepts grill and rejects a value no workflow routes', () => {
+    const ok = runGsdTools('config-set workflow.discuss_mode grill', tmpDir);
+    assert.ok(ok.success, `Command failed: ${ok.error}`);
+    assert.strictEqual(readConfig(tmpDir).workflow.discuss_mode, 'grill');
+
+    const bad = runGsdTools('config-set workflow.discuss_mode grll', tmpDir);
+    assert.strictEqual(bad.success, false, 'a typo must not silently route to discuss');
+    assert.strictEqual(readConfig(tmpDir).workflow.discuss_mode, 'grill', 'rejected value is not written');
+  });
+
+  test('workflow.max_discuss_passes must be a positive integer (0 / 1 / 2 / 1.5)', () => {
+    for (const [value, accepted] of [['0', false], ['1', true], ['2', true], ['1.5', false], ['-1', false]]) {
+      const result = runGsdTools(['config-set', 'workflow.max_discuss_passes', value], tmpDir);
+      assert.strictEqual(result.success, accepted, `max_discuss_passes=${value}: ${result.error}`);
+    }
+    assert.strictEqual(readConfig(tmpDir).workflow.max_discuss_passes, 2, 'last accepted value stands');
+  });
+
   test('research_before_questions defaults to false in new configs', () => {
     const config = readConfig(tmpDir);
     assert.strictEqual(config.workflow.research_before_questions, false);

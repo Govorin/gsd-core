@@ -69,6 +69,22 @@ const DISCRETION_HEADINGS = new Set([
 ]);
 const NON_TRACKABLE_TAGS = new Set(['informational', 'folded', 'deferred']);
 
+/**
+ * True when a `### …` category heading is "Claude's Discretion" — decisions
+ * under it are not trackable. Strips the full unicode-quote family so any
+ * rendering of the apostrophe (ASCII, curly U+2019 ’, U+2018 ‘, U+201A,
+ * U+201B, double-quote variants U+201C/D/E/F, etc.) collapses to the same key
+ * (FIX C + review F20). Exported so a reader of `Decision.category` (the
+ * decision tree) classifies the heading exactly as the parser did.
+ */
+export function isDiscretionHeading(category: string): boolean {
+  const normalized = category
+    .toLowerCase()
+    .replace(/[‘’‚‛“”„‟''"`]/g, '')
+    .trim();
+  return DISCRETION_HEADINGS.has(normalized);
+}
+
 // ─── Bullet parsers (decisions-specific grammar) ─────────────────────────────
 
 /**
@@ -86,6 +102,10 @@ const NON_TRACKABLE_TAGS = new Set(['informational', 'folded', 'deferred']);
  * watch from the other side.
  */
 const DECISION_ID_SOURCE = 'D[0-9]*-[A-Za-z0-9][A-Za-z0-9_-]*';
+// Exported for readers that must accept exactly the ids this parser reads (the
+// decision tree's checkpoint ids). A separate statement keeps the declaration a
+// plain `const` literal, which the #4130 lattice test reads from source.
+export { DECISION_ID_SOURCE };
 
 /**
  * #4130 follow-up (hardening): how the three grammars below CONSUME the ID —
@@ -490,15 +510,7 @@ function parseDecisionLines(block: string): ParseDecisionLinesResult {
     if (headingMatch) {
       flush();
       category = headingMatch[1];
-      // Strip the full unicode-quote family so any rendering of "Claude's
-      // Discretion" (ASCII apostrophe, curly U+2019 ’, U+2018 ‘,
-      // U+201A, U+201B, double-quote variants U+201C/D/E/F, etc.) collapses
-      // to the same key (FIX C + review F20).
-      const normalized = category
-        .toLowerCase()
-        .replace(/[‘’‚‛“”„‟''"`]/g, '')
-        .trim();
-      inDiscretion = DISCRETION_HEADINGS.has(normalized);
+      inDiscretion = isDiscretionHeading(category);
       continue;
     }
 
