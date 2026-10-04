@@ -475,8 +475,11 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-mn-assertion-ratchet.cjs',
       'gsd-core/bin/lib/gate-mn-mutation-spot-check.cjs',
       'gsd-core/bin/lib/gate-mn-uat-open.cjs',
+      'gsd-core/bin/lib/gate-mn-baseline.cjs',
+      'gsd-core/bin/lib/gate-mn-verify-gates.cjs',
       'gsd-core/bin/lib/mn-assertion-count.cjs',
       'gsd-core/bin/lib/verify-mutation.cjs',
+      'gsd-core/bin/lib/verify-baseline.cjs',
       'gsd-core/bin/lib/mutation-restore-journal.cjs',
       // 3.12 (mn-verify-gate tools → `gsd-tools mn`): tsc-generated — lint the src/mn-*.cts sources.
       'gsd-core/bin/lib/mn-command-router.cjs',

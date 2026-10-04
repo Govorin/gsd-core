@@ -19,6 +19,8 @@ import frontmatterMod = require('./frontmatter.cjs');
 import verifyGates = require('./verify-gates.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-mutation.cjs is a CommonJS module
 import verifyMutation = require('./verify-mutation.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-baseline.cjs is a CommonJS module
+import verifyBaseline = require('./verify-baseline.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- state.cjs is an export= CommonJS module
 import stateMod = require('./state.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- model-profiles.cjs is an export= CommonJS module
@@ -2842,6 +2844,7 @@ export = {
   // of reporters is how a reporter grows a side effect nobody expects.
   cmdVerifyGates: verifyGates.cmdVerifyGates,
   cmdVerifyMutation: verifyMutation.cmdVerifyMutation,
+  cmdVerifyBaseline: verifyBaseline.cmdVerifyBaseline,
   cmdStampCodebaseMap,
   STATE_HEAD_ADVISORY_COMMITS,
 };

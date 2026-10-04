@@ -293,6 +293,17 @@ export const VERIFY_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "mutation",
     "mutation": true
+  },
+  {
+    // mutation: true — it records (the execute:pre baseline into
+    // {phase}-BASELINE.md's `baseline:` block). The gate `check mn-baseline`
+    // reads the record.
+    "canonical": "verify.baseline",
+    "aliases": [
+      "verify baseline"
+    ],
+    "subcommand": "baseline",
+    "mutation": true
   }
 ];
 

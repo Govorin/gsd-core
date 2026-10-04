@@ -3,12 +3,14 @@
 
 /**
  * Generates `docs/reference/state-machines.md` — the lifecycle diagrams of the
- * three closed status vocabularies — from the code constants that own them:
+ * closed status vocabularies — from the code constants that own them:
  *
  *   - plan status        `PLAN_STATUSES` + `PLAN_STATUS_TRANSITIONS`  (src/plan-status.cts)
  *   - VerificationStatus `VERIFICATION_STATUS` + `VERIFIER_STATUSES`
  *                        + `VERIFICATION_ROUTES`                      (src/verification.cts)
  *   - PhaseStatus        `PHASE_STATUS`                               (src/phase-status.cts)
+ *   - check outcome      `CHECK_STATUS` + `CHECK_OUTCOME_RULES`
+ *                        + `CHECK_STATUS_VERDICT`                     (src/verify-gates.cts)
  *
  * A transition is drawn ONLY when the code defines it in a table. Plan status
  * has one (`PLAN_STATUS_TRANSITIONS`), so its diagram has arrows. The other two
@@ -61,6 +63,7 @@ function loadSources() {
   const planStatus = loadCompiled('plan-status');
   const verification = loadCompiled('verification');
   const phaseStatus = loadCompiled('phase-status');
+  const verifyGates = loadCompiled('verify-gates');
   return {
     plan: {
       statuses: [...planStatus.PLAN_STATUSES],
@@ -77,6 +80,11 @@ function loadSources() {
     },
     phase: {
       statuses: Object.values(phaseStatus.PHASE_STATUS),
+    },
+    check: {
+      statuses: Object.values(verifyGates.CHECK_STATUS),
+      rules: verifyGates.CHECK_OUTCOME_RULES.map((r) => ({ id: r.id, observed: r.observed, status: r.status })),
+      verdicts: { ...verifyGates.CHECK_STATUS_VERDICT },
     },
   };
 }
@@ -186,6 +194,50 @@ function phaseSection(m, phase) {
   ];
 }
 
+/**
+ * The outcome of one `verify gates` / `verify baseline` check run. The code defines a classifier,
+ * not a lifecycle: each run enters exactly one status, by the first rule of `CHECK_OUTCOME_RULES`
+ * that matches, and never moves. So the arrows are drawn from the start state, one per rule and
+ * labelled with what the rule observes — the same table `classifyRun` walks — and each state
+ * carries what a gate makes of it (`CHECK_STATUS_VERDICT`) as a note.
+ */
+function checkSection(m, check) {
+  const ids = m.createIdRegistry();
+  for (const rule of check.rules) {
+    if (!check.statuses.includes(rule.status)) {
+      throw new Error(`gen-state-machines: CHECK_OUTCOME_RULES rule ${JSON.stringify(rule.id)} targets ${JSON.stringify(rule.status)} outside CHECK_STATUS`);
+    }
+  }
+  for (const s of check.statuses) {
+    if (!check.verdicts[s]) throw new Error(`gen-state-machines: CHECK_STATUS ${JSON.stringify(s)} has no CHECK_STATUS_VERDICT entry`);
+    if (!check.rules.some((r) => r.status === s)) throw new Error(`gen-state-machines: CHECK_STATUS ${JSON.stringify(s)} is reached by no CHECK_OUTCOME_RULES rule`);
+  }
+  const states = check.statuses.map((s) => ({ id: ids.id(s), label: s }));
+  // One start state for every rule, so the verdicts are notes rather than groups: a composite
+  // state would give each group its own `[*]`, drawing four starts for one classification.
+  const notes = check.statuses.map((s) => ({ state: ids.id(s), text: `gate verdict: ${check.verdicts[s]}` }));
+  const transitions = check.rules.map((r) => ({ from: m.STATE_TERMINAL, to: ids.id(r.status), label: r.observed }));
+  const rows = check.rules.map(
+    (r, i) => `| ${i + 1} | \`${cell(r.id)}\` | ${cell(r.observed)} | \`${cell(r.status)}\` | ${cell(check.verdicts[r.status])} |`,
+  );
+  return [
+    '## Check outcome (`verify gates`, `verify baseline`)',
+    '',
+    'Source: `CHECK_STATUS`, `CHECK_OUTCOME_RULES` and `CHECK_STATUS_VERDICT` in `src/verify-gates.cts`. A',
+    'check run is **classified, not transitioned**: it enters exactly one status, by the first rule that',
+    'matches, and never moves. Each arrow is one rule of the table the classifier walks, labelled with what',
+    'it observes; a note is what the mn gates (`check mn-verify-gates`, `check mn-baseline`) make of the',
+    'status.',
+    '',
+    m.fence(m.stateDiagram({ direction: 'LR', states, transitions, notes })),
+    '',
+    '| Order | Rule | Observed | Status | Gate verdict |',
+    '|-------|------|----------|--------|--------------|',
+    ...rows,
+    '',
+  ];
+}
+
 /** The whole document for a given set of sources. Pure. */
 function renderStateMachinesDoc(sources, m = loadCompiled('mermaid')) {
   return [
@@ -200,6 +252,7 @@ function renderStateMachinesDoc(sources, m = loadCompiled('mermaid')) {
     ...planSection(m, sources.plan),
     ...verificationSection(m, sources.verification),
     ...phaseSection(m, sources.phase),
+    ...checkSection(m, sources.check),
   ].join('\n');
 }
 
@@ -239,7 +292,7 @@ function main() {
     if (current !== expected) {
       process.stderr.write(
         `${displayPath} is ${current === null ? 'missing' : 'stale'} — it does not match the status constants in ` +
-          'src/plan-status.cts, src/verification.cts and src/phase-status.cts.\nRun:\n  node scripts/gen-state-machines.cjs --write\n\n',
+          'src/plan-status.cts, src/verification.cts, src/phase-status.cts and src/verify-gates.cts.\nRun:\n  node scripts/gen-state-machines.cjs --write\n\n',
       );
       throw new ExitError(1);
     }
