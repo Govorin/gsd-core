@@ -34,6 +34,12 @@ const { extractCurrentMilestoneScoped, hasPhaseEntries } = roadmapParserMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningScopeMod = require('./planning-scope.cjs');
 const { SCOPE } = planningScopeMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import roadmapGraphMod = require('./roadmap-graph.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import ioMod = require('./io.cjs');
+const { output, ERROR_REASON } = ioMod;
+import { tryWithinRoot, PathAcceptance } from './security.cjs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -50,7 +56,76 @@ interface RouteRoadmapCommandOptions {
   args: string[];
   cwd: string;
   raw: boolean;
-  error: (message: string) => void;
+  error: (message: string, reason?: string) => void;
+  /** Test seam: replaces the roadmap-graph module. */
+  _roadmapGraph?: Pick<typeof roadmapGraphMod, 'runRoadmapGraph' | 'summaryLine'>;
+}
+
+const GRAPH_USAGE = 'Usage: gsd-tools roadmap graph [--all] [--out <file>] [--strict] [--no-gantt]';
+
+/** The value after `--name`, or null when the flag is absent or has no value. */
+function flagValue(args: string[], name: string): string | null {
+  const i = args.indexOf(`--${name}`);
+  if (i === -1 || i + 1 >= args.length) return null;
+  const v = args[i + 1];
+  return v.startsWith('--') ? null : v;
+}
+
+/**
+ * `roadmap graph [--all] [--out <file>] [--strict] [--no-gantt]` — ROADMAP's
+ * phases as mermaid (src/roadmap-graph.cts). The gsd-tools output convention of
+ * `plan graph`: a JSON result; with `--raw` the markdown document itself, or the
+ * one-line `OK: …` summary when `--out` wrote it. `--out` is user input and is
+ * confined to the project. Failure mapping (ADR-3889): a bad flag or an `--out`
+ * outside the project → `usage`; nothing to draw (no ROADMAP, no phases, a
+ * refused report) or an unwritable file → `phase_not_found`; `--strict` with an
+ * error-severity defect → the result first, then a generic failure (exit 1).
+ */
+function routeRoadmapGraph(
+  args: string[],
+  cwd: string,
+  raw: boolean,
+  error: (message: string, reason?: string) => void,
+  rg: Pick<typeof roadmapGraphMod, 'runRoadmapGraph' | 'summaryLine'>,
+): void {
+  const known = new Set(['graph', '--all', '--out', '--strict', '--no-gantt', '--raw']);
+  const outArg = flagValue(args, 'out');
+  const outIdx = args.indexOf('--out');
+  for (let i = 1; i < args.length; i++) {
+    if (i === outIdx + 1 && outArg !== null) continue;
+    if (!known.has(args[i])) {
+      error(`roadmap graph: unknown argument ${JSON.stringify(args[i])}. ${GRAPH_USAGE}`, ERROR_REASON.USAGE);
+      return;
+    }
+  }
+  if (outIdx !== -1 && outArg === null) {
+    error(GRAPH_USAGE, ERROR_REASON.USAGE);
+    return;
+  }
+  let out: string | null = null;
+  if (outArg !== null) {
+    out = tryWithinRoot(outArg, cwd, PathAcceptance.AbsoluteInsideRoot);
+    if (out === null) {
+      error(`roadmap graph: --out ${JSON.stringify(outArg)} is outside the project`, ERROR_REASON.USAGE);
+      return;
+    }
+  }
+  const result = rg.runRoadmapGraph({
+    cwd,
+    out,
+    strict: args.includes('--strict'),
+    scope: args.includes('--all') ? 'all' : 'current',
+    gantt: !args.includes('--no-gantt'),
+  });
+  if (!result.ok) {
+    error(`roadmap graph: cannot look — ${result.message}`, ERROR_REASON.PHASE_NOT_FOUND);
+    return;
+  }
+  const rawValue = result.written !== null ? `${rg.summaryLine(result, outArg as string)}\n` : result.markdown;
+  output(result, raw, rawValue);
+  if (result.strict_failed) {
+    error(`roadmap graph: ${result.error_count} defect(s) drawn in red (--strict)`, ERROR_REASON.UNKNOWN);
+  }
 }
 
 interface W021Warning {
@@ -143,7 +218,7 @@ function checkW021(content: string): W021Warning[] {
 
 // ─── Router ───────────────────────────────────────────────────────────────────
 
-function routeRoadmapCommand({ roadmap, args, cwd, raw, error }: RouteRoadmapCommandOptions): void {
+function routeRoadmapCommand({ roadmap, args, cwd, raw, error, _roadmapGraph }: RouteRoadmapCommandOptions): void {
   routeCjsCommandFamily({
     args,
     subcommands: ROADMAP_SUBCOMMANDS,
@@ -158,6 +233,7 @@ function routeRoadmapCommand({ roadmap, args, cwd, raw, error }: RouteRoadmapCom
       'milestone-scope': () => roadmap.cmdRoadmapMilestoneScope(cwd, raw),
       'update-plan-progress': () => roadmap.cmdRoadmapUpdatePlanProgress(cwd, args[2], raw),
       'annotate-dependencies': () => roadmap.cmdRoadmapAnnotateDependencies(cwd, args[2], raw),
+      graph: () => routeRoadmapGraph(args, cwd, raw, error, _roadmapGraph ?? roadmapGraphMod),
       'validate': () => {
         const roadmapPath = path.join(planningDir(cwd), 'ROADMAP.md');
         const warnings: Array<{ code: string; message: string }> = [];

@@ -26,7 +26,7 @@ const { SCOPE } = planningScopeMod;
 type Scope = planningScopeMod.Scope;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import roadmapParserModule = require('./roadmap-parser.cjs');
-const { stripShippedMilestones, extractCurrentMilestone, extractCurrentMilestoneScoped, replaceInCurrentMilestone, listMilestoneHeadings, scanMilestonePhaseIds, collectTablePhaseRows, hasPhaseListingTableHeader, milestoneSections, isClosedMilestoneHeading } = roadmapParserModule;
+const { stripShippedMilestones, extractCurrentMilestone, extractCurrentMilestoneScoped, replaceInCurrentMilestone, listMilestoneHeadings, scanMilestonePhaseIds, collectTablePhaseRows, hasPhaseListingTableHeader, milestoneSections } = roadmapParserModule;
 import { tokenizeHeadings } from './markdown-sectionizer.cjs';
 import { escapeCell, updateTableCell } from './markdown-table.cjs';
 import { clampPercent } from './phase-lifecycle.cjs';
@@ -1133,30 +1133,22 @@ function analyzeMilestoneSections(cwd: string): AnalyzeMilestonesResult {
   let statusError: PhaseStatusError;
   const fieldErrors: FieldReadError[] = [];
   for (const s of sections) {
-    // Blank out every section nested inside this one, so each phase heading is
-    // read by exactly the innermost section that contains it. Blanking keeps
-    // offsets (and so line structure) intact.
-    let own = rawContent.slice(s.start, s.end);
+    // Cut out every section nested inside this one, so each phase heading is
+    // read by exactly the innermost section that contains it.
+    const parts: string[] = [];
+    let at = s.start;
     for (const inner of sections) {
-      if (inner === s || inner.start < s.start || inner.end > s.end) continue;
+      if (inner === s || inner.start < at || inner.end > s.end) continue;
       if (inner.start === s.start && inner.end === s.end) continue;
-      const a = inner.start - s.start;
-      const b = inner.end - s.start;
-      own = own.slice(0, a) + own.slice(a, b).replace(/[^\n]/g, ' ') + own.slice(b);
+      parts.push(rawContent.slice(at, inner.start));
+      at = inner.end;
     }
-    const firstLine = rawContent.slice(s.start).split('\n', 1)[0];
-    const summary = /<summary[^>]*>([^<]*)<\/summary>/i.exec(rawContent.slice(s.start, s.end));
-    const heading = (firstLine.startsWith('#') ? firstLine.replace(/^#{1,3}\s+/, '') : summary?.[1] ?? firstLine).trim();
+    parts.push(rawContent.slice(at, s.end));
+    const own = parts.join('\n');
     const collected = collectAnalyzePhases(own, phasesDir, phaseDirNames, convention);
     statusError = firstStatusError(statusError, collected.statusError);
     fieldErrors.push(...collected.fieldErrors);
-    milestones.push({
-      heading,
-      version: s.version,
-      // A collapsed `<details>` archive is a shipped milestone by construction.
-      closed: !firstLine.startsWith('#') || isClosedMilestoneHeading(heading),
-      phases: collected.phases,
-    });
+    milestones.push({ heading: s.heading, version: s.version, closed: s.closed, phases: collected.phases });
   }
   return { ok: true, milestones, statusError, fieldErrors };
 }

@@ -194,6 +194,8 @@ build/
 /gsd-core/bin/lib/mermaid.cjs
 /gsd-core/bin/lib/plan-graph.cjs
 /gsd-core/bin/lib/plan-command-router.cjs
+/gsd-core/bin/lib/roadmap-graph.cjs
+/gsd-core/bin/lib/loop-hooks-map.cjs
 /gsd-core/bin/lib/verification-command-router.cjs
 /gsd-core/bin/lib/command-aliases.cjs
 /gsd-core/bin/lib/config-schema.cjs

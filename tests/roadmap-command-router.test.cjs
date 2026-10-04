@@ -84,8 +84,9 @@ describe('roadmap-command-router', () => {
     });
 
     // #3262 added the read-only `milestone-scope` probe after `analyze`
-    // (ROADMAP_SUBCOMMANDS order mirrors ROADMAP_COMMAND_ALIASES).
-    assert.equal(message, 'Unknown roadmap subcommand. Available: analyze, milestone-scope, get-phase, update-plan-progress, annotate-dependencies, validate, upgrade');
+    // (ROADMAP_SUBCOMMANDS order mirrors ROADMAP_COMMAND_ALIASES); phase 5.2
+    // appended the read-only `graph`.
+    assert.equal(message, 'Unknown roadmap subcommand. Available: analyze, milestone-scope, get-phase, update-plan-progress, annotate-dependencies, validate, upgrade, graph');
   });
 });
 

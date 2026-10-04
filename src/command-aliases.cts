@@ -704,6 +704,14 @@ export const ROADMAP_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "upgrade",
     "mutation": true
+  },
+  {
+    "canonical": "roadmap.graph",
+    "aliases": [
+      "roadmap graph"
+    ],
+    "subcommand": "graph",
+    "mutation": false
   }
 ];
 
