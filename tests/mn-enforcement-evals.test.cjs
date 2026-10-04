@@ -37,6 +37,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
 const { createTempDir, cleanup } = require('./helpers.cjs');
+const { gitOrThrow } = require('./helpers/git-fixture.cjs');
 
 const HOOKS = path.join(__dirname, '..', 'hooks');
 const prohibition = require(path.join(HOOKS, 'gsd-prohibition-guard.js'));
@@ -166,18 +167,19 @@ const RUNNERS = {
     return asVerdict(decision.action);
   },
 
-  worktree(testCase, dir, t) {
+  worktree(testCase, dir) {
+    // The hook creates the worktree itself (Claude Code's WorktreeCreate
+    // contract), so the case project is a real repository; only the measured
+    // distance from main is injected.
     writeProject(dir, testCase.config);
-    const tree = createTempDir();
-    t.after(() => cleanup(tree));
-    const decision = worktree.provisionWorktree(
-      { worktree_path: tree, cwd: dir },
-      {
-        measureBaseLag: () => ({ behind: testCase.behind }),
-        provisionDeps: () => ({ mode: 'none', done: false, reason: 'disabled' }),
-      }
+    gitOrThrow(['init', '-q', dir]);
+    gitOrThrow(['-C', dir, 'add', '-A']);
+    gitOrThrow(['-C', dir, '-c', 'user.email=evals@test.local', '-c', 'user.name=evals', 'commit', '-q', '-m', 'seed']);
+    const result = worktree.createWorktree(
+      { name: `eval-${testCase.id}`, cwd: dir },
+      { measureBaseLag: () => ({ behind: testCase.behind }) }
     );
-    return asVerdict(decision.action);
+    return result.outcome === 'refused' ? 'block' : 'allow';
   },
 
   uat(testCase, dir) {
