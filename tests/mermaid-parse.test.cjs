@@ -19,6 +19,8 @@
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const fc = require('fast-check');
 
 const m = require('../gsd-core/bin/lib/mermaid.cjs');
@@ -127,7 +129,7 @@ describe('stateDiagram-v2', () => {
       '  state "Deck list" as DeckList',
       '  AddWord : Add a word',
       '  state "Saving" as Saving {',
-      '    state Pending',
+      '    state "Pending" as Pending',
       '    [*] --> Pending',
       '    note left of Pending : waits',
       '  }',
@@ -154,17 +156,18 @@ describe('stateDiagram-v2', () => {
 
   test('a line naming a state of another block is refused (mermaid would duplicate the state)', () => {
     assert.deepEqual(
-      refused(lines('stateDiagram-v2', '  state g {', '    state A', '  }', '  state B', '  A --> B')),
+      refused(lines('stateDiagram-v2', '  state g {', '    A : a', '  }', '  B : b', '  A --> B')),
       { reason: 'unsupported_construct', line: 6, col: 3 },
     );
   });
 
   for (const [name, text, reason, line] of [
     ['a choice pseudo-state', 'stateDiagram-v2\n  state c <<choice>>', 'unsupported_construct', 2],
-    ['a concurrency region', 'stateDiagram-v2\n  state A\n  --', 'unsupported_construct', 3],
-    ['a multi-line note', 'stateDiagram-v2\n  state A\n  note right of A\n  x\n  end note', 'unsupported_construct', 3],
+    ['a concurrency region', 'stateDiagram-v2\n  A : a\n  --', 'unsupported_construct', 3],
+    ['a bare state declaration (mermaid swallows the next composite opener)', 'stateDiagram-v2\n  state Login\n  state g {\n  }', 'unsupported_construct', 2],
+    ['a multi-line note', 'stateDiagram-v2\n  A : a\n  note right of A\n  x\n  end note', 'unsupported_construct', 3],
     ['a nested composite state', 'stateDiagram-v2\n  state a {\n    state b {\n    }\n  }', 'unsupported_construct', 3],
-    ['a raw ";" in a label', 'stateDiagram-v2\n  state A\n  state B\n  A --> B : x;y', 'unsupported_construct', 4],
+    ['a raw ";" in a label', 'stateDiagram-v2\n  A : a\n  B : b\n  A --> B : x;y', 'unsupported_construct', 4],
   ]) {
     test(`refuses ${name}`, () => {
       const r = refused(text);
@@ -360,9 +363,26 @@ describe('sequenceDiagram', () => {
   });
 
   test('a %% gsd:source directive is returned with its line', () => {
-    const r = ok('stateDiagram-v2\n  %% gsd:source src/order.ts#OrderStatus\n  state A');
+    const r = ok('stateDiagram-v2\n  %% gsd:source src/order.ts#OrderStatus\n  state "A" as A');
     assert.deepEqual(r.directives.sources, [{ path: 'src/order.ts', symbol: 'OrderStatus', line: 2 }]);
   });
+});
+
+// ─── The shared corpus (also parsed by the real mermaid, tools/mermaid-check) ──
+
+describe('subset corpus: tests/fixtures/mermaid-subset', () => {
+  const dir = path.join(__dirname, 'fixtures', 'mermaid-subset');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.mmd')).sort();
+  test('covers all five diagram types', () => {
+    const types = new Set(files.map((f) => parseMermaid(fs.readFileSync(path.join(dir, f), 'utf-8'))).filter((r) => r.ok).map((r) => r.diagram.type));
+    assert.deepEqual([...types].sort(), ['classDiagram', 'erDiagram', 'flowchart', 'sequenceDiagram', 'stateDiagram']);
+  });
+  for (const f of files) {
+    test(`${f} is inside the subset and rebuilds through its builder`, () => {
+      const r = ok(fs.readFileSync(path.join(dir, f), 'utf-8'));
+      assert.equal(parseMermaid(renderParsed(r.diagram)).ok, true, 'the canonical rendering parses too');
+    });
+  }
 });
 
 // ─── Round trip: builder output parses back to the builder input ────────────

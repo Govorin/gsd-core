@@ -28,7 +28,8 @@ a keyword (`end`, `class`, `state`, `loop`, …). Quote any label holding bracke
   `id[[...]]`, `id[(...)]`, `id((...))`, `id{...}`, `id{{...}}`; links `-->` `---` `-.->` `-.-` `==>` `===`,
   labels `-->|text|` or `-- text -->`; chains `A --> B --> C`; `subgraph id["title"]` … `end` (one level,
   `direction` inside); `classDef name style`, `class a,b name`, `id:::name`; `linkStyle N style`.
-- **stateDiagram-v2** — declare every state: `state "Label" as Id`, `state Id` or `Id : Label`; then
+- **stateDiagram-v2** — declare every state: `state "Label" as Id` or `Id : Label` (never a bare
+  `state Id` — mermaid reads it on into the next `{`); then
   `A --> B : label`, `[*]`; one level of `state Id { … }` (a line naming a grouped state goes inside its
   group); `note left|right of Id : text`; `classDef` / `class`.
 - **classDiagram** — `class Id`, `class Id["Label"]`, `class Id { <<interface>> +field +method(args) Ret }`,

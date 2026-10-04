@@ -1,0 +1,8 @@
+stateDiagram
+  Idle : waiting for input
+  Busy : working<br/>hard
+  [*] --> Idle
+  Idle --> Busy : start
+  Busy --> Idle
+  Busy --> [*]
+  note left of Idle : the initial state

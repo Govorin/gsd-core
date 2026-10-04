@@ -1,0 +1,17 @@
+{
+  "name": "gsd-mermaid-check",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Isolated conformance check of GSD's mermaid subset against the real mermaid parser. Not a dependency of @opengsd/gsd-core and not part of npm test: run `npm run test:mermaid-real` from the repository root.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "check": "node check.mjs"
+  },
+  "dependencies": {
+    "jsdom": "29.1.1",
+    "mermaid": "12.1.0"
+  }
+}

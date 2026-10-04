@@ -143,11 +143,11 @@ describe('gsd-tools diagrams check', () => {
 
   test('stateDiagram: states are checked against %% gsd:source; without it the diagram is one unverifiable warning', () => {
     write('docs/state.md', [
-      fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  state Pending', '  state "Paid" as paid', '  state Shipped', '  [*] --> Pending'),
+      fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#OrderStatus', '  Pending : waiting', '  state "Paid" as paid', '  Shipped : sent', '  [*] --> Pending'),
       '',
-      fence('stateDiagram-v2', '  state A'),
+      fence('stateDiagram-v2', '  state "A" as A'),
       '',
-      fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#NoSuchEnum', '  state A'),
+      fence('stateDiagram-v2', '  %% gsd:source src/thing.ts#NoSuchEnum', '  state "A" as A'),
     ].join('\n'));
     const json = check('docs/state.md');
     assert.deepEqual(verdicts(json, 0), [

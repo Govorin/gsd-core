@@ -777,8 +777,10 @@ function parseStateDiagram(body: Line[], lines: Record<string, number>): StateDi
       refuse('unsupported_construct', ln.no, ln.col, 'choice/fork/join pseudo-states and concurrency regions are outside the subset');
     } else if ((m = /^state\s+"([^"]*)"\s+as\s+([A-Za-z0-9_]+)$/.exec(b)) !== null) {
       declare(ln, m[2], quoted(m[1], ln));
-    } else if ((m = /^state\s+([A-Za-z0-9_]+)$/.exec(b)) !== null) {
-      declare(ln, m[1], undefined);
+    } else if (/^state\s+[A-Za-z0-9_]+$/.test(b)) {
+      // The real parser reads a bare `state Id` on to the next `{`, swallowing a
+      // later composite state's opener (found by tools/mermaid-check).
+      refuse('unsupported_construct', ln.no, ln.col, 'a bare "state Id" is outside the subset — write state "Label" as Id, or Id : Label');
     } else if ((m = STATE_TRANSITION_RE.exec(b)) !== null) {
       let label: string | undefined;
       if (m[3] !== undefined && m[3].trim() !== '') {

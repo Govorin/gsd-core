@@ -176,10 +176,10 @@ transition, so an arrow nobody decided cannot be drawn without noticing.
 
 ```mermaid
 stateDiagram-v2
-  state DeckList
-  state AddWord
-  state Saving
-  state Login
+  state "Deck list" as DeckList
+  state "Add word" as AddWord
+  state "Saving" as Saving
+  state "Login" as Login
   [*] --> DeckList
   DeckList --> AddWord: tap «Add»
   AddWord --> Saving: submit
