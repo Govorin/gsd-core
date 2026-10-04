@@ -49,7 +49,7 @@ describe('PLAN_STATUSES', () => {
     assert.ok(PLAN_STATUSES.includes('superseded'));
   });
 
-  test("includes 'in_progress' — the literal orphan-plans.mjs:136-153 already reads (D-00b)", () => {
+  test("includes 'in_progress' — the literal check mn-orphan-plans (src/gate-mn-plan-status.cts) reads (D-00b)", () => {
     assert.ok(PLAN_STATUSES.includes('in_progress'));
   });
 });

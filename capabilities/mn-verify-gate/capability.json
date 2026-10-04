@@ -528,11 +528,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-orphan-plans"
       },
       "when": "workflow.orphan_plans",
       "blocking": true,
@@ -554,11 +550,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-plan-status"
       },
       "when": "workflow.plan_status_enforce",
       "blocking": true,
