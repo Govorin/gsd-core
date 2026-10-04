@@ -61,6 +61,7 @@ module.exports = {
   "tests/cursor-subagent-isolation.test.cjs",
   "tests/debugger-semantic-recall.test.cjs",
   "tests/default-flip-documentation-lint.test.cjs",
+  "tests/diagrams-check.test.cjs",
   "tests/discuss-phase-power.test.cjs",
   "tests/docs-parity-live-registry.test.cjs",
   "tests/drift-whole-change-set.test.cjs",

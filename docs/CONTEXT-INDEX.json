@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "count": 297,
+  "count": 303,
   "classes": {
     "ARCH": 1,
     "CI": 2,
     "CONFIG": 5,
+    "CONTENT-ROOT": 6,
     "EXEC": 8,
     "GSD-RESEARCH": 6,
     "LEARNING": 1,
@@ -65,6 +66,36 @@
       "id": "CONFIG.SEAM.loadConfig-context",
       "klass": "CONFIG",
       "value": "loadConfig(cwd,{workstream}) replaces env-mutation fallback; no temporary process.env GSD_WORKSTREAM rewrites"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.consumers",
+      "klass": "CONTENT-ROOT",
+      "value": "[diagrams-check index + gsd:source + defaultRegenerator, gate-architecture-diagrams, mn zod-fieldtable --file/--json-schema, mn assertion-baseline + mn-assertion-ratchet repository root]"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.decision-1",
+      "klass": "CONTENT-ROOT",
+      "value": "one base (project) for writing and reading a recorded path, never a fallback between two bases — a path valid under both would be ambiguous"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.files",
+      "klass": "CONTENT-ROOT",
+      "value": "[src/project-root.cts]"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.interface",
+      "klass": "CONTENT-ROOT",
+      "value": "[projectRoots(projectDir, git?: GitRunner) -> {project, content}, resolveProjectContentPath(candidate, roots, policy?) -> ContainedPath|null]"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.rule",
+      "klass": "CONTENT-ROOT",
+      "value": "content = git --show-toplevel of the project, else the project; both realpath'd; recorded paths (gsd:source, zod-fieldtable source=) are relative to project and confined to content via tryWithinRoot"
+    },
+    {
+      "id": "CONTENT-ROOT.SEAM.test-anchors",
+      "klass": "CONTENT-ROOT",
+      "value": "[tests/project-root.test.cjs::one content boundary, tests/diagrams-check.test.cjs::monorepo sub-project: one content boundary|outside git: the boundary is the project]"
     },
     {
       "id": "EXEC.CLASSIFY.classes",
