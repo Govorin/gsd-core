@@ -661,6 +661,45 @@ absent = enabled applies, so the defaults below are the effective ones.
   or plan-checker. Human readers were not measured. The ceiling showed up first
   on ~35-line plans (100% everywhere), so the fixtures use realistic plan length.
 
+### Pocock practices, wave 0 (2026-10-04)
+
+Design `.plans/pocock-practices-design.md`; tag `pre-pk0` marks `next` before it.
+Three foundation branches merged with no conflicts (the `.gitignore` /
+`eslint.config.mjs` list tails auto-merged): `pk-z1` `f71b91067`, `pk-z2`
+`8d56ad0d2`, `pk-z3` `afdd4a2d6`, then inventory `ddd1bfa62`, config key `6d2cb1cbc`, derived
+artifacts `8b49455a7`.
+
+- **Z1** (`bc2c2e397`, `d4ff22b83`): `src/code-graph.cts` — import graph on the
+  `symbol-index` lexer with tsconfig `paths`, typed `unresolved` reasons,
+  fan-in/out, SCC, `moduleStats`; `src/git-history.cts` — churn and co-change from
+  one `git log --numstat`, degraded `commit-cap:N` / `empty-window`; `execGit`
+  gained `maxBuffer` (`git-output-overflow`).
+- **Z2** (`3dc04bd0e`..`9b36f4f53`): `src/session-transcript.cts` (the one transcript
+  reader; `excerpt()` is the only text egress, redacted via the new
+  `secrets.redactSecretText`), `profile-pipeline` moved onto it,
+  `src/retro-signals.cts`, `src/retro-inventory.cts`.
+- **Z3** (`db7d7a26a`..`eeffd1a1e`): ScopeUnit `window` in
+  `gate-evaluation-scope`, `--since/--until/--lens` in `code-review-flags`,
+  ADR-5208 (amends ADR-5057 §4).
+- **Config keys.** `code_review.window_lenses` (string, default
+  `correctness,standards,spec,simplify`) is declared on the existing code-review
+  capability and documented in `docs/CONFIGURATION.md`; nothing reads it yet (Z4
+  will, for an empty `--lens`). The `retro.*` keys (`signal_threshold`, the
+  `*_min` thresholds, `excerpt_window`, `max_signals`, `excerpt_chars`) are NOT
+  registered: capability keys live in a `capability.json`, and the `retro`
+  capability is wave 1's (Z6). Until then `resolveRetroThresholds` reads them
+  with defaults and names bad values in `problems`, but `config-set retro.*`
+  rejects them as unknown — Z6 must declare them.
+- **Checks:** `lint`, `lint:generated-sync`, `lint-test-file-count`,
+  emitted-attribution (140/140), `lint:ci` step by step (only
+  `removed-but-needed`). `test:affected` from `pre-pk0`: 21 083 tests, 11 failures,
+  all `tests/refactor-trigger-cli.test.cjs` — environmental: the owner's
+  `~/.gsd/defaults.json` makes `gsd-tools` print a #3532 warning on stderr, which
+  the test parses as JSON. `run-tests.cjs` sandboxes `GSD_HOME` and the file passes
+  44/44 there (on `pre-pk0` too); `affected-tests-lib.runNodeTestFiles` spawns
+  `node --test` directly without that sandbox. Open: route affected files through
+  `run-tests.cjs --files`, or give the runner the same `GSD_HOME` sandbox.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
