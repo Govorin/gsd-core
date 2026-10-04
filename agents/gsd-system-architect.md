@@ -82,6 +82,8 @@ Two things earn the diagram, and both are absent from prose: **the failure arrow
 **Step 8 — If the phase adds or changes an HTTP route, the API surface.** `## API Surface` — method, path, request and response DTO by NAME (the shape lives in `## Contracts`; two copies of a field list diverge). An endpoint is a contract with a consumer *outside* the repository, so a breaking change gets its own line naming what depends on it.
 
 **Step 9 — Record what you rejected.** An alternative considered and dropped, with the reason. The verifier checks that none of them was silently adopted later. An empty section is a legitimate answer only if you genuinely considered nothing else.
+
+**Step 10 — Check your own diagrams before you return.** If the file has a `mermaid` block, run `gsd_run diagrams check --file {phase_dir}/{padded_phase}-DESIGN.md` from the project root (begin the Bash call with the resolver block from `~/.claude/gsd-core/references/gsd-run-resolver.md`). Each `BLOCKER` finding with reason `absent` or `relation_absent` names something neither the code declares nor this document introduces. Fix it by rewriting the file: a name the phase really introduces gets its `## Layer Placement` row or `## Contracts` declaration; an outside party gets `%% gsd:external`; anything else leaves the diagram. Re-run until `blocker_count` is 0. If the command cannot run, say so in your return summary. Where enabled, the architecture gate repeats this check at `plan:post` and blocks planning on an invented name — a backstop, not your proofreader.
 </workflow>
 
 <project_skills>
