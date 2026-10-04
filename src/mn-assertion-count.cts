@@ -108,6 +108,42 @@ export interface BaselineRecord extends AssertionCounts {
   updated: string;
 }
 
+export type ReadBaselineResult =
+  | { ok: true; path: string; baseline: BaselineRecord }
+  | { ok: false; reason: 'missing' | 'unreadable'; path: string; message: string };
+
+/**
+ * The recorded baseline, for the ratchet to compare against. A record whose
+ * counts are not non-negative integers is `unreadable` — a ratchet must not
+ * compare against a guess.
+ */
+export function readAssertionBaseline(repoRoot: string): ReadBaselineResult {
+  const target = path.join(repoRoot, BASELINE_PATH);
+  let text: string;
+  try {
+    text = fs.readFileSync(target, 'utf-8');
+  } catch (e) {
+    const missing = (e as NodeJS.ErrnoException).code === 'ENOENT';
+    return { ok: false, reason: missing ? 'missing' : 'unreadable', path: target, message: `cannot read ${target}: ${(e as Error).message}` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, reason: 'unreadable', path: target, message: `${target} is not JSON: ${(e as Error).message}` };
+  }
+  const rec = parsed as Partial<Record<keyof BaselineRecord, unknown>> | null;
+  const count = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+  if (rec === null || typeof rec !== 'object' || !count(rec.assertions) || !count(rec.skipped) || !count(rec.files)) {
+    return { ok: false, reason: 'unreadable', path: target, message: `${target} does not hold assertions/skipped/files counts` };
+  }
+  return {
+    ok: true,
+    path: target,
+    baseline: { assertions: rec.assertions, skipped: rec.skipped, files: rec.files, updated: typeof rec.updated === 'string' ? rec.updated : '' },
+  };
+}
+
 export interface RecordBaselineOptions {
   /** Absolute repository root (resolved by the caller). */
   repoRoot: string;

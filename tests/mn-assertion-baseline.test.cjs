@@ -63,6 +63,19 @@ describe('mn assertion-baseline: recording', () => {
     assert.deepEqual(r.baseline, written);
   });
 
+  test('the ratchet reads back exactly what was recorded; a missing or malformed record is not a baseline', () => {
+    assert.equal(ac.readAssertionBaseline(root).reason, 'missing');
+    fs.mkdirSync(path.join(root, 'libs'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'libs', 'a.spec.ts'), 'expect(1);');
+    const recorded = ac.recordAssertionBaseline({ repoRoot: root, roots: [path.join(root, 'libs')] });
+    assert.deepEqual(ac.readAssertionBaseline(root).baseline, recorded.baseline);
+    const file = path.join(root, ac.BASELINE_PATH);
+    for (const body of ['{not json', '{"assertions":-1,"skipped":0,"files":1}', '{"assertions":1.5,"skipped":0,"files":1}', '{"skipped":0,"files":1}', 'null']) {
+      fs.writeFileSync(file, body);
+      assert.equal(ac.readAssertionBaseline(root).reason, 'unreadable', body);
+    }
+  });
+
   test('zero spec files is refused and writes nothing (boundary: 0 files refused, 1 file recorded)', () => {
     const r = ac.recordAssertionBaseline({ repoRoot: root, roots: [path.join(root, 'libs')] });
     assert.deepEqual([r.ok, r.reason], [false, 'no_specs']);
