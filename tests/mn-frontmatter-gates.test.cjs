@@ -141,6 +141,15 @@ describe('mn-verify-gate frontmatter gates (artifact-frontmatter-equals)', () =>
     assert.equal(r.payload.details.artifactNotFound, true);
   });
 
+  test('optional with no phase directory blocks — absence can only be judged within a known phase', () => {
+    for (const when of ['workflow.mn_security_enforce', 'workflow.mn_windows_enforce']) {
+      const r = evaluateCheckPredicate({ projectDir, args: ['--predicate', JSON.stringify(declaredPredicate(when)), '--phase-dir', ''] });
+      assert.ok(!r.failure, JSON.stringify(r));
+      assert.equal(r.block, true, when);
+      assert.equal(r.payload.details.phaseDirMissing, true);
+    }
+  });
+
   test('optional still blocks when the artifact exists and contradicts (mn_windows_enforce)', () => {
     // Optional means "may be absent", never "may be ignored".
     writeArtifact('01-WINDOWS.md', 'phase: 01\nopen_count: 2');
