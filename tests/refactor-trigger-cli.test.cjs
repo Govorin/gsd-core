@@ -131,8 +131,13 @@ function parseStdout(result) {
   return JSON.parse(result.stdout.trim());
 }
 
+// The GSD_JSON_ERRORS envelope is exactly ONE JSON line, written last
+// (docs/json-errors.md "Wire format") — but stderr is also the diagnostics
+// channel, so a warning (e.g. the #3532 global-defaults shadow notice) may
+// precede it. Parse the envelope line, not the whole stream.
 function parseStderr(result) {
-  return JSON.parse(result.stderr.trim());
+  const lines = result.stderr.split('\n').filter((line) => line.trim() !== '');
+  return JSON.parse(lines[lines.length - 1]);
 }
 
 /** Sets up a triggering fixture: strict per `strict`, threshold=1 (any single
