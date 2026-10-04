@@ -37,6 +37,9 @@
  * underneath.
  */
 
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { runGit, OUTCOME } = require('./process-seam.cjs');
 
 /**
@@ -172,10 +175,42 @@ function toLegacyResult(result) {
   return { status: result.exitCode, stdout: result.stdout, stderr: result.stderr };
 }
 
+/**
+ * Environment overrides under which this host's git prints translated
+ * (Russian) messages — the condition the locale-pinning regressions replay.
+ * Pass it to the product under test (e.g. `runGsdTools(args, cwd, env)`).
+ *
+ * Returns `{ env: null, reason }` when git here does not translate: no
+ * ru_RU.UTF-8 locale (setlocale() then falls back to C, which ignores
+ * LANGUAGE) or a git built without gettext. Callers skip with that reason; a
+ * test that ran anyway would pass without exercising anything.
+ *
+ * The probe asks git for a message it always prints — "not a git repository"
+ * in an empty directory that GIT_CEILING_DIRECTORIES stops discovery above.
+ */
+function translatedGitLocale() {
+  const env = { LANG: 'ru_RU.UTF-8', LC_ALL: 'ru_RU.UTF-8', LANGUAGE: 'ru' };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-git-locale-probe-'));
+  const r = runGit(['rev-parse', '--git-dir'], {
+    cwd: dir,
+    env: { ...process.env, ...env, GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(dir)) },
+    timeoutMs: DEFAULT_GIT_TIMEOUT_MS,
+  });
+  fs.rmSync(dir, { recursive: true, force: true });
+  if (r.outcome !== OUTCOME.EXITED || r.exitCode === 0) {
+    return { env: null, reason: `locale probe did not run as expected (outcome=${r.outcome} exitCode=${r.exitCode})` };
+  }
+  if (/not a git repository/i.test(r.stderr)) {
+    return { env: null, reason: 'git on this host does not translate its messages under ru_RU.UTF-8 / LANGUAGE=ru' };
+  }
+  return { env, reason: null };
+}
+
 module.exports = {
   gitOrThrow,
   throwIfFailed,
   toLegacyResult,
+  translatedGitLocale,
   DEFAULT_GIT_TIMEOUT_MS,
   GIT_FIXTURE_TIMEOUT_MS,
 };
