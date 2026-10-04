@@ -36,6 +36,7 @@ import { evaluateVerifyFailureDirections } from './gate-verify-failure-direction
 import { evaluateGapAnalysisPlanPost } from './gate-gap-analysis-plan-post.cjs';
 import { evaluateCheckPredicate, buildPredicateDeps } from './gate-predicate.cjs';
 import { evaluateApiCoverageVerifyPre, readPhaseScope } from './gate-api-coverage-verify-pre.cjs';
+import { evaluateArchitectureDiagrams } from './gate-architecture-diagrams.cjs';
 import { decisionMentioned, extractPlanDesignatedSections } from './decision-coverage-support.cjs';
 import { readAutoModeState } from './check-auto-mode.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -116,6 +117,10 @@ function cmdApiCoverageVerifyPre(projectDir: string, args: string[], raw: boolea
   emitGateResult(evaluateApiCoverageVerifyPre({ projectDir, args: args.slice(2) }), raw);
 }
 
+function cmdArchitectureDiagrams(projectDir: string, args: string[], raw: boolean): void {
+  emitGateResult(evaluateArchitectureDiagrams({ projectDir, args: args.slice(2) }), raw);
+}
+
 interface RouteCheckCommandOptions {
   args: string[];
   cwd: string;
@@ -167,6 +172,12 @@ function routeCheckCommand({ args, cwd, raw }: RouteCheckCommandOptions): void {
       // hyphen normalization means query "api-coverage.verify-pre" routes here.
       cmdApiCoverageVerifyPre(cwd, args, raw);
       return;
+    case 'architecture-diagrams':
+      // architecture capability blocking gate at plan:post: the phase DESIGN.md diagrams name
+      // only identifiers the code declares or the design introduces (src/diagrams-check.cts).
+      // Dot-to-hyphen normalization means query "architecture.diagrams" routes here.
+      cmdArchitectureDiagrams(cwd, args, raw);
+      return;
     case 'tdd-review-checkpoint':
       cmdTddReviewCheckpoint(cwd, args, raw);
       return;
@@ -217,7 +228,7 @@ function routeCheckCommand({ args, cwd, raw }: RouteCheckCommandOptions): void {
       routeProhibitionEnforcement(args, raw);
       return;
     default:
-      error('Unknown check subcommand. Available: api-coverage-verify-pre, auto-mode, decision-coverage-plan, decision-coverage-verify, evaluation-scope, gap-analysis-plan-post, predicate, prohibition-enforcement, tdd-red-evidence, tdd-review-checkpoint, ui-plan-gate, ui-safety-gate, verify-command-paths, verify-failure-directions, verify-schema-drift, verify-codebase-drift, verify-context-drift', ERROR_REASON.SDK_UNKNOWN_COMMAND);
+      error('Unknown check subcommand. Available: api-coverage-verify-pre, architecture-diagrams, auto-mode, decision-coverage-plan, decision-coverage-verify, evaluation-scope, gap-analysis-plan-post, predicate, prohibition-enforcement, tdd-red-evidence, tdd-review-checkpoint, ui-plan-gate, ui-safety-gate, verify-command-paths, verify-failure-directions, verify-schema-drift, verify-codebase-drift, verify-context-drift', ERROR_REASON.SDK_UNKNOWN_COMMAND);
   }
 }
 

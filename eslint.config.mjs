@@ -133,6 +133,12 @@ export default tseslint.config(
       'gsd-core/bin/lib/mermaid.cjs',
       'gsd-core/bin/lib/plan-graph.cjs',
       'gsd-core/bin/lib/plan-command-router.cjs',
+      // Phase 5.7 (mermaid UML check): tsc-generated — lint the src/*.cts sources.
+      'gsd-core/bin/lib/mermaid-parse.cjs',
+      'gsd-core/bin/lib/symbol-index.cjs',
+      'gsd-core/bin/lib/diagrams-check.cjs',
+      'gsd-core/bin/lib/diagrams-command-router.cjs',
+      'gsd-core/bin/lib/gate-architecture-diagrams.cjs',
       // #4917 (epic #4906 Phase 1, ADR-4910): lint src/planning-document.cts, not this.
       'gsd-core/bin/lib/planning-document.cjs',
       // #2401: tsc-generated runtime artifact — lint the src/verify-command-grounding.cts source.

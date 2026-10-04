@@ -35,10 +35,10 @@ const NASTY = [
   'tab\there and a bell\u0007 and bidi\u202e flip',
 ];
 
-/** What escapeLabel promises to keep: CRLF→LF, tab→space, controls/bidi dropped, trimmed. */
+/** What escapeLabel promises to keep: CRLF/CR/U+2028/U+2029→LF, tab→space, controls/bidi dropped, trimmed. */
 function normalized(s) {
   return s
-    .replace(/\r\n?/g, '\n')
+    .replace(/\r\n?|[\u2028\u2029]/g, '\n')
     .replace(/\t/g, ' ')
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/g, '')
@@ -239,8 +239,9 @@ describe('escapeLabel / unescapeLabel', () => {
     assert.equal(m.escapeLabel('a\u202eb\u0000c'), 'abc');
   });
 
-  test('a newline becomes <br/> (CRLF and CR alike) and non-strings are stringified', () => {
+  test('a newline becomes <br/> (CRLF, CR and the Unicode line/paragraph separators alike) and non-strings are stringified', () => {
     assert.equal(m.escapeLabel('a\r\nb\rc\nd'), 'a<br/>b<br/>c<br/>d');
+    assert.equal(m.escapeLabel('a\u2028b\u2029c'), 'a<br/>b<br/>c');
     assert.equal(m.escapeLabel(42), '42');
     assert.equal(m.escapeLabel(null), '');
   });
@@ -620,5 +621,138 @@ describe('erDiagram', () => {
     assert.throws(() => m.erDiagram({ entities, relationships: [{ ...rel, leftCardinality: 'many' }] }), /unknown cardinality/);
     assert.throws(() => m.erDiagram({ entities: [{ id: 'A', attributes: [{ type: 'int', name: 'x', keys: ['PRIMARY'] }] }] }), /unknown key/);
     assert.throws(() => m.erDiagram({ entities: [{ id: 'A', attributes: [{ type: '9int', name: 'x' }] }] }), /start with a letter/);
+  });
+});
+
+// ─── sequenceDiagram ─────────────────────────────────────────────────────────
+
+function readSequenceDiagram(diagram) {
+  const { header, rest } = bodyLines(diagram);
+  assert.equal(header, 'sequenceDiagram');
+  const model = { autonumber: false, participants: [], steps: [] };
+  const stack = [{ steps: model.steps, indent: 2 }];
+  for (const line of rest) {
+    const indent = line.match(/^ */)[0].length;
+    const body = line.slice(indent);
+    let mm;
+    if (body === 'autonumber') model.autonumber = true;
+    else if ((mm = body.match(/^(participant|actor) (\w+)(?: as (.+))?$/))) {
+      model.participants.push({ kind: mm[1], id: mm[2], label: mm[3] === undefined ? undefined : m.unescapeLabel(mm[3]) });
+    } else if ((mm = body.match(/^(\w+)(-->>|->>|--x|-x)(\w+): (.+)$/))) {
+      assert.equal(indent, stack.at(-1).indent, `message at the wrong depth: ${line}`);
+      stack.at(-1).steps.push({ kind: 'message', from: mm[1], arrow: mm[2], to: mm[3], text: m.unescapeLabel(mm[4]) });
+    } else if ((mm = body.match(/^Note (over|left of|right of) (\w+(?:,\w+)?): (.+)$/))) {
+      stack.at(-1).steps.push({ kind: 'note', place: mm[1], participants: mm[2].split(','), text: m.unescapeLabel(mm[3]) });
+    } else if ((mm = body.match(/^(alt|opt|loop)(?: (.+))?$/))) {
+      const block = { kind: mm[1], label: mm[2] === undefined ? undefined : m.unescapeLabel(mm[2]), steps: [], else: [] };
+      stack.at(-1).steps.push(block);
+      stack.push({ steps: block.steps, indent: indent + 2, block });
+    } else if ((mm = body.match(/^else(?: (.+))?$/))) {
+      const top = stack.pop();
+      const branch = { label: mm[1] === undefined ? undefined : m.unescapeLabel(mm[1]), steps: [] };
+      top.block.else.push(branch);
+      stack.push({ steps: branch.steps, indent: top.indent, block: top.block });
+    } else if (body === 'end') {
+      stack.pop();
+    } else assert.fail(`unrecognised sequenceDiagram line: ${JSON.stringify(line)}`);
+  }
+  assert.equal(stack.length, 1, 'every block is closed');
+  return model;
+}
+
+describe('sequenceDiagram', () => {
+  test('reads back as the spec: participants, arrows, notes, nested blocks', () => {
+    const model = readSequenceDiagram(
+      m.sequenceDiagram({
+        autonumber: true,
+        participants: [
+          { id: 'C', label: 'Client', kind: 'actor' },
+          { id: 'S', label: NASTY[1] },
+          { id: 'P' },
+        ],
+        steps: [
+          { kind: 'message', from: 'C', to: 'S', text: 'create(dto)' },
+          {
+            kind: 'alt', label: 'charge ok',
+            steps: [
+              { kind: 'message', from: 'S', to: 'P', arrow: 'solid-cross', text: NASTY[2] },
+              { kind: 'loop', label: 'retry', steps: [{ kind: 'opt', steps: [{ kind: 'message', from: 'P', to: 'S', arrow: 'dotted', text: 'right(receipt)' }] }] },
+            ],
+            else: [{ label: 'declined', steps: [{ kind: 'message', from: 'P', to: 'S', arrow: 'dotted-cross', text: NASTY[0] }] }],
+          },
+          { kind: 'note', participants: ['S', 'P'], text: NASTY[3] },
+          { kind: 'note', side: 'left', participants: ['C'], text: 'waits' },
+          { kind: 'note', side: 'right', participants: ['P'], text: NASTY[4] },
+        ],
+      }),
+    );
+    assert.equal(model.autonumber, true);
+    assert.deepEqual(model.participants, [
+      { kind: 'actor', id: 'C', label: 'Client' },
+      { kind: 'participant', id: 'S', label: normalized(NASTY[1]) },
+      { kind: 'participant', id: 'P', label: undefined },
+    ]);
+    assert.deepEqual(model.steps, [
+      { kind: 'message', from: 'C', arrow: '->>', to: 'S', text: 'create(dto)' },
+      {
+        kind: 'alt', label: 'charge ok',
+        steps: [
+          { kind: 'message', from: 'S', arrow: '-x', to: 'P', text: NASTY[2] },
+          {
+            kind: 'loop', label: 'retry', else: [],
+            steps: [{ kind: 'opt', label: undefined, else: [], steps: [{ kind: 'message', from: 'P', arrow: '-->>', to: 'S', text: 'right(receipt)' }] }],
+          },
+        ],
+        else: [{ label: 'declined', steps: [{ kind: 'message', from: 'P', arrow: '--x', to: 'S', text: NASTY[0] }] }],
+      },
+      { kind: 'note', place: 'over', participants: ['S', 'P'], text: NASTY[3] },
+      { kind: 'note', place: 'left of', participants: ['C'], text: 'waits' },
+      { kind: 'note', place: 'right of', participants: ['P'], text: normalized(NASTY[4]) },
+    ]);
+  });
+
+  test('every escaped text is inert and the same spec gives the same bytes', () => {
+    const spec = {
+      participants: NASTY.map((label, i) => ({ id: `p${i}`, label })),
+      steps: NASTY.map((text, i) => ({ kind: 'message', from: 'p0', to: `p${i}`, text })),
+    };
+    const out = m.sequenceDiagram(spec);
+    assert.equal(out, m.sequenceDiagram(spec));
+    const lines = out.split('\n');
+    // An escaped text holds no raw ':' — so the first ': ' on a message line is the text boundary.
+    for (const line of lines.filter((l) => /^ {2}p0->>/.test(l))) assertInert(line.slice(line.indexOf(': ') + 2));
+    for (const line of lines.filter((l) => / as /.test(l))) assertInert(line.slice(line.indexOf(' as ') + 4));
+  });
+
+  test('refuses to invent participants and refuses shapes mermaid cannot hold', () => {
+    const participants = [{ id: 'A' }, { id: 'B' }];
+    const msg = (o) => ({ kind: 'message', from: 'A', to: 'B', text: 't', ...o });
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [msg({ to: 'Ghost' })] }), /never declared/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [{ kind: 'note', participants: ['Ghost'], text: 'x' }] }), /never declared/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [msg({ text: '  ' })] }), /needs text/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [msg({ arrow: '->' })] }), /unknown arrow/);
+    assert.throws(() => m.sequenceDiagram({ participants: [{ id: 'A' }, { id: 'A' }] }), /duplicate/);
+    assert.throws(() => m.sequenceDiagram({ participants: [{ id: 'loop' }] }), /keyword/);
+    assert.throws(() => m.sequenceDiagram({ participants: [{ id: 'Over' }] }), /keyword/);
+    assert.throws(() => m.sequenceDiagram({ participants: [{ id: 'a-b' }] }), /not a safe mermaid id/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [{ kind: 'note', side: 'left', participants: ['A', 'B'], text: 'x' }] }), /takes 1 participants/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [{ kind: 'note', participants: ['A', 'B', 'A'], text: 'x' }] }), /takes 1 or 2/);
+    assert.throws(() => m.sequenceDiagram({ participants, steps: [{ kind: 'opt', steps: [], else: [{ steps: [] }] }] }), /only alt/);
+  });
+
+  test('nesting: depth 3 is drawn, depth 4 throws', () => {
+    const nest = (depth) => (depth === 0 ? [{ kind: 'message', from: 'A', to: 'A', text: 'x' }] : [{ kind: 'loop', steps: nest(depth - 1) }]);
+    const participants = [{ id: 'A' }];
+    assert.doesNotThrow(() => m.sequenceDiagram({ participants, steps: nest(m.SEQUENCE_MAX_DEPTH - 1) }));
+    assert.doesNotThrow(() => m.sequenceDiagram({ participants, steps: nest(m.SEQUENCE_MAX_DEPTH) }));
+    assert.throws(() => m.sequenceDiagram({ participants, steps: nest(m.SEQUENCE_MAX_DEPTH + 1) }), /nests deeper than 3/);
+  });
+
+  test('a registry id is never a sequenceDiagram keyword', () => {
+    const reg = m.createIdRegistry();
+    for (const raw of ['loop', 'Alt', 'participant', 'over']) {
+      const id = reg.id(raw);
+      assert.doesNotThrow(() => m.sequenceDiagram({ participants: [{ id }] }), raw);
+    }
   });
 });
