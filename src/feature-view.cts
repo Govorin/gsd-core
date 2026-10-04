@@ -39,7 +39,7 @@ import planningScopeMod = require('./planning-scope.cjs');
 const { SCOPE } = planningScopeMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
 import planScan = require('./plan-scan.cjs');
-const { isRootPlanFile } = planScan;
+const { scanPhasePlans, isCanonicalPlanFile } = planScan;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
@@ -86,20 +86,27 @@ interface FeatureView {
   phases_readable: boolean;
 }
 
-const PLAN_FILE_RE = /-PLAN\.md$/i;
-
 /**
- * Is this filename one of the plan files the view reports on?
+ * The plan files of one phase directory the view reports on, sorted; `null`
+ * when the directory cannot be read.
  *
- * `isRootPlanFile` (plan-scan.cts) is the project's ONE definition of "what is
- * a plan file" and is reused rather than re-derived — a second filename regex
- * is precisely the drift this project removes. It is intersected with an
- * explicit `-PLAN.md` suffix because `isRootPlanFile`'s loose `/PLAN/i`
- * fallback also admits derivative names, and the view should report canonical
- * plans only.
+ * `scanPhasePlans` (plan-scan.cts) is the project's ONE owner of "which files
+ * in a phase directory are plans" (ADR-3180, guarded by lint-plan-count-drift),
+ * so the view takes its listing rather than re-deriving the filename filter.
+ * `allPlanFiles` is the on-disk set BEFORE the `status: superseded` exclusion:
+ * a superseded plan still carries its `feature:` tag. The listing is then
+ * intersected with `isCanonicalPlanFile`, the strict predicate the #2893
+ * diagnostics use, because the scan's loose counting fallback also admits
+ * derivative names and the view reports canonical plans only. Nested
+ * `plans/` entries are left out, as they always were: the view reads the
+ * root layout.
  */
-function isFeatureViewPlanFile(fileName: string): boolean {
-  return isRootPlanFile(fileName) && (PLAN_FILE_RE.test(fileName) || fileName === 'PLAN.md');
+function listFeatureViewPlanFiles(phaseDir: string): string[] | null {
+  const scan = scanPhasePlans(phaseDir);
+  if (scan.scope === SCOPE.UNREADABLE) return null;
+  return scan.allPlanFiles
+    .filter((file) => !file.startsWith('plans/') && isCanonicalPlanFile(file))
+    .sort();
 }
 
 /**
@@ -158,12 +165,8 @@ function deriveFeatureView(cwd: string): FeatureView {
 
   for (const phase of phaseDirs) {
     const phaseDir = path.join(phasesDir, phase);
-    let planFiles: string[];
-    try {
-      planFiles = fs.readdirSync(phaseDir).filter(isFeatureViewPlanFile).sort();
-    } catch {
-      continue; // an unreadable phase dir contributes nothing; the tree walk goes on
-    }
+    const planFiles = listFeatureViewPlanFiles(phaseDir);
+    if (planFiles === null) continue; // an unreadable phase dir contributes nothing; the tree walk goes on
 
     for (const planFile of planFiles) {
       planCount += 1;

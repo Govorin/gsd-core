@@ -36,10 +36,19 @@ import { normalizeEol, splitLines } from './text-lines.cjs';
 import type { ClassDef, FlowEdge, FlowNode, FlowSubgraph } from './mermaid.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planStatus = require('./plan-status.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
+import planScan = require('./plan-scan.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- core-utils.cjs is a CommonJS module
+import coreUtils = require('./core-utils.cjs');
 
 // ─── Reading plans ───────────────────────────────────────────────────────────
 
-/** A plan file and its id — the file-name prefix: `01-02-PLAN.md` → `01-02`. */
+/**
+ * A plan's id — the file-name prefix: `01-02-PLAN.md` → `01-02`. Whether a
+ * file IS a plan, and which summary completes it, are not decided here:
+ * plan-scan's `isRootPlanFile`/`isRootSummaryFile` and core-utils'
+ * `countMatchedSummaries` own that grammar (ADR-3180, lint-plan-count-drift).
+ */
 const PLAN_FILE = /^(\d+(?:\.\d+)?-\d+)-?.*PLAN\.md$/;
 
 export interface PlanInput {
@@ -49,7 +58,7 @@ export interface PlanInput {
   /** Normalised status word, or null when the plan declares none. */
   status: string | null;
   dependsOn: string[];
-  /** A `<id>-…SUMMARY.md` sits next to the plan. */
+  /** The plan's paired SUMMARY.md (`01-02-PLAN.md` ↔ `01-02-SUMMARY.md`) sits next to it. */
   done: boolean;
 }
 
@@ -117,8 +126,10 @@ export function readPhasePlans(phaseDir: string): ReadPlansResult {
     return { ok: false, reason: 'unreadable', message: `cannot list ${phaseDir}: ${(e as Error).message}` };
   }
   const files = entries.filter((e) => e.isFile()).map((e) => e.name).sort();
+  const summaries = files.filter(planScan.isRootSummaryFile);
   const plans: PlanInput[] = [];
   for (const name of files) {
+    if (!planScan.isRootPlanFile(name)) continue;
     const idm = name.match(PLAN_FILE);
     if (!idm) continue;
     let text: string;
@@ -132,7 +143,7 @@ export function readPhasePlans(phaseDir: string): ReadPlansResult {
       id,
       file: name,
       ...parsePlanFront(text),
-      done: files.some((n) => n.startsWith(`${id}-`) && /SUMMARY\.md$/.test(n)),
+      done: coreUtils.countMatchedSummaries([name], summaries) > 0,
     });
   }
   if (plans.length === 0) {
