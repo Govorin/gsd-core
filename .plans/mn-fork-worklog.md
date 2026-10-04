@@ -619,7 +619,8 @@ absent = enabled applies, so the defaults below are the effective ones.
   all-off fixture; Dimension 1b in `docs/AGENTS.md`), `8c0578db9` (execute:pre
   registry guard now pins the baseline pair; retired `/gsd-` slash form;
   compact-content benchmark baseline), `0b5256b2a` / `065a640a3` (`GSD_WS` in the
-  grill and graphs fences, #4772; `--grill` / `--graph` in full help, #2954),
+  grill and graphs fences, #4772; `--grill` / `--graph` in full help, #2954 —
+  kept inside its 846-line budget by `a34b98d69`),
   `55ccdbdc2` (pre-existing: `BACKLOG.md` in the #2269 call-site sweep). **Lesson:**
   a branch's own test list is not enough for shipped-markdown or registry
   changes — run `test:affected` before handing a branch over.
