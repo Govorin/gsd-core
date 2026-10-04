@@ -9110,36 +9110,14 @@ function uninstall(isGlobal, runtime = DEFAULT_RUNTIME) {
 
       // Remove GSD hooks from settings — per-hook granularity to preserve
       // user hooks that share an entry with a GSD hook (#1755 followup).
-      // Every event present is swept, not a fixed list: the filter removes only
-      // commands isManagedHookCommand recognizes, so sweeping an event GSD never
-      // used is a no-op, while a fixed list silently misses each event GSD adds
-      // later (the Qwen #788, Antigravity #776 and Claude #770 events, the mn
-      // fork's WorktreeCreate/WorktreeRemove, an older install's PostCompact
-      // pin) — and a WorktreeCreate entry left pointing at a deleted script
-      // fails every worktree creation.
-      for (const eventName of Object.keys(settings.hooks && typeof settings.hooks === 'object' ? settings.hooks : {})) {
-        if (Array.isArray(settings.hooks[eventName])) {
-          const before = JSON.stringify(settings.hooks[eventName]);
-          settings.hooks[eventName] = settings.hooks[eventName]
-            .map(entry => {
-              if (!entry || typeof entry !== 'object' || !Array.isArray(entry.hooks)) return entry;
-              // Filter out individual GSD hooks, keep user hooks
-              entry.hooks = entry.hooks.filter((h) => {
-                if (!h || typeof h.command !== 'string') return true;
-                return !isManagedHookCommand(h.command, {
-                  surface: 'settings-json',
-                });
-              });
-              return entry.hooks.length > 0 ? entry : null;
-            })
-            .filter(Boolean);
-          if (JSON.stringify(settings.hooks[eventName]) !== before) {
-            settingsModified = true;
-          }
-          if (settings.hooks[eventName].length === 0) {
-            delete settings.hooks[eventName];
-          }
-        }
+      // Every event present is swept, not a fixed list — a fixed list silently
+      // misses each event GSD adds later (the Qwen #788, Antigravity #776 and
+      // Claude #770 events, the mn fork's WorktreeCreate/WorktreeRemove, an
+      // older install's PostCompact pin), and a WorktreeCreate entry left
+      // pointing at a deleted script fails every worktree creation. Install
+      // reconciles through the same filter.
+      if (hooksSurface.filterManagedSettingsHooks(settings, () => false)) {
+        settingsModified = true;
       }
       if (settingsModified) {
         console.log(`  ${green}✓${reset} Removed GSD hooks from settings`);
@@ -13358,21 +13336,21 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
   // skip managed-hook registration. Returning null from buildHookCommand on
   // global installs has the same effect. Better to skip than to emit a bare
   // `node` command that recreates the #2979 failure.
-  const localCmd = (hookFile) => localNodeRunner === null
+  const localCmd = (hookFile, opts = hookOpts) => localNodeRunner === null
     ? null
     : hooksSurface.recordConfiguredHookCommand(projectShellCommandText({
       runnerToken: localNodeRunner,
       argTokens: [`${localPrefix}/hooks/${hookFile}`],
       runtime,
       platform: process.platform,
-    }), targetDir, hookFile, hookOpts);
-  const localShellCmd = (hookFile) => hooksSurface.recordConfiguredHookCommand(buildLocalShellHookCommand({
+    }), targetDir, hookFile, opts);
+  const localShellCmd = (hookFile, opts = hookOpts) => hooksSurface.recordConfiguredHookCommand(buildLocalShellHookCommand({
     localPrefix,
     hookFile,
     bashRunner: localBashRunner,
     runtime,
     platform: process.platform,
-  }), targetDir, hookFile, hookOpts);
+  }), targetDir, hookFile, opts);
   const statuslineCommand = isGlobal
     ? buildHookCommand(targetDir, 'gsd-statusline.js', hookOpts)
     : localCmd('gsd-statusline.js');
@@ -13413,7 +13391,7 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
   // Register all GSD-managed hook entries into settings.hooks.* for runtimes
   // that use the settings.json hook surface (ADR-857 phase 5f-1b).
   // settings is mutated in place by applySettingsJsonHooks.
-  applySettingsJsonHooks(settings, {
+  const settingsHooksOpts = {
     runtime,
     isGlobal,
     targetDir,
@@ -13430,7 +13408,24 @@ function install(isGlobal, runtime = DEFAULT_RUNTIME, options = {}) {
     hookOpts,
     localCmd,
     localShellCmd,
+  };
+  // Registration is only-if-absent, so first retire the managed registrations
+  // this build no longer makes — an older install's PostCompact pin, a hook on a
+  // matcher since changed. What the build makes is what it writes into empty
+  // settings; the dry run records no entrypoints and prints nothing.
+  const dryRunHookOpts = { ...hookOpts, configuredEntrypoints: [] };
+  const builtSettings = {};
+  applySettingsJsonHooks(builtSettings, {
+    ...settingsHooksOpts,
+    hookOpts: dryRunHookOpts,
+    localCmd: (hookFile) => localCmd(hookFile, dryRunHookOpts),
+    localShellCmd: (hookFile) => localShellCmd(hookFile, dryRunHookOpts),
+    quiet: true,
   });
+  if (hooksSurface.reconcileManagedSettingsHooks(settings, builtSettings)) {
+    console.log(`  ${green}✓${reset} Removed GSD hook registrations this version no longer makes`);
+  }
+  applySettingsJsonHooks(settings, settingsHooksOpts);
 
   // Compute the update-banner hook command alongside the others so
   // installAllRuntimes can register it at finalize time when the user opts

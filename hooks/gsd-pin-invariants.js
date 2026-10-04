@@ -358,8 +358,9 @@ function sessionStartOutput(data, { now } = {}) {
  * `hookSpecificOutput.additionalContext` (a top-level `additionalContext` is
  * not read), and after a compaction it fires SessionStart again with
  * `source: "compact"` — that re-fire is the documented re-injection point.
- * PostCompact is observational and cannot add context, so an entry left there
- * by an older install stays silent instead of printing output nobody reads.
+ * PostCompact is observational and cannot add context, so an entry an older
+ * install left there stays silent instead of printing output nobody reads,
+ * until a reinstall removes it.
  */
 function pinOutput(data, context) {
   const event = data && typeof data.hook_event_name === 'string' ? data.hook_event_name : 'SessionStart';
