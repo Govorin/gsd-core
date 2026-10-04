@@ -56,6 +56,9 @@ must_haves:
 
 Purpose: [Why this matters for the project]
 Output: [What artifacts will be created]
+Restated: [The phase goal in your own words — not copied — and the part of it this plan delivers]
+Not doing: [What the phase deliberately leaves out, each item with its source]
+Sources: [Where the restatement was read from: ROADMAP Phase N goal · CONTEXT D-NN · SPEC AC-n]
 </objective>
 
 <execution_context>

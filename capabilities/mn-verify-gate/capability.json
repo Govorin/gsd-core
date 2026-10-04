@@ -277,6 +277,11 @@
       "type": "boolean",
       "default": false,
       "description": "Halt plan:post when the failure-paths verdict has a blocker: a required plan with no <failure_path>, a path with no <check> command, a check whose <fails_when> is missing, empty or a placeholder, or an empty or placeholder <invariant>. An unreadable plan also halts — could not look is not clean. Default false: halting at plan:post has no revision loop behind it, so a project opts in once its plans carry the block. Assumes workflow.failure_paths is on; with it off the planner is not asked for the block the gate demands."
+    },
+    "workflow.restate_goal": {
+      "type": "boolean",
+      "default": true,
+      "description": "Instruct the planner to restate the phase goal in its own words before decomposing, as three lines at the end of every <objective>: Restated (the goal, not copied, and this plan's part), Not doing (what the phase leaves out, with sources) and Sources (ROADMAP goal, success criteria, CONTEXT D-NN, SPEC AC-n). A wrong reading of the goal is cheapest to catch before code exists; the plan-checker compares the lines with the goal (Dimension 1b) and treats a contradiction, or an exclusion a requirement needs, as a blocker. Extends the existing <objective> rather than adding a field. On by default (absent = enabled): an instruction, no gate."
     }
   },
   "steps": [
@@ -377,6 +382,17 @@
       "produces": [],
       "consumes": [],
       "when": "workflow.refute_findings",
+      "onError": "skip"
+    },
+    {
+      "point": "plan:pre",
+      "into": "planner",
+      "fragment": {
+        "path": "fragments/plan-pre-restate-goal.md"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.restate_goal",
       "onError": "skip"
     },
     {
