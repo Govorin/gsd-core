@@ -250,6 +250,7 @@ GSD uses a multi-agent architecture where thin orchestrators (workflow files) sp
 | # | Dimension |
 |---|---|
 | 1 | Requirement coverage |
+| 1b | Restated goal — compares each plan's `Restated:` / `Not doing:` lines with the phase goal (`workflow.restate_goal`); skipped when no plan carries `Restated:` |
 | 2 | Task completeness |
 | 3 | Dependency correctness |
 | 3b | Undeclared / temporal coupling — advisory; flags same-wave plan pairs coupled through shared mutable state or execution order with no `depends_on` between them |

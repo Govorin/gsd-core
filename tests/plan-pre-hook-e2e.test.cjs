@@ -267,6 +267,8 @@ describe('plan:pre all-off — empty resolution', () => {
         plan_drift_precheck: false,
         context_drift_precheck: false,
         assumption_delta: false,
+        restate_goal: false,
+        failure_paths: false,
       },
       intel: { enabled: false },
     });
