@@ -251,6 +251,7 @@ Report final status.
 | W029 | warning | .planning/ matches a gitignore rule but is still tracked by git (gitignore has no effect on already-tracked files) | No |
 | W030 | warning | Phase verification report status is outside the closed set | No |
 | W031 | warning | Phase verification report status is a legacy synonym of a closed-set value (`verified`) | Yes |
+| W032 | warning | Phase verification report frontmatter does not parse | No |
 | I001 | info | Plan without SUMMARY (may be in progress) | No |
 | I010 | info | Resolved CWD reported alongside the E010 home-directory guard | No |
 

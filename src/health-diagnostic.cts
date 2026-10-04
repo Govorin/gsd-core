@@ -113,8 +113,9 @@ const CONSISTENCY_RULES: Rule[] = [
   // REUSED too — the snapshot carries the error, and a diagnostics surface
   // reports it as a finding instead of failing on the defect it diagnoses.
   // W031 (the fork's legacy-synonym status) rides with it: the same report
-  // defect, split only by whether `--repair` may rewrite it.
-  ...phaseStructureMod.RULES.filter((r) => r.code === 'W030' || r.code === 'W031'),
+  // defect, split only by whether `--repair` may rewrite it. So does W032 (a
+  // report whose frontmatter does not parse) — the readers refuse it too.
+  ...phaseStructureMod.RULES.filter((r) => ['W030', 'W031', 'W032'].includes(r.code)),
   ...consistencyMod.RULES,
 ];
 
@@ -138,6 +139,9 @@ const { writeStateMd, assertVerificationReportsReadable } = stateMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import frontmatter = require('./frontmatter.cjs');
 const { extractFrontmatter, spliceFrontmatter } = frontmatter;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import verificationMod = require('./verification.cjs');
+const { isReportContained } = verificationMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import stateTransitionMod = require('./state-transition.cjs');
 const { rebuildStateTransaction } = stateTransitionMod;
@@ -175,7 +179,7 @@ function evaluateRules(snapshot: PlanningSnapshot): Diagnostic[] {
 }
 
 /**
- * Evaluate `CONSISTENCY_RULES` (W006/W007/W030/W031 + C001-C004) against `snapshot` —
+ * Evaluate `CONSISTENCY_RULES` (W006/W007/W030/W031/W032 + C001-C004) against `snapshot` —
  * `validate.consistency`'s evaluator entry point, mirroring `evaluateRules`
  * exactly but over the smaller, command-specific rule subset.
  */
@@ -427,10 +431,12 @@ function runRepairAction(cwd: string, remedy: Remedy, paths: RepairPaths): Repai
     }
 
     case REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS: {
-      // W031: one report, one scalar. The file comes from the snapshot's own
-      // phase scan; it is still contained to `.planning/` before the write,
-      // and the value is re-read so a report edited since the check is left
-      // alone. `spliceFrontmatter` keeps every other key's text and the body.
+      // W031: one report, one scalar. The file comes from the snapshot's
+      // report enumeration (active or archived phase); it is still contained
+      // to `.planning/` — and, symlinks followed, to its own phase directory
+      // — before the write, and the value is re-read so a report edited since
+      // the check is left alone. `spliceFrontmatter` keeps every other key's
+      // text and the body.
       const file = String(args['file']);
       const from = String(args['from']);
       const to = String(args['to']);
@@ -438,6 +444,9 @@ function runRepairAction(cwd: string, remedy: Remedy, paths: RepairPaths): Repai
       const inside = path.relative(rootBase, file);
       if (inside.startsWith('..') || path.isAbsolute(inside)) {
         return { success: false, path: rel, error: `not applied: ${rel} is outside the planning directory` };
+      }
+      if (!isReportContained(path.dirname(file), file)) {
+        return { success: false, path: rel, error: `not applied: ${rel} resolves outside its phase directory` };
       }
       const content = fs.readFileSync(file, 'utf-8');
       const fm = extractFrontmatter(content, file) as Record<string, unknown>;

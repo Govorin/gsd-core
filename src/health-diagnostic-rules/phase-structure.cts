@@ -4,7 +4,8 @@
  *
  * Group: "Phase directory structure" (design doc, "Rule table organization"
  * table) — W005, W023, I001, W009, W030 (#5118), and the fork's W031 (a
- * legacy status with exactly one meaning, repairable).
+ * legacy status with exactly one meaning, repairable) and W032 (a report
+ * whose frontmatter does not parse).
  *
  * Ported behavior-preserving from `cmdValidateHealth`
  * (`src/verify.cts:1893-1990`, the exact call sites for W005/W023/I001/W009),
@@ -278,22 +279,39 @@ function w030Fix(proposal: StatusProposal | null): string {
   return `Suggested: \`status: ${proposal.suggested}\`${alternative} — ${proposal.reason}. ${W030_RECOVERY}`;
 }
 
+// ─── The reports the readers refuse ─────────────────────────────────────────
+//
+// `snapshot.verificationReportDefects` is the verification owner's judgement
+// over its one report enumeration — every report `audit-open`/`audit-uat`
+// read, archived phases included — so W030/W031/W032 fire on exactly the
+// reports those commands fail on. A diagnostics surface must survive the
+// defect it diagnoses: `validate health` (exit 0) lists each one instead of
+// failing with `verification_status_invalid` like the query surfaces do.
+
+type ReportDefect = PlanningSnapshot['verificationReportDefects']['value'][number];
+type OutOfSetDefect = Extract<ReportDefect, { kind: 'out_of_set' }>;
+type UnparseableDefect = Extract<ReportDefect, { kind: 'unparseable' }>;
+
+/** The phase a report belongs to: its directory, prefixed by the archive label for an archived phase. */
+function reportPhaseLabel(defect: ReportDefect): string {
+  const { dir, milestone } = defect.report;
+  return milestone === undefined ? dir : `${milestone}/${dir}`;
+}
+
+function outOfSetDefects(snapshot: PlanningSnapshot): OutOfSetDefect[] {
+  return snapshot.verificationReportDefects.value.filter((d): d is OutOfSetDefect => d.kind === 'out_of_set');
+}
+
 // ─── W030 — verification report status outside the closed set (#5118) ─────
 //
-// `isPhaseComplete` absorbs an out-of-set report `status` (its no-throw
-// contract) and the snapshot carries the typed error's file and message. A
-// diagnostics surface must survive the defect it diagnoses, so health reports
-// the file instead of failing with `verification_status_invalid` like the
-// query surfaces do: `validate health` (exit 0) lists each such report as one
-// W030 finding, built from the error the snapshot carries. The fix names the
-// proposed value and why; an unambiguous legacy value is W031 instead.
+// The fix names the proposed value and why; an unambiguous legacy value is
+// W031 instead.
 
 function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  for (const phase of snapshot.phases.value) {
-    const invalid = phase.verificationStatusError;
-    if (!invalid || unambiguousNormalization(invalid.rawStatus)) continue;
-    const proposal = proposeVerificationStatus(invalid.rawStatus);
+  for (const defect of outOfSetDefects(snapshot)) {
+    if (unambiguousNormalization(defect.rawStatus)) continue;
+    const proposal = proposeVerificationStatus(defect.rawStatus);
     const advice = adviseRemedy(w030Fix(proposal));
     // The proposal also rides as data, so a caller migrating reports reads
     // the suggestion instead of parsing the fix sentence.
@@ -301,7 +319,7 @@ function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
       ...advice,
       args: {
         ...advice.args,
-        file: invalid.file,
+        file: defect.report.filePath,
         suggested: proposal ? proposal.suggested : null,
         alternative: proposal ? proposal.alternative : null,
         reason: proposal ? proposal.reason : null,
@@ -310,7 +328,7 @@ function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
     diagnostics.push({
       code: 'W030',
       severity: SEVERITY.WARNING,
-      message: `Phase ${phase.dir}: ${invalid.message}`,
+      message: `Phase ${reportPhaseLabel(defect)}: ${defect.message}`,
       remedy,
     });
   }
@@ -322,26 +340,57 @@ function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
 // The one case with no judgement in it: the value is a legacy spelling of a
 // closed-set member. `--repair` rewrites the frontmatter `status` scalar only
 // (`normalizeVerificationStatus`, `health-diagnostic.cts`), leaving every
-// other key and the report body byte-identical.
+// other key and the report body byte-identical — an archived report as much
+// as an active one, since `audit-open` refuses both.
 
 function checkW031(snapshot: PlanningSnapshot): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  for (const phase of snapshot.phases.value) {
-    const invalid = phase.verificationStatusError;
-    if (!invalid) continue;
-    const normalization = unambiguousNormalization(invalid.rawStatus);
+  for (const defect of outOfSetDefects(snapshot)) {
+    const normalization = unambiguousNormalization(defect.rawStatus);
     if (!normalization) continue;
-    const from = invalid.rawStatus as string;
+    const from = defect.rawStatus as string;
+    const file = defect.report.filePath;
     diagnostics.push({
       code: 'W031',
       severity: SEVERITY.WARNING,
       message:
-        `Phase ${phase.dir}: verification report ${JSON.stringify(invalid.file)} has legacy status ` +
+        `Phase ${reportPhaseLabel(defect)}: verification report ${JSON.stringify(file)} has legacy status ` +
         `${JSON.stringify(from)} — ${normalization.reason}; the closed set spells it \`${normalization.to}\``,
       remedy: {
         action: REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS,
         risk: REMEDY_RISK.NONE,
-        args: { file: invalid.file, from, to: normalization.to },
+        args: { file, from, to: normalization.to },
+      },
+    });
+  }
+  return diagnostics;
+}
+
+// ─── W032 — verification report frontmatter does not parse ─────────────────
+//
+// A report whose frontmatter block is not YAML has no readable `status`, and
+// every reader refuses it (`VerificationReportUnparseableError`) rather than
+// reading it as a report with no status. Health names the line the parser
+// stopped at and its reason. Not repairable: what the block was meant to say
+// is the owner's to fix.
+
+function checkW032(snapshot: PlanningSnapshot): Diagnostic[] {
+  const diagnostics: Diagnostic[] = [];
+  const unparseableDefects = snapshot.verificationReportDefects.value
+    .filter((d): d is UnparseableDefect => d.kind === 'unparseable');
+  for (const unparseable of unparseableDefects) {
+    const where = unparseable.line === null ? '' : ` at line ${unparseable.line}`;
+    const advice = adviseRemedy(
+      `Fix the YAML in the report frontmatter${where} (a nested key under a scalar is the usual cause) so ` +
+      '`status` reads as one of passed | gaps_found | human_needed, or delete the report and re-run the phase verification',
+    );
+    diagnostics.push({
+      code: 'W032',
+      severity: SEVERITY.WARNING,
+      message: `Phase ${reportPhaseLabel(unparseable)}: ${unparseable.message}`,
+      remedy: {
+        ...advice,
+        args: { ...advice.args, file: unparseable.report.filePath, line: unparseable.line, reason: unparseable.reason },
       },
     });
   }
@@ -392,6 +441,13 @@ const RULES: Rule[] = [
     description: 'Phase verification report status is a legacy synonym of a closed-set value (`verified`)',
     repairable: true,
     check: checkW031,
+  },
+  {
+    code: 'W032',
+    severity: SEVERITY.WARNING,
+    description: 'Phase verification report frontmatter does not parse',
+    repairable: false,
+    check: checkW032,
   },
 ];
 

@@ -828,6 +828,39 @@ function extractFrontmatter(content: string, sourcePath?: string): Frontmatter {
   }
 }
 
+/** `parseFrontmatterStrict`'s answer: the parsed block, or where and why a closed block failed to parse. */
+type StrictFrontmatterResult =
+  | { ok: true; frontmatter: Frontmatter }
+  | { ok: false; line: number | null; reason: string };
+
+/**
+ * `extractFrontmatter` for a reader that must say WHY a block did not parse. Identical for every
+ * document except one: a closed frontmatter block the parser refuses (malformed YAML, a refused
+ * anchor/alias/merge key, the reserved sentinel) is `{ ok: false }` carrying the 1-based document
+ * line the parser stopped at (`null` when the refusal has no position — an anchor/alias refusal)
+ * and the parser's own reason — where `extractFrontmatter` hands back an empty object carrying
+ * only the `FRONTMATTER_UNPARSEABLE` marker. Same fence owner, same guarded parse; no document,
+ * an unterminated fence (and its #1882 diagnostic) and a parseable block all answer exactly as
+ * `extractFrontmatter` does. Found while fixing the VERIFICATION reader, which turned the
+ * marker's bare `{}` into "the report has no status".
+ */
+function parseFrontmatterStrict(content: string, sourcePath?: string): StrictFrontmatterResult {
+  const fence = locateFrontmatterFence(content);
+  if (!fence || !fence.closed) return { ok: true, frontmatter: extractFrontmatter(content, sourcePath) };
+  try {
+    return { ok: true, frontmatter: parseGuardedYamlRegion(content.slice(fence.openEnd, fence.bodyEnd)) };
+  } catch (err) {
+    const linesBeforeRegion = content.slice(0, fence.openEnd).split('\n').length - 1;
+    const mark = err instanceof YAMLException ? (err as { mark?: { line?: unknown } }).mark : undefined;
+    const line = mark && typeof mark.line === 'number' ? linesBeforeRegion + mark.line + 1 : null;
+    const yamlReason = err instanceof YAMLException ? (err as { reason?: unknown }).reason : undefined;
+    const reason = typeof yamlReason === 'string' && yamlReason.length > 0
+      ? yamlReason
+      : err instanceof Error ? err.message : String(err);
+    return { ok: false, line, reason };
+  }
+}
+
 /**
  * The entries of a top-level frontmatter ARRAY key, VERBATIM — as the values
  * YAML actually describes rather than the display-flattened strings
@@ -1892,6 +1925,9 @@ export = {
   // function as `extractFrontmatter` — a bare-object parse with no behavior change — exposed under
   // the alias so the prohibition schema round-trip and any future caller can use the canonical name.
   parseFrontmatter: extractFrontmatter,
+  // `extractFrontmatter` plus the line and reason of a closed block that does not parse — for a
+  // reader that must report the defect instead of reading the block as empty.
+  parseFrontmatterStrict,
   reconstructFrontmatter,
   // The writer lives in `frontmatter-splice.cts` (#5105); its public names are re-exported
   // here, unchanged, so no caller's import moves. Getters, because that module requires this

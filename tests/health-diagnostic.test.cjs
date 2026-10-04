@@ -292,9 +292,9 @@ describe('evaluateRuleTable — duplicate-code guard (row 13)', () => {
 // doc, "Two guards that stay OUTSIDE the rule table entirely").
 
 describe('RULES', () => {
-  test('is the full, frozen 35-rule table with every code unique', () => {
+  test('is the full, frozen 36-rule table with every code unique', () => {
     assert.equal(Array.isArray(RULES), true);
-    assert.equal(RULES.length, 35);
+    assert.equal(RULES.length, 36);
     const codes = RULES.map((r) => r.code);
     assert.equal(new Set(codes).size, codes.length, 'every rule code must be unique');
   });
