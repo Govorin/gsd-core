@@ -31,6 +31,7 @@ interface VerifyModule {
     options?: { strict?: boolean; phase?: string }
   ): void;
   cmdVerifyMutation(cwd: string, args: readonly string[], raw: boolean): Promise<void>;
+  cmdVerifyBaseline(cwd: string, args: readonly string[], raw: boolean): void;
 }
 
 interface RouteVerifyCommandOptions {
@@ -115,6 +116,10 @@ function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyComman
       mutation: () => {
         pending = verify.cmdVerifyMutation(cwd, args.slice(2), raw);
       },
+      // mn-verify-gate's execute:pre baseline step: `verify baseline --phase <N>` (the step
+      // dispatcher's form) or `verify baseline <phase-dir>`, `--accept <why>` to start on a known
+      // red base; records into {N}-BASELINE.md, the gate `check mn-baseline` judges.
+      baseline: () => verify.cmdVerifyBaseline(cwd, args.slice(2), raw),
     },
   });
   return pending;

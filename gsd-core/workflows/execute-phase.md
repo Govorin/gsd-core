@@ -405,6 +405,20 @@ Report:
 ```
 </step>
 
+<step name="execute_pre_hooks">
+**Execute:pre capability dispatch** — once per run, after the plan inventory, before any cross-AI or wave work:
+
+```bash
+EXECUTE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks execute:pre --raw)
+```
+
+Read `activeHooks` in-context (do NOT pipe through a shell parser). Empty or absent: continue to `cross_ai_delegation`.
+
+**Step dispatch:** dispatch every `kind == "step"` hook per @gsd-core/references/loop-hook-dispatch.md (skip when none), before the gates below. ⚠ Validate `ref.command` in-context before any shell use.
+
+**Gate dispatch:** evaluate every `kind == "gate"` hook per `gsd-core/workflows/execute-phase/steps/execute-pre-gate-hooks.md`. A blocking gate that blocks HALTs the run here — no executor is spawned, no wave starts.
+</step>
+
 <step name="cross_ai_delegation">
 **Optional step 2.5 — Delegate plans to an external AI runtime.** Runs after plan discovery, before wave execution. Activates when `--cross-ai` forces all incomplete plans, `--no-cross-ai` disables it entirely, or (default) a plan's `cross_ai: true` frontmatter agrees with the `workflow.cross_ai_execution` config. **Only `ready` plans are eligible (#4628) — a not-ready plan is never delegated over incomplete predecessors.** If no plan is marked, skip to execute_waves; if marked but `workflow.cross_ai_command` is unset, error and tell the user to set it.
 

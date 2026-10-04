@@ -103,6 +103,11 @@
       "default": false,
       "description": "Run `verify gates` automatically at verify:pre, before the verifier reads the phase. Order matters: the verifier should read numbers it did not produce. Off by default because it is inert without workflow.verify_gates naming commands, and running an unconfigured recorder on every phase would print a refusal each time."
     },
+    "workflow.verify_gates_baseline": {
+      "type": "boolean",
+      "default": false,
+      "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
+    },
     "workflow.verify_gates_enforce": {
       "type": "boolean",
       "default": false,
@@ -271,6 +276,16 @@
   },
   "steps": [
     {
+      "point": "execute:pre",
+      "ref": {
+        "command": "verify baseline"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.verify_gates_baseline",
+      "onError": "skip"
+    },
+    {
       "point": "verify:pre",
       "ref": {
         "command": "verify gates"
@@ -371,6 +386,15 @@
     }
   ],
   "gates": [
+    {
+      "point": "execute:pre",
+      "check": {
+        "query": "mn-baseline"
+      },
+      "when": "workflow.verify_gates_baseline",
+      "blocking": true,
+      "onError": "halt"
+    },
     {
       "point": "ship:pre",
       "check": {
