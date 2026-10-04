@@ -571,6 +571,63 @@ printed all of STATE.md per phase again (L2, `461ecb018`); bare
   (`c34356829`): dated working records, never installed; per-line markers would
   fork the copy on every carry. `docs/plans/` stays scanned.
 
+### Phase 4 of the sync plan (2026-10-04)
+
+Merged into `next` as `fix-test-count`, `p4-a`..`p4-d` (`775ba19bd`..`9f74cfbb6`),
+derived artifacts `b00ce28bc`. New keys are all on `mn-verify-gate` unless noted;
+absent = enabled applies, so the defaults below are the effective ones.
+
+- **4.3 check statuses** (`13a81aec2`): every `verify gates` check lands in
+  `pass | fail | stale | timeout` (one rule table, `CHECK_OUTCOME_RULES`): exit
+  127/126, a spawn error or a bare signal is `stale`, `ETIMEDOUT` is `timeout`.
+  The record carries `{name}_status` / `{name}_cause` and per-status counts; a
+  dead roster no longer reads as a red suite.
+- **4.1 baseline gate** (`73c11f22b`): `execute-phase.md` gains
+  `execute_pre_hooks` — `render-hooks execute:pre`, steps per
+  `loop-hook-dispatch.md`, gates per `execute-phase/steps/execute-pre-gate-hooks.md`;
+  a blocking gate halts before the first wave. Step `verify baseline` writes
+  `{N}-BASELINE.md`, gate `check mn-baseline` judges it, `--accept <why>` starts
+  on a known red base. Key `workflow.verify_gates_baseline` (default **off**: it
+  blocks and costs one full check run per execute). Closes Remaining §7's
+  `execute:pre` paragraph. Integration fix `8f4957136`: the gate query was
+  unquoted (SC2086) and the step file was only mentioned, not dispatched
+  (response-language coverage).
+- **4.2 failure paths** (`ad94ca92a`): `<failure_paths>` in PLAN.md, each path an
+  `<invariant>` plus a `<check>` in the `<automated>`/`<fails_when>` grammar,
+  required when `files_modified` names a migration or `user_setup` is non-empty.
+  `check mn-failure-paths` reports `paths_without_check / paths`. Keys
+  `workflow.failure_paths` (on, a planner instruction) and
+  `workflow.failure_paths_enforce` (off, halts `plan:post`).
+- **4.6 restatement** (`f315b9dab`): `workflow.restate_goal` (on) — three lines at
+  the end of every `<objective>` (Restated / Not doing / Sources); plan-checker
+  Dimension 1b treats a contradiction as a blocker.
+- **4.5 grill mode** (`bc7012aed`, `8ff4adabb`): `src/decision-tree.cts`,
+  `gsd_run discuss tree`, `discuss-phase/modes/grill.md`; `--grill` or core key
+  `workflow.discuss_mode: grill`, depth capped by `workflow.max_discuss_passes`
+  (both validated on set).
+- **4.7 graphs** (`b60d0dae7`): `/gsd-progress --graph` — a `flag:--graph`
+  section `graphs` (`progress/steps/graphs.md`); a plain report draws nothing.
+- **4.4 writing-for-agents pilot** (`2f9e3d3a1`): `agents/gsd-executor.md`
+  48 466 → 41 803 B with no behavior change; method and measurements in
+  `.plans/writing-for-agents-pilot.md`.
+- **Test-count fixes** (`283cf2df1`, `c7589b952`, `ab8dd6255`): FU-F/G suites
+  folded into their module test files, example CONTEXT-INDEX regenerated, SC2086
+  in `health.md`.
+- **Integration follow-ups** — each branch passed its own suites, the merged tree
+  failed ten files they did not run: `cb8212a69` (failure-paths fragment cited
+  `~/.claude/...`, which the verbatim registry leaks to other runtimes; plan:pre
+  all-off fixture; Dimension 1b in `docs/AGENTS.md`), `8c0578db9` (execute:pre
+  registry guard now pins the baseline pair; retired `/gsd-` slash form;
+  compact-content benchmark baseline), `0b5256b2a` / `065a640a3` (`GSD_WS` in the
+  grill and graphs fences, #4772; `--grill` / `--graph` in full help, #2954),
+  `55ccdbdc2` (pre-existing: `BACKLOG.md` in the #2269 call-site sweep). **Lesson:**
+  a branch's own test list is not enough for shipped-markdown or registry
+  changes — run `test:affected` before handing a branch over.
+- **Open:** `emitted-attribution` against `upstream/next` reports the
+  `Emitted-Drift-Ack-Growth: gsd-executor.md` trailer of `b1b7c8401` as stale —
+  4.4 shrank the executor below upstream. The remedy the gate prints is amending
+  that commit; history is not rewritten here, and the grammar has no withdrawal.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
@@ -656,9 +713,9 @@ function — a coupling invisible to any search for the type name.
 **Closed for `verify:pre` by the 1.15 sync** (`5c6d43b21`): upstream's
 `verify_pre_hooks` dispatches every hook kind through
 `references/loop-hook-dispatch.md`, and the fork's step declares `verify gates`
-so it matches the dispatcher's pattern. `execute:pre` is still declared in
-`execute-phase.md` `points:` with no `render-hooks execute:pre` call. Original
-finding below.
+so it matches the dispatcher's pattern. **`execute:pre` closed by phase 4.1**
+(`73c11f22b`): `execute-phase.md` now renders and dispatches it (steps, then
+gates). Nothing of §7 remains open. Original finding below.
 
 Found while wiring `plan-graph`, by reading — **not** confirmed against a live
 `/gsd-verify-work` run. `workflow.verify_gates_record` is registered as a
@@ -685,7 +742,8 @@ Related, same shape: `execute:pre` is a declared point with no dispatch at all
 in `execute-phase.md` (no `EXECUTE_PRE_HOOKS_JSON`), and steps "never halt the
 host workflow on their own" (`docs/reference/capability-manifest.md`), so a
 baseline check on entry cannot be a step and needs a gate dispatch added there.
-`execute-phase.md` is 94 575 bytes, at the budget ratchet. Deferred.
+`execute-phase.md` is 94 575 bytes, at the budget ratchet. Deferred. *(Since
+done — see "Phase 4 of the sync plan": a step records, a gate blocks.)*
 
 ---
 
