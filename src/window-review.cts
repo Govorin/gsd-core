@@ -62,6 +62,9 @@ import type { ImportGraph } from './code-graph.cjs';
 import { readHistory, churnOf } from './git-history.cjs';
 import { lex, languageOf } from './symbol-index.cjs';
 import { splitLines } from './text-lines.cjs';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import frontmatterMod = require('./frontmatter.cjs');
+const { rawFrontmatterField } = frontmatterMod;
 import { CODE_REVIEW_LENSES } from './code-review-flags.cjs';
 import type { CodeReviewLens } from './code-review-flags.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -823,8 +826,8 @@ export function composeWindowReview(input: ComposeInput): ComposedReview {
     `window: ${JSON.stringify(`${w.since}..${w.until}`)}`,
     `since: ${JSON.stringify(w.since)}`,
     `until: ${JSON.stringify(w.until)}`,
-    `tip: ${w.tip}`,
-    `base: ${w.base ?? 'null'}`,
+    `tip: ${JSON.stringify(w.tip)}`,
+    `base: ${w.base === null ? 'null' : JSON.stringify(w.base)}`,
     `reviewed: ${input.reviewedAt}`,
     `lenses:${yamlList(input.reports.map((r) => r.label), '  ')}`,
     `files_reviewed: ${input.files.length}`,
@@ -862,16 +865,9 @@ export function composeWindowReview(input: ComposeInput): ComposedReview {
  * `since` was spelled? Then a `--fix` run can fix it as it stands instead of reviewing it again.
  */
 export function reviewMatchesWindow(review: string, window: Pick<WindowMeta, 'base' | 'tip'>): boolean {
-  const lines = splitLines(review);
-  const end = lines.indexOf('---', 1);
-  if (lines[0] !== '---' || end === -1) return false;
-  const frontmatter = lines.slice(1, end);
-  const field = (key: string): string | null => {
-    const prefix = `${key}: `;
-    const line = frontmatter.find((l) => l.startsWith(prefix));
-    return line === undefined ? null : line.slice(prefix.length).trim();
-  };
-  return field('tip') === window.tip && field('base') === (window.base ?? 'null');
+  const tip = rawFrontmatterField(review, 'tip');
+  const base = rawFrontmatterField(review, 'base');
+  return tip !== null && base !== null && tip.value === window.tip && base.value === window.base;
 }
 
 // ─── Deferred findings → broken windows ──────────────────────────────────────
