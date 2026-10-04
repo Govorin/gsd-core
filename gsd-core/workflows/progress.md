@@ -124,6 +124,8 @@ Use this instead of manually reading/parsing ROADMAP.md.
 ```bash
 # Get formatted progress bar
 PROGRESS_BAR=$(gsd_run query progress.bar --raw)
+# Phase graph + completion gantt, built from ROADMAP data (defects listed under it)
+ROADMAP_GRAPH=$(gsd_run roadmap graph --raw 2>/dev/null || echo '')
 ```
 
 Present:
@@ -171,6 +173,9 @@ Render `Open Windows` only when `$WINDOWS_OPEN` is greater than `0` (or `$WINDOW
 ## Active Debug Sessions
 - [count] active — /gsd:debug to continue
 (Only show this section if count > 0)
+
+## Phase Graph
+{ROADMAP_GRAPH} — print it verbatim, never redraw or edit it; omit the section when empty
 
 ## What's Next
 [Next phase/plan objective from roadmap analyze]
