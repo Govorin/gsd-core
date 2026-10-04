@@ -5,11 +5,11 @@
  * Tests:
  *   A. Config override wins (git.base_branch set → returned as-is, no git calls needed)
  *   B. origin/HEAD symref resolves → used
- *   C. origin/HEAD unset but git remote show origin knows HEAD → AUTHORITATIVE fallback
+ *   C. origin/HEAD unset but origin advertises its HEAD (ls-remote --symref) → AUTHORITATIVE fallback
  *      (key regression: master repo with no origin/HEAD → must return "master", NOT "main")
- *   D. No origin/HEAD, no remote show, local branch "master" present → returns "master"
- *   E. No origin/HEAD, no remote show, local branch "main" present → returns "main"
- *   F. No origin/HEAD, no remote show, no local branches → returns "main" (last resort)
+ *   D. No origin/HEAD, no remote HEAD, local branch "master" present → returns "master"
+ *   E. No origin/HEAD, no remote HEAD, local branch "main" present → returns "main"
+ *   F. No origin/HEAD, no remote HEAD, no local branches → returns "main" (last resort)
  *   G. Anti-regression guard: five affected workflows must NOT contain the
  *      duplicated bare `:-main` / `:-master` fallback pattern that was the root cause.
  *      They must call `gsd_run query git.base-branch` instead.
@@ -32,7 +32,7 @@ const path = require('node:path');
 const { runGsdTools, cleanup, readFileNormalized } = require('./helpers.cjs');
 const { ExitError } = require('../gsd-core/bin/lib/cli-exit.cjs');
 const { makeFaultyGit } = require('./helpers/faulty-deps.cjs');
-const { gitOrThrow, throwIfFailed } = require('./helpers/git-fixture.cjs');
+const { gitOrThrow, throwIfFailed, translatedGitLocale } = require('./helpers/git-fixture.cjs');
 const { runHook } = require('./helpers/process-seam.cjs');
 
 // #3145: class-norm timeout, not a per-suite value — see helpers/timeouts.cjs.
@@ -50,7 +50,7 @@ const EXECUTOR_GUARD_TIMEOUT_MS = 10000;
 /**
  * These four constants are NOT bounds on this suite's own subprocess calls —
  * they are the EXACT timeout values production code (gitBaseBranch's
- * trySymbolicRef / tryRemoteShow / tryLocalBranch / gitWorktreeInfoInternal,
+ * trySymbolicRef / tryRemoteHead / tryLocalBranch / gitWorktreeInfoInternal,
  * in src/, out of this batch's scope) hardcodes when calling its own git
  * execution callback. Each test below asserts the captured call args to
  * prove production didn't drift from its documented bound. Kept as FOUR
@@ -61,7 +61,7 @@ const EXECUTOR_GUARD_TIMEOUT_MS = 10000;
  * assertion. All four are pre-existing values, unchanged by this migration.
  */
 const TIER2_SYMBOLIC_REF_TIMEOUT_MS = 5000;
-const TIER3_REMOTE_SHOW_TIMEOUT_MS = 15000;
+const TIER3_REMOTE_HEAD_TIMEOUT_MS = 15000;
 const TIER4_LOCAL_BRANCH_TIMEOUT_MS = 5000;
 const WORKTREE_INFO_TIMEOUT_MS = 5000;
 
@@ -90,6 +90,39 @@ function createGitRepo(opts = {}) {
  */
 function addPlanning(dir) {
   fs.mkdirSync(path.join(dir, '.planning', 'phases'), { recursive: true });
+}
+
+/**
+ * A clone of a `master` origin whose origin/HEAD was never set (git init +
+ * remote add + fetch, no set-head) — the shape only tier 3 can answer.
+ */
+function createCloneWithoutOriginHead(t, prefix) {
+  const originDir = createGitRepo({ prefix: `${prefix}origin-`, defaultBranch: 'master' });
+  const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}clone-`));
+  t.after(() => { cleanup(originDir); cleanup(cloneDir); });
+
+  // Manually add remote WITHOUT cloning (so origin/HEAD is never set)
+  gitOrThrow(['init'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  gitOrThrow(['config', 'user.email', 'test@test.com'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  gitOrThrow(['config', 'user.name', 'Test'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  gitOrThrow(['config', 'commit.gpgsign', 'false'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  gitOrThrow(['remote', 'add', 'origin', originDir], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  gitOrThrow(['fetch', 'origin'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  // Explicitly delete origin/HEAD in case git fetch auto-set it (newer git versions may do this)
+  try {
+    gitOrThrow(['remote', 'set-head', 'origin', '--delete'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  } catch (_) { /* ignore — may not exist */ }
+  addPlanning(cloneDir);
+
+  // Confirm origin/HEAD is unset
+  let hasSymref = true;
+  try {
+    gitOrThrow(['symbolic-ref', 'refs/remotes/origin/HEAD'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
+  } catch (_) {
+    hasSymref = false;
+  }
+  assert.strictEqual(hasSymref, false, 'Test setup: origin/HEAD must be unset for this test case');
+  return cloneDir;
 }
 
 /** Snapshot every file below .planning, including bytes and relative paths. */
@@ -190,38 +223,27 @@ describe('#1146: git.base-branch resolver', () => {
 
   test('C. KEY REGRESSION — master repo, origin/HEAD unset → returns "master" not "main"', (t) => {
     // This is the bug: git init + remote add without git remote set-head → no origin/HEAD
-    // Current code falls back to :-main → wrong. Fixed code uses `git remote show origin`.
-    const originDir = createGitRepo({ prefix: 'gsd-1146-c-origin-', defaultBranch: 'master' });
-    const cloneDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-1146-c-clone-'));
-    t.after(() => { cleanup(originDir); cleanup(cloneDir); });
-
-    // Manually add remote WITHOUT cloning (so origin/HEAD is never set)
-    gitOrThrow(['init'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    gitOrThrow(['config', 'user.email', 'test@test.com'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    gitOrThrow(['config', 'user.name', 'Test'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    gitOrThrow(['config', 'commit.gpgsign', 'false'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    gitOrThrow(['remote', 'add', 'origin', originDir], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    gitOrThrow(['fetch', 'origin'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    // Explicitly delete origin/HEAD in case git fetch auto-set it (newer git versions may do this)
-    try {
-      gitOrThrow(['remote', 'set-head', 'origin', '--delete'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    } catch (_) { /* ignore — may not exist */ }
-    addPlanning(cloneDir);
-
-    // Confirm origin/HEAD is unset
-    let hasSymref = true;
-    try {
-      gitOrThrow(['symbolic-ref', 'refs/remotes/origin/HEAD'], { cwd: cloneDir, timeoutMs: GIT_TIMEOUT_MS });
-    } catch (_) {
-      hasSymref = false;
-    }
-    assert.strictEqual(hasSymref, false, 'Test setup: origin/HEAD must be unset for this test case');
+    // Current code falls back to :-main → wrong. Fixed code asks origin (`git ls-remote --symref origin HEAD`).
+    const cloneDir = createCloneWithoutOriginHead(t, 'gsd-1146-c-');
 
     const result = runGsdTools(['query', 'git.base-branch'], cloneDir);
     assert.ok(result.success, `git.base-branch regression test failed:\n${result.error}`);
     const branch = result.output.trim();
     assert.strictEqual(branch, 'master',
       `BUG REGRESSION: master repo with origin/HEAD unset must return 'master', got: '${branch}'`);
+  });
+
+  test('C2. same repo under a translated git locale → still "master" (tier 3 reads no translated label)', (t) => {
+    // Tier 3 once parsed "HEAD branch:" out of `git remote show origin`; under
+    // LANG=ru_RU.UTF-8 git prints "HEAD ветка:", the match missed, and the
+    // ladder fell through to tier 4/5 and answered "main".
+    const locale = translatedGitLocale();
+    if (!locale.env) { t.skip(locale.reason); return; }
+    const cloneDir = createCloneWithoutOriginHead(t, 'gsd-1146-c2-');
+
+    const result = runGsdTools(['query', 'git.base-branch'], cloneDir, locale.env);
+    assert.ok(result.success, `git.base-branch under ru_RU failed:\n${result.error}`);
+    assert.strictEqual(result.output.trim(), 'master');
   });
 
   test('D. No remote, local branch "master" present, "main" absent → returns "master"', (t) => {
@@ -1928,59 +1950,49 @@ describe('#3057 W3: trySymbolicRef — tier-2 output that resolves to nothing', 
   });
 });
 
-describe('#3057 W3: tryRemoteShow — tier-3 output that is present but not authoritative', () => {
-  const REMOTE_SHOW_NO_HEAD = [
-    '* remote origin',
-    '  Fetch URL: /tmp/origin.git',
-    '  Push  URL: /tmp/origin.git',
-    '  Remote branch:',
-    '    main tracked',
-    '',
-  ].join('\n');
+describe('#3057 W3: tryRemoteHead — tier-3 output that is present but not authoritative', () => {
+  // `git ls-remote --symref origin HEAD` — the symref line precedes the sha line.
+  const LS_REMOTE_SYMREF = 'ref: refs/heads/master\tHEAD\n0123456789abcdef0123456789abcdef01234567\tHEAD\n';
 
-  test('stdout has no "HEAD branch:" line → null', () => {
+  test('a detached remote HEAD (sha line only, no "ref:" line) → null', () => {
     assert.strictEqual(
-      gitBaseBranch.tryRemoteShow('/x', constGit({ stdout: REMOTE_SHOW_NO_HEAD })), null);
+      gitBaseBranch.tryRemoteHead('/x', constGit({ stdout: '0123456789abcdef0123456789abcdef01234567\tHEAD\n' })), null);
   });
 
-  test('"HEAD branch:" with no value on the line → null (no capture, no guess)', () => {
+  test('a "ref:" line with no branch name → null (no capture, no guess)', () => {
     assert.strictEqual(
-      gitBaseBranch.tryRemoteShow('/x', constGit({ stdout: '  HEAD branch: \n' })), null);
+      gitBaseBranch.tryRemoteHead('/x', constGit({ stdout: 'ref: refs/heads/\tHEAD\n' })), null);
   });
 
-  test('"HEAD branch: (unknown)" → null — the documented offline-remote case', () => {
-    // git prints "(unknown)" when it could not reach the remote. Returning it
-    // verbatim would hand a literal branch named "(unknown)" to five workflows;
-    // returning null lets tier 4 answer instead.
+  test('a "ref:" line for a non-branch ref → null', () => {
     assert.strictEqual(
-      gitBaseBranch.tryRemoteShow('/x', constGit({ stdout: '  HEAD branch: (unknown)\n' })), null);
+      gitBaseBranch.tryRemoteHead('/x', constGit({ stdout: 'ref: refs/tags/v1\tHEAD\n' })), null);
+  });
+
+  test('the human-readable `remote show` label is not read, in any language → null', () => {
+    // The tier used to parse "HEAD branch:" out of `git remote show origin`,
+    // which git translates ("HEAD ветка:" under ru_RU) — the match missed and
+    // the ladder fell through to the wrong answer.
+    assert.strictEqual(gitBaseBranch.tryRemoteHead('/x', constGit({ stdout: '  HEAD branch: master\n' })), null);
   });
 
   test('execGit THROWS → null (catch arm)', () => {
-    assert.strictEqual(gitBaseBranch.tryRemoteShow('/x', throwingGit('remote show exploded')), null);
+    assert.strictEqual(gitBaseBranch.tryRemoteHead('/x', throwingGit('ls-remote exploded')), null);
   });
 
-  test('positive control: the HEAD branch line is found mid-output and returned verbatim', () => {
-    const stdout = [
-      '* remote origin',
-      '  Fetch URL: /tmp/origin.git',
-      '  HEAD branch: master',
-      '  Remote branch:',
-      '    master tracked',
-      '',
-    ].join('\n');
-    assert.strictEqual(gitBaseBranch.tryRemoteShow('/x', constGit({ stdout })), 'master');
+  test('positive control: the symref line is found and its branch returned verbatim', () => {
+    assert.strictEqual(gitBaseBranch.tryRemoteHead('/x', constGit({ stdout: LS_REMOTE_SYMREF })), 'master');
   });
 
   test('the tier-3 subprocess is bounded (argv + timeout are pinned)', () => {
     const seen = [];
-    gitBaseBranch.tryRemoteShow('/some/cwd', (args, opts) => {
+    gitBaseBranch.tryRemoteHead('/some/cwd', (args, opts) => {
       seen.push({ args, opts });
-      return gitResult({ stdout: '  HEAD branch: main\n' });
+      return gitResult({ stdout: 'ref: refs/heads/main\tHEAD\n' });
     });
     assert.deepStrictEqual(seen, [{
-      args: ['remote', 'show', 'origin'],
-      opts: { cwd: '/some/cwd', timeout: TIER3_REMOTE_SHOW_TIMEOUT_MS },
+      args: ['ls-remote', '--symref', 'origin', 'HEAD'],
+      opts: { cwd: '/some/cwd', timeout: TIER3_REMOTE_HEAD_TIMEOUT_MS },
     }]);
   });
 });
@@ -2052,8 +2064,8 @@ describe('#3057 W3: resolveBaseBranchDiagnostics — which tier actually answere
       if (args[0] === 'symbolic-ref') {
         return symref === null ? gitResult({ exitCode: 1 }) : gitResult({ stdout: `origin/${symref}\n` });
       }
-      if (args[0] === 'remote') {
-        return remote === null ? gitResult({ exitCode: 128 }) : gitResult({ stdout: `  HEAD branch: ${remote}\n` });
+      if (args[0] === 'ls-remote') {
+        return remote === null ? gitResult({ exitCode: 128 }) : gitResult({ stdout: `ref: refs/heads/${remote}\tHEAD\n` });
       }
       if (args[0] === 'branch') {
         return local === null ? gitResult({ stdout: '\n' }) : gitResult({ stdout: `  ${local}\n` });
@@ -2071,7 +2083,7 @@ describe('#3057 W3: resolveBaseBranchDiagnostics — which tier actually answere
     const result = gitBaseBranch.resolveBaseBranchDiagnostics('/x', { ...NO_CONFIG, execGit: git });
     assert.deepStrictEqual(result, { branch: 'from-symref', verified: true });
     assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref'],
-      'a tier-2 hit must stop the ladder before `remote show` and `branch --list`');
+      'a tier-2 hit must stop the ladder before `ls-remote` and `branch --list`');
   });
 
   test('tier 3 answers → tier 4 is never consulted, even though it WOULD answer "master"', () => {
@@ -2080,7 +2092,7 @@ describe('#3057 W3: resolveBaseBranchDiagnostics — which tier actually answere
     });
     const result = gitBaseBranch.resolveBaseBranchDiagnostics('/x', { ...NO_CONFIG, execGit: git });
     assert.deepStrictEqual(result, { branch: 'from-remote', verified: true });
-    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'remote'],
+    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'ls-remote'],
       'a tier-3 hit must stop the ladder before `branch --list`');
   });
 
@@ -2090,7 +2102,7 @@ describe('#3057 W3: resolveBaseBranchDiagnostics — which tier actually answere
     });
     const result = gitBaseBranch.resolveBaseBranchDiagnostics('/x', { ...NO_CONFIG, execGit: git });
     assert.deepStrictEqual(result, { branch: 'master', verified: true });
-    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'remote', 'branch']);
+    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'ls-remote', 'branch']);
   });
 
   test('a config override answers before ANY git subprocess runs', () => {
@@ -2112,7 +2124,7 @@ describe('#3057 W3: resolveBaseBranchDiagnostics — which tier actually answere
     const git = makeFaultyGit({ faults: [{ kind: 'spawnFail' }] });
     const result = gitBaseBranch.resolveBaseBranchDiagnostics('/x', { ...NO_CONFIG, execGit: git });
     assert.deepStrictEqual(result, { branch: 'main', verified: false });
-    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'remote', 'branch'],
+    assert.deepStrictEqual(git.calls.map((c) => c.args[0]), ['symbolic-ref', 'ls-remote', 'branch'],
       'all three tiers must still be attempted before the unverified default');
   });
 

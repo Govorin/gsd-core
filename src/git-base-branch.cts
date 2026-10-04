@@ -11,7 +11,7 @@
  * Precedence ladder (highest to lowest):
  *   1. `git.base_branch` config override from .planning/config.json
  *   2. `git symbolic-ref --short refs/remotes/origin/HEAD`  (fast, no network)
- *   3. `git remote show origin` HEAD branch  ← AUTHORITATIVE; works when #2 unset
+ *   3. `git ls-remote --symref origin HEAD`  ← AUTHORITATIVE; works when #2 unset
  *   4. Local branch existence: "master" present + "main" absent → "master";
  *      "main" present → "main"
  *   5. "main"  (last-resort default)
@@ -227,33 +227,30 @@ export function trySymbolicRef(
 }
 
 /**
- * Try `git remote show origin` to read the HEAD branch.
+ * Ask origin which branch its HEAD points at: `git ls-remote --symref origin HEAD`.
  * This is authoritative when origin/HEAD is unset locally.
  * Requires network access but succeeds in the common CI case where
  * origin/HEAD was never set after `git init && git remote add origin`.
  *
- * Parses the line:  `HEAD branch: <name>`
+ * Parses the machine-format line:  `ref: refs/heads/<name>\tHEAD`
+ * (`git remote show origin` printed the same answer as a translated
+ * "HEAD branch:" label, which a non-English locale renamed out from under
+ * the match.) A remote whose HEAD is detached advertises no `ref:` line.
  * Returns null on error, timeout, or if the output is malformed.
  */
-export function tryRemoteShow(
+export function tryRemoteHead(
   cwd: string,
   execGit: ExecGitFn
 ): string | null {
   try {
     const r = execGit(
-      ['remote', 'show', 'origin'],
+      ['ls-remote', '--symref', 'origin', 'HEAD'],
       { cwd, timeout: 15_000 }
     );
     if (r.exitCode !== 0 || !r.stdout) return null;
-    // The line looks like: "  HEAD branch: master"
-    const m = r.stdout.match(/^\s*HEAD branch:\s*(\S+)\s*$/m);
-    if (!m) return null;
-    const branch = m[1];
-    // git emits "(unknown)" when the remote is offline but the local cache
-    // resolved it; treat that as non-authoritative and fall through.
-    // No `!branch ||` guard: m[1] comes from the `(\S+)` capture group above, so it is never empty.
-    if (branch === '(unknown)') return null;
-    return branch;
+    const m = r.stdout.match(/^ref: refs\/heads\/(\S+)\tHEAD$/m);
+    // No `!m[1]` guard: the `(\S+)` capture group is never empty.
+    return m ? m[1] : null;
   } catch {
     return null;
   }
@@ -329,7 +326,7 @@ function resolveBaseBranchDiagnosticsWithConfig(
   // exit with no useful output, or exit 0 with empty stdout). Only the former
   // means a tier's answer was never actually obtained. Wrapping execGit here
   // observes every tier's calls uniformly without changing trySymbolicRef /
-  // tryRemoteShow / tryLocalBranch's own return contracts.
+  // tryRemoteHead / tryLocalBranch's own return contracts.
   let anyGitFailure = false;
   const execGit: ExecGitFn = (args, opts) => {
     const r = rawExecGit(args, opts);
@@ -344,9 +341,9 @@ function resolveBaseBranchDiagnosticsWithConfig(
   const symref = trySymbolicRef(cwd, execGit);
   if (symref) return { branch: symref, verified: true };
 
-  // 3. git remote show origin (authoritative when origin/HEAD unset)
-  const remoteShow = tryRemoteShow(cwd, execGit);
-  if (remoteShow) return { branch: remoteShow, verified: true };
+  // 3. origin's advertised HEAD (authoritative when origin/HEAD unset)
+  const remoteHead = tryRemoteHead(cwd, execGit);
+  if (remoteHead) return { branch: remoteHead, verified: true };
 
   // 4. Local branch existence
   const local = tryLocalBranch(cwd, execGit);
