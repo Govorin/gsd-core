@@ -391,6 +391,7 @@ build/
 /gsd-core/bin/lib/mn-worktree-gc.cjs
 /gsd-core/bin/lib/mn-assertion-count.cjs
 /gsd-core/bin/lib/code-graph.cjs
+/gsd-core/bin/lib/git-history.cjs
 __pycache__/
 *.pyc
 .venv/
