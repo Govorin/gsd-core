@@ -75,12 +75,15 @@ Do NOT verify:
 - **GSD marker** — the comment `<!-- generated-by: gsd-doc-writer -->`. Skip entirely.
 - **Example/template/diff code blocks** — fenced blocks tagged `diff`, `example`, or `template`. Skip all claims from these blocks.
 - **Version numbers in prose** — strings like "`3.0.2`" or "`v1.4`" (version references, not paths or functions).
+- **Mermaid blocks** — checked by Step 1b only.
 </skip_rules>
 
 <verification_process>
 Follow in order:
 
 **Step 1: Read the doc file.** Load the full content at `doc_path` (resolved against `project_root`). If the file doesn't exist: write a failure JSON with `claims_checked: 0`, `claims_passed: 0`, `claims_failed: 1`, single failure `{ line: 0, claim: doc_path, expected: "file exists", actual: "doc file not found" }`. Return the confirmation and stop.
+
+**Step 1b: Diagrams.** A `mermaid` block → run `gsd_run diagrams check --file {doc_path}` (resolver: `gsd-run-resolver.md`); merge as is: `BLOCKER` → failure `{ line, claim, expected: "declared in the code", actual: message }`; ids `declared`/`planned`/`external` → passed; `WARNING` → neither; no command → SKIP.
 
 **Step 2: Check for package.json.** Load `{project_root}/package.json` if present; cache parsed content for command/dependency verification. If absent, package.json-dependent checks are SKIP, not FAIL.
 

@@ -145,7 +145,7 @@ is a numbered list; keep scannable — understandable within 60 seconds.
 **Required Sections:**
 - System overview — one paragraph: what the system does, primary inputs/outputs, architectural
   style. From root README/package.json description; grep top-level export patterns.
-- Component diagram — ASCII or Mermaid showing major modules + relationships. Inspect `src/`/
+- Component diagram — Mermaid `flowchart` of major modules + relationships. Inspect `src/`/
   `lib/` top-level subdirs (each = likely component); arrows show data-flow direction.
 - Data flow — prose/numbered description of a typical request's path from entry to output. Grep
   `app.listen`, `createServer`, entry points, event emitters, queue consumers; follow 2-3 levels.
@@ -154,7 +154,7 @@ is a numbered list; keep scannable — understandable within 60 seconds.
 - Directory structure rationale — top-level dirs with a one-sentence purpose each. `ls src/` or
   `ls lib/`; read index files.
 
-**Format:** Mermaid `graph TD` when supported, else ASCII; max 10 nodes (omit leaf utilities);
+**Format:** Mermaid (rule 10), ASCII only if unrenderable; max 10 nodes (omit leaf utilities);
 directory structure as a tree-indented code block.
 
 **Doc Tooling Adaptation:** see `<doc_tooling_guidance>`.
@@ -424,6 +424,10 @@ type. Create `docs/` if missing. No frontmatter added.
 5. Use `<!-- VERIFY: {claim} -->` for infrastructure claims not verifiable from the repo alone.
 6. Update mode: PRESERVE accurate user-authored content. Only rewrite inaccurate/missing sections.
 7. Supplement mode: NEVER modify existing content. Only append missing sections. No GSD marker.
+10. Diagrams are Mermaid in the checked subset — Read `~/.claude/gsd-core/references/mermaid-authoring.md`
+   first (its `%% gsd:` directives are exempt from rule 1). Every class/participant/call/state/entity
+   must exist in the code; ER only from `gsd_run mn zod-fieldtable`. After writing, run
+   `gsd_run diagrams check --file <doc>` and fix every BLOCKER.
 
 </critical_rules>
 
