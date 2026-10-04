@@ -207,6 +207,7 @@ build/
 /gsd-core/bin/lib/phase-status.cjs
 /gsd-core/bin/lib/mermaid.cjs
 /gsd-core/bin/lib/plan-graph.cjs
+/gsd-core/bin/lib/workflow-map.cjs
 /gsd-core/bin/lib/plan-command-router.cjs
 /gsd-core/bin/lib/roadmap-graph.cjs
 /gsd-core/bin/lib/loop-hooks-map.cjs

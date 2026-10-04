@@ -6,7 +6,7 @@
  * Module: gsd-core/bin/lib/markdown-sectionizer.cjs
  * Exports: stripFencedCode, stripInlineCode, extractFencedBlock, tokenizeHeadings,
  *          collectSections, collectSection, iterateBullets, updateBullet,
- *          extractTaggedBlocks, stripTaggedBlocks, replaceSection, withSection,
+ *          extractTaggedBlocks, scanTaggedBlocks, stripTaggedBlocks, replaceSection, withSection,
  *          deleteSection
  *
  * Covers the parser QA matrix from CONTRIBUTING.md §'Parser and project-file inputs':
@@ -40,6 +40,7 @@ const {
   iterateBullets,
   updateBullet,
   extractTaggedBlocks,
+  scanTaggedBlocks,
   stripTaggedBlocks,
   replaceSection,
   withSection,
@@ -1318,6 +1319,39 @@ describe('extractTaggedBlocks', () => {
     const content2 = 'Text with <decisions> but tag is unclosed.';
     const result = extractTaggedBlocks(content2, 'decisions');
     assert.equal(result.length, 0, 'unclosed tag should not produce a match');
+  });
+});
+
+// ─── scanTaggedBlocks ─────────────────────────────────────────────────────────
+
+describe('scanTaggedBlocks', () => {
+  test('positions and attributes of each block; bodies equal extractTaggedBlocks', () => {
+    const content = 'x\n<step name="a" priority="first">\nA\n</step>\n<step>B</step>';
+    const blocks = scanTaggedBlocks(content, 'step', true);
+    assert.deepEqual(
+      blocks.map((b) => [b.attributes, b.body]),
+      [
+        [' name="a" priority="first"', '\nA\n'],
+        ['', 'B'],
+      ],
+    );
+    assert.deepEqual(blocks.map((b) => b.body), extractTaggedBlocks(content, 'step', true));
+    for (const b of blocks) {
+      assert.equal(content[b.start], '<');
+      assert.equal(content.slice(b.bodyStart, b.bodyStart + b.body.length), b.body);
+      assert.equal(content.slice(b.end - '</step>'.length, b.end), '</step>');
+    }
+  });
+
+  test('an unterminated outer opener is not a block (same nesting rule as extractTaggedBlocks)', () => {
+    const content = '<step name="outer">\n<step name="inner">\nI\n</step>\n</step>';
+    const blocks = scanTaggedBlocks(content, 'step', true);
+    assert.deepEqual(blocks.map((b) => b.attributes), [' name="inner"']);
+  });
+
+  test('without allowAttributes an attributed opener is body text, not a block', () => {
+    assert.deepEqual(scanTaggedBlocks('<x a="1">y</x>', 'x'), []);
+    assert.deepEqual(scanTaggedBlocks('<x>y</x>', 'x').map((b) => [b.attributes, b.start, b.bodyStart, b.end]), [['', 0, 3, 8]]);
   });
 });
 
