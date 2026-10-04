@@ -68,6 +68,7 @@ smaller route under Step 2 and report it as addressed.
 | key_links_planned | Add wiring task or update action |
 | scope_sanity | Split into multiple plans |
 | must_haves_derivation | Derive and add must_haves to frontmatter |
+| restated_goal | Re-read the cited source, then rewrite `Restated:` / `Not doing:` — or change the tasks if they followed the wrong reading |
 
 Each strategy is the usual route, not the only one. Any change that makes the issue's
 `required_property` true is a valid strategy.

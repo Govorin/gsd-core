@@ -152,6 +152,27 @@ issue:
   fix_hint: "Add task for logout endpoint in plan 01 or new plan"
 ```
 
+## Dimension 1b: Restated Goal
+
+**Question:** Does each plan's `<objective>` restate the phase goal in its own words, and does the
+restatement agree with what it cites?
+
+**Skip if** no plan's `<objective>` carries `Restated:` (the planner was not asked —
+`workflow.restate_goal` off). Output: "Dimension 1b: SKIPPED (no restatement)"
+
+The planner writes `Restated:`, `Not doing:` and `Sources:` before it decomposes — a false trail is
+cheapest to catch before code exists. Compare them with **Phase Goal** in your prompt, the ROADMAP
+success criteria, CONTEXT.md `<decisions>` and deferred ideas, and SPEC.md when present.
+
+- **BLOCKER** — `Restated:` contradicts the goal or a success criterion, or claims an outcome the
+  goal does not ask for; `Not doing:` excludes something the goal, a phase requirement or a locked
+  decision requires.
+- **WARNING** — a line missing; `Restated:` copies the ROADMAP goal verbatim (no evidence it was
+  understood); a `Sources:` entry that does not exist (a D-NN absent from CONTEXT.md).
+
+Dimension `restated_goal`: quote the restatement and the source text it disagrees with; never
+rewrite it for the planner.
+
 ## Dimension 2: Task Completeness
 
 **Question:** Does every task have Files + Action + Verify + Done?

@@ -56,6 +56,9 @@ must_haves:
 
 Purpose: [Why this matters for the project]
 Output: [What artifacts will be created]
+Restated: [The phase goal in your own words — not copied — and the part of it this plan delivers]
+Not doing: [What the phase deliberately leaves out, each item with its source]
+Sources: [Where the restatement was read from: ROADMAP Phase N goal · CONTEXT D-NN · SPEC AC-n]
 </objective>
 
 <execution_context>
@@ -169,6 +172,21 @@ export interface IThingRepository {
 | T-{phase}-02 | {category} | {component} | low | accept | {rationale for acceptance} |
 | T-{phase}-SC | Tampering | npm/pip/cargo installs | high | mitigate | package-legitimacy gate + blocking human checkpoint for [ASSUMED]/[SUS] |
 </threat_model>
+
+<failure_paths>
+<!-- Required when files_modified names a migration or user_setup is non-empty;
+     otherwise only for a failure a reviewer would ask about. One <failure_path>
+     per failure; the <check> is the <automated>/<fails_when> pair. Checked by
+     `gsd_run check mn-failure-paths`. Contract: references/failure-paths.md -->
+<failure_path>
+  <name>[One line: how this plan fails]</name>
+  <invariant>[What must stay true — its violation is the failure]</invariant>
+  <check>
+    <automated>[Command that observes the invariant]</automated>
+    <fails_when>[Output that means the invariant broke]</fails_when>
+  </check>
+</failure_path>
+</failure_paths>
 
 <verification>
 Before declaring plan complete:

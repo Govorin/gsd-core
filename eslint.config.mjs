@@ -477,6 +477,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-mn-uat-open.cjs',
       'gsd-core/bin/lib/gate-mn-baseline.cjs',
       'gsd-core/bin/lib/gate-mn-verify-gates.cjs',
+      'gsd-core/bin/lib/gate-mn-failure-paths.cjs',
       'gsd-core/bin/lib/mn-assertion-count.cjs',
       'gsd-core/bin/lib/verify-mutation.cjs',
       'gsd-core/bin/lib/verify-baseline.cjs',
