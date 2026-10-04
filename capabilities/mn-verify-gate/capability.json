@@ -267,6 +267,16 @@
       "type": "boolean",
       "default": false,
       "description": "Require every review finding to name what guards it — a rule and where it runs, or \"review only\". A check is a mechanism only once it has an assigned execution point: a script nothing invokes is worse than none, because it creates the impression the invariant is guarded and removes the question from review while checking nothing. \"This is a violation\" and \"CI will catch this\" are separate claims and the second is wrong more often than expected — several boundary rules that read as general are hardcoded to one domain, and a rule at warn in a project that tolerates warnings guards nothing. The distinction changes the fix: a review-only finding recurs the moment nobody looks, so it ships with a mechanism or is knowingly accepted. Taken from the doctrine in the author's own mn/docs/architecture/enforcement.md, where it is a mandatory review step."
+    },
+    "workflow.failure_paths": {
+      "type": "boolean",
+      "default": true,
+      "description": "Instruct the planner to write the pre-mortem into PLAN.md as <failure_paths>: each <failure_path> names an <invariant> and a <check> — the <automated>/<fails_when> pair of #3172, judged by the same recognizer as the failing-direction probe — that fails when the invariant breaks. Required only of a plan whose files_modified names a migration or whose user_setup is non-empty; every other plan pays nothing. The planner self-checks with gsd_run check mn-failure-paths before returning; the verdict reports paths_without_check / paths — the share of named failures nothing would notice. Never halts; workflow.failure_paths_enforce does. On by default (absent = enabled): it adds an instruction to the planner's prompt and blocks nothing."
+    },
+    "workflow.failure_paths_enforce": {
+      "type": "boolean",
+      "default": false,
+      "description": "Halt plan:post when the failure-paths verdict has a blocker: a required plan with no <failure_path>, a path with no <check> command, a check whose <fails_when> is missing, empty or a placeholder, or an empty or placeholder <invariant>. An unreadable plan also halts — could not look is not clean. Default false: halting at plan:post has no revision loop behind it, so a project opts in once its plans carry the block. Assumes workflow.failure_paths is on; with it off the planner is not asked for the block the gate demands."
     }
   },
   "steps": [
@@ -367,6 +377,17 @@
       "produces": [],
       "consumes": [],
       "when": "workflow.refute_findings",
+      "onError": "skip"
+    },
+    {
+      "point": "plan:pre",
+      "into": "planner",
+      "fragment": {
+        "path": "fragments/plan-pre-failure-paths.md"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.failure_paths",
       "onError": "skip"
     }
   ],
@@ -557,6 +578,15 @@
         "query": "mn-clean-state"
       },
       "when": "workflow.clean_state_enforce",
+      "blocking": true,
+      "onError": "halt"
+    },
+    {
+      "point": "plan:post",
+      "check": {
+        "query": "mn-failure-paths"
+      },
+      "when": "workflow.failure_paths_enforce",
       "blocking": true,
       "onError": "halt"
     }

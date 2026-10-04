@@ -12,7 +12,7 @@ Pre-Mortem and Constraint Analysis both analyze risk at different granularities.
 
 **Counters:** Optimistic plan decomposition that ignores failure modes.
 
-Before finalizing this plan, assume it has already failed. List the 3 most likely reasons for failure -- missing dependency, wrong decomposition, underestimated complexity -- and add mitigation steps or acceptance criteria that would catch each failure early.
+Before finalizing this plan, assume it has already failed. List the 3 most likely reasons for failure -- missing dependency, wrong decomposition, underestimated complexity -- and add mitigation steps or acceptance criteria that would catch each failure early. A failure a command could observe goes into the plan's `<failure_paths>` block as an invariant and a check (`failure-paths.md`) — required for plans touching a migration or `user_setup`.
 
 ## 2. MECE Decomposition
 

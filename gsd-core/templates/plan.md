@@ -170,6 +170,21 @@ export interface IThingRepository {
 | T-{phase}-SC | Tampering | npm/pip/cargo installs | high | mitigate | package-legitimacy gate + blocking human checkpoint for [ASSUMED]/[SUS] |
 </threat_model>
 
+<failure_paths>
+<!-- Required when files_modified names a migration or user_setup is non-empty;
+     otherwise only for a failure a reviewer would ask about. One <failure_path>
+     per failure; the <check> is the <automated>/<fails_when> pair. Checked by
+     `gsd_run check mn-failure-paths`. Contract: references/failure-paths.md -->
+<failure_path>
+  <name>[One line: how this plan fails]</name>
+  <invariant>[What must stay true — its violation is the failure]</invariant>
+  <check>
+    <automated>[Command that observes the invariant]</automated>
+    <fails_when>[Output that means the invariant broke]</fails_when>
+  </check>
+</failure_path>
+</failure_paths>
+
 <verification>
 Before declaring plan complete:
 - [ ] [Specific test command]

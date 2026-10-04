@@ -27,6 +27,7 @@ import { evaluateMnCleanState } from './gate-mn-clean-state.cjs';
 import { evaluateMnWaveCollision, evaluateMnWaveSolve } from './gate-mn-waves.cjs';
 import { evaluateMnAssertionRatchet } from './gate-mn-assertion-ratchet.cjs';
 import { evaluateMnMutationSpotCheck } from './gate-mn-mutation-spot-check.cjs';
+import { evaluateMnFailurePaths } from './gate-mn-failure-paths.cjs';
 
 type MnGateEvaluator = (input: MnGateInput) => GateResult;
 
@@ -54,6 +55,7 @@ const MN_CHECK_VERBS: Readonly<Record<string, MnGateEntry>> = Object.freeze({
   'mn-wave-solve': { evaluate: evaluateMnWaveSolve, scope: 'phase' },
   'mn-assertion-ratchet': { evaluate: (input) => evaluateMnAssertionRatchet(input), scope: 'project' },
   'mn-mutation-spot-check': { evaluate: evaluateMnMutationSpotCheck, scope: 'phase' },
+  'mn-failure-paths': { evaluate: evaluateMnFailurePaths, scope: 'phase' },
 });
 
 /** Is `verb` one of the mn gates? (Own keys only — `toString` is not a verb.) */
