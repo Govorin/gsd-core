@@ -160,4 +160,15 @@ describe('mn gate phase argument', () => {
       runMnCheckFailure(projectDir, verb, []);
     }
   });
+
+  test('every project-scoped verb answers with no phase, an unknown phase, or any phase shape (CLI)', () => {
+    // A project gate ignores the phase the dispatcher appends: neither a missing nor an unknown
+    // phase may turn it into a usage failure or a "phase not found" verdict.
+    for (const verb of listMnCheckVerbs('project')) {
+      for (const [label, args] of [['no phase', []], ['unknown phase', ['99']], ...shapes()]) {
+        const payload = runMnCheck(projectDir, verb, args);
+        assert.notEqual(payload.phaseResolved, false, `${verb} with ${label}: ${payload.message}`);
+      }
+    }
+  });
 });

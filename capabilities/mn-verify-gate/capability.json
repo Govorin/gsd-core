@@ -459,11 +459,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-migration-safety"
       },
       "when": "workflow.migration_safety",
       "blocking": true,
@@ -472,11 +468,7 @@
     {
       "point": "execute:wave:post",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
-          "timeout": 60
-        }
+        "query": "mn-migration-safety"
       },
       "when": "workflow.migration_safety_strict",
       "blocking": true,
@@ -560,11 +552,7 @@
     {
       "point": "ship:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 30
-        }
+        "query": "mn-clean-state"
       },
       "when": "workflow.clean_state_enforce",
       "blocking": true,

@@ -323,11 +323,19 @@ describe('real registry ship:pre — structural guards', () => {
     }
   });
 
-  test('every ship:pre gate uses predicate (not query) and the security gate is present', () => {
+  test('every ship:pre gate declares exactly one of predicate or a dispatchable query, and the security gate is present', () => {
+    // ship.md's generic arm runs both shapes: `check predicate --predicate <json>` and
+    // `check <query> "${PHASE_DIR}"`. mn-verify-gate declares named-query gates here
+    // (`check mn-*`), so the guard is "exactly one shape, and a query the gate-dispatch
+    // validation regex accepts" rather than "predicate only".
     const gates = realRegistry.byLoopPoint['ship:pre'].gates;
     for (const gate of gates) {
-      assert.ok(gate.check.predicate, `ship:pre gate ${gate.capId} must use predicate, not query`);
-      assert.strictEqual(gate.check.query, undefined, `ship:pre gate ${gate.capId} must NOT have a check.query (predicate-only gate)`);
+      const hasPredicate = Boolean(gate.check.predicate);
+      const hasQuery = gate.check.query !== undefined;
+      assert.notStrictEqual(hasPredicate, hasQuery, `ship:pre gate ${gate.capId} must declare exactly one of predicate or query`);
+      if (hasQuery) {
+        assert.match(gate.check.query, /^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)*$/, `ship:pre gate ${gate.capId} query must pass the dispatch regex`);
+      }
     }
     const security = gates.find(g => g.capId === 'security');
     assert.ok(security, 'ship:pre must include the security gate');
