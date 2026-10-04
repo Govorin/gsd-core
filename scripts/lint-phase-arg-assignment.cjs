@@ -102,11 +102,10 @@ const CANONICAL_FORMS = Object.freeze({
   firstPositional: 'PHASE_ARG="${1}"',
   /**
    * `/gsd:code-review` (ADR-5208): the phase is the first positional of the validated invocation IR
-   * `resolveCodeReviewInvocation` returns — empty for a `--since` window review, never `$1` (which
-   * is `--since` or a flag when the phase follows one).
+   * (`gsd_run review invocation`, read through the workflow's `_ir` helper) — empty for a `--since`
+   * window review, never `$1` (which is `--since` or a flag when the phase follows one).
    */
-  codeReviewInvocation:
-    'PHASE_ARG=$(printf \'%s\' "$INVOCATION_JSON" | node -e "const r = JSON.parse(require(\'fs\').readFileSync(0, \'utf-8\')); process.stdout.write(r.mode === \'phase\' ? r.phase : \'\')")',
+  codeReviewInvocation: 'PHASE_ARG=$(_ir "r.mode === \'phase\' ? r.phase : \'\'")',
 });
 
 /**
