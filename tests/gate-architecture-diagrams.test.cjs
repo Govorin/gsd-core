@@ -80,10 +80,58 @@ describe('check architecture.diagrams', () => {
     assert.equal(runGsdTools(['check', 'architecture.diagrams', '../../elsewhere'], root).success, false);
   });
 
+  // Review L4: a phase directory that is not there is not "a phase without a design".
+  test('a phase directory that does not exist, or is a file: unresolvable block, never a skip', () => {
+    const missing = gate('.planning/phases/99-missing');
+    assert.deepEqual([missing.block, missing.passed, missing.status], [true, false, 'unresolvable']);
+    fs.writeFileSync(path.join(root, '.planning', 'not-a-dir'), 'x');
+    assert.equal(gate('.planning/not-a-dir').status, 'unresolvable');
+  });
+
+  test('an empty phase directory is still a skip (boundary of the case above)', () => {
+    assert.equal(gate(phase).status, 'no_design');
+  });
+
   test('the capability declares the gate at plan:post behind an opt-in config key, like its other switches', () => {
     const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
     const gates = manifest.gates.filter((g) => g.check.query === 'architecture.diagrams');
     assert.deepEqual(gates, [{ point: 'plan:post', check: { query: 'architecture.diagrams' }, when: 'workflow.architecture_diagrams_gate', blocking: true, onError: 'halt' }]);
     assert.equal(manifest.config['workflow.architecture_diagrams_gate'].default, false);
+  });
+});
+
+describe('check architecture.diagrams in a monorepo sub-project (review M6)', () => {
+  // .planning lives in apps/rpg, the code a design names lives in libs/ beside it. An index rooted
+  // at the sub-project marked every libs identifier absent — a false BLOCKER.
+  let repo;
+  let project;
+  const phase = '.planning/phases/03-cache';
+  beforeEach(() => {
+    repo = createTempGitProject('gsd-arch-gate-mono-');
+    project = path.join(repo, 'apps', 'rpg');
+    fs.mkdirSync(path.join(project, phase), { recursive: true });
+    fs.mkdirSync(path.join(repo, 'libs', 'core', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'libs', 'core', 'src', 'repo.ts'), 'export interface IThingRepository {\n  findById(id: string): void;\n}\n');
+    fs.writeFileSync(path.join(project, phase, '03-DESIGN.md'), [
+      '## Ports & Implementations',
+      '```mermaid', 'classDiagram', '  class IThingRepository', '  class InventedThing', '```',
+    ].join('\n'));
+  });
+  afterEach(() => {
+    cleanup(repo);
+  });
+
+  test('an identifier declared in libs/ outside the sub-project is found; an invented one still blocks', () => {
+    const r = runGsdTools(['check', 'architecture.diagrams', phase], project);
+    assert.equal(r.success, true, r.error);
+    const out = JSON.parse(r.output);
+    assert.deepEqual(out.findings.filter((f) => f.severity === 'BLOCKER').map((f) => f.claim), ['InventedThing']);
+  });
+
+  test('diagrams check from the sub-project looks across the repository too', () => {
+    const r = runGsdTools(['diagrams', 'check', '--file', `${phase}/03-DESIGN.md`], project);
+    assert.equal(r.success, true, r.error);
+    const out = JSON.parse(r.output);
+    assert.deepEqual(out.findings.filter((f) => f.severity === 'BLOCKER').map((f) => f.claim), ['InventedThing']);
   });
 });
