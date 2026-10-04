@@ -4,6 +4,7 @@
 - **Date:** 2026-09-27
 - **Issue:** [#5057](https://github.com/open-gsd/gsd-core/issues/5057) — Phase 0 of epic [#5056](https://github.com/open-gsd/gsd-core/issues/5056)
 - **Supersedes:** nothing.
+- **Amended by:** [ADR-5208](5208-window-review-unit.md) — §4's resolver gains a `window` unit (the work that landed in a period); the union, reachability and loud-degradation constraints are unchanged.
 - **Relationship to prior work:** the sixth application of the single-owner mechanism, after [ADR-1372](1372-markdown-sectionizer-seam.md), [ADR-2143](2143-markdown-table-and-mutation-consolidation.md), [ADR-3180](3180-planning-semantic-model-single-owner.md), [ADR-4910](4910-planning-document-seam.md) and the `phase-id.cts` consolidation (#2121). It adds owners **above** ADR-3180's §7 owners and does not replace any of them. Epic #5056 subsumes three epics that never reached Phase 0 — [#4907](https://github.com/open-gsd/gsd-core/issues/4907) (Arm B), [#4631](https://github.com/open-gsd/gsd-core/issues/4631) (Arm C) and [#4632](https://github.com/open-gsd/gsd-core/issues/4632) (Arm D). None of them had an ADR, so there is no `Subsumes` relation to declare. [#4629](https://github.com/open-gsd/gsd-core/issues/4629) ([ADR-4629](4629-state-write-intent-beyond-frontmatter.md)) is in progress and is **not** subsumed.
 
 ## Context
