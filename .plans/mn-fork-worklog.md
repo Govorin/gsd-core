@@ -638,6 +638,18 @@ absent = enabled applies, so the defaults below are the effective ones.
   `ls-remote --symref` for the base branch. Full `npm test` afterwards: 44 823 tests,
   only the four stale-`origin/next` failures remain (sync plan, "Эталон 0.5");
   `742f419bd` fixed the one failure the integration had added.
+- **4.9 report A/B** (`4fd3c5cf3`): `scripts/experiments/report-ab/` — 8 generated
+  phases (18 seeded defects, 2 controls), variants A text / B + neutral mermaid /
+  C + shipped `plan graph`, isolated `claude -p` runs (`--tools ""`,
+  `--setting-sources ""`, stdin only), 96 runs per model. Sonnet sits at the
+  ceiling (recall A 95.8%, B 100%, C 97.2%) and gets noisier with a diagram
+  (precision 100 → 97 / 95%). Haiku: B 76.4% vs A 80.6% (CI [−11, +4] pp);
+  C equal overall, but text-only defects 21/24 → 15/24 (4 of 6 worse, none better,
+  sign test p=0.125) — the marks pull attention from what they do not mark.
+  **Decision:** no diagram/HTML reports as a defect-finding aid for LLM
+  verifiers; `--graph` stays a picture for humans, not an input to the verifier
+  or plan-checker. Human readers were not measured. The ceiling showed up first
+  on ~35-line plans (100% everywhere), so the fixtures use realistic plan length.
 
 ### Long-lived state
 
