@@ -2,12 +2,12 @@
  * `gsd_run check mn-assertion-ratchet` — the assertion ratchet as a READ-ONLY gate
  * (mn-verify-gate, verify:pre; replaces the gate half of scripts/assertion-ratchet.mjs).
  *
- * Measures the project's assertions and skip markers (src/mn-assertion-count.cts) and compares
- * them with the recorded baseline:
+ * Counts the repository's assertions and skip markers with the counter `mn assertion-baseline`
+ * records through (src/mn-assertion-count.cts) and compares them with the recorded baseline:
  *
  *   assertions dropped, or skips grew   → FINDING: a check was removed or silenced without a record.
  *   neither                             → pass (growth is always fine — the ratchet is one-way).
- *   no baseline / unreadable / malformed → UNRESOLVABLE: nothing to compare against.
+ *   no baseline / unreadable baseline    → UNRESOLVABLE: nothing to compare against.
  *   zero spec files found               → UNRESOLVABLE: almost always a missed walk, not a project
  *                                         without tests.
  *
@@ -19,39 +19,59 @@
  * the whole repository.
  */
 
+import path from 'node:path';
 import type { GateResult } from './gate-verdict.cjs';
 import { mnFinding, mnPass, mnUnresolvable, withMnProject } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
-import {
-  assertionBaselinePath,
-  compareAssertionCounts,
-  measureAssertions,
-  readAssertionBaseline,
-} from './mn-assertion-count.cjs';
-import type { AssertionCountDeps } from './mn-assertion-count.cjs';
+import { countAssertions, readAssertionBaseline, resolveRepoRoot, DEFAULT_ROOTS } from './mn-assertion-count.cjs';
+import type { AssertionCounts } from './mn-assertion-count.cjs';
 
 /** How a baseline is recorded — named in every verdict that needs one. */
 export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline --update';
 
+/** Injected effects: the git lookup of the repository root (production: `git rev-parse --show-toplevel`). */
+export interface MnAssertionRatchetDeps {
+  git?: (args: string[], cwd: string) => string | null;
+}
+
+export interface AssertionComparison {
+  assertionDelta: number;
+  skippedDelta: number;
+  problems: string[];
+}
+
+/** The ratchet's one-way rule: assertions may not drop and skip markers may not grow. */
+export function compareAssertionCounts(baseline: AssertionCounts, current: AssertionCounts): AssertionComparison {
+  const assertionDelta = current.assertions - baseline.assertions;
+  const skippedDelta = current.skipped - baseline.skipped;
+  const problems: string[] = [];
+  if (assertionDelta < 0) problems.push(`${-assertionDelta} assertion(s) disappeared`);
+  if (skippedDelta > 0) problems.push(`${skippedDelta} test(s) newly skipped`);
+  return { assertionDelta, skippedDelta, problems };
+}
+
 /** `gsd_run check mn-assertion-ratchet [<phase>]` (the phase is accepted and ignored). */
-export function evaluateMnAssertionRatchet(input: MnGateInput, deps?: AssertionCountDeps): GateResult {
+export function evaluateMnAssertionRatchet(input: MnGateInput, deps: MnAssertionRatchetDeps = {}): GateResult {
   return withMnProject('mn-assertion-ratchet', () => {
-    const baselineFile = assertionBaselinePath(input.projectDir);
-    const read = readAssertionBaseline(baselineFile);
+    // The baseline and the spec roots are anchored on the REPOSITORY root, exactly where
+    // `mn assertion-baseline` records and walks (src/mn-assertion-count.cts).
+    const repoRoot = resolveRepoRoot(input.projectDir, deps.git);
+    const read = readAssertionBaseline(repoRoot);
     if (!read.ok) {
       return mnUnresolvable(
-        `mn-assertion-ratchet: ${read.detail} — nothing to compare against. Record one with \`${ASSERTION_BASELINE_COMMAND}\`.`,
-        { baselineFile, baselineProblem: read.reason },
+        `mn-assertion-ratchet: ${read.message} — nothing to compare against. Record one with \`${ASSERTION_BASELINE_COMMAND}\`.`,
+        { baselineFile: read.path, baselineProblem: read.reason },
       );
     }
+    const baselineFile = read.path;
 
-    const measured = measureAssertions(input.projectDir, deps ? { deps } : {});
-    const current = measured.count;
+    const roots = DEFAULT_ROOTS.map((root) => path.join(repoRoot, root));
+    const current = countAssertions(roots);
     if (current.files === 0) {
       return mnUnresolvable(
-        `mn-assertion-ratchet: no spec files found under [${measured.roots.join(', ')}] (repository root ${measured.repoRoot}) — ` +
+        `mn-assertion-ratchet: no spec files found under [${roots.join(', ')}] (repository root ${repoRoot}) — ` +
           'a walk that finds nothing measured nothing.',
-        { baselineFile, repoRoot: measured.repoRoot, roots: measured.roots },
+        { baselineFile, repoRoot, roots },
       );
     }
 

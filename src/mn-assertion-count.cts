@@ -1,95 +1,64 @@
 /**
- * mn assertion count — the one counter behind the assertion ratchet (mn-verify-gate): the gate
- * `gsd_run check mn-assertion-ratchet` reads it, and the baseline tool `gsd_run mn
- * assertion-baseline [--update]` writes it. Replaces the counting half of
- * capabilities/mn-verify-gate/scripts/assertion-ratchet.mjs.
+ * Assertion count — the one definition of "a live check" that the assertion
+ * ratchet reads and `gsd-tools mn assertion-baseline` records.
  *
- * ── What it catches ──────────────────────────────────────────────────────
+ * The ratchet catches the failure nothing else catches: a test that no longer
+ * fails because its check was deleted. Deleting an assertion makes the suite
+ * greener and no green run reports it; coverage stays silent too, the line
+ * still runs, nobody compares its result any more. The invariant is that the
+ * count does not drop WITHOUT a record — a deliberate drop (a refactor, merged
+ * duplicates) is legitimate once the baseline is re-recorded on purpose.
  *
- * A test that stops failing because its assertion was removed. Deleting an assert makes the suite
- * greener and no green run reports it; coverage stays silent too — the line still executes, its
- * result is simply no longer checked. The invariant: the number of assertions does not drop, and
- * the number of skipped tests does not grow, unless the drop is declared (re-recorded).
+ * What counts: `expect(`, `assert(`, `assert.`, `.toThrow`, `should.`; and, as
+ * a separate metric, skip markers (`it.skip` does not fail and does not check
+ * — the quiet equivalent of a deletion).
  *
- * What counts: `expect(`, `assert(`, `assert.`, `.toThrow`, `should.`; skip markers separately
- * (`it.skip` neither fails nor checks — the quiet equivalent of deletion).
+ * The count is static, over sources: `vitest list` resolves the whole
+ * workspace and costs minutes in a hundred-project monorepo; a tree walk gives
+ * the same answer in seconds. The price — commented-out assertions count too —
+ * is acceptable for a ratchet that only compares the number with itself. The
+ * walk is our own (no ripgrep): a missing tool must not look like a defect.
  *
- * The count is static, over sources: `vitest list` must resolve the whole workspace and costs
- * minutes on a hundred-project monorepo; a tree walk gives the same answer in seconds. The price —
- * commented-out assertions count too — is acceptable for a ratchet comparing a number with itself.
- * The walk is done in-process, not by ripgrep: `rg` is sometimes a shell function a child process
- * cannot see, and a gate failing for a missing tool reads exactly like a gate that caught a defect.
+ * The walk is anchored on the REPOSITORY root, not the cwd: GSD runs from a
+ * project directory (apps/rpg) while the monorepo's code sits above it. From
+ * the sub-project, `libs`/`apps` are invisible, the walk finds zero specs, and
+ * recording that would arm a ratchet that never fires again — so zero spec
+ * files is a refusal, never a baseline.
  *
- * ── Where ────────────────────────────────────────────────────────────────
+ * Ported from `capabilities/mn-verify-gate/scripts/assertion-ratchet.mjs`
+ * (its `--update` half; the comparison is the verify:pre gate's).
  *
- * The spec roots (`libs`, `apps` by default) are anchored at the git top-level, not at the project
- * directory: GSD may run from a sub-project (apps/rpg) while the monorepo's code sits above it, and
- * a walk from there finds zero specs. The baseline itself lives in the PROJECT's planning
- * directory, `<project>/.planning/assertion-baseline.json` — the script resolved it against the
- * repository root, which pointed a sub-project at a `.planning/` that need not exist.
- *
- * Zero spec files is a refusal, never a measurement: it is almost always a missed walk (wrong root,
- * renamed folder), and recording it as a baseline would zero the ratchet forever.
+ * ADR-457 build-at-publish: source in src/mn-assertion-count.cts, compiled to
+ * gsd-core/bin/lib/mn-assertion-count.cjs (gitignored).
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { execGit } from './shell-command-projection.cjs';
 
-/** The baseline file, relative to the project directory. */
-export const ASSERTION_BASELINE_RELATIVE_PATH = path.join('.planning', 'assertion-baseline.json');
+export const ASSERTION_PATTERN = /expect\(|\bassert\(|\bassert\.|\.toThrow|\bshould\./g;
+export const SKIP_PATTERN = /\b(it|test|describe)\.(skip|todo)\b|\bxit\(|\bxdescribe\(/g;
+export const SPEC_FILE = /\.(spec|test)\.tsx?$/;
+const PRUNE: ReadonlySet<string> = new Set(['node_modules', 'dist', 'build', '.git', '.nx', 'coverage', '.venv', '__pycache__']);
 
-/** The spec roots walked when none are given, relative to the repository root. */
-export const DEFAULT_ASSERTION_ROOTS: readonly string[] = Object.freeze(['libs', 'apps']);
+/** Repo-relative path of the baseline the ratchet reads. Fixed: the gate and this writer must agree. */
+export const BASELINE_PATH = '.planning/assertion-baseline.json';
 
-const ASSERTIONS = /expect\(|\bassert\(|\bassert\.|\.toThrow|\bshould\./g;
-const SKIPS = /\b(it|test|describe)\.(skip|todo)\b|\bxit\(|\bxdescribe\(/g;
-const SPEC = /\.(spec|test)\.tsx?$/;
-const PRUNE = new Set(['node_modules', 'dist', 'build', '.git', '.nx', 'coverage', '.venv', '__pycache__']);
+/** Roots walked when none are given. A missing root is not an error: not every repo has `apps/`. */
+export const DEFAULT_ROOTS: readonly string[] = Object.freeze(['libs', 'apps']);
 
-/** What one walk measured. */
-export interface AssertionCount {
+export interface AssertionCounts {
   assertions: number;
   skipped: number;
   files: number;
 }
 
-/** A recorded baseline: a count plus when it was recorded. */
-export interface AssertionBaseline extends AssertionCount {
-  updated?: string;
-}
-
-/** A measurement and where it was taken. */
-export interface AssertionMeasurement {
-  repoRoot: string;
-  roots: string[];
-  count: AssertionCount;
-}
-
-/** Injected for tests: how the repository root is found. */
-export interface AssertionCountDeps {
-  /** The git top-level of `cwd`, or null when `cwd` is not inside a work tree. */
-  gitTopLevel: (cwd: string) => string | null;
-}
-
-function defaultGitTopLevel(cwd: string): string | null {
-  const r = execGit(['rev-parse', '--show-toplevel'], { cwd });
-  if (r.exitCode !== 0 || r.error) return null;
-  const top = r.stdout.trim();
-  return top === '' ? null : top;
-}
-
-/** `<project>/.planning/assertion-baseline.json` — the one baseline path the gate and the tool share. */
-export function assertionBaselinePath(projectDir: string): string {
-  return path.join(projectDir, ASSERTION_BASELINE_RELATIVE_PATH);
-}
-
+/** Every spec file under `dir` (hidden directories and build output pruned). */
 function* specFiles(dir: string): Generator<string> {
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    // A missing root is not an error: not every repository carries apps/.
     return;
   }
   for (const e of entries) {
@@ -97,111 +66,119 @@ function* specFiles(dir: string): Generator<string> {
     const p = path.join(dir, e.name);
     if (e.isDirectory()) {
       if (!PRUNE.has(e.name)) yield* specFiles(p);
-    } else if (SPEC.test(e.name)) {
+    } else if (SPEC_FILE.test(e.name)) {
       yield p;
     }
   }
 }
 
-/** Count assertions and skip markers in every spec under `roots` (absolute paths). */
-export function countAssertions(roots: readonly string[]): AssertionCount {
-  const count: AssertionCount = { assertions: 0, skipped: 0, files: 0 };
+/** Count one file's text. */
+export function countText(text: string): { assertions: number; skipped: number } {
+  return {
+    assertions: (text.match(ASSERTION_PATTERN) ?? []).length,
+    skipped: (text.match(SKIP_PATTERN) ?? []).length,
+  };
+}
+
+/** Totals over every spec file under the given absolute roots. */
+export function countAssertions(roots: readonly string[]): AssertionCounts {
+  const total: AssertionCounts = { assertions: 0, skipped: 0, files: 0 };
   for (const root of roots) {
     for (const file of specFiles(root)) {
-      const text = fs.readFileSync(file, 'utf8');
-      count.files += 1;
-      count.assertions += (text.match(ASSERTIONS) || []).length;
-      count.skipped += (text.match(SKIPS) || []).length;
+      const c = countText(fs.readFileSync(file, 'utf-8'));
+      total.files += 1;
+      total.assertions += c.assertions;
+      total.skipped += c.skipped;
     }
   }
-  return count;
+  return total;
 }
+
+/** The repository top level for `cwd`, or `cwd` itself outside git (the zero-spec refusal still catches a miss). */
+export function resolveRepoRoot(cwd: string, git: (args: string[], cwd: string) => string | null = defaultGit): string {
+  return git(['rev-parse', '--show-toplevel'], cwd) || cwd;
+}
+
+function defaultGit(args: string[], cwd: string): string | null {
+  const r = execGit(args, { cwd });
+  return r.exitCode === 0 ? r.stdout : null;
+}
+
+export interface BaselineRecord extends AssertionCounts {
+  updated: string;
+}
+
+export type ReadBaselineResult =
+  | { ok: true; path: string; baseline: BaselineRecord }
+  | { ok: false; reason: 'missing' | 'unreadable'; path: string; message: string };
 
 /**
- * Measure the project: find the repository root (git top-level, else the project directory), walk
- * the spec roots under it, count.
+ * The recorded baseline, for the ratchet to compare against. A record whose
+ * counts are not non-negative integers is `unreadable` — a ratchet must not
+ * compare against a guess.
  */
-export function measureAssertions(
-  projectDir: string,
-  options: { roots?: readonly string[]; deps?: AssertionCountDeps } = {},
-): AssertionMeasurement {
-  const gitTopLevel = options.deps?.gitTopLevel ?? defaultGitTopLevel;
-  const repoRoot = gitTopLevel(projectDir) ?? projectDir;
-  const roots = (options.roots ?? DEFAULT_ASSERTION_ROOTS).map((r) => path.resolve(repoRoot, r));
-  return { repoRoot, roots, count: countAssertions(roots) };
-}
-
-function isCount(value: unknown): value is number {
-  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
-}
-
-/** Read a baseline file. Absent, unreadable and malformed are three different answers. */
-export function readAssertionBaseline(
-  file: string,
-): { ok: true; baseline: AssertionBaseline } | { ok: false; reason: 'missing' | 'unreadable' | 'malformed'; detail: string } {
+export function readAssertionBaseline(repoRoot: string): ReadBaselineResult {
+  const target = path.join(repoRoot, BASELINE_PATH);
   let text: string;
   try {
-    text = fs.readFileSync(file, 'utf8');
-  } catch (err) {
-    const code = (err as { code?: string }).code;
-    if (code === 'ENOENT') return { ok: false, reason: 'missing', detail: `no baseline at ${file}` };
-    return { ok: false, reason: 'unreadable', detail: `cannot read ${file}: ${(err as Error).message}` };
+    text = fs.readFileSync(target, 'utf-8');
+  } catch (e) {
+    const missing = (e as NodeJS.ErrnoException).code === 'ENOENT';
+    return { ok: false, reason: missing ? 'missing' : 'unreadable', path: target, message: `cannot read ${target}: ${(e as Error).message}` };
   }
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
-  } catch {
-    return { ok: false, reason: 'malformed', detail: `${file} is not valid JSON` };
+  } catch (e) {
+    return { ok: false, reason: 'unreadable', path: target, message: `${target} is not JSON: ${(e as Error).message}` };
   }
-  const b = parsed as Record<string, unknown> | null;
-  if (!b || typeof b !== 'object' || !isCount(b['assertions']) || !isCount(b['skipped'])) {
-    return { ok: false, reason: 'malformed', detail: `${file} does not record non-negative integer assertions and skipped counts` };
+  const rec = parsed as Partial<Record<keyof BaselineRecord, unknown>> | null;
+  const count = (v: unknown): v is number => Number.isInteger(v) && (v as number) >= 0;
+  if (rec === null || typeof rec !== 'object' || !count(rec.assertions) || !count(rec.skipped) || !count(rec.files)) {
+    return { ok: false, reason: 'unreadable', path: target, message: `${target} does not hold assertions/skipped/files counts` };
   }
   return {
     ok: true,
-    baseline: {
-      assertions: b['assertions'],
-      skipped: b['skipped'],
-      files: isCount(b['files']) ? b['files'] : 0,
-      ...(typeof b['updated'] === 'string' ? { updated: b['updated'] } : {}),
-    },
+    path: target,
+    baseline: { assertions: rec.assertions, skipped: rec.skipped, files: rec.files, updated: typeof rec.updated === 'string' ? rec.updated : '' },
   };
 }
 
-/** How a measurement compares with its baseline. A drop in assertions or a growth in skips is a problem. */
-export interface AssertionComparison {
-  assertionDelta: number;
-  skippedDelta: number;
-  problems: string[];
+export interface RecordBaselineOptions {
+  /** Absolute repository root (resolved by the caller). */
+  repoRoot: string;
+  /** Absolute roots to walk. */
+  roots: readonly string[];
+  now?: () => Date;
 }
 
-export function compareAssertionCounts(baseline: AssertionCount, current: AssertionCount): AssertionComparison {
-  const assertionDelta = current.assertions - baseline.assertions;
-  const skippedDelta = current.skipped - baseline.skipped;
-  const problems: string[] = [];
-  if (assertionDelta < 0) problems.push(`${-assertionDelta} assertion(s) removed`);
-  if (skippedDelta > 0) problems.push(`${skippedDelta} test(s) newly skipped`);
-  return { assertionDelta, skippedDelta, problems };
-}
+export type RecordBaselineResult =
+  | { ok: true; path: string; baseline: BaselineRecord }
+  | { ok: false; reason: 'no_specs'; message: string; roots: string[] }
+  | { ok: false; reason: 'write_failed'; message: string };
 
 /**
- * Record `count` as the baseline at `file`. Refuses a zero-spec count (see the module header) and
- * returns why instead of writing. Creates the parent directory.
+ * Record the current counts as the baseline. Zero spec files is refused:
+ * that is almost always a walk that missed (wrong root, renamed folder), not
+ * a repository without tests, and recording it would zero the ratchet.
  */
-export function writeAssertionBaseline(
-  file: string,
-  count: AssertionCount,
-  now: () => Date = () => new Date(),
-): { ok: true; baseline: AssertionBaseline } | { ok: false; reason: 'no_specs'; detail: string } {
-  if (count.files === 0) {
+export function recordAssertionBaseline(opts: RecordBaselineOptions): RecordBaselineResult {
+  const counts = countAssertions(opts.roots);
+  if (counts.files === 0) {
     return {
       ok: false,
       reason: 'no_specs',
-      detail: 'no spec files were found — refusing to record an empty baseline: a zeroed ratchet never fires again',
+      roots: [...opts.roots],
+      message: `no spec files found under [${opts.roots.join(', ')}] (repo root: ${opts.repoRoot}) — refusing to record an empty baseline; a zeroed ratchet never fires again`,
     };
   }
-  const baseline: AssertionBaseline = { ...count, updated: now().toISOString() };
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(baseline, null, 2)}\n`);
-  return { ok: true, baseline };
+  const baseline: BaselineRecord = { ...counts, updated: (opts.now ?? (() => new Date()))().toISOString() };
+  const target = path.join(opts.repoRoot, BASELINE_PATH);
+  try {
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, `${JSON.stringify(baseline, null, 2)}\n`);
+  } catch (e) {
+    return { ok: false, reason: 'write_failed', message: `cannot write ${target}: ${(e as Error).message}` };
+  }
+  return { ok: true, path: target, baseline };
 }
