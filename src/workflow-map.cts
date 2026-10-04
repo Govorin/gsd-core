@@ -44,7 +44,7 @@
  * gsd-core/bin/lib/workflow-map.cjs (gitignored).
  */
 
-import { createIdRegistry, derivedMarker, fence, flowchart } from './mermaid.cjs';
+import { DEFECT_CLASS_DEFS, DEFECT_LINK_STYLE, createIdRegistry, derivedMarker, fence, flowchart } from './mermaid.cjs';
 import type { ClassDef, FlowEdge, FlowNode, FlowSubgraph, FlowchartSpec } from './mermaid.cjs';
 import { scanFencedBlocks, scanInlineCodeSpans, scanTaggedBlocks, tokenizeHeadings } from './markdown-sectionizer.cjs';
 import { parseWorkflowSections } from './workflow-fragments.cjs';
@@ -834,11 +834,10 @@ export interface WorkflowMapDiagrams {
   calls: DiagramSpec | null;
 }
 
-export const DEFECT_LINK_STYLE = 'stroke:#d33,stroke-width:2px';
-
+/** Defects (`missing`, `unparsed`) take the shared palette of every derived graph (mermaid.cts). */
 export const WORKFLOW_MAP_CLASS_DEFS: readonly ClassDef[] = Object.freeze([
-  { name: 'missing', style: 'fill:#fdecea,stroke:#d33,stroke-dasharray:4 3' },
-  { name: 'unparsed', style: 'fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3' },
+  DEFECT_CLASS_DEFS.missing,
+  DEFECT_CLASS_DEFS.unparsed,
   { name: 'conditional', style: 'fill:#fff8e1,stroke:#b28704' },
   { name: 'root', style: 'fill:#263238,color:#ffffff,stroke:#263238' },
   { name: 'agent', style: 'fill:#e8f0fe,stroke:#3367d6' },

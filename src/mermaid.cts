@@ -294,7 +294,7 @@ function renderClassDefs(classDefs: readonly ClassDef[], where: string): { lines
 
 /**
  * One look for "this is wrong" across every derived graph (plan, roadmap,
- * loop-hook maps): a reader who learned it on one diagram reads it on all.
+ * loop-hook and workflow maps): a reader who learned it on one diagram reads it on all.
  * A defect is DRAWN, never dropped — these are the strokes it is drawn with.
  */
 /** The `linkStyle` of an edge that is a defect (a dependency on nothing, a cycle). */

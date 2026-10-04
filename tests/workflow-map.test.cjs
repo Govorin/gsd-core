@@ -403,7 +403,7 @@ describe('diagrams', () => {
     assert.deepEqual(missing.map((n) => n.token), ['missing_step']);
     const dotted = d.flow.spec.edges.filter((e) => e.line === 'dotted');
     assert.equal(dotted.length, 2);
-    assert.deepEqual(dotted.map((e) => e.linkStyle ?? null), [null, wm.DEFECT_LINK_STYLE]);
+    assert.deepEqual(dotted.map((e) => e.linkStyle ?? null), [null, m.DEFECT_LINK_STYLE]);
   });
 
   test('calls: agents are checked nodes, the unknown one red; the loop point carries its capability steps', () => {
@@ -419,7 +419,7 @@ describe('diagrams', () => {
     ]);
     const ghost = d.calls.nodes.find((n) => n.kind === 'agent' && n.name === 'gsd-ghost').id;
     const edge = d.calls.spec.edges.find((e) => e.to === ghost);
-    assert.equal(edge.linkStyle, wm.DEFECT_LINK_STYLE);
+    assert.equal(edge.linkStyle, m.DEFECT_LINK_STYLE);
   });
 
   test('specs build: every edge endpoint is declared (the builder refuses an invented node)', () => {
