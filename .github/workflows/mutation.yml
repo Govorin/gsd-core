@@ -23,6 +23,7 @@ on:
       - 'tests/core-utils.test.cjs'
       - 'stryker.config.mjs'
       - 'scripts/mutation-matrix.cjs'
+      - 'scripts/test-env.cjs'
   workflow_dispatch:
 
 concurrency:

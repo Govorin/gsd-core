@@ -17,12 +17,14 @@
  * Every test below targets the tap-runner shape those files do not have yet.
  */
 
-const { test, describe } = require('node:test');
+const { test, describe, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs');
 const { pathToFileURL } = require('node:url');
 const yaml = require('js-yaml');
+const { AMBIENT_VARS_STRIPPED, GSD_HOME_SANDBOX_PREFIX } = require('../scripts/test-env.cjs');
+const { createTempDir, cleanup } = require('./helpers.cjs');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 const CONFIG_PATH = path.join(REPO_ROOT, 'stryker.config.mjs');
@@ -30,7 +32,21 @@ const WORKFLOW_PATH = path.join(REPO_ROOT, '.github', 'workflows', 'mutation.yml
 
 // Env keys this config is known to read. Every key is saved/restored so a
 // test's env override can never leak into a sibling test.
-const RELEVANT_ENV_KEYS = ['MUTATION_TEST_FILES', 'MUTATION_TEST_CMD', 'MUTATION_BREAK'];
+// Importing the config also isolates process.env (scripts/test-env.cjs), so the
+// keys that isolation writes or strips are restored too.
+const RELEVANT_ENV_KEYS = [
+  'MUTATION_TEST_FILES', 'MUTATION_TEST_CMD', 'MUTATION_BREAK',
+  'GSD_HOME', ...AMBIENT_VARS_STRIPPED,
+];
+
+// One GSD_HOME sandbox every load reuses unless a test passes its own GSD_HOME —
+// otherwise each cache-busted import below would mkdtemp (and schedule removal
+// of) a fresh sandbox.
+let sharedSandbox;
+before(() => {
+  sharedSandbox = createTempDir(GSD_HOME_SANDBOX_PREFIX);
+});
+after(() => cleanup(sharedSandbox));
 
 // Cache-busting counter: importing the SAME file:// URL twice returns the
 // SAME cached ES module record, so an env-dependent config test that reused
@@ -48,6 +64,18 @@ let _importCounter = 0;
  * @returns {Promise<object>} the config module's default export
  */
 async function loadConfig(env) {
+  return (await loadConfigModule(env)).mod.default;
+}
+
+/**
+ * Like loadConfig, but returns the whole module (named exports included) plus a
+ * snapshot of process.env taken right after the import, before the restore.
+ *
+ * @param {Record<string, string|undefined>} env
+ * @returns {Promise<{ mod: object, envAfterImport: Record<string, string|undefined> }>}
+ */
+async function loadConfigModule(env) {
+  env = { GSD_HOME: sharedSandbox, ...env };
   // Save/restore the UNION of RELEVANT_ENV_KEYS and Object.keys(env), not just the fixed
   // list: the PARITY test below discovers its env key NAME from the parsed workflow file
   // rather than hardcoding it, so a key outside RELEVANT_ENV_KEYS can reach here — saving
@@ -61,7 +89,7 @@ async function loadConfig(env) {
   }
   try {
     const mod = await import(`${pathToFileURL(CONFIG_PATH).href}?v=${_importCounter++}`);
-    return mod.default;
+    return { mod, envAfterImport: { ...process.env } };
   } finally {
     for (const key of keysToRestore) {
       if (saved[key] === undefined) delete process.env[key];
@@ -129,6 +157,40 @@ describe('stryker.config.mjs: tap runner contract (#3915)', () => {
       config.mutate.some((entry) => entry.startsWith('!gsd-core/bin/lib/')),
       'mutate array must still carry at least one !gsd-core/bin/lib/... exclusion'
     );
+  });
+});
+
+// The tap runner spawns mutant test processes with `{ ...process.env }`, so the
+// config isolating process.env is what makes mutation runs as hermetic as
+// run-tests.cjs (scripts/test-env.cjs is the shared definition).
+describe('stryker.config.mjs: hermetic env for mutant test runs', () => {
+  test('a developer GSD_HOME and ambient GSD_* vars are replaced by a fresh sandbox', async (t) => {
+    const ambient = { GSD_HOME: '/developer/real/home' };
+    for (const key of AMBIENT_VARS_STRIPPED) ambient[key] = `ambient-${key}`;
+
+    const { mod, envAfterImport } = await loadConfigModule(ambient);
+    t.after(() => cleanup(mod.testEnv.gsdHome));
+
+    assert.strictEqual(mod.testEnv.created, true);
+    assert.strictEqual(envAfterImport.GSD_HOME, mod.testEnv.gsdHome);
+    assert.ok(path.basename(envAfterImport.GSD_HOME).startsWith(GSD_HOME_SANDBOX_PREFIX),
+      `GSD_HOME must be a test sandbox, got ${envAfterImport.GSD_HOME}`);
+    assert.strictEqual(fs.existsSync(envAfterImport.GSD_HOME), true);
+    for (const key of AMBIENT_VARS_STRIPPED) {
+      assert.ok(!Object.hasOwn(envAfterImport, key), `${key} must be stripped`);
+    }
+  });
+
+  test('an inherited sandbox is reused, not replaced', async () => {
+    const { mod, envAfterImport } = await loadConfigModule({});
+    assert.strictEqual(mod.testEnv.created, false);
+    assert.strictEqual(envAfterImport.GSD_HOME, sharedSandbox);
+  });
+
+  test('loading the config leaves the importing process env as it found it', async () => {
+    const snapshot = { ...process.env };
+    await loadConfigModule({ GSD_HOME: sharedSandbox, GSD_WORKSTREAM: 'ws' });
+    assert.deepStrictEqual({ ...process.env }, snapshot);
   });
 });
 

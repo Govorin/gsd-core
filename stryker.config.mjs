@@ -23,6 +23,7 @@
  * to stay bounded. Full runs are for local exploration only.
  */
 
+import { rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 const _require = createRequire(import.meta.url);
 // resolveMutationBreak: fail-closed resolver for MUTATION_BREAK env var.
@@ -32,6 +33,27 @@ const _require = createRequire(import.meta.url);
 // set-but-empty, non-string, or naming a nonexistent file → throws. See that
 // function's doc-comment in scripts/mutation-matrix.cjs for the full contract.
 const { resolveMutationBreak, resolveMutationTestFiles } = _require('./scripts/mutation-matrix.cjs');
+const { isolateTestEnv } = _require('./scripts/test-env.cjs');
+
+// Hermetic env for mutant test runs — the same definition run-tests.cjs and the
+// affected runner apply (scripts/test-env.cjs). The tap runner spawns every test
+// process with `{ ...process.env }` and exposes no env option, and Stryker forks
+// its workers after loading this file, so isolating process.env here is the one
+// point that reaches them all — `npm run test:mutation` and CI's
+// `npx stryker run` alike. Without it a developer's ~/.gsd state leaks into the
+// tests and can kill or spare mutants for reasons unrelated to the mutation.
+// Idempotent: an inherited sandbox (re-import, nested runner) is reused, and only
+// a sandbox this load created is removed at exit.
+export const testEnv = isolateTestEnv(process.env);
+if (testEnv.created) {
+  process.on('exit', () => {
+    try {
+      rmSync(testEnv.gsdHome, { recursive: true, force: true });
+    } catch {
+      /* best-effort; an orphaned temp dir must not change the run's exit code */
+    }
+  });
+}
 
 // ADR-457: bin/lib/*.cjs are gitignored build artifacts (compiled from
 // src/*.cts by `npm run build:lib`, which the mutation CI job runs via `npm ci`
