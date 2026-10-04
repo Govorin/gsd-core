@@ -186,7 +186,7 @@ describe('symbol-index: declarations by language', () => {
     ].join('\n'));
     const index = si.buildSymbolIndex(root);
     assert.deepEqual(declsOf(index, 'User'), ['table@prisma/schema.prisma:1']);
-    assert.deepEqual(declsOf(index, 'email'), ['field:User@prisma/schema.prisma:3']);
+    assert.deepEqual(declsOf(index, 'email'), ['field:User@prisma/schema.prisma:3', 'field:app_user@prisma/schema.prisma:3']);
     assert.deepEqual(declsOf(index, 'app_user'), ['table@prisma/schema.prisma:4']);
     assert.deepEqual(declsOf(index, 'Role'), ['enum@prisma/schema.prisma:6']);
     assert.deepEqual(declsOf(index, 'orders'), ['table@db/001.sql:2']);

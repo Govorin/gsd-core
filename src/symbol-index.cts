@@ -711,14 +711,23 @@ function extractPrisma(file: string, lx: Lexed, starts: number[]): Extracted {
     const close = matchBracket(code, brace);
     if (close === -1) continue;
     const body = code.slice(brace + 1, close);
+    const fields: Decl[] = [];
+    let mapped: string | null = null;
     let offset = brace + 1;
     for (const l of body.split('\n')) {
       const mm = /^[ \t]*([A-Za-z_]\w*)\b/.exec(l);
-      if (mm !== null) decls.push({ name: mm[1], kind: 'field', file, line: lineAt(starts, offset), owner });
+      if (mm !== null) fields.push({ name: mm[1], kind: 'field', file, line: lineAt(starts, offset), owner });
       const map = /@@map\(\s*"([^"]+)"/.exec(codeWithStrings.slice(offset, offset + l.length));
-      if (map !== null) decls.push({ name: map[1], kind: 'table', file, line: lineAt(starts, offset) });
+      if (map !== null) {
+        mapped = map[1];
+        decls.push({ name: mapped, kind: 'table', file, line: lineAt(starts, offset) });
+      }
       offset += l.length + 1;
     }
+    decls.push(...fields);
+    // `@@map("app_user")` names the stored table: its columns are the model's fields.
+    const storedAs = mapped;
+    if (storedAs !== null) decls.push(...fields.map((f) => ({ ...f, owner: storedAs })));
   }
   return { decls };
 }

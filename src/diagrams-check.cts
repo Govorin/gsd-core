@@ -377,13 +377,6 @@ function checkErDiagram(ctx: DiagramContext): void {
     }
     record(ctx, claim, res);
     if (res.verdict === 'absent' || res.verdict === 'external' || (res.verdict === 'ambiguous' && res.at === undefined)) continue;
-    // A table's other spelling (variable vs SQL name) owns the same fields.
-    for (const o of [...owners]) {
-      for (const d of index.decls.get(o) ?? []) {
-        if (d.kind !== 'table') continue;
-        for (const other of index.decls.values()) for (const t of other) if (t.kind === 'table' && t.file === d.file && t.line === d.line && !owners.includes(t.name)) owners.push(t.name);
-      }
-    }
     (e.attributes ?? []).forEach((a, i) => {
       const ac: Claim = { id: a.name, kind: 'attribute', owner: e.id, line: lines[`attr:${e.id}:${i}`], kinds: ['field'], owners };
       let ar = check(ctx, ac);
