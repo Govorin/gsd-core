@@ -397,7 +397,7 @@ export function findWorktreeCreateHook(
  *
  * Claude Code merges hooks across layers and runs every matching one in parallel, and the
  * user layer and a project's local layer carry DIFFERENT command lines for the same hook
- * (`~/.claude/hooks/…` vs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/…`), so nothing dedupes them:
+ * (`<userClaudeDir>/hooks/…` vs `"$CLAUDE_PROJECT_DIR"/.claude/hooks/…`), so nothing dedupes them:
  * a global install plus a local install would run two creators for one name, racing on
  * `git worktree add -b`. One registration per user — the user layer's — is the rule the
  * local install applies with this. An unreadable or unparseable file says nothing either way
