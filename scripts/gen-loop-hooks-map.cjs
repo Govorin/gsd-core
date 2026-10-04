@@ -59,7 +59,10 @@ function markdownNames(dir) {
 function readDeclared(root) {
   const capDir = path.join(root, 'capabilities');
   const out = [];
-  for (const entry of fs.readdirSync(capDir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+  // Code-point order, like every other sort here: localeCompare without a locale follows the
+  // machine's ICU/LANG, and a generated file must not depend on who ran the generator.
+  const byName = (a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  for (const entry of fs.readdirSync(capDir, { withFileTypes: true }).sort(byName)) {
     if (!entry.isDirectory()) continue;
     const file = path.join(capDir, entry.name, 'capability.json');
     if (!fs.existsSync(file)) continue;
@@ -164,6 +167,7 @@ if (require.main === module) runMain(main);
 
 module.exports = {
   loadSources,
+  readDeclared,
   renderLoopHooksMapDoc,
   parseArgs,
   DOC_PATH,
