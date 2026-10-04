@@ -955,6 +955,20 @@ The JSON result carries `plan_count`, `edge_count`, `defect_count`, `defects[]`,
 
 ---
 
+## Discuss Commands
+
+### `discuss tree`
+
+```bash
+node gsd-tools.cjs discuss tree --file <checkpoint.json|CONTEXT.md> [--out <file>] [--strict] [--raw]
+```
+
+The decisions of a discuss-phase session as a dependency tree — what `/gsd-discuss-phase --grill` asks next, computed from data. `--file` is either the grill checkpoint (`*-DISCUSS-CHECKPOINT.json`, its `decision_tree.nodes`: `id`, `question`, `answer`, `status` `open|decided|discretion`, `decided_by` `user|recommendation|codebase`, `depends_on`, `area`) or a CONTEXT.md, read through the `<decisions>` parser with the inline `**Decided by:**` / `**Depends on:**` fields. The frontier is every open decision whose dependencies are closed; `next` is the earliest frontier decision that other open decisions depend on (else the earliest). A pass is one level of the tree, and `workflow.max_discuss_passes` caps the level that is asked: open decisions deeper than that are listed in `beyond_cap`, and `stopped` says why there is no `next` (`complete`, `pass_cap`, `blocked`).
+
+The JSON result carries `source`, `max_passes`, `node_count`, `edge_count`, `counts`, `decided_by`, `next`, `stopped`, `frontier[]`, `beyond_cap[]`, `blocked[]`, `defect_count`, `defects[]` (`invalid_node`, `unattributed`, `duplicate`, `missing`, `cycle`), `warnings[]` (a decision taken before the one it depends on), `written` and the `markdown` document — a mermaid flowchart under a `gsd:derived` marker. `--raw` prints the document (or a one-line `OK: …` summary when `--out` wrote it). Defects never fail the command unless `--strict` is given. `--file` and `--out` must lie inside the project.
+
+---
+
 ## Diagram Commands
 
 ### `diagrams check`
