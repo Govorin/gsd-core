@@ -4,8 +4,8 @@
  *
  * ── The blind spot this closes ──────────────────────────────────────────────
  *
- * `capabilities/mn-verify-gate/scripts/wave-collision.mjs` ships today, runs at
- * `plan:post`, and already implements criterion 1: it names the colliding pair
+ * The literal wave-collision check (then `scripts/wave-collision.mjs`, now
+ * `check mn-wave-collision`) runs at `plan:post` and implements criterion 1: it names the colliding pair
  * and the shared file and exits 1. What it cannot do is compare an entry whose
  * basename has no dot. Its own `--verbose` output on the live tree
  * `legion-app/08.2-heimdall-runtime`:
