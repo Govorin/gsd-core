@@ -308,8 +308,8 @@ Modes:
 - **`--do "<text>"`** — smart router: dispatch freeform intent to the matching `/gsd-*` command (see *Smart Router* above)
 
 Usage: `/gsd:progress`
-Usage: `/gsd:progress --next`
-Usage: `/gsd:progress --next --auto` (or `--next --auto --converge`)
+Usage: `/gsd:progress --next` (or `--next --auto`)
+Usage: `/gsd:progress --next --auto --converge`
 Usage: `/gsd:progress --forensic` (or `--graph`)
 
 ### Session Management
