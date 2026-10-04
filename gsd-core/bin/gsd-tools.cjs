@@ -5066,13 +5066,13 @@ function runWithTimeout(argv) {
 // independently hand-maintained sites and nothing previously caught them
 // drifting apart when a query command was added to only one or two.
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
-  'Commands: agent, agent-skills, assumption-delta, audit-open, audit-uat, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
+  'Commands: agent, agent-skills, arch, assumption-delta, audit-open, audit-uat, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
   'config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, ' +
   'context-predicates, current-timestamp, detect-custom-files, diagrams, discuss, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +
   'generate-dev-preferences, generate-slug, graphify, history-digest, init, intel, ' +
   'capability, classify-confidence, git, learnings, list-seeds, list-todos, loop, milestone, mn, package-legitimacy, phase, phase-plan-index, phases, plan, planning, profile-questionnaire, ' +
-  'profile-sample, progress, project-instruction-file, prompt-budget, quick-batch, quick-tasks-append, quick-tasks-migrate, refactor, requirements, research-plan, research-store, resolve-granularity, resolve-model, restore-custom-files, roadmap, runtime-identity, scaffold, smart-entry, state, ' +
+  'profile-sample, progress, project-instruction-file, prompt-budget, quick-batch, quick-tasks-append, quick-tasks-migrate, refactor, requirements, research-plan, research-store, resolve-granularity, resolve-model, restore-custom-files, retro, roadmap, runtime-identity, scaffold, smart-entry, state, ' +
   'config-set-model-profile, dispatch-capacity, dispatch-isolation, dispatch-should-flatten, inspect-dispatch-isolation, record-dispatch-isolation, estimate-calibrate, estimate-calibration, estimate-check, resolve-agent, resolve-dispatch-type, ' +
   'resolve-execution, review, review-lane, scan-sessions, select-revert-commits, skill-manifest, skills-root, stamp-codebase-map, state-snapshot, stats, summary-extract, teams-status, todo, uat, update-context, verification, websearch, windows, ' +
   'task, template, user-story, validate, verify, verify-path-exists, verify-summary, eval, workstream, worktree, write-profile\n\n' +

@@ -1,6 +1,6 @@
 ---
 name: gsd-finding-refuter
-description: Tries to refute each finding — a plan-checker's against the plans, a window review lens's against the code — so only findings that survive, with evidence, move on. Spawned by /gsd:plan-phase between the checker and the revision loop, and by /gsd:code-review --since before a window review is reported.
+description: Tries to refute each finding — a plan-checker's against the plans, a window review lens's against the code, an architecture or retro candidate against the codebase — so only findings that survive, with evidence, move on. Spawned by /gsd:plan-phase between the checker and the revision loop, by /gsd:code-review --since before a window review is reported, by /gsd:arch-survey and by /gsd:retro.
 tools: Read, Bash, Glob, Grep, Skill
 color: orange
 ---
@@ -41,6 +41,23 @@ Findings of a window review's lens reports (`REVIEW-{label}.md`: correctness, st
 - **Refutes, besides the general list:** the handling the finding calls missing exists on the same path (name it); a finding whose whole claim is "nothing guards this" names a rule that exists, runs at `error` and covers the path.
 - **Does not refute:** a standards or simplify finding is a judgement call by design. If its citation reproduces — the code is as quoted and the rule or smell is real — it stands, whether or not you would have raised it.
 - **Verdict heading:** `### {label} {ID}: {the finding's own title}` — `{label}` is the report's file name without `REVIEW-` and `.md` (`correctness`, `correctness-2`, `standards`, `spec`, `simplify`), `{ID}` the finding's ID in that report. The orchestrator writes your output to REFUTATION.md and reads these headings.
+</mode>
+
+<mode name="arch">
+Architecture survey candidates from `refuter-input.md` (written by `gsd-tools arch cards`), spawned by `/gsd:arch-survey` before the survey is reported. There are no plans; the codebase is the evidence.
+- **Checked against:** every file a candidate lists, the callers of the modules it names (a call graph or LSP references beat text search, and a hit in a comment is not a caller), and `docs/adr/`.
+- **Refutes, besides the general list:** the files do not play the role the problem claims — a "pass-through" that holds real logic, a "shallow module" whose interface is small against a large implementation, a "cycle" whose import is type-only or absent (quote the line); a deletion test that says `concentrates` while deleting the module would only move code — one caller, or callers that use none of what it hides (name the callers you found); the candidate contradicts an ADR without saying so in its `ADR conflict` line (the ADR's path and the sentence that decides it).
+- **Does not refute:** "the refactor is large", "the code works", "the tests pass today", or a judgement that the friction is minor — cost and taste are not truth. Strength is not yours either: uphold or refute, never demote.
+- **Verdict heading:** `### Finding {N}: {the candidate's title, verbatim}`. `gsd-tools arch report` maps verdicts back by number and title; a mismatch leaves the candidate unverified.
+</mode>
+
+<mode name="retro">
+Retro candidates of category `mechanical` or `retire-check` (from `.planning/retro/RETRO-<date>.json`), spawned by `/gsd:retro` before the candidates are presented. For each the question is: **is the proposed check real?**
+- **Checked against:** the retro bundle (`.planning/retro/.work/<stem>.bundle.json`, its `evidence`), the candidate's `verify` command run as written, and `gsd_run retro checks`.
+- **Refutes, besides the general list:** a `signals` ref that is not in the bundle's `evidence`; a `mechanical` check that fires on clean code or does not fire on the incident — run both and quote both outcomes, it is UPHELD only when it fails on the incident and passes on clean code; a `retire-check` candidate whose check fired in the scanned window (`gsd_run retro checks` shows `state: fired`).
+- **Does not refute:** a `verify` command you cannot run — it is UPHELD with that stated, so the person sees it.
+- **Testing a patch:** never apply it to the tree. Use a scratch `git worktree add` into a temp directory, apply and run there, then remove the worktree.
+- **Verdict heading:** `### {candidate id}: {the candidate's title}`, one per candidate.
 </mode>
 </modes>
 

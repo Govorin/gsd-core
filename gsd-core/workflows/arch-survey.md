@@ -106,7 +106,7 @@ Agent(
   subagent_type="gsd-finding-refuter",
   model="{REFUTER_MODEL}",
   description="Refute architecture candidates",
-  prompt="Mode: arch
+  prompt="<mode>arch</mode>
 <required_reading>
 - {refuterInputPath}
 - ~/.claude/gsd-core/references/codebase-design.md

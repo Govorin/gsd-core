@@ -646,7 +646,7 @@ The commands above cover the most common day-to-day flows. Every command listed 
 
 ### Quality, Review & Verification
 
-- **`/gsd:code-review <phase> [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]]`** — Review source files changed during a phase for bugs, security issues, and code quality problems.
+- **`/gsd:code-review <phase> | --since <7d|YYYY-MM-DD|ref|last> [--until <ref>] [--lens correctness,standards,spec,simplify] [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]]`** — Review source files changed during a phase for bugs, security issues, and code quality problems; `--since` reviews a window of commits instead, one fresh reviewer per lens.
 - **`/gsd:secure-phase [phase]`** — Retroactively verify threat mitigations for a completed phase.
 - **`/gsd:validate-phase [phase]`** — Retroactively audit and fill Nyquist validation gaps for a completed phase.
 - **`/gsd:ui-review [phase]`** — Retroactive 6-pillar visual audit of implemented frontend code.
@@ -659,6 +659,7 @@ The commands above cover the most common day-to-day flows. Every command listed 
 
 - **`/gsd:health [--repair] [--only CODES] [--context]`** — Diagnose planning directory health and optionally repair issues (`--only W031` limits a repair to the listed codes).
 - **`/gsd:forensics [problem description]`** — Post-mortem investigation for failed GSD workflows; diagnoses what went wrong.
+- **`/gsd:retro [--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD] [--apply <cand-id> [--retro <stem>]] [--checks]`** — Session retro: environment changes (checks, reviewer rules, settings) tied to friction signals; applies nothing.
 - **`/gsd:undo --last N | --phase NN | --plan NN-MM`** — Safe git revert. Roll back phase or plan commits using the phase manifest with dependency checks.
 - **`/gsd:docs-update [--force] [--verify-only]`** — Generate or update project documentation verified against the codebase.
 - **`/gsd:extract-learnings <phase>`** — Extract decisions, lessons, patterns, and surprises from completed phase artifacts.

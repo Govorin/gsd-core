@@ -523,6 +523,7 @@ All workflow toggles follow the **absent = enabled** pattern. If a key is missin
 | `workflow.code_review_depth` | string | `standard` | Default review depth for `/gsd-code-review`: `quick` (pattern-matching only), `standard` (per-file analysis), or `deep` (cross-file with import graphs). Can be overridden per-run with `--depth=`. Added in v1.34 |
 | `workflow.code_review_depth_overrides` | array | `[]` | Ordered list of `{ paths: string[], depth }` rules that escalate `/gsd-code-review` depth for specific directories, e.g. `[{ "paths": ["src/auth"], "depth": "deep" }]`. Each rule's `paths` are matched against the review's changed-file set by whole-segment directory-path prefix (`src/auth` matches `src/auth/token.ts`, never `src/authfoo/x.ts` or `docs/src/auth/x.ts`); matching is case-sensitive, following git. Glob syntax (`*`, `?`) is a configuration error, not sugar for a prefix. One matched file escalates the entire review — depth is not applied per file. Resolution order: `--depth=` flag → strongest matching rule → `workflow.code_review_depth` → `standard`; a matching rule wins even when its tier is weaker than the global default. A malformed rule (bad `depth`, glob syntax, absolute path, `..` segment, empty path, non-array `overrides`, non-object rule, malformed `paths`) is a configuration error and the review halts rather than falling back silently. The resolved depth and the matching rule are printed in the review output. Added in #2554 |
 | `code_review.window_lenses` | string | `correctness,standards,spec,simplify` | Comma-separated lenses a window review (`/gsd-code-review --since <window>`) runs when no `--lens` is supplied. Each lens — `correctness`, `standards`, `spec`, `simplify` — is its own reviewer agent; an explicit `--lens a,b` replaces this set for one run. Owned by the code-review capability ([ADR-5208](adr/5208-window-review-unit.md)) |
+| `code_review.window_max_files_per_batch` | number | `40` | Files one correctness reviewer of a window review takes. A window with more files is split into batches of at most this many, each reviewed by its own fresh `gsd-code-reviewer`; `--batch-size N` overrides it for one run. A value that is not a positive integer falls back to the default. Owned by the code-review capability ([ADR-5208](adr/5208-window-review-unit.md)) |
 | `workflow.plan_bounce` | boolean | `false` | Run external validation script against generated plans. When enabled, the plan-phase orchestrator pipes each PLAN.md through the script specified by `plan_bounce_script` and blocks on non-zero exit. Added in v1.36 |
 | `workflow.plan_bounce_script` | string | (none) | Path to the external script invoked for plan bounce validation. Receives the PLAN.md path as its first argument. Required when `plan_bounce` is `true`. Added in v1.36 |
 | `workflow.plan_bounce_passes` | number | `2` | Number of sequential bounce passes to run. Each pass feeds the previous pass's output back into the validator. Higher values increase rigor at the cost of latency. Added in v1.36 |
@@ -1163,6 +1164,47 @@ machine-parses the injected block.
 `graphify status` reports `graph_path`, the resolved absolute graph location
 after `graphify.graph_path` is applied. That is the value passed to the CLI as
 `--graph`, which is how the umbrella override keeps working on the CLI path.
+
+<a id="architecture-settings"></a>
+### Architecture Settings
+
+Keys of the `architecture` capability ([ADR-857](adr/857-capability-system.md)): the design half (DESIGN.md at `plan:pre`), the review half (ARCH-REVIEW.md at `verify:pre`), the diagrams gate, and the survey (`/gsd-arch-survey`), which looks for drift outside any phase's promises and journals every decision in `.planning/architecture/DECISIONS.md`. The survey keys feed `gsd-tools arch metrics`; every threshold is a signal for where to look, never a verdict.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `workflow.architecture_design` | boolean | `false` | Run the system architect before planning to produce DESIGN.md — layer placement, allowed dependencies, and the signatures that cross plan boundaries. Written at plan:pre because the planner's split of tasks across files IS the boundary decision; a design written afterwards narrates it instead of constraining it. |
+| `workflow.architecture_review` | boolean | `false` | Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said. |
+| `workflow.architecture_diagrams_gate` | boolean | `false` | Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement. It also blocks on a diagram whose names could not be checked — a block outside the subset, a state diagram without %% gsd:source, a derived block nothing can regenerate or that is stale; a name it cannot resolve for certain (ambiguous) is a warning, never a block. |
+| `architecture.survey_window` | string | `90d` | History window of an architecture survey: 90d, 12w, 6m, 1y, an ISO date, or a ref. Hot spots are churn x complexity over this window; a window with no readable commits falls back to complexity alone and the metrics say so. |
+| `architecture.survey_top_zones` | number | `5` | Zones an architecture survey fans out over, one gsd-arch-surveyor each (1 to 50). The cost knob of /gsd:arch-survey. |
+| `architecture.small_module_loc` | number | `40` | A module of at most this many non-blank lines counts as small for the survey's search signals (small-module clusters, pass-throughs). A signal for where to look, never a verdict. |
+| `architecture.cochange_min_support` | number | `3` | Commits two files must share before the survey reports them as a co-change pair (inclusive). |
+| `architecture.cochange_min_confidence` | number | `0.6` | Minimum co-change confidence, in (0, 1], inclusive: confidence(a->b) = shared commits / commits of a, and a pair is reported when the larger of its two confidences reaches this value. |
+| `architecture.survey_growth_threshold` | number | `0.25` | Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%. |
+| `architecture.survey_at_milestone` | enum | `suggest` | One of `suggest`, `auto`, `off`. What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt. |
+
+<a id="retro-settings"></a>
+### Retro Settings
+
+Keys of the `retro` capability ([ADR-5209](adr/5209-retro-capability.md)). `/gsd-retro` reads the session transcripts locally and read-only, turns friction signals into environment candidates (checks, reviewer rules, settings), and applies nothing: every candidate needs a human. The `*_min` keys are the per-signal floors of `gsd-tools retro signals`; `retro.signal_threshold` decides when a model pass is worth proposing.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `retro.enabled` | boolean | `true` | Enable the retro capability: the `gsd-tools retro` commands and /gsd-retro. Every read is local and read-only, and nothing a retro produces is applied without a human (ADR-5209), so it is on by default; set false to keep transcripts out of GSD entirely. |
+| `retro.auto` | enum | `suggest` | One of `suggest`, `auto`, `off`. What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode. |
+| `retro.signal_threshold` | number | `8` | Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights. |
+| `retro.repeat_call_min` | number | `3` | Identical tool calls in one session before they count as a repeated-call signal (at least this many). |
+| `retro.repeat_error_min` | number | `2` | Occurrences of the same tool error before it counts as a repeated-tool-error signal. |
+| `retro.reread_min` | number | `3` | Reads of one file with no edit to it in between before they count as a reread signal. |
+| `retro.edit_churn_min` | number | `6` | Edits of one file in one session before they count as an edit-churn signal. |
+| `retro.nav_streak_min` | number | `8` | Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal. |
+| `retro.checker_loop_min` | number | `2` | Plan-checker spawns in one session before they count as a plan-checker revision loop. |
+| `retro.checkpoint_min` | number | `2` | Checkpoints reached in one session before they count as a repeated-checkpoint signal. |
+| `retro.hook_block_min` | number | `1` | Blocks by the same hook before they count as a hook-block signal. |
+| `retro.excerpt_window` | number | `6` | Transcript events on either side of a signal that the analyst is shown instead of the transcript. |
+| `retro.max_signals` | number | `40` | Signals listed in a report; the rest are enumerated by id in `omitted`, never dropped silently. Caps the list, never the score. |
+| `retro.excerpt_chars` | number | `160` | Maximum length of a redacted excerpt that leaves the transcript reader. |
+| `retro.check_stale_days` | number | `30` | A check journaled in .planning/retro/CHECKS.json that has not fired in the transcripts of this many days (and was accepted at least this long ago) is offered as a removal candidate. Removal, like acceptance, is a human decision. |
 
 <a id="refactor-trigger-settings"></a>
 ### Refactor-Trigger Settings

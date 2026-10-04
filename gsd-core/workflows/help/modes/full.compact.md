@@ -285,11 +285,12 @@ Every command below is also a live `/gsd-*` slash command, grouped by purpose.
 
 ### Quality, Review & Verification
 
-- **`/gsd:code-review <phase> [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]]`** — Reviews phase-changed source for bugs, security, quality.
+- **`/gsd:code-review <phase> | --since <7d|YYYY-MM-DD|ref|last> [--until <ref>] [--lens correctness,standards,spec,simplify] [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]]`** — Reviews phase-changed source for bugs, security, quality; `--since` reviews a commit window, one reviewer per lens.
 - **`/gsd:secure-phase [phase]`** — Retroactively verifies threat mitigations for a completed phase.
 - **`/gsd:validate-phase [phase]`** — Retroactively audits and fills Nyquist validation gaps.
 - **`/gsd:ui-review [phase]`** — Retroactive 6-pillar visual audit of implemented frontend code.
 - **`/gsd:eval-review [phase]`** — Audits an executed AI phase's evaluation coverage; produces EVAL-REVIEW.md.
+- **`/gsd:arch-survey [area…] [--paths p1,p2] [--since 90d|<ref>] [--top N] [--grill]`** — Surveys the codebase for deepening candidates, refutes them, journals each decision in `.planning/architecture/`.
 - **`/gsd:audit-fix --source <audit-uat> [--severity medium|high|all] [--max N] [--dry-run]`** — Autonomous audit-to-fix: find, classify, fix, test, commit.
 - **`/gsd:add-tests <phase> [additional instructions]`** — Generates tests for a completed phase from UAT criteria and implementation.
 
@@ -297,6 +298,7 @@ Every command below is also a live `/gsd-*` slash command, grouped by purpose.
 
 - **`/gsd:health [--repair] [--only CODES] [--context]`** — Diagnoses planning-directory health, optionally repairs (only the listed codes with `--only`).
 - **`/gsd:forensics [problem description]`** — Post-mortem investigation for failed GSD workflows.
+- **`/gsd:retro [--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD] [--apply <cand-id> [--retro <stem>]] [--checks]`** — Session retro: environment changes tied to friction signals; applies nothing.
 - **`/gsd:undo --last N | --phase NN | --plan NN-MM`** — Safe git revert using the phase manifest with dependency checks.
 - **`/gsd:docs-update [--force] [--verify-only]`** — Generates/updates docs verified against the codebase.
 - **`/gsd:extract-learnings <phase>`** — Extracts decisions, lessons, patterns, surprises from phase artifacts.

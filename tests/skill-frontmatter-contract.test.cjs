@@ -452,6 +452,9 @@ const KNOWN_SKILLS = new Set([
   // architecture capability, deliberately not a mode of map-codebase (other
   // output and lifecycle) nor of the architect reviewer (no DESIGN.md needed).
   'arch-survey.md',
+  // Session retro (pocock-practices design D3, ADR-5209): environment changes
+  // tied to friction signals; its own capability, never a mode of forensics.
+  'retro.md',
   'audit-fix.md',
   'audit-milestone.md',
   'audit-uat.md',
@@ -938,7 +941,8 @@ const DEFAULT_BUDGET = 60;
 // budget guards. The ratchet rule is unchanged: actualMax 846, slack 0.
 // Raised 846 → 847 for the /gsd:arch-survey entry: a new command needs its one
 // line in the complete reference (help ↔ commands parity). Slack stays 0.
-const FULL_BUDGET = 847;
+// Raised 847 → 848 for the /gsd:retro entry, for the same parity reason.
+const FULL_BUDGET = 848;
 
 // Grace bands:
 //   SMALL_GRACE — for the tiny brief/default/dispatcher files (≤ ~70 lines):

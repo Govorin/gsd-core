@@ -20,7 +20,9 @@
   ],
   "agents": [
     "gsd-code-reviewer",
-    "gsd-code-fixer"
+    "gsd-code-fixer",
+    "gsd-standards-reviewer",
+    "gsd-spec-reviewer"
   ],
   "hooks": [],
   "config": {
@@ -51,7 +53,11 @@
     "code_review.window_lenses": {
       "type": "string",
       "default": "correctness,standards,spec,simplify",
-      "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."
+      "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."    },
+    "code_review.window_max_files_per_batch": {
+      "type": "number",
+      "default": 40,
+      "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
     }
   },
   "steps": [

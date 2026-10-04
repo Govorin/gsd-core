@@ -53,6 +53,8 @@ export const CLUSTERS: ClusterMap = Object.freeze({
     'eval-review',
     'add-tests',
     'secure-phase',
+    'arch-survey',
+    'retro',
   ]),
 
   milestone: Object.freeze([
