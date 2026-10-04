@@ -1461,7 +1461,7 @@
     {
       "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
       "klass": "SETTINGS-HOOKS",
-      "value": "[tests/install-settings-hook-reconcile.test.cjs]"
+      "value": "[tests/install-minimal-hooks.test.cjs]"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",
