@@ -546,9 +546,13 @@ export function readRoadmapGraphInput(cwd: string, scope: RoadmapGraphScope): Re
   }
   const unreadable = analyzed.fieldErrors.map((f) => ({ phase: f.phase, field: f.field, reason: f.reason }));
   const known: KnownPhase[] = [];
+  // The same number AND name is the same phase: when the current window could
+  // not be matched to a section, its phases must not be drawn a second time.
+  const current = new Set(analyzed.analysis.phases.map((p) => `${phaseKeyFromToken(p.number)}\0${p.name}`));
   for (const [i, s] of sections.milestones.entries()) {
     if (s === currentSection) continue;
     for (const p of s.phases) {
+      if (current.has(`${phaseKeyFromToken(p.number)}\0${p.name}`)) continue;
       if (scope === 'all') add(p, i + 1, s.heading, s.version, s.closed, false);
       else known.push({ id: p.number, name: p.name, milestone: s.heading });
     }

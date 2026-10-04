@@ -413,6 +413,14 @@ describe('runRoadmapGraph', () => {
     assert.ok(chart !== undefined);
   });
 
+  test('--all never draws the current window\'s phases twice, even when no section matches the current milestone', () => {
+    write('# Roadmap\n\n## v2.0 Next\n\n### Phase 1: A\n**Depends on:** Nothing\n\n### Phase 2: B\n**Depends on:** Phase 1\n');
+    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '---\nmilestone: v3.0\n---\n# State\n');
+    const r = run({ scope: 'all' });
+    assert.equal(r.ok, true);
+    assert.deepEqual([r.phase_count, r.edge_count, r.defect_count], [2, 1, 0]);
+  });
+
   test('--strict with a missing reference fails; a warning alone does not', () => {
     write(ROADMAP);
     assert.equal(run({ strict: true }).strict_failed, true);
