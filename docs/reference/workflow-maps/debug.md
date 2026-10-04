@@ -32,7 +32,7 @@ flowchart TB
   u_heading_2__Gather_Symptoms__if_new_issue__SUBCMD_debug_ --> u_heading_3__Initial_Session_Setup__new_session_
   u_heading_3__Initial_Session_Setup__new_session_ --> u_heading_4__Session_Management__delegated_to_gsd_debug_session_manager_
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -55,7 +55,7 @@ flowchart LR
   u_heading_1c__CONTINUE_subcommand --> a_gsd_debug_session_manager
   u_heading_4__Session_Management__delegated_to_gsd_debug_session_manager_ --> a_gsd_debug_session_manager
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

@@ -156,7 +156,7 @@ flowchart TB
   u_heading_13__Requirements_Coverage_Gate -.->|"goto"| u_heading_14__Present_Final_Status
   u_heading_13a__Decision_Coverage_Gate -.->|"goto"| u_heading_13b__Record_Planning_Completion_in_STATE_md
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -185,7 +185,7 @@ flowchart LR
     c_plan_pre_research_agent_gsd_phase_researcher["research#58; agent gsd-phase-researcher"]:::capability
     c_plan_pre_ui_skill_ui_phase["ui#58; skill ui-phase"]:::capability
     c_plan_pre_pattern_mapper_agent_gsd_pattern_mapper["pattern-mapper#58; agent gsd-pattern-mapper"]:::capability
-    p_plan_post{{"plan#58;post<br/>+4 gates, +2 contributions"}}:::point
+    p_plan_post{{"plan#58;post<br/>+5 gates, +2 contributions"}}:::point
     c_plan_post_mempalace_skill_mempalace_capture["mempalace#58; skill mempalace-capture"]:::capability
   end
   u_heading_4_6__Context_Drift_Pre_Check__drift_plan_pre_gate_["4.6. Context Drift Pre-Check (drift plan#58;pre gate)"]
@@ -218,7 +218,7 @@ flowchart LR
   u_heading_13e__Post_Planning_Gap_Analysis__plan_post_capability_gate_dispatch_ --> p_plan_post
   linkStyle 11 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

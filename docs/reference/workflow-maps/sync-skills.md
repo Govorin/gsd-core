@@ -33,7 +33,7 @@ flowchart TB
   u_heading_Safety_Rules --> u_heading_Limitations
   u_heading_Step_2__Resolve_Skills_Roots -.->|"goto"| u_heading_Step_3__Compute_Diff_Per_Destination
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

@@ -28,7 +28,7 @@ flowchart TB
   u_heading_4__Build_Dependency_Table --> u_heading_5__Summarize_Suggested_Changes
   u_heading_5__Summarize_Suggested_Changes --> u_heading_6__Confirm_and_Apply
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

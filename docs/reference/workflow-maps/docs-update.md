@@ -64,7 +64,7 @@ flowchart TB
   u_step_preservation_check -.->|"goto"| m_detect_runtime_capabilities
   linkStyle 28 stroke:#d33,stroke-width:2px
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -91,7 +91,7 @@ flowchart LR
   wf_root -->|"через docs-update/steps/dispatch-monorepo-packages.md"| a_gsd_doc_writer
   u_section_dispatch_monorepo_packages -->|"через docs-update/steps/dispatch-monorepo-packages.md"| a_gsd_doc_writer
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

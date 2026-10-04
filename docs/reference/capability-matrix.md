@@ -53,7 +53,7 @@ points.
 | id | role | tier | engines.gsd | extension points | hook kinds | source |
 |---|---|---|---|---|---|---|
 | `ai-integration` | feature | full | `>=1.6.0` | `plan:pre`, `verify:pre` | step, contribution, gate | first-party |
-| `architecture` | feature | full | `>=1.6.0` | `plan:pre`, `verify:pre` | step | first-party |
+| `architecture` | feature | full | `>=1.6.0` | `plan:pre`, `plan:post`, `verify:pre` | step, gate | first-party |
 | `assumption-delta` | feature | full | `>=1.6.0` | `plan:pre` | contribution | first-party |
 | `audit` | feature | full | `>=1.6.0` | — | — | first-party |
 | `broken-windows` | feature | full | `>=1.7.0` | `ship:pre` | gate | first-party |
@@ -67,7 +67,7 @@ points.
 | `live-dom-uat` | feature | full | `>=1.11.0` | `execute:wave:post` | step | first-party |
 | `mempalace` | feature | full | `>=1.6.0` | `discuss:pre`, `discuss:post`, `plan:pre`, `plan:post`, `execute:wave:post`, `verify:post`, `ship:post` | step, contribution | first-party |
 | `mn-expertise` | feature | full | `>=1.6.0` | — | — | first-party |
-| `mn-verify-gate` | feature | full | `>=1.9.0` | `plan:pre`, `plan:post`, `execute:wave:post`, `verify:pre`, `ship:pre` | step, contribution, gate | first-party |
+| `mn-verify-gate` | feature | full | `>=1.15.0` | `plan:pre`, `plan:post`, `execute:wave:post`, `verify:pre`, `ship:pre` | step, contribution, gate | first-party |
 | `nyquist` | feature | full | `>=1.6.0` | `verify:post` | step | first-party |
 | `pattern-mapper` | feature | full | `>=1.6.0` | `plan:pre` | step | first-party |
 | `profile-pipeline` | feature | full | `>=1.6.0` | — | — | first-party |

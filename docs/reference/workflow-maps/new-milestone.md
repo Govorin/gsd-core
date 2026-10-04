@@ -74,7 +74,7 @@ flowchart TB
   u_heading_3_5__Verify_Milestone_Understanding -.->|"goto"| u_heading_4__Update_PROJECT_md
   u_heading_8__Research_Decision -.->|"goto"| u_heading_9__Define_Requirements
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -100,7 +100,7 @@ flowchart LR
   u_heading_8__Research_Decision --> a_gsd_research_synthesizer
   u_heading_10__Create_Roadmap --> a_gsd_roadmapper
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

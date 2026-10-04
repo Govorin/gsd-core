@@ -72,7 +72,7 @@ flowchart TB
   u_heading_8__Handle_Checker_Return -.->|"goto"| u_heading_9__Revision_Loop__Max_2_Iterations_
   u_heading_9__Revision_Loop__Max_2_Iterations_ -.->|"goto"| u_heading_9_5__UI_Consideration_Probe__post_verification_
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -96,7 +96,7 @@ flowchart LR
   u_heading_5__Spawn_gsd_ui_researcher --> a_gsd_ui_researcher
   u_heading_7__Spawn_gsd_ui_checker --> a_gsd_ui_checker
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

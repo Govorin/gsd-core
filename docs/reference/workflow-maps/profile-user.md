@@ -47,7 +47,7 @@ flowchart TB
   u_heading_7__Result_Display -.->|"goto"| u_heading_8__Artifact_Selection__ACTV_05_
   u_heading_8__Artifact_Selection__ACTV_05_ -.->|"goto"| u_heading_10__Summary___Refresh_Diff
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

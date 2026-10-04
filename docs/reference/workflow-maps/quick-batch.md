@@ -20,7 +20,7 @@ flowchart TB
   wf_root -->|"when#58; flag#58;#45;#45;research"| u_section_research_phase
   u_section_research_phase -->|"when#58; flag#58;#45;#45;validate"| u_section_verification_wave
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -75,7 +75,7 @@ flowchart LR
   wf_root -->|"через quick-batch/steps/planner-wave.md"| p_plan_pre
   wf_root -.-> w_gsd_core_workflows_quick_md
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

@@ -28,7 +28,7 @@ flowchart TB
   u_heading_Step_3__Create_output_directory --> u_heading_Step_4__Spawn_mapper_agent
   u_heading_Step_4__Spawn_mapper_agent --> u_heading_Step_5__Report
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -49,7 +49,7 @@ flowchart LR
   u_heading_Step_4__Spawn_mapper_agent["Step 4#58; Spawn mapper agent"]
   u_heading_Step_4__Spawn_mapper_agent --> a_gsd_codebase_mapper
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

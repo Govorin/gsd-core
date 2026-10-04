@@ -24,7 +24,7 @@ flowchart TB
   u_heading_2__Execute__next_action_ --> u_heading_3__Create_Onboarding_Summary
   u_heading_3__Create_Onboarding_Summary --> u_heading_4__Final_Status
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

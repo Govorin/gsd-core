@@ -260,7 +260,7 @@ const capabilities = {
     "role": "feature",
     "version": "1.15.0",
     "title": "Architecture design and review",
-    "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read.",
+    "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read. At plan:post a blocking gate checks the design's mermaid diagrams: every identifier they draw is declared in the code or introduced by the design itself.",
     "tier": "full",
     "requires": [],
     "engines": {
@@ -288,6 +288,11 @@ const capabilities = {
         "type": "boolean",
         "default": false,
         "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
+      },
+      "workflow.architecture_diagrams_gate": {
+        "type": "boolean",
+        "default": false,
+        "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement; a name it cannot resolve for certain is a warning, never a block."
       }
     },
     "steps": [
@@ -329,7 +334,17 @@ const capabilities = {
       }
     ],
     "contributions": [],
-    "gates": []
+    "gates": [
+      {
+        "point": "plan:post",
+        "check": {
+          "query": "architecture.diagrams"
+        },
+        "when": "workflow.architecture_diagrams_gate",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "assumption-delta": {
     "id": "assumption-delta",
@@ -2851,7 +2866,7 @@ const capabilities = {
     "tier": "full",
     "requires": [],
     "engines": {
-      "gsd": ">=1.9.0"
+      "gsd": ">=1.15.0"
     },
     "runtimeCompat": {
       "supported": [
@@ -2862,6 +2877,13 @@ const capabilities = {
     "skills": [],
     "agents": [
       "gsd-finding-refuter"
+    ],
+    "commands": [
+      {
+        "family": "mn",
+        "module": "mn-command-router.cjs",
+        "router": "routeMnCommand"
+      }
     ],
     "hooks": [],
     "config": {
@@ -2878,17 +2900,17 @@ const capabilities = {
       "workflow.mn_security_enforce": {
         "type": "boolean",
         "default": false,
-        "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+        "description": "Block ship on open threats in SECURITY.md (threats_open must be 0). Unlike core workflow.security_enforcement, which blocks when the phase wrote no SECURITY.md, this gate declares the artifact optional: a phase with no SECURITY.md passes — absence of threats is not a defect. A SECURITY.md that exists is always read."
       },
       "workflow.mn_windows_enforce": {
         "type": "boolean",
         "default": false,
-        "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+        "description": "Block ship on open broken windows in WINDOWS.md (open_count must be 0). Unlike core workflow.windows_enforce, the artifact is optional: a phase with no WINDOWS.md passes. A WINDOWS.md that exists is always read."
       },
       "workflow.assertion_ratchet": {
         "type": "boolean",
         "default": false,
-        "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+        "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json — create it, and re-record it after a deliberate drop, with `gsd_run mn assertion-baseline`; without one it blocks as unresolvable."
       },
       "workflow.data_contract_for_ui": {
         "type": "boolean",
@@ -2903,7 +2925,7 @@ const capabilities = {
       "workflow.design_registry": {
         "type": "boolean",
         "default": false,
-        "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from scripts/design-registry.mjs; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
+        "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from `gsd_run mn design-registry`; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
       },
       "workflow.user_route": {
         "type": "boolean",
@@ -2948,7 +2970,7 @@ const capabilities = {
       "workflow.mutation_spot_check": {
         "type": "boolean",
         "default": false,
-        "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+        "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Runs as a verify:pre step (`gsd_run verify mutation`, bounded to nine minutes) that records a mutation: block in VERIFICATION.md; the gate reads that record and blocks on a survivor, on a missing or stale record, or when the step could not check. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
       },
       "workflow.mutation_test_command": {
         "type": "string",
@@ -2958,12 +2980,17 @@ const capabilities = {
       "workflow.mutation_max_mutants": {
         "type": "number",
         "default": 3,
-        "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+        "description": "How many mutants the spot-check introduces per phase (one per declared source file). It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command, and the step stops starting new ones once its nine-minute budget is spent."
       },
       "workflow.worktree_provision": {
         "type": "boolean",
         "default": false,
-        "description": "Equip a new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings.local.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js (WorktreeCreate); on runtimes without that event the existing dispatch path is unchanged."
+        "description": "Equip each new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings*.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind the main checkout than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js, which the installer registers on Claude Code's WorktreeCreate/WorktreeRemove: that hook replaces the harness's own creation whether or not this key is on — it creates <main checkout>/.claude/worktrees/<name> on branch worktree-<name> from the local HEAD (never a stale origin/HEAD) and copies .worktreeinclude files; this key adds the equipment. A failed equipment step warns on stderr unless workflow.worktree_provision_strict is on. Runtimes without that event keep their existing dispatch path."
+      },
+      "workflow.worktree_provision_strict": {
+        "type": "boolean",
+        "default": false,
+        "description": "Refuse the worktree when an equipment step fails (a tool-config or .worktreeinclude copy, the node_modules link, the install command) instead of warning on stderr. The half-equipped worktree and its branch are removed again before the hook exits non-zero, so a creation Claude Code reports as failed leaves nothing on disk. Off by default: an agent that may not need the missing piece is better served by a worktree than by none, and refusing isolation over an optional convenience is how people come to turn it off. Only consulted when workflow.worktree_provision is on."
       },
       "workflow.worktree_deps": {
         "type": "enum",
@@ -2973,7 +3000,7 @@ const capabilities = {
           "none"
         ],
         "default": "link",
-        "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree: the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it."
+        "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree (the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it) unless workflow.worktree_provision_strict is on."
       },
       "workflow.worktree_install_command": {
         "type": "string",
@@ -3068,7 +3095,7 @@ const capabilities = {
       "workflow.wave_normalize": {
         "type": "boolean",
         "default": false,
-        "description": "Block on same-wave overlap AFTER resolving directories and globs against the working tree, and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Supersedes workflow.wave_collision for projects whose plans declare directories: that gate compares only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Both may be enabled — wave_collision runs first, this one catches what it skipped. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
+        "description": "Resolve directories and globs against the working tree before comparing same-wave files_modified (check mn-wave-collision in expand mode), and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Also switches check mn-wave-solve to the resolved file sets. Supersedes workflow.wave_collision for projects whose plans declare directories: literal comparison sees only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Enabling it alone also turns the gate on; with both keys on, the expand mode applies. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
       },
       "workflow.orphan_plans": {
         "type": "boolean",
@@ -3078,7 +3105,7 @@ const capabilities = {
       "workflow.wave_solve": {
         "type": "boolean",
         "default": false,
-        "description": "Block at plan:post when a declared wave is EARLIER than the computed assignment — the plan would run before its dependency exists, or race another plan over the same file. A wave declared LATER than necessary is reported, not blocked: it is sequential where parallel would do, slower but never wrong."
+        "description": "Block at plan:post when a declared wave breaks the parallelism invariant — a plan declared at or before the wave of a plan it depends on (it would run before its dependency exists), or sharing a declared wave and a file with another plan (it races it). The computed assignment (depends_on levels, then file-overlap stages) is reported for renumbering; a wave declared LATER than computed is reported, not blocked: sequential where parallel would do, slower but never wrong. A dependency cycle cannot be checked and blocks."
       },
       "workflow.plan_status_enforce": {
         "type": "boolean",
@@ -3110,6 +3137,16 @@ const capabilities = {
         "produces": [],
         "consumes": [],
         "when": "workflow.verify_gates_record",
+        "onError": "skip"
+      },
+      {
+        "point": "verify:pre",
+        "ref": {
+          "command": "verify mutation"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.mutation_spot_check",
         "onError": "skip"
       }
     ],
@@ -3143,7 +3180,7 @@ const capabilities = {
         "into": "planner",
         "fragment": {
           "path": "fragments/plan-pre-fieldtable.md",
-          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\nbun \"$HOME/.gsd/mn-verify-gate/scripts/zod-fieldtable.mjs\" \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName>\n```\n\nIt emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
+          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\ngsd_run mn zod-fieldtable \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName> --raw\n```\n\nRun it from the project root: it loads the schema in the project's own runtime — bun when installed (it resolves tsconfig path aliases), otherwise Node with type stripping (it does not). It emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema. If the schema cannot be loaded, the command fails and says why; record that in the plan instead of retyping the fields.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
         },
         "produces": [],
         "consumes": [],
@@ -3179,7 +3216,7 @@ const capabilities = {
         "into": "planner",
         "fragment": {
           "path": "fragments/plan-pre-design-registry.md",
-          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running)\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --html <export-dir> --code libs/<domain>\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain>\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it.\n\nExit codes: `0` checked and clean · `1` checked, components unimplemented (under `--check`) · `2` could not check at all. Treat `2` as a blocked task, not a pass — a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line.\n\n## What the registry does not decide\n\nThe script reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
+          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running; export inside the project)\ngsd_run mn design-registry --html <export-dir> --code libs/<domain> --raw\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\ngsd_run mn design-registry --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain> --raw\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it. Paths must lie inside the project.\n\nWhen it cannot check at all — no export, no component table, no code — it fails with nothing on stdout. Treat that as a blocked task, not a pass: a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line. With `--check [--threshold N]` it also fails, after printing the table, when more than N components are unimplemented.\n\n## What the registry does not decide\n\nThe command reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
         },
         "produces": [],
         "consumes": [],
@@ -3204,9 +3241,10 @@ const capabilities = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VALIDATION.md",
+            "field": "nyquist_compliant",
+            "equals": true
           }
         },
         "when": "workflow.nyquist_enforce",
@@ -3217,9 +3255,10 @@ const capabilities = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VERIFICATION.md",
+            "field": "truths_unproven",
+            "equals": 0
           }
         },
         "when": "workflow.verify_enforce",
@@ -3230,9 +3269,10 @@ const capabilities = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VERIFICATION.md",
+            "field": "gates.all_passed",
+            "equals": true
           }
         },
         "when": "workflow.verify_gates_enforce",
@@ -3242,11 +3282,7 @@ const capabilities = {
       {
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 90
-          }
+          "query": "mn-uat-open"
         },
         "when": "workflow.uat_enforce",
         "blocking": true,
@@ -3255,11 +3291,7 @@ const capabilities = {
       {
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 1800
-          }
+          "query": "mn-mutation-spot-check"
         },
         "when": "workflow.mutation_spot_check",
         "blocking": true,
@@ -3269,9 +3301,11 @@ const capabilities = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "SECURITY.md",
+            "field": "threats_open",
+            "equals": 0,
+            "optional": true
           }
         },
         "when": "workflow.mn_security_enforce",
@@ -3282,9 +3316,11 @@ const capabilities = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "WINDOWS.md",
+            "field": "open_count",
+            "equals": 0,
+            "optional": true
           }
         },
         "when": "workflow.mn_windows_enforce",
@@ -3294,11 +3330,7 @@ const capabilities = {
       {
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
-            "timeout": 120
-          }
+          "query": "mn-assertion-ratchet"
         },
         "when": "workflow.assertion_ratchet",
         "blocking": true,
@@ -3307,11 +3339,7 @@ const capabilities = {
       {
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-migration-safety"
         },
         "when": "workflow.migration_safety",
         "blocking": true,
@@ -3320,11 +3348,7 @@ const capabilities = {
       {
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
-            "timeout": 60
-          }
+          "query": "mn-migration-safety"
         },
         "when": "workflow.migration_safety_strict",
         "blocking": true,
@@ -3333,11 +3357,7 @@ const capabilities = {
       {
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-blast-radius"
         },
         "when": "workflow.blast_radius",
         "blocking": true,
@@ -3346,11 +3366,7 @@ const capabilities = {
       {
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
-            "timeout": 120
-          }
+          "query": "mn-contract-drift"
         },
         "when": "workflow.contract_drift",
         "blocking": true,
@@ -3359,11 +3375,7 @@ const capabilities = {
       {
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-collision.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-collision"
         },
         "when": "workflow.wave_collision",
         "blocking": true,
@@ -3372,11 +3384,7 @@ const capabilities = {
       {
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-orphan-plans"
         },
         "when": "workflow.orphan_plans",
         "blocking": true,
@@ -3385,11 +3393,7 @@ const capabilities = {
       {
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-solve.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-solve"
         },
         "when": "workflow.wave_solve",
         "blocking": true,
@@ -3398,11 +3402,7 @@ const capabilities = {
       {
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-plan-status"
         },
         "when": "workflow.plan_status_enforce",
         "blocking": true,
@@ -3411,11 +3411,7 @@ const capabilities = {
       {
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-normalize.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-collision"
         },
         "when": "workflow.wave_normalize",
         "blocking": true,
@@ -3424,11 +3420,7 @@ const capabilities = {
       {
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 30
-          }
+          "query": "mn-clean-state"
         },
         "when": "workflow.clean_state_enforce",
         "blocking": true,
@@ -5132,7 +5124,7 @@ const byLoopPoint = {
         "into": "planner",
         "fragment": {
           "path": "fragments/plan-pre-fieldtable.md",
-          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\nbun \"$HOME/.gsd/mn-verify-gate/scripts/zod-fieldtable.mjs\" \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName>\n```\n\nIt emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
+          "inline": "<data_contract_for_ui>\n**If this phase renders a form, a list, or any screen bound to a DTO, put the field table in the plan before the UI work is scheduled.**\n\nThe visual contract (UI-SPEC.md) carries palette, spacing and typography. It carries no fields. A designer who is told \"draw the check-in form\" and nothing else invents the fields, and the invention diverges from the Zod schema — which is what actually validates the request. That divergence surfaces in UAT, and fixing it usually means touching the DTO, so it cascades.\n\nThe half of the contract that already exists in code should be read, not retyped:\n\n```bash\ngsd_run mn zod-fieldtable \\\n  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName> --raw\n```\n\nRun it from the project root: it loads the schema in the project's own runtime — bun when installed (it resolves tsconfig path aliases), otherwise Node with type stripping (it does not). It emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema. If the schema cannot be loaded, the command fails and says why; record that in the plan instead of retyping the fields.\n\nWhat the schema does **not** decide, and what the plan must therefore state explicitly:\n\n- **which control** each field gets — an enum of three is a radio group, an enum of forty needs a combobox with search; the count is in the schema, the threshold is a judgement\n- **field order and grouping** — `z.object` has no meaningful order\n- **error copy** — \"String must contain at least 1 character(s)\" is not what a user should read\n- **when validation fires** — on blur, on submit, live\n- **conditional visibility** — `.refine()` states a rule, not that field B hides while A is empty\n- **per-role visibility** — not expressed in a DTO at all\n\nDo not leave these to the executor to improvise: an improvised choice is invisible at review time, because nothing records that a choice was made.\n</data_contract_for_ui>\n"
         },
         "produces": [],
         "consumes": [],
@@ -5171,7 +5163,7 @@ const byLoopPoint = {
         "into": "planner",
         "fragment": {
           "path": "fragments/plan-pre-design-registry.md",
-          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running)\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --html <export-dir> --code libs/<domain>\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\nnode \"$HOME/.gsd/mn-verify-gate/scripts/design-registry.mjs\" \\\n  --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain>\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it.\n\nExit codes: `0` checked and clean · `1` checked, components unimplemented (under `--check`) · `2` could not check at all. Treat `2` as a blocked task, not a pass — a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line.\n\n## What the registry does not decide\n\nThe script reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
+          "inline": "<design_registry_for_ui>\n**If this phase builds frontend, read the project's `DESIGN-SYSTEM.md` before planning any screen, and put the component registry in the plan before the UI work is scheduled.**\n\nThere is a document that already answers \"which components exist, with which node ids, in which states\" — and nothing in this pipeline reads it. `apps/polyglot/DESIGN-SYSTEM.md` is 1052 lines of exactly that: zone map, component ids, states per component, screen registry. It is produced under the `quality-design` skill and consumed by no one. UI-SPEC.md carries palette, spacing and typography, and not one component. So the planner schedules \"build the journal screen\" without knowing that 39 masters exist in the design file, that 15 of them are already written, and that `IconButton` has five states drawn. It invents the list, and the invention diverges from the file the designer is actually working in.\n\n## Read the design system first\n\n```bash\ncat apps/<domain>/DESIGN-SYSTEM.md      # zones, component ids, states, screen registry\n```\n\nIf the project has no `DESIGN-SYSTEM.md`, say so in the plan and propose creating one — that is the `quality-design` convention, and its absence is a finding, not a detail. Do not substitute a screenshot: **the design file's node properties are the source, screenshots are for visual regression tests only.**\n\n## Then derive what is already built\n\nThe registry says what should exist. The disk says what does. Only the second half can be generated:\n\n```bash\n# canonical — HTML export from Pencil (requires the Pencil app running; export inside the project)\ngsd_run mn design-registry --html <export-dir> --code libs/<domain> --raw\n\n# without Pencil — parse the registry table in DESIGN-SYSTEM.md\ngsd_run mn design-registry --registry apps/<domain>/DESIGN-SYSTEM.md --code libs/<domain> --raw\n```\n\nIt emits node id · component · states from the design · code path · implemented yes/no, plus drift in both directions. Output is marked `gsd:derived` — regenerate it, never hand-edit it. Paths must lie inside the project.\n\nWhen it cannot check at all — no export, no component table, no code — it fails with nothing on stdout. Treat that as a blocked task, not a pass: a missing export and a complete implementation both produce \"no missing components\" if you only read the summary line. With `--check [--threshold N]` it also fails, after printing the table, when more than N components are unimplemented.\n\n## What the registry does not decide\n\nThe command reports whether a file exists. It cannot report whether that file is *right*, and it must not be read as though it could:\n\n- **`todo` / `in-progress` / `done`** — a file existing is not a component being finished. Status is a human judgement; its home is `DESIGN-SYSTEM.md`, not the generated table.\n- **Deliberate divergence** — where code intentionally departs from the mockup, and why. An undocumented divergence is indistinguishable from a bug.\n- **Which states are mandatory** — the design showing five states does not make five states required for this phase. `happy · loading · empty · no-results · error · offline` is the canon to reason against; which apply to *this* data is a decision.\n- **Breakpoints and responsive behaviour** — mobile artboards are one width. What happens at tablet and desktop is usually not drawn at all, and inventing it silently is how layouts diverge.\n- **Name mismatches** — matching is exact by design. `RecDrinkRow` will not match `DrinkRow`, and that is deliberate: a false \"already built\" closes a task nobody did. Record intentional renames in a `--map` file, which makes the mapping a recorded decision rather than a guess.\n\nState these in the plan. An improvised choice is invisible at review time, because nothing records that a choice was made.\n\n## Direction of truth\n\nPer `quality-design`: **the design is the source of truth, not the code.** Code aligns to the design, not the reverse. A component in code with no node in the design is either the design lagging or a component that was never meant to be drawn — both are decisions for the owner. And `DESIGN-SYSTEM.md` itself is authoritative only while it matches the live design file; where they disagree, the file wins and the document gets fixed.\n</design_registry_for_ui>\n"
         },
         "produces": [],
         "consumes": [],
@@ -5317,6 +5309,16 @@ const byLoopPoint = {
     ],
     "gates": [
       {
+        "capId": "architecture",
+        "point": "plan:post",
+        "check": {
+          "query": "architecture.diagrams"
+        },
+        "when": "workflow.architecture_diagrams_gate",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
         "capId": "gap-analysis",
         "point": "plan:post",
         "check": {
@@ -5330,11 +5332,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-collision.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-collision"
         },
         "when": "workflow.wave_collision",
         "blocking": true,
@@ -5344,11 +5342,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-solve.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-solve"
         },
         "when": "workflow.wave_solve",
         "blocking": true,
@@ -5358,11 +5352,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "plan:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/wave-normalize.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-wave-collision"
         },
         "when": "workflow.wave_normalize",
         "blocking": true,
@@ -5474,11 +5464,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-migration-safety"
         },
         "when": "workflow.migration_safety",
         "blocking": true,
@@ -5488,11 +5474,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/migration-safety.mjs\" --dir \"${PHASE_DIR}\" --strict",
-            "timeout": 60
-          }
+          "query": "mn-migration-safety"
         },
         "when": "workflow.migration_safety_strict",
         "blocking": true,
@@ -5502,11 +5484,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "execute:wave:post",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/plan-status.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-plan-status"
         },
         "when": "workflow.plan_status_enforce",
         "blocking": true,
@@ -5602,6 +5580,17 @@ const byLoopPoint = {
         "consumes": [],
         "when": "workflow.verify_gates_record",
         "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "verify:pre",
+        "ref": {
+          "command": "verify mutation"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.mutation_spot_check",
+        "onError": "skip"
       }
     ],
     "contributions": [],
@@ -5620,11 +5609,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 1800
-          }
+          "query": "mn-mutation-spot-check"
         },
         "when": "workflow.mutation_spot_check",
         "blocking": true,
@@ -5634,11 +5619,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
-            "timeout": 120
-          }
+          "query": "mn-assertion-ratchet"
         },
         "when": "workflow.assertion_ratchet",
         "blocking": true,
@@ -5648,11 +5629,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-blast-radius"
         },
         "when": "workflow.blast_radius",
         "blocking": true,
@@ -5662,11 +5639,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
-            "timeout": 120
-          }
+          "query": "mn-contract-drift"
         },
         "when": "workflow.contract_drift",
         "blocking": true,
@@ -5676,11 +5649,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "verify:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/orphan-plans.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 60
-          }
+          "query": "mn-orphan-plans"
         },
         "when": "workflow.orphan_plans",
         "blocking": true,
@@ -5776,9 +5745,10 @@ const byLoopPoint = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VALIDATION.md --field nyquist_compliant --equals true",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VALIDATION.md",
+            "field": "nyquist_compliant",
+            "equals": true
           }
         },
         "when": "workflow.nyquist_enforce",
@@ -5790,9 +5760,10 @@ const byLoopPoint = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field truths_unproven --equals 0",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VERIFICATION.md",
+            "field": "truths_unproven",
+            "equals": 0
           }
         },
         "when": "workflow.verify_enforce",
@@ -5804,9 +5775,10 @@ const byLoopPoint = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact VERIFICATION.md --field gates.all_passed --equals true",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "VERIFICATION.md",
+            "field": "gates.all_passed",
+            "equals": true
           }
         },
         "when": "workflow.verify_gates_enforce",
@@ -5817,11 +5789,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 90
-          }
+          "query": "mn-uat-open"
         },
         "when": "workflow.uat_enforce",
         "blocking": true,
@@ -5832,9 +5800,11 @@ const byLoopPoint = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact SECURITY.md --field threats_open --equals 0 --optional",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "SECURITY.md",
+            "field": "threats_open",
+            "equals": 0,
+            "optional": true
           }
         },
         "when": "workflow.mn_security_enforce",
@@ -5846,9 +5816,11 @@ const byLoopPoint = {
         "point": "ship:pre",
         "check": {
           "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/check-frontmatter.mjs\" --dir \"${PHASE_DIR}\" --artifact WINDOWS.md --field open_count --equals 0 --optional",
-            "timeout": 20
+            "kind": "artifact-frontmatter-equals",
+            "artifact": "WINDOWS.md",
+            "field": "open_count",
+            "equals": 0,
+            "optional": true
           }
         },
         "when": "workflow.mn_windows_enforce",
@@ -5859,11 +5831,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "command-exit-zero",
-            "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/clean-state.mjs\" --dir \"${PHASE_DIR}\"",
-            "timeout": 30
-          }
+          "query": "mn-clean-state"
         },
         "when": "workflow.clean_state_enforce",
         "blocking": true,
@@ -5915,6 +5883,7 @@ const configKeys = {
   "review.timeouts.antigravity": "antigravity",
   "workflow.architecture_design": "architecture",
   "workflow.architecture_review": "architecture",
+  "workflow.architecture_diagrams_gate": "architecture",
   "workflow.assumption_delta": "assumption-delta",
   "workflow.windows_enforce": "broken-windows",
   "review.models.claude": "claude",
@@ -5990,6 +5959,7 @@ const configKeys = {
   "workflow.mutation_test_command": "mn-verify-gate",
   "workflow.mutation_max_mutants": "mn-verify-gate",
   "workflow.worktree_provision": "mn-verify-gate",
+  "workflow.worktree_provision_strict": "mn-verify-gate",
   "workflow.worktree_deps": "mn-verify-gate",
   "workflow.worktree_install_command": "mn-verify-gate",
   "workflow.worktree_max_base_lag": "mn-verify-gate",
@@ -6084,6 +6054,12 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Run the architecture reviewer after execution to check the declared structure held: placements honoured, dependencies legal, no rejected alternative silently adopted. Distinct from gsd-verifier, which asks whether the goal was met rather than whether it was met where the design said."
+  },
+  "workflow.architecture_diagrams_gate": {
+    "owner": "architecture",
+    "type": "boolean",
+    "default": false,
+    "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement; a name it cannot resolve for certain is a warning, never a block."
   },
   "workflow.assumption_delta": {
     "owner": "assumption-delta",
@@ -6461,19 +6437,19 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block ship on open threats in SECURITY.md. Replacement for core workflow.security_enforcement, whose artifact-frontmatter-equals predicate is unknown to the installed 1.9.1 evaluator. A phase with no SECURITY.md passes — absence of threats is not a defect."
+    "description": "Block ship on open threats in SECURITY.md (threats_open must be 0). Unlike core workflow.security_enforcement, which blocks when the phase wrote no SECURITY.md, this gate declares the artifact optional: a phase with no SECURITY.md passes — absence of threats is not a defect. A SECURITY.md that exists is always read."
   },
   "workflow.mn_windows_enforce": {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block ship on open broken windows in WINDOWS.md. Replacement for core workflow.windows_enforce, same predicate reason. A phase with no WINDOWS.md passes."
+    "description": "Block ship on open broken windows in WINDOWS.md (open_count must be 0). Unlike core workflow.windows_enforce, the artifact is optional: a phase with no WINDOWS.md passes. A WINDOWS.md that exists is always read."
   },
   "workflow.assertion_ratchet": {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+    "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json — create it, and re-record it after a deliberate drop, with `gsd_run mn assertion-baseline`; without one it blocks as unresolvable."
   },
   "workflow.data_contract_for_ui": {
     "owner": "mn-verify-gate",
@@ -6491,7 +6467,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from scripts/design-registry.mjs; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
+    "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from `gsd_run mn design-registry`; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
   },
   "workflow.user_route": {
     "owner": "mn-verify-gate",
@@ -6545,7 +6521,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+    "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Runs as a verify:pre step (`gsd_run verify mutation`, bounded to nine minutes) that records a mutation: block in VERIFICATION.md; the gate reads that record and blocks on a survivor, on a missing or stale record, or when the step could not check. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
   },
   "workflow.mutation_test_command": {
     "owner": "mn-verify-gate",
@@ -6557,19 +6533,25 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "number",
     "default": 3,
-    "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+    "description": "How many mutants the spot-check introduces per phase (one per declared source file). It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command, and the step stops starting new ones once its nine-minute budget is spent."
   },
   "workflow.worktree_provision": {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Equip a new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings.local.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js (WorktreeCreate); on runtimes without that event the existing dispatch path is unchanged."
+    "description": "Equip each new worktree at creation instead of letting an agent discover it is unequipped by failing. Copies .mcp.json and .claude/settings*.json (the recorded failure: mcp__pencil__* and atlas unavailable in every worktree agent, because the config lives in the main checkout), provides node_modules per workflow.worktree_deps, and refuses a worktree whose base is further behind the main checkout than workflow.worktree_max_base_lag. Off by default because it copies files and may run an install command. Implemented by hooks/gsd-worktree-provision.js, which the installer registers on Claude Code's WorktreeCreate/WorktreeRemove: that hook replaces the harness's own creation whether or not this key is on — it creates <main checkout>/.claude/worktrees/<name> on branch worktree-<name> from the local HEAD (never a stale origin/HEAD) and copies .worktreeinclude files; this key adds the equipment. A failed equipment step warns on stderr unless workflow.worktree_provision_strict is on. Runtimes without that event keep their existing dispatch path."
+  },
+  "workflow.worktree_provision_strict": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Refuse the worktree when an equipment step fails (a tool-config or .worktreeinclude copy, the node_modules link, the install command) instead of warning on stderr. The half-equipped worktree and its branch are removed again before the hook exits non-zero, so a creation Claude Code reports as failed leaves nothing on disk. Off by default: an agent that may not need the missing piece is better served by a worktree than by none, and refusing isolation over an optional convenience is how people come to turn it off. Only consulted when workflow.worktree_provision is on."
   },
   "workflow.worktree_deps": {
     "owner": "mn-verify-gate",
     "type": "enum",
     "default": "link",
-    "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree: the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it.",
+    "description": "How a provisioned worktree gets its dependencies. \"link\" symlinks the main checkout's node_modules — fast, and correct whenever the lockfile has not moved, which is the common case for a phase branch. \"install\" runs workflow.worktree_install_command for the cases where it has. \"none\" leaves it alone. A failure here warns rather than refusing the worktree (the phase may not need dependencies, and blocking isolation over an optional convenience is how people come to distrust it) unless workflow.worktree_provision_strict is on.",
     "values": [
       "link",
       "install",
@@ -6676,7 +6658,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block on same-wave overlap AFTER resolving directories and globs against the working tree, and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Supersedes workflow.wave_collision for projects whose plans declare directories: that gate compares only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Both may be enabled — wave_collision runs first, this one catches what it skipped. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
+    "description": "Resolve directories and globs against the working tree before comparing same-wave files_modified (check mn-wave-collision in expand mode), and report a plan that declared nothing, a glob that matched nothing, and a prose entry under separate headings. Also switches check mn-wave-solve to the resolved file sets. Supersedes workflow.wave_collision for projects whose plans declare directories: literal comparison sees only entries with a dot in the basename, which skipped entries on 17 of 55 measured phases and reported a real wave-1 collision on a 40-file directory as clean. Enabling it alone also turns the gate on; with both keys on, the expand mode applies. Default false: resolution is against the tree, so a phase whose files do not exist yet will legitimately report RESOLVED TO NOTHING."
   },
   "workflow.orphan_plans": {
     "owner": "mn-verify-gate",
@@ -6688,7 +6670,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block at plan:post when a declared wave is EARLIER than the computed assignment — the plan would run before its dependency exists, or race another plan over the same file. A wave declared LATER than necessary is reported, not blocked: it is sequential where parallel would do, slower but never wrong."
+    "description": "Block at plan:post when a declared wave breaks the parallelism invariant — a plan declared at or before the wave of a plan it depends on (it would run before its dependency exists), or sharing a declared wave and a file with another plan (it races it). The computed assignment (depends_on levels, then file-overlap stages) is reported for renumbering; a wave declared LATER than computed is reported, not blocked: sequential where parallel would do, slower but never wrong. A dependency cycle cannot be checked and blocks."
   },
   "workflow.plan_status_enforce": {
     "owner": "mn-verify-gate",
@@ -9332,6 +9314,11 @@ const commandFamilies = {
     "capId": "intel",
     "module": "intel-command-router.cjs",
     "router": "routeIntelCommand"
+  },
+  "mn": {
+    "capId": "mn-verify-gate",
+    "module": "mn-command-router.cjs",
+    "router": "routeMnCommand"
   },
   "profile-questionnaire": {
     "capId": "profile-pipeline",

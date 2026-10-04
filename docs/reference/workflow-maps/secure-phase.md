@@ -37,7 +37,7 @@ flowchart TB
   u_heading_3__Threat_Classification -.->|"goto"| u_heading_5__Spawn_gsd_security_auditor
   u_heading_3__Threat_Classification -.->|"goto"| u_heading_4__Present_Threat_Plan
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -71,7 +71,7 @@ flowchart LR
   p_verify_post -.-> c_verify_post_ui_skill_ui_review
   u_heading_0__Initialize --> p_verify_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

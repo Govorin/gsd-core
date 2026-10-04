@@ -36,7 +36,7 @@ flowchart TB
   u_heading_Step_3__Discover_Phase_Artifacts -.->|"goto"| u_heading_Step_5__Generate_Summary_Document
   u_heading_Step_6__Write_and_Commit -.->|"goto"| u_heading_Step_8__Offer_Interactive_Mode
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

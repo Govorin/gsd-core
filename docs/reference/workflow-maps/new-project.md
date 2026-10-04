@@ -73,7 +73,7 @@ flowchart TB
   u_heading_5__Workflow_Preferences -.->|"goto"| u_heading_5_5__Resolve_Model_Profile
   u_heading_6__Research_Decision -.->|"goto"| u_heading_7__Define_Requirements
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -103,7 +103,7 @@ flowchart LR
   u_heading_2b__Prior_Spike_Sketch_Detection -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_6__Research_Decision -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

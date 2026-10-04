@@ -30,7 +30,7 @@ flowchart TB
   u_heading_4__Handle_Return --> u_heading_Automated_UI_Verification__when_Playwright_MCP_is_available_
   u_heading_Automated_UI_Verification__when_Playwright_MCP_is_available_ --> u_heading_5__Commit__if_configured_
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -51,7 +51,7 @@ flowchart LR
   u_heading_3__Spawn_gsd_ui_auditor["3. Spawn gsd-ui-auditor"]
   u_heading_3__Spawn_gsd_ui_auditor --> a_gsd_ui_auditor
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

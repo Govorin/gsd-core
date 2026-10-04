@@ -58,7 +58,7 @@ flowchart TB
   u_step_present_gray_areas -.->|"goto"| u_step_discuss_areas
   u_step_dispatch_discuss_post_hooks -.->|"goto"| u_step_confirm_creation
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -84,7 +84,7 @@ flowchart LR
   p_discuss_post -.-> c_discuss_post_mempalace_skill_mempalace_capture
   u_step_dispatch_discuss_post_hooks --> p_discuss_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6

@@ -57,7 +57,7 @@ flowchart TB
   u_step_lifecycle -.->|"goto"| u_step_handle_blocker
   wf_root -.->|"goto"| u_step_handle_blocker
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
@@ -85,6 +85,7 @@ flowchart LR
     p_verify_pre{{"verify#58;pre<br/>+6 gates, +0 contributions"}}:::point
     c_verify_pre_architecture_agent_gsd_architect_reviewer["architecture#58; agent gsd-architect-reviewer"]:::capability
     c_verify_pre_mn_verify_gate_command_verify_gates["mn-verify-gate#58; command verify gates"]:::capability
+    c_verify_pre_mn_verify_gate_command_verify_mutation["mn-verify-gate#58; command verify mutation"]:::capability
   end
   subgraph g_files["Другие workflows и файлы"]
     w_gsd_core_workflows_transition_md(["workflow#58; transition"]):::workflow
@@ -103,13 +104,14 @@ flowchart LR
   u_step_execute_phase -->|"через autonomous/steps/blocking-gates.md"| p_ship_pre
   p_verify_pre -.-> c_verify_pre_architecture_agent_gsd_architect_reviewer
   p_verify_pre -.-> c_verify_pre_mn_verify_gate_command_verify_gates
+  p_verify_pre -.-> c_verify_pre_mn_verify_gate_command_verify_mutation
   u_step_execute_phase -->|"через autonomous/steps/blocking-gates.md"| p_verify_pre
   u_section_blocking_gates -->|"через autonomous/steps/blocking-gates.md"| p_ship_pre
   u_section_blocking_gates -->|"через autonomous/steps/blocking-gates.md"| p_verify_pre
   u_step_execute_phase -.-> w_gsd_core_workflows_transition_md
   u_section_human_needed -.-> w_gsd_core_workflows_transition_md
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
-  classDef unparsed fill:#f2f2f2,stroke:#888,stroke-dasharray:4 3
+  classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
   classDef root fill:#263238,color:#ffffff,stroke:#263238
   classDef agent fill:#e8f0fe,stroke:#3367d6
