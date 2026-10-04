@@ -20,6 +20,8 @@ import type { GateResult } from './gate-verdict.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { evaluateMnPlanStatus, evaluateMnOrphanPlans } from './gate-mn-plan-status.cjs';
 import { evaluateMnUatOpen } from './gate-mn-uat-open.cjs';
+import { evaluateMnBlastRadius } from './gate-mn-blast-radius.cjs';
+import { evaluateMnContractDrift } from './gate-mn-contract-drift.cjs';
 
 type MnGateEvaluator = (input: MnGateInput) => GateResult;
 
@@ -39,6 +41,8 @@ const MN_CHECK_VERBS: Readonly<Record<string, MnGateEntry>> = Object.freeze({
   'mn-plan-status': { evaluate: evaluateMnPlanStatus, scope: 'phase' },
   'mn-orphan-plans': { evaluate: evaluateMnOrphanPlans, scope: 'phase' },
   'mn-uat-open': { evaluate: evaluateMnUatOpen, scope: 'phase' },
+  'mn-blast-radius': { evaluate: evaluateMnBlastRadius, scope: 'phase' },
+  'mn-contract-drift': { evaluate: evaluateMnContractDrift, scope: 'phase' },
 });
 
 /** Is `verb` one of the mn gates? (Own keys only — `toString` is not a verb.) */

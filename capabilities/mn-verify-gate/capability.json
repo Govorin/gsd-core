@@ -485,11 +485,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/blast-radius.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 60
-        }
+        "query": "mn-blast-radius"
       },
       "when": "workflow.blast_radius",
       "blocking": true,
@@ -498,11 +494,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/contract-drift.mjs\" --dir \"${PHASE_DIR}\" --root \"${PROJECT_ROOT:-.}\"",
-          "timeout": 120
-        }
+        "query": "mn-contract-drift"
       },
       "when": "workflow.contract_drift",
       "blocking": true,
