@@ -126,6 +126,12 @@ Use this instead of manually reading/parsing ROADMAP.md.
 PROGRESS_BAR=$(gsd_run query progress.bar --raw)
 # Phase graph + completion gantt, built from ROADMAP data (defects listed under it)
 ROADMAP_GRAPH=$(gsd_run roadmap graph --raw 2>/dev/null || echo '')
+# Current phase's plans by wave / depends_on (defects listed under it); none without a current phase
+CURRENT_PHASE_DIR=$(printf '%s' "$INIT" | jq -r '.current_phase.directory // empty' 2>/dev/null)
+PLAN_GRAPH=''
+if [ -n "$CURRENT_PHASE_DIR" ]; then
+  PLAN_GRAPH=$(gsd_run plan graph --dir "$CURRENT_PHASE_DIR" --raw 2>/dev/null || echo '')
+fi
 ```
 
 Present:
@@ -176,6 +182,9 @@ Render `Open Windows` only when `$WINDOWS_OPEN` is greater than `0` (or `$WINDOW
 
 ## Phase Graph
 {ROADMAP_GRAPH} — print it verbatim, never redraw or edit it; omit the section when empty
+
+## Plan Graph — Phase [N]
+{PLAN_GRAPH} — print it verbatim, never redraw or edit it; omit the section when empty
 
 ## What's Next
 [Next phase/plan objective from roadmap analyze]

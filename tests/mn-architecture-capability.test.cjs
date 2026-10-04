@@ -191,3 +191,57 @@ describe('architecture agents', () => {
     );
   });
 });
+
+describe('phase 5.7a: the architect checks its own diagrams before returning', () => {
+  const { beforeEach, afterEach } = require('node:test');
+  const { runGsdTools, createTempGitProject, cleanup } = require('./helpers.cjs');
+  const { DIAGRAMS_SUBCOMMANDS } = require('../gsd-core/bin/lib/diagrams-command-router.cjs');
+
+  // The producer checks its output; the plan:post gate is only the backstop.
+  const src = fs.readFileSync(path.join(AGENTS_DIR, 'gsd-system-architect.md'), 'utf8');
+  const workflow = src.slice(src.indexOf('<workflow>'), src.indexOf('</workflow>'));
+  const output = src.slice(src.indexOf('<output>'), src.indexOf('</output>'));
+  const call = workflow.match(/`gsd_run diagrams (\S{1,40}) --file (\S{1,120})`/);
+
+  test('a workflow step runs a real diagrams subcommand on the DESIGN.md the agent writes', () => {
+    assert.ok(call, 'the <workflow> runs gsd_run diagrams … --file …');
+    assert.ok(DIAGRAMS_SUBCOMMANDS.includes(call[1]), `${call[1]} is a diagrams subcommand`);
+    assert.ok(output.includes(`Write \`${call[2]}\``), `the checked file ${call[2]} is the file <output> writes`);
+  });
+
+  describe('the finding and field the step acts on are what the command reports', () => {
+    let root;
+    beforeEach(() => {
+      root = createTempGitProject('gsd-architect-selfcheck-');
+    });
+    afterEach(() => {
+      cleanup(root);
+    });
+
+    function design(placementRows) {
+      const rel = '.planning/phases/01-x/01-DESIGN.md';
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), [
+        '---', 'phase: 01-x', 'contracts_superseded: false', '---',
+        '## Layer Placement',
+        '| What | Layer | NX project | Why not the neighbour |',
+        '|------|-------|-----------|----------------------|',
+        ...placementRows,
+        '## Ports & Implementations',
+        '```mermaid', 'classDiagram', '  class ThingCache', '```',
+      ].join('\n'));
+      const r = runGsdTools(['diagrams', call[1], '--file', rel], root);
+      assert.equal(r.success, true, r.error);
+      return JSON.parse(r.output);
+    }
+
+    test('an invented name is an absent BLOCKER; the Layer Placement row the step prescribes clears it', () => {
+      assert.ok(workflow.includes('`absent`') && workflow.includes('`blocker_count`'), 'the step names the reason and the field');
+      const invented = design([]);
+      assert.equal(invented.blocker_count, 1);
+      assert.deepEqual(invented.findings.map((f) => [f.severity, f.reason, f.claim]), [['BLOCKER', 'absent', 'ThingCache']]);
+      const placed = design(['| `ThingCache` | services | @x/services | reason |']);
+      assert.equal(placed.blocker_count, 0);
+    });
+  });
+});

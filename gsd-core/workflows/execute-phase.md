@@ -187,26 +187,6 @@ EXECUTE_POST_HOOKS_JSON=$(gsd_run loop render-hooks execute:post --raw)
 TDD_MODE=$(gsd_run loop render-hooks execute:post --active-cap tdd)
 ```
 
-<step name="safe_resume_gate">
-Before trusting `STATE.md` or dispatching any executor, derive `CURRENT_PLAN_ID`
-from the active incomplete plan in `INIT`, then search recent history:
-```bash
-SUMMARY_PATH="{phase_dir}/{plan_padded}-SUMMARY.md"
-# #5164: the plan's commits come from the evaluation-scope resolver (ADR-5057 §4): anchored
-# on the commit SUBJECT, zero-pad tolerant (#4003) and tolerant of a decimal / N-segment /
-# letter-suffixed phase number (#4619, #4748), reachable from THIS branch only, bounded to
-# the latest reachable tag (milestone marker). One `<sha> <subject>` line per commit, newest first.
-PHASE_NUMBER="{phase_number}"
-PLAN_COMMITS=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-{plan_padded}" --commits-only --milestone-bound --max-commits 30 --raw 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).commits.map(c=>c.sha.slice(0,10)+' '+c.subject).join('\n'))}catch{}})")
-```
-If production commits exist and `SUMMARY.md is missing` (no `.planning/async-jobs/*.json` manifest matches it: a match is a legal `external_job_waiting` deferral - reconcile per `docs/reference/planning-artifacts.md`, never re-dispatch), stop before spawning a
-new executor; continuing risks duplicate work and stale `STATE.md`/ROADMAP progress.
-Offer these recovery options:
-- `close out manually` — inspect commits, write SUMMARY.md, then update STATE/ROADMAP.
-- `re-execute from scratch` — revert or supersede partial commits before dispatch.
-- `mark-and-skip` — record the anomaly and move on only with explicit confirmation.
-</step>
-
 **TDD gate.** Task-scoped enforcement runs inside plan execution (immediately before each implementation step), where `TASK_FILE`, `PLAN_ID`, and `TASK_ID` are defined. #4011: the gate keys on `TDD_MODE` ALONE — a discipline gate coupled to the product-scope `MVP_MODE` flag was silently inert on every non-MVP phase, contradicting `gsd-core/references/tdd.md`'s contract that `workflow.tdd_mode` binds for all `type: tdd` plans. MVP mode remains free to imply TDD; it is no longer required by it. Keep the same predicate and RED-commit contract:
 ```bash
 if [ "$TDD_MODE" = "true" ]; then
@@ -232,6 +212,26 @@ if [ "$TDD_MODE" = "true" ]; then
 fi
 ```
 Pure doc-only / config-only / test-only tasks return `is_behavior_adding=false` and are exempt. When the gate trips, Read `~/.claude/gsd-core/references/execute-mvp-tdd.md` for the exact halt report format.
+</step>
+
+<step name="safe_resume_gate">
+Before trusting `STATE.md` or dispatching any executor, derive `CURRENT_PLAN_ID`
+from the active incomplete plan in `INIT`, then search recent history:
+```bash
+SUMMARY_PATH="{phase_dir}/{plan_padded}-SUMMARY.md"
+# #5164: the plan's commits come from the evaluation-scope resolver (ADR-5057 §4): anchored
+# on the commit SUBJECT, zero-pad tolerant (#4003) and tolerant of a decimal / N-segment /
+# letter-suffixed phase number (#4619, #4748), reachable from THIS branch only, bounded to
+# the latest reachable tag (milestone marker). One `<sha> <subject>` line per commit, newest first.
+PHASE_NUMBER="{phase_number}"
+PLAN_COMMITS=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-{plan_padded}" --commits-only --milestone-bound --max-commits 30 --raw 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).commits.map(c=>c.sha.slice(0,10)+' '+c.subject).join('\n'))}catch{}})")
+```
+If production commits exist and `SUMMARY.md is missing` (no `.planning/async-jobs/*.json` manifest matches it: a match is a legal `external_job_waiting` deferral - reconcile per `docs/reference/planning-artifacts.md`, never re-dispatch), stop before spawning a
+new executor; continuing risks duplicate work and stale `STATE.md`/ROADMAP progress.
+Offer these recovery options:
+- `close out manually` — inspect commits, write SUMMARY.md, then update STATE/ROADMAP.
+- `re-execute from scratch` — revert or supersede partial commits before dispatch.
+- `mark-and-skip` — record the anomaly and move on only with explicit confirmation.
 </step>
 
 <step name="check_blocking_antipatterns" priority="first">

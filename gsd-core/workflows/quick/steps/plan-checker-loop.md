@@ -22,7 +22,7 @@ VERIFY_PATHS=$(gsd_run check verify-command-paths --dir "${QUICK_DIR}" --raw)
 
 Checker prompt:
 
-```markdown
+````markdown
 <verification_context>
 **Mode:** quick-full
 **Task Description:** ${DESCRIPTION}
@@ -65,7 +65,7 @@ ${DISCUSS_MODE ? '- Context compliance: Does the plan honor locked decisions fro
 - ## VERIFICATION PASSED — all checks pass
 - ## ISSUES FOUND — structured issue list
 </expected_output>
-```
+````
 
 ```
 Agent(

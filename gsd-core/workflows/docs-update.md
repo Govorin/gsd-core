@@ -347,9 +347,9 @@ Check for hand-written docs in the queue and gather user decisions before dispat
 
 **Skip conditions (check in order):**
 
-1. If `--force` is present in `$ARGUMENTS`: treat all docs as mode: regenerate, skip to detect_runtime_capabilities.
-2. If `--verify-only` is present in `$ARGUMENTS`: skip to verify_only_report (do not continue to detect_runtime_capabilities).
-3. If no docs in the queue have `has_gsd_marker: false` in the `existing_docs` array: skip to detect_runtime_capabilities.
+1. If `--force` is present in `$ARGUMENTS`: treat all docs as mode: regenerate, skip to dispatch_wave_1 (sequential_generation when the Task tool is unavailable).
+2. If `--verify-only` is present in `$ARGUMENTS`: skip to verify_only_report (do not continue to dispatch_wave_1).
+3. If no docs in the queue have `has_gsd_marker: false` in the `existing_docs` array: skip to dispatch_wave_1 (sequential_generation when the Task tool is unavailable).
 
 **For each queued doc where `has_gsd_marker` is false (hand-written doc detected):**
 
@@ -376,7 +376,7 @@ AskUserQuestion unavailable — hand-written docs preserved by default.
 Use --force to regenerate all docs, or re-run in Claude Code to get per-file prompts.
 ```
 
-After all decisions recorded, continue to detect_runtime_capabilities.
+After all decisions recorded, continue to dispatch_wave_1 (sequential_generation when the Task tool is unavailable).
 </step>
 
 <!-- If Task tool is unavailable at runtime, skip dispatch/collect waves and use sequential_generation instead. -->

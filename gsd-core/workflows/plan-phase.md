@@ -1018,7 +1018,7 @@ FAILING_DIRECTIONS=$(gsd_run check verify-failure-directions "${PHASE}" --raw)
 
 Checker prompt:
 
-```markdown
+````markdown
 <verification_context>
 **Phase:** {phase_number}
 **Phase Goal:** {goal from ROADMAP}
@@ -1076,7 +1076,7 @@ If an actionable finding remains only in REVIEWS.md and would be invisible to /g
 - ## VERIFICATION PASSED — all checks pass
 - ## ISSUES FOUND — structured issue list
 </expected_output>
-```
+````
 
 ```
 Agent(
