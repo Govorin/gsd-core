@@ -1,0 +1,661 @@
+{
+  "variants": [
+    "A",
+    "B",
+    "C"
+  ],
+  "failed": 0,
+  "perVariant": {
+    "A": {
+      "runs": 32,
+      "control_runs": 8,
+      "seeded": 72,
+      "found": 69,
+      "fp": 0,
+      "fp_control": 0,
+      "noise": 7,
+      "companions": 14,
+      "matched_findings": 69,
+      "cost": 2.625796,
+      "out_tok": 35072,
+      "dur": 282561,
+      "byClass": {
+        "cycle": {
+          "seeded": 12,
+          "found": 12
+        },
+        "missing": {
+          "seeded": 12,
+          "found": 12
+        },
+        "file_conflict": {
+          "seeded": 12,
+          "found": 12
+        },
+        "status": {
+          "seeded": 12,
+          "found": 11
+        },
+        "wave": {
+          "seeded": 12,
+          "found": 12
+        },
+        "undeclared": {
+          "seeded": 12,
+          "found": 10
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 36,
+          "found": 36
+        },
+        "text": {
+          "seeded": 24,
+          "found": 22
+        },
+        "visible": {
+          "seeded": 12,
+          "found": 11
+        }
+      }
+    },
+    "B": {
+      "runs": 32,
+      "control_runs": 8,
+      "seeded": 72,
+      "found": 72,
+      "fp": 2,
+      "fp_control": 0,
+      "noise": 16,
+      "companions": 14,
+      "matched_findings": 72,
+      "cost": 2.67635,
+      "out_tok": 34039,
+      "dur": 267824,
+      "byClass": {
+        "wave": {
+          "seeded": 12,
+          "found": 12
+        },
+        "status": {
+          "seeded": 12,
+          "found": 12
+        },
+        "undeclared": {
+          "seeded": 12,
+          "found": 12
+        },
+        "cycle": {
+          "seeded": 12,
+          "found": 12
+        },
+        "file_conflict": {
+          "seeded": 12,
+          "found": 12
+        },
+        "missing": {
+          "seeded": 12,
+          "found": 12
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 36,
+          "found": 36
+        },
+        "visible": {
+          "seeded": 12,
+          "found": 12
+        },
+        "text": {
+          "seeded": 24,
+          "found": 24
+        }
+      }
+    },
+    "C": {
+      "runs": 32,
+      "control_runs": 8,
+      "seeded": 72,
+      "found": 70,
+      "fp": 4,
+      "fp_control": 0,
+      "noise": 20,
+      "companions": 25,
+      "matched_findings": 70,
+      "cost": 2.713948,
+      "out_tok": 33166,
+      "dur": 262519,
+      "byClass": {
+        "missing": {
+          "seeded": 12,
+          "found": 12
+        },
+        "undeclared": {
+          "seeded": 12,
+          "found": 10
+        },
+        "wave": {
+          "seeded": 12,
+          "found": 12
+        },
+        "status": {
+          "seeded": 12,
+          "found": 12
+        },
+        "cycle": {
+          "seeded": 12,
+          "found": 12
+        },
+        "file_conflict": {
+          "seeded": 12,
+          "found": 12
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 36,
+          "found": 36
+        },
+        "text": {
+          "seeded": 24,
+          "found": 22
+        },
+        "visible": {
+          "seeded": 12,
+          "found": 12
+        }
+      }
+    }
+  },
+  "rates": {
+    "f2-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f2-d2": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f2-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f4-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f4-d2": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f4-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f1-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f1-d2": {
+      "A": 0.75,
+      "B": 1,
+      "C": 1
+    },
+    "f1-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f3-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f3-d2": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f3-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f5-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f5-d2": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f5-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f6-d1": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    },
+    "f6-d2": {
+      "A": 0.5,
+      "B": 1,
+      "C": 0.5
+    },
+    "f6-d3": {
+      "A": 1,
+      "B": 1,
+      "C": 1
+    }
+  },
+  "defectRates": {
+    "f2-d1": {
+      "class": "missing",
+      "category": "flagged",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f2-d2": {
+      "class": "undeclared",
+      "category": "text",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f2-d3": {
+      "class": "wave",
+      "category": "flagged",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f4-d1": {
+      "class": "cycle",
+      "category": "flagged",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f4-d2": {
+      "class": "missing",
+      "category": "flagged",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f4-d3": {
+      "class": "file_conflict",
+      "category": "text",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f1-d1": {
+      "class": "cycle",
+      "category": "flagged",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f1-d2": {
+      "class": "status",
+      "category": "visible",
+      "_A": {
+        "n": 4,
+        "hit": 3
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f1-d3": {
+      "class": "file_conflict",
+      "category": "text",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f3-d1": {
+      "class": "wave",
+      "category": "flagged",
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f3-d2": {
+      "class": "status",
+      "category": "visible",
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f3-d3": {
+      "class": "undeclared",
+      "category": "text",
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f5-d1": {
+      "class": "missing",
+      "category": "flagged",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f5-d2": {
+      "class": "status",
+      "category": "visible",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f5-d3": {
+      "class": "wave",
+      "category": "flagged",
+      "_C": {
+        "n": 4,
+        "hit": 4
+      },
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f6-d1": {
+      "class": "cycle",
+      "category": "flagged",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    },
+    "f6-d2": {
+      "class": "undeclared",
+      "category": "text",
+      "_A": {
+        "n": 4,
+        "hit": 2
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 2
+      }
+    },
+    "f6-d3": {
+      "class": "file_conflict",
+      "category": "text",
+      "_A": {
+        "n": 4,
+        "hit": 4
+      },
+      "_B": {
+        "n": 4,
+        "hit": 4
+      },
+      "_C": {
+        "n": 4,
+        "hit": 4
+      }
+    }
+  },
+  "boot": {
+    "recall_ci": {
+      "A": [
+        0.8888888888888888,
+        1
+      ],
+      "B": [
+        1,
+        1
+      ],
+      "C": [
+        0.9166666666666666,
+        1
+      ]
+    },
+    "diff_ci": {
+      "B-A": [
+        0,
+        0.11111111111111116
+      ],
+      "C-A": [
+        0,
+        0.04166666666666663
+      ]
+    }
+  },
+  "byCategoryBoot": {
+    "flagged": {
+      "recall_ci": {
+        "A": [
+          1,
+          1
+        ],
+        "B": [
+          1,
+          1
+        ],
+        "C": [
+          1,
+          1
+        ]
+      },
+      "diff_ci": {
+        "B-A": [
+          0,
+          0
+        ],
+        "C-A": [
+          0,
+          0
+        ]
+      }
+    },
+    "visible": {
+      "recall_ci": {
+        "A": [
+          0.75,
+          1
+        ],
+        "B": [
+          1,
+          1
+        ],
+        "C": [
+          1,
+          1
+        ]
+      },
+      "diff_ci": {
+        "B-A": [
+          0,
+          0.25
+        ],
+        "C-A": [
+          0,
+          0.25
+        ]
+      }
+    },
+    "text": {
+      "recall_ci": {
+        "A": [
+          0.75,
+          1
+        ],
+        "B": [
+          1,
+          1
+        ],
+        "C": [
+          0.75,
+          1
+        ]
+      },
+      "diff_ci": {
+        "B-A": [
+          0,
+          0.25
+        ],
+        "C-A": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "unmatched": []
+}

@@ -1,0 +1,317 @@
+{
+  "generated_by": "scripts/experiments/report-ab/fixtures.cjs",
+  "categories": {
+    "cycle": "flagged",
+    "missing": "flagged",
+    "wave": "flagged",
+    "status": "visible",
+    "undeclared": "text",
+    "file_conflict": "text"
+  },
+  "fixtures": {
+    "f1": {
+      "phase_dir": "03-session-auth",
+      "plan_count": 10,
+      "control": false,
+      "report_sha256": {
+        "A": "09875810912f15522d38e2c1498a21ae9450c22605f600b92b2058d5eb333e43",
+        "B": "d074a9827034c0058f7b2530bae7e1e0c174500f77345ba433a061bc14455c44",
+        "C": "778230688d6cf0d016424b0473ee46858aebb922f61d2ef4c810e6314d30d19d"
+      },
+      "defects": [
+        {
+          "key": "f1-d1",
+          "class": "cycle",
+          "category": "flagged",
+          "plans": [
+            "03-04",
+            "03-06",
+            "03-09"
+          ],
+          "companion": {
+            "class": "wave",
+            "plans": [
+              "03-04",
+              "03-09"
+            ]
+          },
+          "text": "03-04 → 03-06 → 03-09 → 03-04: 03-04 depends_on 03-09"
+        },
+        {
+          "key": "f1-d2",
+          "class": "status",
+          "category": "visible",
+          "plans": [
+            "03-05",
+            "03-01"
+          ],
+          "text": "03-05 has a SUMMARY (done) while its dependency 03-01 is in_progress with no SUMMARY"
+        },
+        {
+          "key": "f1-d3",
+          "class": "file_conflict",
+          "category": "text",
+          "plans": [
+            "03-08",
+            "03-07"
+          ],
+          "file": "src/auth/audit.ts",
+          "text": "03-08 and 03-07 (both wave 3) both modify src/auth/audit.ts with no depends_on between them"
+        }
+      ]
+    },
+    "f2": {
+      "phase_dir": "05-billing",
+      "plan_count": 10,
+      "control": false,
+      "report_sha256": {
+        "A": "3e8609437fa7d999dd6e489767aef3fe43a48d284c9c3d5e0b6e5db02d7fc11d",
+        "B": "8ad4d4dd2714ab2efec3c413737f64be01b092a43537369e86091b46b983b8f7",
+        "C": "640e460ee4f8a578eba84f9a1b5e63487053cf486e9debbac008577641054d38"
+      },
+      "defects": [
+        {
+          "key": "f2-d1",
+          "class": "missing",
+          "category": "flagged",
+          "plans": [
+            "05-09"
+          ],
+          "ghost": "05-12",
+          "text": "05-09 depends_on 05-12, no such plan in the phase"
+        },
+        {
+          "key": "f2-d2",
+          "class": "undeclared",
+          "category": "text",
+          "plans": [
+            "05-07",
+            "05-06"
+          ],
+          "file": "src/billing/invoice.ts",
+          "text": "05-07 imports invoiceService from src/billing/invoice.ts (created by 05-06, same wave 3) without depends_on"
+        },
+        {
+          "key": "f2-d3",
+          "class": "wave",
+          "category": "flagged",
+          "plans": [
+            "05-05",
+            "05-04"
+          ],
+          "text": "05-05 (wave 2) depends_on 05-04 (wave 2)"
+        }
+      ]
+    },
+    "f3": {
+      "phase_dir": "04-search",
+      "plan_count": 11,
+      "control": false,
+      "report_sha256": {
+        "A": "11bd6ff3881265a54bc952faf5564139bca9fbe1a09640e6b0307b600eeed344",
+        "B": "da34cbfd498503b313d5bcd8ae602dbf04be36d39a42e3e4007b4de0b0028f21",
+        "C": "c66614c4a110d09312e5b7b968d49c3e382bb3b9db1f1762669f972ba17782a6"
+      },
+      "defects": [
+        {
+          "key": "f3-d1",
+          "class": "wave",
+          "category": "flagged",
+          "plans": [
+            "04-07",
+            "04-09"
+          ],
+          "text": "04-07 (wave 3) depends_on 04-09 (wave 3)"
+        },
+        {
+          "key": "f3-d2",
+          "class": "status",
+          "category": "visible",
+          "plans": [
+            "04-05",
+            "04-01"
+          ],
+          "text": "04-05 has a SUMMARY (done) while its dependency 04-01 is in_progress with no SUMMARY"
+        },
+        {
+          "key": "f3-d3",
+          "class": "undeclared",
+          "category": "text",
+          "plans": [
+            "04-04",
+            "04-06"
+          ],
+          "file": "src/search/tokenizer.ts",
+          "text": "04-04 imports tokenizerService from src/search/tokenizer.ts (created by 04-06, same wave 2) without depends_on"
+        }
+      ]
+    },
+    "f4": {
+      "phase_dir": "06-notifications",
+      "plan_count": 10,
+      "control": false,
+      "report_sha256": {
+        "A": "9838df0625391cce247762c25926cf35094abb206efd2a318f7e22d50e09a4e7",
+        "B": "a5f754c6157e456e4a80376ab1f96d110b69c6cf702d5086c6390f7e56fb137c",
+        "C": "e3be37be03e9e8171dd588e10ae03ec7524cf4a96ec8877db6dbac7f161e0cf8"
+      },
+      "defects": [
+        {
+          "key": "f4-d1",
+          "class": "cycle",
+          "category": "flagged",
+          "plans": [
+            "06-04",
+            "06-07",
+            "06-09"
+          ],
+          "companion": {
+            "class": "wave",
+            "plans": [
+              "06-04",
+              "06-09"
+            ]
+          },
+          "text": "06-04 → 06-07 → 06-09 → 06-04: 06-04 depends_on 06-09"
+        },
+        {
+          "key": "f4-d2",
+          "class": "missing",
+          "category": "flagged",
+          "plans": [
+            "06-10"
+          ],
+          "ghost": "06-11",
+          "text": "06-10 depends_on 06-11, no such plan in the phase"
+        },
+        {
+          "key": "f4-d3",
+          "class": "file_conflict",
+          "category": "text",
+          "plans": [
+            "06-03",
+            "06-05"
+          ],
+          "file": "src/notify/throttle.ts",
+          "text": "06-03 and 06-05 (both wave 2) both modify src/notify/throttle.ts with no depends_on between them"
+        }
+      ]
+    },
+    "f5": {
+      "phase_dir": "07-file-uploads",
+      "plan_count": 10,
+      "control": false,
+      "report_sha256": {
+        "A": "f147ab0faa0360bc3cb9436ec34dc92c4cb255e15cbbbcb8098e1183161742d0",
+        "B": "31ca2eb3c10d481f70cef3bc9b03480cb70602536f0a4d927e83db9d67d99cab",
+        "C": "a25e322a7ddb24893f709eb6e7846e0bff3a64043f5240a6a4330b898a33809d"
+      },
+      "defects": [
+        {
+          "key": "f5-d1",
+          "class": "missing",
+          "category": "flagged",
+          "plans": [
+            "07-09"
+          ],
+          "ghost": "07-11",
+          "text": "07-09 depends_on 07-11, no such plan in the phase"
+        },
+        {
+          "key": "f5-d2",
+          "class": "status",
+          "category": "visible",
+          "plans": [
+            "07-04",
+            "07-02"
+          ],
+          "text": "07-04 has a SUMMARY (done) while its dependency 07-02 is in_progress with no SUMMARY"
+        },
+        {
+          "key": "f5-d3",
+          "class": "wave",
+          "category": "flagged",
+          "plans": [
+            "07-06",
+            "07-08"
+          ],
+          "text": "07-06 (wave 3) depends_on 07-08 (wave 3)"
+        }
+      ]
+    },
+    "f6": {
+      "phase_dir": "02-admin-reports",
+      "plan_count": 11,
+      "control": false,
+      "report_sha256": {
+        "A": "65fc6859721274e170259ff685a09abf859da098686c9321d715955cf7a51f0c",
+        "B": "8fbf30569b53372ec04be8b87176ad47aa7e6222d36e2e44adcec4db05a48ff7",
+        "C": "244da62ea50710e030708661117629d0876786f659f020c91ea28b9f51f261c9"
+      },
+      "defects": [
+        {
+          "key": "f6-d1",
+          "class": "cycle",
+          "category": "flagged",
+          "plans": [
+            "02-05",
+            "02-09",
+            "02-10"
+          ],
+          "companion": {
+            "class": "wave",
+            "plans": [
+              "02-05",
+              "02-10"
+            ]
+          },
+          "text": "02-05 → 02-09 → 02-10 → 02-05: 02-05 depends_on 02-10"
+        },
+        {
+          "key": "f6-d2",
+          "class": "undeclared",
+          "category": "text",
+          "plans": [
+            "02-08",
+            "02-07"
+          ],
+          "file": "src/reports/filter.ts",
+          "text": "02-08 imports filterService from src/reports/filter.ts (created by 02-07, same wave 3) without depends_on"
+        },
+        {
+          "key": "f6-d3",
+          "class": "file_conflict",
+          "category": "text",
+          "plans": [
+            "02-06",
+            "02-04"
+          ],
+          "file": "src/reports/dashboard.ts",
+          "text": "02-06 and 02-04 (both wave 2) both modify src/reports/dashboard.ts with no depends_on between them"
+        }
+      ]
+    },
+    "f7": {
+      "phase_dir": "08-feature-flags",
+      "plan_count": 10,
+      "control": true,
+      "report_sha256": {
+        "A": "8fc8cf6c6813b40c68e867bc38d344d4cbc4437b951c576a4178cabfc3a6a9f5",
+        "B": "addc2d40397392cc60e987375eff08cc963e2f29018ac656c3000f914415343e",
+        "C": "f80c268980c2e5581ea45d9a1dd6ef1fe485001ae1d5263bc63491a8850ea835"
+      },
+      "defects": []
+    },
+    "f8": {
+      "phase_dir": "09-inventory",
+      "plan_count": 11,
+      "control": true,
+      "report_sha256": {
+        "A": "376cd7c1141f2fed13caf0ebf9246ab15499fe35085b9e0ade7264cd9f864e55",
+        "B": "0158f451c0805a13c5833e39196978e53d0187dc54f1498c1abca635f6a1adfc",
+        "C": "8f830c6a0b3880c65d132b523b6e6f4e83016a5a776caa18f19292585eac9a0c"
+      },
+      "defects": []
+    }
+  }
+}
