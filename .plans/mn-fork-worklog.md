@@ -102,9 +102,12 @@ context is read only from `hookSpecificOutput.additionalContext`. And PostCompac
 the event it was mainly registered for, is observational and cannot add context at
 all; after a compaction Claude Code re-fires SessionStart with `source: "compact"`,
 the documented re-injection point. The pin now emits the SessionStart shape and is
-registered on SessionStart alone; a PostCompact entry an older install left stays
-silent. Its 5 s budget is deliberate (advisory, `726d82334`). It also delivers
-worktree-provision warnings (below).
+registered on SessionStart alone. A PostCompact entry an older install left is
+removed on the next install: the installer reconciles managed hook registrations
+against the current build's set (`9f2e1f706`, `SETTINGS-HOOKS.RECONCILE` in
+CONTEXT.md) — found live, when the 1.15 install left that entry beside the
+SessionStart one. Its 5 s budget is deliberate (advisory, `726d82334`). It also
+delivers worktree-provision warnings (below).
 
 Each is the live-fire half of a gate that already exists: prohibition ↔
 `blast_radius`, tamper ↔ `assertion_ratchet`, exit-gate ↔ the verifier. They
@@ -302,6 +305,14 @@ contract (`.plans/worktree-provision-contract.md`):
   another ref; a vanished directory drops only its own registration, never a
   repository-wide `prune`; a rollback that cannot finish says what it left
   (review L1/L2, `d5ffc3f7a`).
+  **Observed live (2026-10-04, Claude Code 2.1.288):** a finished `isolation:
+  "worktree"` subagent did NOT fire WorktreeRemove (a logging probe registered
+  beside the hook stayed empty over a full subagent run), although the hooks
+  reference says it fires "when a subagent finishes" and that Claude Code never
+  deletes hook-created worktrees itself. Likely because a finished background
+  agent stays resumable. Effect: agent worktrees under `.claude/worktrees`
+  accumulate within a session. Still to check: whether session exit fires it;
+  if not, `mn worktree-gc` is the cleanup path, not this hook.
 - **Registered by the installer in `settings.json`** (`6c45ae800`; WorktreeCreate
   900 s, WorktreeRemove 180 s), not the plugin manifest; claims neither event when
   a foreign WorktreeCreate hook exists in the layer being written or its sibling.
@@ -507,6 +518,13 @@ read-only agent: `review-wave2.md` 4 high / 11 medium / 9 low, `review-wave3.md`
 | literal `~/.claude/hooks/` in a doc comment survived tsc into `worktree-base-ref.cjs` and shipped to Cline | named through the `<userClaudeDir>` parameter | `4a1e230df` |
 | line-keyed `PROSE_ALLOWLIST` entries went stale with each insertion above them (executor 828→842, execute-plan 421) | entries moved | `3c0184c4a`, `f0e235266` |
 | upstream workflow text, found by the map generator, fixed in the fork only: `execute-phase` `initialize` never closed (`safe_resume_gate` inside); `plan-phase` / `quick` checker prompt — outer ` ```markdown ` closed by nested ` ```json `; `docs-update` jumped to a nonexistent `detect_runtime_capabilities`; Pattern A spawn in prose in `execute-plan.md` | closed step, 4-backtick fence, real targets, code block | `7efb4cde4`, `d507afee2` |
+| diagram identifiers indexed from the git root (M6) but `%% gsd:source` / `source=` confined to the project root — a monorepo package could not cite `../libs/…` (FU-E) | one `projectRoots` seam: paths written against the project, bounded by the repo; `resolveRepoRoot` duplicate removed | `4c5d70a79`, `89e6a0346` |
+| health judged VERIFICATION reports of the current milestone only while `audit-open` read every phase and archive — health said 0, audit crashed (found repairing live projects) | one report enumeration for readers and health; W031 repair reaches archives | `abff09a78` |
+| `validate health --repair` applied every non-destructive remedy at once (config keys, MILESTONES backfill) — no way to fix only a status | `--repair --only <codes>` | `482cecdd2` |
+| broken frontmatter YAML read as `{}` — a report's status vanished and the phase silently read as `missing` | `parseFrontmatterStrict`; readers refuse (`VerificationReportUnparseableError`), health W032 | `abff09a78` |
+| the install left managed hook registrations the build no longer makes (an old PostCompact pin beside the SessionStart one) — the class of the dangling-WorktreeCreate defect, on install | install reconciles managed registrations against the build's set; one filter for install and uninstall | `9f2e1f706` |
+| an install test read the real `~/.claude` | user layer sandboxed | `d52b311bd` |
+| `workflow.verify_gates` unsettable: declared `string`, read as a map — `config-set` parsed the JSON then the type check refused; a broken roster read as "not configured" | `string-map` capability config type; `invalid_checks_config` (exit 69) | `560b14ae9`, `5896b58b5` |
 
 `clean-state` `--git-path` is not a sync finding: the original script already
 resolved it from the cwd (the first-draft defect under "A clean tree at ship");

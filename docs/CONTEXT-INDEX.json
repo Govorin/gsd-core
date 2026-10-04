@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 303,
+  "count": 309,
   "classes": {
     "ARCH": 1,
     "CI": 2,
@@ -22,6 +22,7 @@
     "RULESET": 61,
     "SEAM": 24,
     "SESSION": 9,
+    "SETTINGS-HOOKS": 6,
     "WAVE": 5,
     "WORKSTREAM": 5,
     "WORKTREE": 12
@@ -1431,6 +1432,36 @@
       "id": "SESSION.2026-05-16",
       "klass": "SESSION",
       "value": "[multi-PR triage wave (#3577/3581/3640/3641/3642/3648/3649/3637/3639). Established global PreToolUse hook ~/.claude/hooks/test-memory-guard.sh denying new node/test spawns when sum(RSS of node|vitest|jest|...) >= 4 GiB on the 24 GB Mac OR when a same-runner process is already in argv[0] — hard deny via hookSpecificOutput.permissionDecision=deny. PR #3577 fix: revert config-ensure-section dispatch to CJS cmdConfigEnsureSection (SDK author wrote single-section semantics under a name whose legacy callers expect full-default config init); plus 3 SDK parity carve-outs (configNewProject defaults align with sdk/shared/config-defaults.manifest.json, return relative .planning/config.json path, drop quotes from Unknown config key, lead malformed-JSON error with \"Failed to read config.json:\"). PR #3649 fix: chunk node --test spawn at 28K argv ceiling (Windows CreateProcess lpCommandLine cap 32,767 was instantly aborting unchunked spawn of 546 paths). Chunking fix surfaced 14 pre-existing Windows-only test bugs (4010 pass / 14 fail; vs 0/0 before — entire suite was un-runnable on Windows). PRs #3639 + #3637 confirmed unable to stand alone (legitimately depend on Phase 6 scaffolding only present on feat/3575-enforcement-hardening) — user decision: cherry-pick into #3577 and close. Five other PRs each had ≤1 unresolved CR thread of the changeset-pr-number / null-vs-throw / implicit-Claude-runtime / docs-stale-guidance / hardcoded-tests-path family — all quick wins. New predicates: DEFECT.SDK-PORT-NAME-COLLISION, DEFECT.WINDOWS-ARGV-OVERFLOW, DEFECT.STACKED-PR-CANNOT-STAND-ALONE, DEFECT.CANARY-VERSION-LEAK, DEFECT.GSD-TEST-HOST-MID-RUN-DEATH, RULESET.HARNESS.test-memory-guard, RULESET.PR-FLOW.docker-before-push, RULESET.PR-FLOW.templates-mandatory]"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.exempt",
+      "klass": "SETTINGS-HOOKS",
+      "value": "gsd-update-banner.js on SessionStart (finishInstall registers it on an opt-in the dry run never sees); the target settings file only — a local install never edits the user layer"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.files",
+      "klass": "SETTINGS-HOOKS",
+      "value": "[src/runtime-hooks-surface.cts, src/shell-command-projection.cts, bin/install.js]"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.interface",
+      "klass": "SETTINGS-HOOKS",
+      "value": "[filterManagedSettingsHooks(settings, keep(slot)) -> changed, reconcileManagedSettingsHooks(settings, desired) -> changed, managedHookCommandBasename(command) -> basename|null]"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.rule",
+      "klass": "SETTINGS-HOOKS",
+      "value": "after install the managed settings.json hooks are exactly the slots (event × matcher × managed script basename, counted) applySettingsJsonHooks writes into empty settings for the same install; reconcile runs BEFORE the real apply, because registration is only-if-absent and a hook left on a retired slot would satisfy its absence check"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.shared-filter",
+      "klass": "SETTINGS-HOOKS",
+      "value": "uninstall is filterManagedSettingsHooks(settings, () => false); both drop managed hooks one at a time, so a user hook sharing an entry survives (#1755)"
+    },
+    {
+      "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
+      "klass": "SETTINGS-HOOKS",
+      "value": "[tests/install-settings-hook-reconcile.test.cjs]"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",

@@ -2953,9 +2953,9 @@ const capabilities = {
         "description": "Block verification when files changed by the phase were named by no PLAN.md in it. files_modified is a declaration nothing checks after the fact — ADR-1239 specifies the check and neither isolation adapter implements it (#2596). Divergence is the signal, not volume: a phase legitimately touching 105 files is fine, one touching a file nobody planned is not."
       },
       "workflow.verify_gates": {
-        "type": "string",
-        "default": "",
-        "description": "JSON object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Example: {\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. Declared as a string because the capability config schema admits boolean, string, number and enum only; a JSON object literal in config.json is read directly."
+        "type": "string-map",
+        "default": {},
+        "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured."
       },
       "workflow.verify_gates_record": {
         "type": "boolean",
@@ -3075,7 +3075,7 @@ const capabilities = {
       "workflow.pin_invariants": {
         "type": "boolean",
         "default": true,
-        "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js (PostCompact, with SessionStart as the degrade path on runtimes lacking it)."
+        "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
       },
       "workflow.pin_invariants_budget": {
         "type": "number",
@@ -6501,9 +6501,9 @@ const configSchema = {
   },
   "workflow.verify_gates": {
     "owner": "mn-verify-gate",
-    "type": "string",
-    "default": "",
-    "description": "JSON object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Example: {\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. Declared as a string because the capability config schema admits boolean, string, number and enum only; a JSON object literal in config.json is read directly."
+    "type": "string-map",
+    "default": {},
+    "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured."
   },
   "workflow.verify_gates_record": {
     "owner": "mn-verify-gate",
@@ -6634,7 +6634,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": true,
-    "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js (PostCompact, with SessionStart as the degrade path on runtimes lacking it)."
+    "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
   },
   "workflow.pin_invariants_budget": {
     "owner": "mn-verify-gate",
