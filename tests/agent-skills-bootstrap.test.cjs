@@ -15,8 +15,8 @@ const REFS_DIR = path.join(__dirname, '..', 'gsd-core', 'references');
 const BOOTSTRAP_REF = 'agent-skills-bootstrap.md';
 const BOOTSTRAP_PATH = path.join(REFS_DIR, BOOTSTRAP_REF);
 
-// The 22 agent_skills consumer agents. This MUST stay in sync with the
-// CONSUMER_AGENTS list in tests/agent-skills.test.cjs ("all 22 agent_skills
+// The 23 agent_skills consumer agents. This MUST stay in sync with the
+// CONSUMER_AGENTS list in tests/agent-skills.test.cjs ("all 23 agent_skills
 // consumer agents"). The parity test below enforces the bijection between
 // this list and the set of agent files that carry the self-load bootstrap
 // (Generative-Fix-Divergence guard — CLAUDE.md "Generative Fix Divergence").
@@ -39,6 +39,8 @@ const CONSUMER_AGENTS = [
   'gsd-research-synthesizer',
   'gsd-roadmapper',
   'gsd-security-auditor',
+  // window review standards/simplify lens (ADR-5208): self-loads the reviewer's skills
+  'gsd-standards-reviewer',
   'gsd-ui-auditor',
   'gsd-ui-checker',
   'gsd-ui-researcher',

@@ -1679,7 +1679,7 @@ describe('bug #1243: plugin-namespaced agent skills', () => {
 
   // ─── grant: Skill tool in consumer agent frontmatter ─────────────────────────
 
-  test('grant: all 22 agent_skills consumer agents have Skill in their tools frontmatter', () => {
+  test('grant: all 23 agent_skills consumer agents have Skill in their tools frontmatter', () => {
     const CONSUMER_AGENTS = [
       'gsd-advisor-researcher',
       'gsd-assumptions-analyzer',
@@ -1699,6 +1699,8 @@ describe('bug #1243: plugin-namespaced agent skills', () => {
       'gsd-research-synthesizer',
       'gsd-roadmapper',
       'gsd-security-auditor',
+      // window review standards/simplify lens (ADR-5208): self-loads the reviewer's skills
+      'gsd-standards-reviewer',
       'gsd-ui-auditor',
       'gsd-ui-checker',
       'gsd-ui-researcher',
