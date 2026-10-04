@@ -319,6 +319,7 @@ export function collectGitReverts(projectRoot: string, opts: { since: string; ex
 
 // `\b` is ASCII-only even under the `u` flag, so "нет\b" never matches:
 // word ends are spelled as "not followed by a letter or digit" (`E`).
+// phase-id-owner: a Unicode word end for the correction phrases below, not a phase-name validity check (hasNameableContent is unrelated).
 const E = '(?![\\p{L}\\p{N}])';
 const CORRECTION_START_RE = new RegExp(
   `^(?:нет${E}|не так${E}|не то${E}|не надо${E}|не нужно${E}|не делай${E}|стоп${E}|стой${E}|подожди|отмени|откати|верни${E}|` +
