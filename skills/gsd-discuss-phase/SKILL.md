@@ -1,7 +1,7 @@
 ---
 name: gsd-discuss-phase
 description: "Gather phase context through adaptive questioning before planning."
-argument-hint: "<phase> [--all] [--auto] [--chain] [--batch] [--analyze] [--text] [--power] [--assumptions]"
+argument-hint: "<phase> [--all] [--auto] [--chain] [--batch] [--analyze] [--text] [--power] [--grill] [--assumptions]"
 allowed-tools:
   - Read
   - Write
@@ -59,10 +59,10 @@ If `--assumptions` is in the `<arguments>` block:
 Read and execute `~/.claude/gsd-core/workflows/list-phase-assumptions.md` end-to-end.
 Stop here.
 
-Otherwise, if `DISCUSS_MODE` is `"assumptions"`:
+Otherwise, if `DISCUSS_MODE` is `"assumptions"` and `--grill` is not in the `<arguments>` block:
 Read and execute `~/.claude/gsd-core/workflows/discuss-phase-assumptions.md` end-to-end.
 
-Otherwise (`"discuss"` / unset / any other value):
+Otherwise (`"discuss"` / `"grill"` / `--grill` / unset / any other value):
 Read and execute `~/.claude/gsd-core/workflows/discuss-phase.md` end-to-end.
 
 **MANDATORY:** Read the appropriate workflow file BEFORE taking any action. The objective and success_criteria sections in this command file are summaries — the workflow file contains the complete step-by-step process with all required behaviors, config checks, and interaction patterns. Do not improvise from the summary.

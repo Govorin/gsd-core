@@ -34,7 +34,7 @@
 
 ## Workflows (87)
 
-Всего фраз перехода: 381, из них не называют реальный шаг: 174. Дефектов: 0.
+Всего фраз перехода: 382, из них не называют реальный шаг: 174. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -62,7 +62,7 @@
 | [docs-update](docs-update.md) | 16 шагов `<step>`, 1 секция `gsd:section` | 11 | 1 |  | 6 / 22 | 0 |
 | [edit-phase](edit-phase.md) | 10 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
 | [eval-review](eval-review.md) | 7 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
-| [execute-phase](execute-phase.md) | 17 шагов `<step>`, 3 секции `gsd:section` | 3 | 2 | `execute:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post` | 12 / 16 | 0 |
+| [execute-phase](execute-phase.md) | 18 шагов `<step>`, 3 секции `gsd:section` | 3 | 2 | `execute:post`, `execute:pre`, `execute:wave:pre`, `execute:wave:post`, `verify:post` | 12 / 17 | 0 |
 | [execute-plan](execute-plan.md) | 24 шага `<step>` | 1 | 1 |  | 3 / 3 | 0 |
 | [explore](explore.md) | 6 разделов H2 | 1 | 1 |  | 3 / 3 | 0 |
 | [extract-learnings](extract-learnings.md) | 8 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
@@ -94,7 +94,7 @@
 | [plant-seed](plant-seed.md) | 8 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [pr-branch](pr-branch.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 3 | 0 |
 | [profile-user](profile-user.md) | 11 разделов H2 | 0 | 0 |  | 4 / 16 | 0 |
-| [progress](progress.md) | 8 шагов `<step>`, 2 секции `gsd:section` | 0 | 0 |  | 16 / 16 | 0 |
+| [progress](progress.md) | 8 шагов `<step>`, 3 секции `gsd:section` | 0 | 0 |  | 16 / 16 | 0 |
 | [quick-batch](quick-batch.md) | 2 секции `gsd:section` | 10 | 5 | `plan:pre` | 1 / 1 | 0 |
 | [quick](quick.md) | 5 секций `gsd:section` | 10 | 5 | `plan:pre`, `execute:post` | 0 / 0 | 0 |
 | [reapply-patches](reapply-patches.md) | 7 разделов H2 | 0 | 0 |  | 4 / 4 | 0 |

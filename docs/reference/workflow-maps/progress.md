@@ -2,7 +2,7 @@
 
 # progress
 
-Источник: `gsd-core/workflows/progress.md`. Единицы: 8 шагов `<step>`, 2 секции `gsd:section`. Спавнов: 0. Точки цикла: нет.
+Источник: `gsd-core/workflows/progress.md`. Единицы: 8 шагов `<step>`, 3 секции `gsd:section`. Спавнов: 0. Точки цикла: нет.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 16; не называют реальный шаг и не рисуются — **16**; названы по имени шага и нарисованы пунктиром `goto` — 0.
 
@@ -22,6 +22,7 @@ flowchart TB
   u_step_position["position"]
   u_step_report["report"]
   u_section_mvp_display("§ mvp-display"):::conditional
+  u_section_graphs("§ graphs"):::conditional
   u_step_route["route"]
   u_step_edge_cases["edge_cases"]
   u_section_forensic_audit("§ forensic-audit"):::conditional
@@ -32,7 +33,8 @@ flowchart TB
   u_step_recent --> u_step_position
   u_step_position --> u_step_report
   u_step_report -->|"when#58; state#58;phase-mvp-mode"| u_section_mvp_display
-  u_section_mvp_display --> u_step_route
+  u_section_mvp_display -->|"when#58; flag#58;#45;#45;graph"| u_section_graphs
+  u_section_graphs --> u_step_route
   u_step_route --> u_step_edge_cases
   u_step_edge_cases -->|"when#58; flag#58;#45;#45;forensic"| u_section_forensic_audit
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
@@ -51,7 +53,7 @@ flowchart TB
 
 | # | Единица | Вид | Условие | Спавны | Точки цикла | Читает |
 |---|---|---|---|---|---|---|
-| — | (вне единиц) | — | — |  |  | `progress/steps/mvp-display.md`, `progress/steps/forensic-audit.md` |
+| — | (вне единиц) | — | — |  |  | `progress/steps/mvp-display.md`, `progress/steps/graphs.md`, `progress/steps/forensic-audit.md` |
 | 1 | `init_context` | step |  |  |  |  |
 | 2 | `load` | step |  |  |  |  |
 | 3 | `analyze_roadmap` | step |  |  |  |  |
@@ -59,9 +61,10 @@ flowchart TB
 | 5 | `position` | step |  |  |  |  |
 | 6 | `report` | step |  |  |  |  |
 | 7 | `mvp-display` | section | when: state:phase-mvp-mode |  |  | `progress/steps/mvp-display.md` |
-| 8 | `route` | step |  |  |  |  |
-| 9 | `edge_cases` | step |  |  |  |  |
-| 10 | `forensic-audit` | section | when: flag:--forensic |  |  | `progress/steps/forensic-audit.md` |
+| 8 | `graphs` | section | when: flag:--graph |  |  | `progress/steps/graphs.md` |
+| 9 | `route` | step |  |  |  |  |
+| 10 | `edge_cases` | step |  |  |  |  |
+| 11 | `forensic-audit` | section | when: flag:--forensic |  |  | `progress/steps/forensic-audit.md` |
 
 ## Дефекты
 

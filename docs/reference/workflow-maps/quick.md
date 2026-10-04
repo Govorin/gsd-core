@@ -49,7 +49,7 @@ flowchart LR
     a_gsd_verifier[["gsd-verifier"]]:::agent
   end
   subgraph g_points["Точки цикла и капабилити"]
-    p_plan_pre{{"plan#58;pre<br/>+3 gates, +12 contributions"}}:::point
+    p_plan_pre{{"plan#58;pre<br/>+3 gates, +14 contributions"}}:::point
     c_plan_pre_ai_integration_skill_ai_integration_phase["ai-integration#58; skill ai-integration-phase"]:::capability
     c_plan_pre_architecture_agent_gsd_system_architect["architecture#58; agent gsd-system-architect"]:::capability
     c_plan_pre_intel_command_intel_api_surface["intel#58; command intel api-surface"]:::capability

@@ -1,7 +1,7 @@
 ---
 name: gsd-progress
 description: "Check progress, advance workflow, or dispatch freeform intent — the unified GSD situational command"
-argument-hint: "[--forensic | --next [--auto] [--converge] | --do \\\"task description\\\"]"
+argument-hint: "[--forensic] [--graph] | --next [--auto] [--converge] | --do \\\"task description\\\""
 allowed-tools:
   - Read
   - Bash
@@ -24,6 +24,7 @@ Three modes:
 - **--next**: Automatically advance to the next logical step without manual route selection. Reads STATE.md, ROADMAP.md, and phase directories. Supports `--force` to bypass safety gates.
 - **--do "task description"**: Analyze freeform natural language and dispatch to the most appropriate GSD command. Never does the work itself — matches intent, confirms, hands off.
 - **--forensic**: Append a 6-check integrity audit after the standard progress report.
+- **--graph**: Append the roadmap phase graph and the current phase plan graph (mermaid, drawn from data) after the standard progress report.
 </objective>
 
 <flags>
@@ -32,6 +33,7 @@ Three modes:
 - **--next --converge**: When the next action is planning (Route 3), route it through the plan-review **convergence** loop instead of the standard planner. Requires `workflow.plan_review_convergence=true` (enable with `gsd config-set workflow.plan_review_convergence true`). `--cross-ai` is an alias. Reviewer flags (`--codex`, `--claude`, `--opencode`, `--ollama`, `--lm-studio`, `--llama-cpp`, `--all`) and `--max-cycles N` are forwarded to the convergence loop.
 - **--do "..."**: Smart dispatcher — match freeform intent to the best GSD command using routing rules, confirm the match, then hand off.
 - **--forensic**: Run 6-check integrity audit after the standard progress report.
+- **--graph**: Append the phase graph (`roadmap graph`) and the current phase plan graph (`plan graph`). Off by default — a picture for the human, not input to routing.
 - **(no flag)**: Standard progress check + intelligent routing (Routes A through F).
 </flags>
 
@@ -47,7 +49,7 @@ Arguments provided: see the `<arguments>` block above.
 Parse the first token from the provided arguments:
 - If it is `--next`: strip the flag, execute the next workflow (passing remaining args e.g. --force, --auto).
 - If it is `--do`: strip the flag, pass remainder as freeform intent to the do workflow.
-- Otherwise: execute the progress workflow end-to-end (pass --forensic through if present).
+- Otherwise: execute the progress workflow end-to-end (pass --forensic and --graph through if present).
 
 Preserve all routing logic from the target workflow.
 </process>

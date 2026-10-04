@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-68 registered hook(s) at 10 of 12 points.
+73 registered hook(s) at 11 of 12 points.
 
 ## Overview
 
@@ -50,17 +50,20 @@ flowchart LR
     n_hook_plan_pre_contribution_mn_verify_gate_16["mn-verify-gate#58; into planner · fragments/plan-pre-migration.md"]:::contribution
     n_hook_plan_pre_contribution_mn_verify_gate_17["mn-verify-gate#58; into planner · fragments/plan-pre-design-registry.md"]:::contribution
     n_hook_plan_pre_contribution_mn_verify_gate_18["mn-verify-gate#58; into checker · fragments/plan-pre-refute-findings.md"]:::contribution
-    n_hook_plan_pre_contribution_schema_gate_19["schema-gate#58; into planner · fragments/plan-pre.md"]:::contribution
-    n_hook_plan_pre_contribution_security_20["security#58; into planner · inline"]:::contribution
-    n_hook_plan_pre_contribution_tdd_21["tdd#58; into planner · inline"]:::contribution
+    n_hook_plan_pre_contribution_mn_verify_gate_19["mn-verify-gate#58; into planner · fragments/plan-pre-restate-goal.md"]:::contribution
+    n_hook_plan_pre_contribution_mn_verify_gate_20["mn-verify-gate#58; into planner · fragments/plan-pre-failure-paths.md"]:::contribution
+    n_hook_plan_pre_contribution_schema_gate_21["schema-gate#58; into planner · fragments/plan-pre.md"]:::contribution
+    n_hook_plan_pre_contribution_security_22["security#58; into planner · inline"]:::contribution
+    n_hook_plan_pre_contribution_tdd_23["tdd#58; into planner · inline"]:::contribution
     n_hook_plan_post_step_mempalace_0["mempalace#58; skill#58;mempalace-capture"]:::step
     n_hook_plan_post_gate_architecture_1{"architecture#58; check architecture.diagrams"}:::crit
     n_hook_plan_post_gate_gap_analysis_2{"gap-analysis#58; check gap-analysis.plan-post"}:::gate
     n_hook_plan_post_gate_mn_verify_gate_3{"mn-verify-gate#58; check mn-wave-collision"}:::crit
     n_hook_plan_post_gate_mn_verify_gate_4{"mn-verify-gate#58; check mn-wave-solve"}:::crit
     n_hook_plan_post_gate_mn_verify_gate_5{"mn-verify-gate#58; check mn-wave-collision"}:::crit
-    n_hook_plan_post_contribution_claude_orchestration_6["claude-orchestration#58; into planner · fragments/plan-post.md"]:::contribution
-    n_hook_plan_post_contribution_external_job_7["external-job#58; into planner · fragments/plan-post.md"]:::contribution
+    n_hook_plan_post_gate_mn_verify_gate_6{"mn-verify-gate#58; check mn-failure-paths"}:::crit
+    n_hook_plan_post_contribution_claude_orchestration_7["claude-orchestration#58; into planner · fragments/plan-post.md"]:::contribution
+    n_hook_plan_post_contribution_external_job_8["external-job#58; into planner · fragments/plan-post.md"]:::contribution
   end
   subgraph n_step_execute["execute"]
     n_point_execute_pre(["execute#58;pre"]):::point
@@ -68,6 +71,8 @@ flowchart LR
     n_core_execute("execute#58; executor, verifier → SUMMARY.md"):::core
     n_point_execute_wave_post(["execute#58;wave#58;post"]):::point
     n_point_execute_post(["execute#58;post"]):::point
+    n_hook_execute_pre_step_mn_verify_gate_0["mn-verify-gate#58; command#58;verify baseline"]:::step
+    n_hook_execute_pre_gate_mn_verify_gate_1{"mn-verify-gate#58; check mn-baseline"}:::crit
     n_hook_execute_wave_post_step_code_review_0["code-review#58; skill#58;code-review"]:::step
     n_hook_execute_wave_post_step_live_dom_uat_1["live-dom-uat#58; agent#58;gsd-dom-verifier"]:::step
     n_hook_execute_wave_post_gate_drift_2{"drift#58; check verify.schema-drift"}:::crit
@@ -107,7 +112,7 @@ flowchart LR
     n_hook_ship_pre_gate_broken_windows_0{"broken-windows#58; check ?"}:::crit
     n_hook_ship_pre_gate_mn_verify_gate_1{"mn-verify-gate#58; check ?"}:::crit
     n_hook_ship_pre_gate_mn_verify_gate_2{"mn-verify-gate#58; check ?"}:::crit
-    n_hook_ship_pre_gate_mn_verify_gate_3{"mn-verify-gate#58; check ?"}:::crit
+    n_hook_ship_pre_gate_mn_verify_gate_3{"mn-verify-gate#58; check mn-verify-gates"}:::crit
     n_hook_ship_pre_gate_mn_verify_gate_4{"mn-verify-gate#58; check mn-uat-open"}:::crit
     n_hook_ship_pre_gate_mn_verify_gate_5{"mn-verify-gate#58; check ?"}:::crit
     n_hook_ship_pre_gate_mn_verify_gate_6{"mn-verify-gate#58; check ?"}:::crit
@@ -141,22 +146,27 @@ flowchart LR
   n_hook_plan_pre_contribution_mn_verify_gate_16 -.->|"planner"| n_point_plan_pre
   n_hook_plan_pre_contribution_mn_verify_gate_17 -.->|"planner"| n_point_plan_pre
   n_hook_plan_pre_contribution_mn_verify_gate_18 -.->|"checker"| n_point_plan_pre
-  n_hook_plan_pre_contribution_schema_gate_19 -.->|"planner"| n_point_plan_pre
-  n_hook_plan_pre_contribution_security_20 -.->|"planner"| n_point_plan_pre
-  n_hook_plan_pre_contribution_tdd_21 -.->|"planner"| n_point_plan_pre
+  n_hook_plan_pre_contribution_mn_verify_gate_19 -.->|"planner"| n_point_plan_pre
+  n_hook_plan_pre_contribution_mn_verify_gate_20 -.->|"planner"| n_point_plan_pre
+  n_hook_plan_pre_contribution_schema_gate_21 -.->|"planner"| n_point_plan_pre
+  n_hook_plan_pre_contribution_security_22 -.->|"planner"| n_point_plan_pre
+  n_hook_plan_pre_contribution_tdd_23 -.->|"planner"| n_point_plan_pre
   n_point_plan_post --> n_hook_plan_post_step_mempalace_0
   n_point_plan_post ==> n_hook_plan_post_gate_architecture_1
   n_point_plan_post --> n_hook_plan_post_gate_gap_analysis_2
   n_point_plan_post ==> n_hook_plan_post_gate_mn_verify_gate_3
   n_point_plan_post ==> n_hook_plan_post_gate_mn_verify_gate_4
   n_point_plan_post ==> n_hook_plan_post_gate_mn_verify_gate_5
-  n_hook_plan_post_contribution_claude_orchestration_6 -.->|"planner"| n_point_plan_post
-  n_hook_plan_post_contribution_external_job_7 -.->|"planner"| n_point_plan_post
+  n_point_plan_post ==> n_hook_plan_post_gate_mn_verify_gate_6
+  n_hook_plan_post_contribution_claude_orchestration_7 -.->|"planner"| n_point_plan_post
+  n_hook_plan_post_contribution_external_job_8 -.->|"planner"| n_point_plan_post
   n_point_execute_pre --> n_point_execute_wave_pre
   n_point_execute_wave_pre --> n_core_execute
   n_core_execute --> n_point_execute_wave_post
   n_point_execute_wave_post --> n_point_execute_post
   n_point_plan_post ==> n_point_execute_pre
+  n_point_execute_pre --> n_hook_execute_pre_step_mn_verify_gate_0
+  n_point_execute_pre ==> n_hook_execute_pre_gate_mn_verify_gate_1
   n_point_execute_wave_post --> n_hook_execute_wave_post_step_code_review_0
   n_point_execute_wave_post --> n_hook_execute_wave_post_step_live_dom_uat_1
   n_point_execute_wave_post ==> n_hook_execute_wave_post_gate_drift_2
@@ -451,6 +461,8 @@ flowchart TB
 | `plan:pre` | mn-verify-gate | contribution | `planner · fragments/plan-pre-migration.md` | `workflow.migration_safety` | `skip` |  |
 | `plan:pre` | mn-verify-gate | contribution | `planner · fragments/plan-pre-design-registry.md` | `workflow.design_registry` | `skip` |  |
 | `plan:pre` | mn-verify-gate | contribution | `checker · fragments/plan-pre-refute-findings.md` | `workflow.refute_findings` | `skip` |  |
+| `plan:pre` | mn-verify-gate | contribution | `planner · fragments/plan-pre-restate-goal.md` | `workflow.restate_goal` | `skip` |  |
+| `plan:pre` | mn-verify-gate | contribution | `planner · fragments/plan-pre-failure-paths.md` | `workflow.failure_paths` | `skip` |  |
 | `plan:pre` | schema-gate | contribution | `planner · fragments/plan-pre.md` | `workflow.schema_push_detection` | `skip` |  |
 | `plan:pre` | security | contribution | `planner · inline` | `workflow.security_enforcement` |  |  |
 | `plan:pre` | tdd | contribution | `planner · inline` | `workflow.tdd_mode` | `skip` |  |
@@ -460,8 +472,11 @@ flowchart TB
 | `plan:post` | mn-verify-gate | gate | `mn-wave-collision` | `workflow.wave_collision` | `halt` | yes |
 | `plan:post` | mn-verify-gate | gate | `mn-wave-solve` | `workflow.wave_solve` | `halt` | yes |
 | `plan:post` | mn-verify-gate | gate | `mn-wave-collision` | `workflow.wave_normalize` | `halt` | yes |
+| `plan:post` | mn-verify-gate | gate | `mn-failure-paths` | `workflow.failure_paths_enforce` | `halt` | yes |
 | `plan:post` | claude-orchestration | contribution | `planner · fragments/plan-post.md` | `claude_orchestration.enabled` | `skip` |  |
 | `plan:post` | external-job | contribution | `planner · fragments/plan-post.md` | `external_job.enabled` | `skip` |  |
+| `execute:pre` | mn-verify-gate | step | `command:verify baseline` | `workflow.verify_gates_baseline` | `skip` |  |
+| `execute:pre` | mn-verify-gate | gate | `mn-baseline` | `workflow.verify_gates_baseline` | `halt` | yes |
 | `execute:wave:post` | code-review | step | `skill:code-review` | `workflow.code_review` | `skip` |  |
 | `execute:wave:post` | live-dom-uat | step | `agent:gsd-dom-verifier` | `workflow.live_dom_uat` | `skip` |  |
 | `execute:wave:post` | drift | gate | `verify.schema-drift` | `workflow.schema_drift_gate` | `skip` | yes |
@@ -491,7 +506,7 @@ flowchart TB
 | `ship:pre` | broken-windows | gate |  | `workflow.windows_enforce` | `halt` | yes |
 | `ship:pre` | mn-verify-gate | gate |  | `workflow.nyquist_enforce` | `halt` | yes |
 | `ship:pre` | mn-verify-gate | gate |  | `workflow.verify_enforce` | `halt` | yes |
-| `ship:pre` | mn-verify-gate | gate |  | `workflow.verify_gates_enforce` | `halt` | yes |
+| `ship:pre` | mn-verify-gate | gate | `mn-verify-gates` | `workflow.verify_gates_enforce` | `halt` | yes |
 | `ship:pre` | mn-verify-gate | gate | `mn-uat-open` | `workflow.uat_enforce` | `halt` | yes |
 | `ship:pre` | mn-verify-gate | gate |  | `workflow.mn_security_enforce` | `halt` | yes |
 | `ship:pre` | mn-verify-gate | gate |  | `workflow.mn_windows_enforce` | `halt` | yes |
@@ -508,6 +523,7 @@ flowchart TB
 | `plan:pre` | `gsd-core/workflows/plan-phase.md` | step, gate, contribution |
 | `plan:pre` | `gsd-core/workflows/quick.md` | — |
 | `plan:post` | `gsd-core/workflows/plan-phase.md` | step, gate, contribution |
+| `execute:pre` | `gsd-core/workflows/execute-phase.md` | step, gate |
 | `execute:wave:pre` | `gsd-core/workflows/execute-phase.md` | step, contribution |
 | `execute:wave:post` | `gsd-core/workflows/execute-phase.md` | step, gate, contribution |
 | `execute:post` | `gsd-core/workflows/quick.md` | step |

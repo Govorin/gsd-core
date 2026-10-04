@@ -170,6 +170,11 @@
         "read": "gsd-core/workflows/progress/steps/mvp-display.md"
       },
       {
+        "id": "graphs",
+        "when": "flag:--graph",
+        "read": "gsd-core/workflows/progress/steps/graphs.md"
+      },
+      {
         "id": "forensic-audit",
         "when": "flag:--forensic",
         "read": "gsd-core/workflows/progress/steps/forensic-audit.md"

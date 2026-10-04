@@ -101,3 +101,43 @@ stateDiagram-v2
 | `EXECUTED` |
 | `NEEDS_REVIEW` |
 | `COMPLETE` |
+
+## Check outcome (`verify gates`, `verify baseline`)
+
+Source: `CHECK_STATUS`, `CHECK_OUTCOME_RULES` and `CHECK_STATUS_VERDICT` in `src/verify-gates.cts`. A
+check run is **classified, not transitioned**: it enters exactly one status, by the first rule that
+matches, and never moves. Each arrow is one rule of the table the classifier walks, labelled with what
+it observes; a note is what the mn gates (`check mn-verify-gates`, `check mn-baseline`) make of the
+status.
+
+```mermaid
+stateDiagram-v2
+  direction LR
+  state "pass" as pass
+  state "fail" as fail
+  state "stale" as stale
+  state "timeout" as timeout
+  [*] --> timeout : killed at the time budget
+  [*] --> stale : killed at the output capture limit
+  [*] --> stale : could not be started
+  [*] --> stale : ended by a signal it did not raise
+  [*] --> stale : exit 127#58; no such command
+  [*] --> stale : exit 126#58; not executable
+  [*] --> pass : exit 0
+  [*] --> fail : any other exit code
+  note right of pass : gate verdict#58; pass
+  note right of fail : gate verdict#58; finding
+  note right of stale : gate verdict#58; unresolvable
+  note right of timeout : gate verdict#58; unresolvable
+```
+
+| Order | Rule | Observed | Status | Gate verdict |
+|-------|------|----------|--------|--------------|
+| 1 | `timed_out` | killed at the time budget | `timeout` | unresolvable |
+| 2 | `output_cap` | killed at the output capture limit | `stale` | unresolvable |
+| 3 | `spawn_error` | could not be started | `stale` | unresolvable |
+| 4 | `signal` | ended by a signal it did not raise | `stale` | unresolvable |
+| 5 | `not_found` | exit 127: no such command | `stale` | unresolvable |
+| 6 | `not_executable` | exit 126: not executable | `stale` | unresolvable |
+| 7 | `exit_zero` | exit 0 | `pass` | pass |
+| 8 | `exit_other` | any other exit code | `fail` | finding |

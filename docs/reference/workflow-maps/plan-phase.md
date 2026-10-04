@@ -183,7 +183,7 @@ flowchart LR
     a_gsd_plan_checker[["gsd-plan-checker"]]:::agent
   end
   subgraph g_points["Точки цикла и капабилити"]
-    p_plan_pre{{"plan#58;pre<br/>+3 gates, +12 contributions"}}:::point
+    p_plan_pre{{"plan#58;pre<br/>+3 gates, +14 contributions"}}:::point
     c_plan_pre_ai_integration_skill_ai_integration_phase["ai-integration#58; skill ai-integration-phase"]:::capability
     c_plan_pre_architecture_agent_gsd_system_architect["architecture#58; agent gsd-system-architect"]:::capability
     c_plan_pre_intel_command_intel_api_surface["intel#58; command intel api-surface"]:::capability
@@ -191,7 +191,7 @@ flowchart LR
     c_plan_pre_research_agent_gsd_phase_researcher["research#58; agent gsd-phase-researcher"]:::capability
     c_plan_pre_ui_skill_ui_phase["ui#58; skill ui-phase"]:::capability
     c_plan_pre_pattern_mapper_agent_gsd_pattern_mapper["pattern-mapper#58; agent gsd-pattern-mapper"]:::capability
-    p_plan_post{{"plan#58;post<br/>+5 gates, +2 contributions"}}:::point
+    p_plan_post{{"plan#58;post<br/>+6 gates, +2 contributions"}}:::point
     c_plan_post_mempalace_skill_mempalace_capture["mempalace#58; skill mempalace-capture"]:::capability
   end
   u_heading_4_6__Context_Drift_Pre_Check__drift_plan_pre_gate_["4.6. Context Drift Pre-Check (drift plan#58;pre gate)"]

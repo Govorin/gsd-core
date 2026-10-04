@@ -2,9 +2,9 @@
 
 # execute-phase
 
-Источник: `gsd-core/workflows/execute-phase.md`. Единицы: 17 шагов `<step>`, 3 секции `gsd:section`. Спавнов: 3 (агенты: `gsd-executor`, `gsd-verifier`). Точки цикла: `execute:post`, `execute:wave:pre`, `execute:wave:post`, `verify:post`.
+Источник: `gsd-core/workflows/execute-phase.md`. Единицы: 18 шагов `<step>`, 3 секции `gsd:section`. Спавнов: 3 (агенты: `gsd-executor`, `gsd-verifier`). Точки цикла: `execute:post`, `execute:pre`, `execute:wave:pre`, `execute:wave:post`, `verify:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 16; не называют реальный шаг и не рисуются — **12**; названы по имени шага и нарисованы пунктиром `goto` — 4.
+> **Переходы в прозе** (фразы «перейди к …»): всего 17; не называют реальный шаг и не рисуются — **12**; названы по имени шага и нарисованы пунктиром `goto` — 5.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -23,6 +23,7 @@ flowchart TB
   u_step_handle_branching["handle_branching"]
   u_step_validate_phase["validate_phase"]
   u_step_discover_and_group_plans["discover_and_group_plans"]
+  u_step_execute_pre_hooks["execute_pre_hooks"]
   u_step_cross_ai_delegation["cross_ai_delegation"]
   u_step_execute_waves["execute_waves"]
   u_step_checkpoint_handling["checkpoint_handling"]
@@ -43,7 +44,8 @@ flowchart TB
   u_step_check_interactive_mode --> u_step_handle_branching
   u_step_handle_branching --> u_step_validate_phase
   u_step_validate_phase --> u_step_discover_and_group_plans
-  u_step_discover_and_group_plans --> u_step_cross_ai_delegation
+  u_step_discover_and_group_plans --> u_step_execute_pre_hooks
+  u_step_execute_pre_hooks --> u_step_cross_ai_delegation
   u_step_cross_ai_delegation --> u_step_execute_waves
   u_step_execute_waves --> u_step_checkpoint_handling
   u_step_checkpoint_handling --> u_step_aggregate_results
@@ -57,6 +59,7 @@ flowchart TB
   u_step_close_phase_todos --> u_step_delegate_post_completion_to_transition
   u_step_check_blocking_antipatterns -.->|"goto"| u_step_check_interactive_mode
   u_step_check_interactive_mode -.->|"goto"| u_step_handle_branching
+  u_step_execute_pre_hooks -.->|"goto"| u_step_cross_ai_delegation
   u_step_cross_ai_delegation -.->|"goto"| u_step_execute_waves
   u_step_verify_phase_goal -.->|"goto"| u_step_update_roadmap
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
@@ -84,6 +87,8 @@ flowchart LR
     p_execute_post{{"execute#58;post<br/>+1 gates, +0 contributions"}}:::point
     c_execute_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
     c_execute_post_refactor_trigger_command_refactor_evaluate["refactor-trigger#58; command refactor evaluate"]:::capability
+    p_execute_pre{{"execute#58;pre<br/>+1 gates, +0 contributions"}}:::point
+    c_execute_pre_mn_verify_gate_command_verify_baseline["mn-verify-gate#58; command verify baseline"]:::capability
     p_execute_wave_pre{{"execute#58;wave#58;pre"}}:::point
     p_execute_wave_post{{"execute#58;wave#58;post<br/>+6 gates, +2 contributions"}}:::point
     c_execute_wave_post_code_review_skill_code_review["code-review#58; skill code-review"]:::capability
@@ -101,6 +106,7 @@ flowchart LR
   wf_root(["execute-phase.md (вне шагов)"]):::root
   u_step_initialize["initialize"]
   u_step_check_interactive_mode["check_interactive_mode"]
+  u_step_execute_pre_hooks["execute_pre_hooks"]
   u_step_cross_ai_delegation["cross_ai_delegation"]
   u_step_execute_waves["execute_waves"]
   u_step_verify_phase_goal["verify_phase_goal"]
@@ -111,6 +117,8 @@ flowchart LR
   p_execute_post -.-> c_execute_post_code_review_skill_code_review
   p_execute_post -.-> c_execute_post_refactor_trigger_command_refactor_evaluate
   u_step_initialize --> p_execute_post
+  p_execute_pre -.-> c_execute_pre_mn_verify_gate_command_verify_baseline
+  u_step_execute_pre_hooks --> p_execute_pre
   u_step_execute_waves --> p_execute_wave_pre
   p_execute_wave_post -.-> c_execute_wave_post_code_review_skill_code_review
   p_execute_wave_post -.-> c_execute_wave_post_live_dom_uat_agent_gsd_dom_verifier
@@ -151,18 +159,19 @@ flowchart LR
 | 6 | `handle_branching` | step |  |  |  |  |
 | 7 | `validate_phase` | step |  |  |  |  |
 | 8 | `discover_and_group_plans` | step |  |  |  |  |
-| 9 | `cross_ai_delegation` | step |  |  |  | `execute-phase/detail/elaboration.md` |
-| 10 | `execute_waves` | step |  | `{EXECUTOR_TYPE}` | `execute:wave:pre`, `execute:wave:post` | `execute-phase/steps/per-plan-worktree-gate.md`, `execute-phase/steps/per-plan-executor-routing.md`, `execute-phase/steps/tdd-applicability-resolution.md`, `execute-plan.md`, `execute-phase/steps/completion-reconciliation.md`, `execute-phase/steps/post-merge-gate.md`, `execute-phase/steps/wave-post-gate-hooks.md` |
-| 11 | `checkpoint_handling` | step |  |  |  |  |
-| 12 | `aggregate_results` | step |  |  |  |  |
-| 13 | `partial-wave` | section | when: flag:--wave |  |  | `execute-phase/steps/partial-wave.md` |
-| 14 | `verify_phase_goal` | step |  | `gsd-verifier` | `execute:post`, `verify:post` | `execute-phase/steps/verify-phase-goal.md` |
-| 15 | `gap-closure-artifacts` | section | when: state:gap-closure-phase |  |  | `execute-phase/steps/gap-closure-artifacts.md` |
-| 16 | `regression-gate` | section | when: state:has-prior-phases |  |  | `execute-phase/steps/regression-gate.md` |
-| 17 | `update_roadmap` | step |  |  |  |  |
-| 18 | `auto_copy_learnings` | step |  |  |  |  |
-| 19 | `close_phase_todos` | step |  |  |  |  |
-| 20 | `delegate_post_completion_to_transition` | step |  |  |  | `transition.md` |
+| 9 | `execute_pre_hooks` | step |  |  | `execute:pre` | `execute-phase/steps/execute-pre-gate-hooks.md` |
+| 10 | `cross_ai_delegation` | step |  |  |  | `execute-phase/detail/elaboration.md` |
+| 11 | `execute_waves` | step |  | `{EXECUTOR_TYPE}` | `execute:wave:pre`, `execute:wave:post` | `execute-phase/steps/per-plan-worktree-gate.md`, `execute-phase/steps/per-plan-executor-routing.md`, `execute-phase/steps/tdd-applicability-resolution.md`, `execute-plan.md`, `execute-phase/steps/completion-reconciliation.md`, `execute-phase/steps/post-merge-gate.md`, `execute-phase/steps/wave-post-gate-hooks.md` |
+| 12 | `checkpoint_handling` | step |  |  |  |  |
+| 13 | `aggregate_results` | step |  |  |  |  |
+| 14 | `partial-wave` | section | when: flag:--wave |  |  | `execute-phase/steps/partial-wave.md` |
+| 15 | `verify_phase_goal` | step |  | `gsd-verifier` | `execute:post`, `verify:post` | `execute-phase/steps/verify-phase-goal.md` |
+| 16 | `gap-closure-artifacts` | section | when: state:gap-closure-phase |  |  | `execute-phase/steps/gap-closure-artifacts.md` |
+| 17 | `regression-gate` | section | when: state:has-prior-phases |  |  | `execute-phase/steps/regression-gate.md` |
+| 18 | `update_roadmap` | step |  |  |  |  |
+| 19 | `auto_copy_learnings` | step |  |  |  |  |
+| 20 | `close_phase_todos` | step |  |  |  |  |
+| 21 | `delegate_post_completion_to_transition` | step |  |  |  | `transition.md` |
 
 ## Дефекты
 

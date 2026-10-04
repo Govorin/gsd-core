@@ -138,6 +138,7 @@ module.exports = {
   "tests/mn-contract-drift.test.cjs",
   "tests/mn-expertise-portable.test.cjs",
   "tests/mn-plan-status-gate.test.cjs",
+  "tests/mn-verify-gates.test.cjs",
   "tests/mn-wave-normalize.test.cjs",
   "tests/mn-zod-fieldtable.test.cjs",
   "tests/model-catalog.unit.test.cjs",

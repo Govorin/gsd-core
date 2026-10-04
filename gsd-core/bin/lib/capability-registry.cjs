@@ -2955,17 +2955,22 @@ const capabilities = {
       "workflow.verify_gates": {
         "type": "string-map",
         "default": {},
-        "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured."
+        "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured. Each check is recorded with a status from a closed set — pass, fail, stale (the command could not run as a check: exit 127/126, a spawn error, a signal or the output cap), timeout — so a roster that outlived its tools is reported as stale with a warning, never as a red check and never as a green one."
       },
       "workflow.verify_gates_record": {
         "type": "boolean",
         "default": false,
         "description": "Run `verify gates` automatically at verify:pre, before the verifier reads the phase. Order matters: the verifier should read numbers it did not produce. Off by default because it is inert without workflow.verify_gates naming commands, and running an unconfigured recorder on every phase would print a refusal each time."
       },
+      "workflow.verify_gates_baseline": {
+        "type": "boolean",
+        "default": false,
+        "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
+      },
       "workflow.verify_gates_enforce": {
         "type": "boolean",
         "default": false,
-        "description": "Block ship when the recorded gate results say a check failed (gates.all_passed != true). This is the gate ADR-2008's artifact-frontmatter-equals predicate was built for and has had nothing to read: workflow.verify_enforce reads truths_unproven, which the verifier writes about itself, while this reads what the commands returned. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
+        "description": "Block ship unless every check in the recorded `gates:` block passed (`gsd_run check mn-verify-gates`). workflow.verify_enforce reads truths_unproven, which the verifier writes about itself; this reads what the commands returned. A red check is a finding naming each check and its exit code; a check recorded as stale (its command not found or not executable, exit 127/126, or cut off by the environment) or timed out is reported as not measured — it still blocks, because a check that could not run proves nothing, but the message sends you to the roster rather than calling the code broken. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
       },
       "workflow.mutation_spot_check": {
         "type": "boolean",
@@ -3126,9 +3131,34 @@ const capabilities = {
         "type": "boolean",
         "default": false,
         "description": "Require every review finding to name what guards it — a rule and where it runs, or \"review only\". A check is a mechanism only once it has an assigned execution point: a script nothing invokes is worse than none, because it creates the impression the invariant is guarded and removes the question from review while checking nothing. \"This is a violation\" and \"CI will catch this\" are separate claims and the second is wrong more often than expected — several boundary rules that read as general are hardcoded to one domain, and a rule at warn in a project that tolerates warnings guards nothing. The distinction changes the fix: a review-only finding recurs the moment nobody looks, so it ships with a mechanism or is knowingly accepted. Taken from the doctrine in the author's own mn/docs/architecture/enforcement.md, where it is a mandatory review step."
+      },
+      "workflow.failure_paths": {
+        "type": "boolean",
+        "default": true,
+        "description": "Instruct the planner to write the pre-mortem into PLAN.md as <failure_paths>: each <failure_path> names an <invariant> and a <check> — the <automated>/<fails_when> pair of #3172, judged by the same recognizer as the failing-direction probe — that fails when the invariant breaks. Required only of a plan whose files_modified names a migration or whose user_setup is non-empty; every other plan pays nothing. The planner self-checks with gsd_run check mn-failure-paths before returning; the verdict reports paths_without_check / paths — the share of named failures nothing would notice. Never halts; workflow.failure_paths_enforce does. On by default (absent = enabled): it adds an instruction to the planner's prompt and blocks nothing."
+      },
+      "workflow.failure_paths_enforce": {
+        "type": "boolean",
+        "default": false,
+        "description": "Halt plan:post when the failure-paths verdict has a blocker: a required plan with no <failure_path>, a path with no <check> command, a check whose <fails_when> is missing, empty or a placeholder, or an empty or placeholder <invariant>. An unreadable plan also halts — could not look is not clean. Default false: halting at plan:post has no revision loop behind it, so a project opts in once its plans carry the block. Assumes workflow.failure_paths is on; with it off the planner is not asked for the block the gate demands."
+      },
+      "workflow.restate_goal": {
+        "type": "boolean",
+        "default": true,
+        "description": "Instruct the planner to restate the phase goal in its own words before decomposing, as three lines at the end of every <objective>: Restated (the goal, not copied, and this plan's part), Not doing (what the phase leaves out, with sources) and Sources (ROADMAP goal, success criteria, CONTEXT D-NN, SPEC AC-n). A wrong reading of the goal is cheapest to catch before code exists; the plan-checker compares the lines with the goal (Dimension 1b) and treats a contradiction, or an exclusion a requirement needs, as a blocker. Extends the existing <objective> rather than adding a field. On by default (absent = enabled): an instruction, no gate."
       }
     },
     "steps": [
+      {
+        "point": "execute:pre",
+        "ref": {
+          "command": "verify baseline"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.verify_gates_baseline",
+        "onError": "skip"
+      },
       {
         "point": "verify:pre",
         "ref": {
@@ -3234,9 +3264,42 @@ const capabilities = {
         "consumes": [],
         "when": "workflow.refute_findings",
         "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-restate-goal.md",
+          "inline": "<restate_goal>\n**Restate the phase goal in your own words before any task exists** (`workflow.restate_goal`, mn-verify-gate).\n\nA wrong reading of the goal is cheapest to catch before code: every task built on it inherits it, and the verifier finds it only after execution. So, after reading ROADMAP, CONTEXT.md and SPEC.md and before decomposing, write three lines and carry them at the end of every plan's `<objective>` — they extend the objective, they are not a second one:\n\n```\nRestated: <the phase goal in your words — not copied — and the part this plan delivers>\nNot doing: <what the phase deliberately leaves out, each item with its source>\nSources: <where each claim came from: ROADMAP Phase N goal · success criterion 2 · CONTEXT D-03 · SPEC AC-1>\n```\n\nIf you cannot restate the goal without copying it, or two sources disagree about what it includes, settle that first from the sources, or name the disagreement in `Not doing:` with both sources so the checker sees it. The plan-checker compares these lines with the goal (Dimension 1b): a restatement that contradicts the goal, or a `Not doing:` that drops something a requirement or a locked decision needs, is a blocker.\n</restate_goal>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.restate_goal",
+        "onError": "skip"
+      },
+      {
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-failure-paths.md",
+          "inline": "<failure_paths_contract>\n**Write the pre-mortem down, where a check can read it** (`workflow.failure_paths`, mn-verify-gate).\n\nWhen you assume a plan has failed and name why, record each failure a command could observe as a `<failure_path>` in a `<failure_paths>` block after `<threat_model>`: an `<invariant>` (what must stay true) and a `<check>` — the same `<automated>` + `<fails_when>` pair a `<verify>` uses — that fails when the invariant breaks.\n\n**Required** when the plan's `files_modified` names a migration (`.sql` under `drizzle/` or `migration(s)/`) or its `user_setup` is non-empty. Any other plan only when it has a failure a reviewer would ask about (a sent message, a deploy, a data rewrite); otherwise omit the block. Shape, placement and the verdict: read `~/.claude/gsd-core/references/failure-paths.md`.\n\n**Before you return,** run `gsd_run check mn-failure-paths \"${PHASE}\" --raw` from the project root and fix each `blocker` in `findings`. Never invent a check to clear one: a failure no command can observe stays without a `<check>`, and you name it in your return message.\n</failure_paths_contract>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.failure_paths",
+        "onError": "skip"
       }
     ],
     "gates": [
+      {
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-baseline"
+        },
+        "when": "workflow.verify_gates_baseline",
+        "blocking": true,
+        "onError": "halt"
+      },
       {
         "point": "ship:pre",
         "check": {
@@ -3268,12 +3331,7 @@ const capabilities = {
       {
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "artifact-frontmatter-equals",
-            "artifact": "VERIFICATION.md",
-            "field": "gates.all_passed",
-            "equals": true
-          }
+          "query": "mn-verify-gates"
         },
         "when": "workflow.verify_gates_enforce",
         "blocking": true,
@@ -3423,6 +3481,15 @@ const capabilities = {
           "query": "mn-clean-state"
         },
         "when": "workflow.clean_state_enforce",
+        "blocking": true,
+        "onError": "halt"
+      },
+      {
+        "point": "plan:post",
+        "check": {
+          "query": "mn-failure-paths"
+        },
+        "when": "workflow.failure_paths_enforce",
         "blocking": true,
         "onError": "halt"
       }
@@ -5184,6 +5251,32 @@ const byLoopPoint = {
         "onError": "skip"
       },
       {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-restate-goal.md",
+          "inline": "<restate_goal>\n**Restate the phase goal in your own words before any task exists** (`workflow.restate_goal`, mn-verify-gate).\n\nA wrong reading of the goal is cheapest to catch before code: every task built on it inherits it, and the verifier finds it only after execution. So, after reading ROADMAP, CONTEXT.md and SPEC.md and before decomposing, write three lines and carry them at the end of every plan's `<objective>` — they extend the objective, they are not a second one:\n\n```\nRestated: <the phase goal in your words — not copied — and the part this plan delivers>\nNot doing: <what the phase deliberately leaves out, each item with its source>\nSources: <where each claim came from: ROADMAP Phase N goal · success criterion 2 · CONTEXT D-03 · SPEC AC-1>\n```\n\nIf you cannot restate the goal without copying it, or two sources disagree about what it includes, settle that first from the sources, or name the disagreement in `Not doing:` with both sources so the checker sees it. The plan-checker compares these lines with the goal (Dimension 1b): a restatement that contradicts the goal, or a `Not doing:` that drops something a requirement or a locked decision needs, is a blocker.\n</restate_goal>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.restate_goal",
+        "onError": "skip"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:pre",
+        "into": "planner",
+        "fragment": {
+          "path": "fragments/plan-pre-failure-paths.md",
+          "inline": "<failure_paths_contract>\n**Write the pre-mortem down, where a check can read it** (`workflow.failure_paths`, mn-verify-gate).\n\nWhen you assume a plan has failed and name why, record each failure a command could observe as a `<failure_path>` in a `<failure_paths>` block after `<threat_model>`: an `<invariant>` (what must stay true) and a `<check>` — the same `<automated>` + `<fails_when>` pair a `<verify>` uses — that fails when the invariant breaks.\n\n**Required** when the plan's `files_modified` names a migration (`.sql` under `drizzle/` or `migration(s)/`) or its `user_setup` is non-empty. Any other plan only when it has a failure a reviewer would ask about (a sent message, a deploy, a data rewrite); otherwise omit the block. Shape, placement and the verdict: read `~/.claude/gsd-core/references/failure-paths.md`.\n\n**Before you return,** run `gsd_run check mn-failure-paths \"${PHASE}\" --raw` from the project root and fix each `blocker` in `findings`. Never invent a check to clear one: a failure no command can observe stays without a `<check>`, and you name it in your return message.\n</failure_paths_contract>\n"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.failure_paths",
+        "onError": "skip"
+      },
+      {
         "capId": "schema-gate",
         "point": "plan:pre",
         "into": "planner",
@@ -5357,13 +5450,46 @@ const byLoopPoint = {
         "when": "workflow.wave_normalize",
         "blocking": true,
         "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "plan:post",
+        "check": {
+          "query": "mn-failure-paths"
+        },
+        "when": "workflow.failure_paths_enforce",
+        "blocking": true,
+        "onError": "halt"
       }
     ]
   },
   "execute:pre": {
-    "steps": [],
+    "steps": [
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:pre",
+        "ref": {
+          "command": "verify baseline"
+        },
+        "produces": [],
+        "consumes": [],
+        "when": "workflow.verify_gates_baseline",
+        "onError": "skip"
+      }
+    ],
     "contributions": [],
-    "gates": []
+    "gates": [
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-baseline"
+        },
+        "when": "workflow.verify_gates_baseline",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "execute:wave:pre": {
     "steps": [],
@@ -5774,12 +5900,7 @@ const byLoopPoint = {
         "capId": "mn-verify-gate",
         "point": "ship:pre",
         "check": {
-          "predicate": {
-            "kind": "artifact-frontmatter-equals",
-            "artifact": "VERIFICATION.md",
-            "field": "gates.all_passed",
-            "equals": true
-          }
+          "query": "mn-verify-gates"
         },
         "when": "workflow.verify_gates_enforce",
         "blocking": true,
@@ -5954,6 +6075,7 @@ const configKeys = {
   "workflow.blast_radius": "mn-verify-gate",
   "workflow.verify_gates": "mn-verify-gate",
   "workflow.verify_gates_record": "mn-verify-gate",
+  "workflow.verify_gates_baseline": "mn-verify-gate",
   "workflow.verify_gates_enforce": "mn-verify-gate",
   "workflow.mutation_spot_check": "mn-verify-gate",
   "workflow.mutation_test_command": "mn-verify-gate",
@@ -5984,6 +6106,9 @@ const configKeys = {
   "workflow.refute_findings": "mn-verify-gate",
   "workflow.type_model": "mn-verify-gate",
   "workflow.enforcement_provenance": "mn-verify-gate",
+  "workflow.failure_paths": "mn-verify-gate",
+  "workflow.failure_paths_enforce": "mn-verify-gate",
+  "workflow.restate_goal": "mn-verify-gate",
   "workflow.nyquist_validation": "nyquist",
   "review.models.ollama": "ollama",
   "review.ollama_host": "ollama",
@@ -6503,7 +6628,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "string-map",
     "default": {},
-    "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured."
+    "description": "Object of check name → command line, run by `gsd_run verify gates` and recorded into {phase}-VERIFICATION.md's frontmatter under `gates:`. Set it with `gsd_run query config-set workflow.verify_gates '{\"tests\":\"npm test\",\"typecheck\":\"npx tsc --noEmit\",\"lint\":\"npm run lint\"}'` or write the object into config.json directly. Empty (the default) means the command refuses rather than recording a green field that proves nothing — only the project knows what its own green looks like. Written by a command so the numbers a verifier is judged on do not come from the agent being judged; the exit code of a typecheck cannot be optimistic. A value that is set but cannot run (an empty or non-string command, or a legacy JSON-text string that does not parse to such an object) makes `verify gates` fail with reason invalid_checks_config naming each problem, never with no_checks_configured. Each check is recorded with a status from a closed set — pass, fail, stale (the command could not run as a check: exit 127/126, a spawn error, a signal or the output cap), timeout — so a roster that outlived its tools is reported as stale with a warning, never as a red check and never as a green one."
   },
   "workflow.verify_gates_record": {
     "owner": "mn-verify-gate",
@@ -6511,11 +6636,17 @@ const configSchema = {
     "default": false,
     "description": "Run `verify gates` automatically at verify:pre, before the verifier reads the phase. Order matters: the verifier should read numbers it did not produce. Off by default because it is inert without workflow.verify_gates naming commands, and running an unconfigured recorder on every phase would print a refusal each time."
   },
+  "workflow.verify_gates_baseline": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
+  },
   "workflow.verify_gates_enforce": {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": false,
-    "description": "Block ship when the recorded gate results say a check failed (gates.all_passed != true). This is the gate ADR-2008's artifact-frontmatter-equals predicate was built for and has had nothing to read: workflow.verify_enforce reads truths_unproven, which the verifier writes about itself, while this reads what the commands returned. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
+    "description": "Block ship unless every check in the recorded `gates:` block passed (`gsd_run check mn-verify-gates`). workflow.verify_enforce reads truths_unproven, which the verifier writes about itself; this reads what the commands returned. A red check is a finding naming each check and its exit code; a check recorded as stale (its command not found or not executable, exit 127/126, or cut off by the environment) or timed out is reported as not measured — it still blocks, because a check that could not run proves nothing, but the message sends you to the roster rather than calling the code broken. Requires workflow.verify_gates_record (or a manual `verify gates` run) to have recorded anything — a phase with no `gates:` block fails this gate rather than passing it, because an absent measurement is not a green one."
   },
   "workflow.mutation_spot_check": {
     "owner": "mn-verify-gate",
@@ -6695,6 +6826,24 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Require every review finding to name what guards it — a rule and where it runs, or \"review only\". A check is a mechanism only once it has an assigned execution point: a script nothing invokes is worse than none, because it creates the impression the invariant is guarded and removes the question from review while checking nothing. \"This is a violation\" and \"CI will catch this\" are separate claims and the second is wrong more often than expected — several boundary rules that read as general are hardcoded to one domain, and a rule at warn in a project that tolerates warnings guards nothing. The distinction changes the fix: a review-only finding recurs the moment nobody looks, so it ships with a mechanism or is knowingly accepted. Taken from the doctrine in the author's own mn/docs/architecture/enforcement.md, where it is a mandatory review step."
+  },
+  "workflow.failure_paths": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Instruct the planner to write the pre-mortem into PLAN.md as <failure_paths>: each <failure_path> names an <invariant> and a <check> — the <automated>/<fails_when> pair of #3172, judged by the same recognizer as the failing-direction probe — that fails when the invariant breaks. Required only of a plan whose files_modified names a migration or whose user_setup is non-empty; every other plan pays nothing. The planner self-checks with gsd_run check mn-failure-paths before returning; the verdict reports paths_without_check / paths — the share of named failures nothing would notice. Never halts; workflow.failure_paths_enforce does. On by default (absent = enabled): it adds an instruction to the planner's prompt and blocks nothing."
+  },
+  "workflow.failure_paths_enforce": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": false,
+    "description": "Halt plan:post when the failure-paths verdict has a blocker: a required plan with no <failure_path>, a path with no <check> command, a check whose <fails_when> is missing, empty or a placeholder, or an empty or placeholder <invariant>. An unreadable plan also halts — could not look is not clean. Default false: halting at plan:post has no revision loop behind it, so a project opts in once its plans carry the block. Assumes workflow.failure_paths is on; with it off the planner is not asked for the block the gate demands."
+  },
+  "workflow.restate_goal": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Instruct the planner to restate the phase goal in its own words before decomposing, as three lines at the end of every <objective>: Restated (the goal, not copied, and this plan's part), Not doing (what the phase leaves out, with sources) and Sources (ROADMAP goal, success criteria, CONTEXT D-NN, SPEC AC-n). A wrong reading of the goal is cheapest to catch before code exists; the plan-checker compares the lines with the goal (Dimension 1b) and treats a contradiction, or an exclusion a requirement needs, as a blocker. Extends the existing <objective> rather than adding a field. On by default (absent = enabled): an instruction, no gate."
   },
   "workflow.nyquist_validation": {
     "owner": "nyquist",
