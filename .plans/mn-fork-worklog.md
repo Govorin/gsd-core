@@ -638,6 +638,16 @@ absent = enabled applies, so the defaults below are the effective ones.
   `ls-remote --symref` for the base branch. Full `npm test` afterwards: 44 823 tests,
   only the four stale-`origin/next` failures remain (sync plan, "Эталон 0.5");
   `742f419bd` fixed the one failure the integration had added.
+- **Retired config keys** (`fix-legacy-config`, `42ebe957f`): upstream #4974 took
+  `safety` and six `gates.*` toggles out of `templates/config.json`, but projects
+  made from the older template kept them, the loader called `safety` "unknown" on
+  every command and `migrate-config` reported "already canonical".
+  `RETIRED_CONFIG_KEYS` in `configuration.cts`: `migrate-config` drops them
+  (`retired` in its report), the loader names them as retired and points at the
+  command. Owner configs cleaned with it (mn `94c6ea95a`, get_your_look_up
+  `f91737ca`); the other stray keys there (`version`, `project_name`,
+  `planning_root`, `milestone_*`, `agents`, `profile`) were never GSD's and were
+  removed by hand. Backups: `gsd-sync-backups/2026-10-04-install/config-repair/`.
 
 ### Long-lived state
 
