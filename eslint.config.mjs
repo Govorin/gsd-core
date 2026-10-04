@@ -498,6 +498,9 @@ export default tseslint.config(
       // Pocock practices (arch survey / window review): tsc-generated — lint the src/*.cts sources.
       'gsd-core/bin/lib/code-graph.cjs',
       'gsd-core/bin/lib/git-history.cjs',
+      'gsd-core/bin/lib/arch-metrics.cjs',
+      'gsd-core/bin/lib/arch-survey.cjs',
+      'gsd-core/bin/lib/arch-command-router.cjs',
     ],
   },
 
