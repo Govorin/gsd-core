@@ -470,3 +470,24 @@ describe('documents', () => {
     assert.equal(doc.split('\n')[0], m.derivedMarker(wm.WORKFLOW_MAPS_SOURCE));
   });
 });
+
+describe('reader-facing command form', () => {
+  test('a colon-form command token is shown in the hyphen form a reader types', () => {
+    assert.equal(wm.readerText('Delegate to /gsd:plan-phase'), 'Delegate to /gsd-plan-phase');
+    assert.equal(wm.readerText('/gsd:ship then `/gsd:verify-work 3`'), '/gsd-ship then `/gsd-verify-work 3`');
+  });
+
+  test('the plugin namespace, path-like and already hyphenated tokens are left alone', () => {
+    for (const text of ['/gsd-core:plan-phase', 'commands/gsd:plan-phase', 'x-/gsd:plan', '/gsd-plan-phase', '/gsd:', 'gsd:section']) {
+      assert.equal(wm.readerText(text), text, text);
+    }
+  });
+
+  test('the flow label is converted while the unit keeps its name exactly as written', () => {
+    const map = parse('## 7. Delegate to /gsd:plan-phase\n\nInvoke it.\n');
+    const unit = map.units.find((u) => u.kind === 'heading');
+    assert.equal(unit.name, '7. Delegate to /gsd:plan-phase');
+    const node = wm.workflowMapDiagrams(map).flow.spec.nodes.find((n) => n.id !== undefined && n.label.includes('Delegate'));
+    assert.equal(node.label, '7. Delegate to /gsd-plan-phase');
+  });
+});

@@ -851,15 +851,25 @@ export const WORKFLOW_MAP_CLASS_DEFS: readonly ClassDef[] = Object.freeze([
 /** A workflow with more units than this gets its flow split into subgraphs (when its headings are numbered). */
 export const SUBGRAPH_THRESHOLD = 12;
 
+/**
+ * A map is a doc, and docs never pass through the install-time slash converters:
+ * the source-authoring `/gsd:<cmd>` a workflow may carry is shown in the form a
+ * reader types, `/gsd-<cmd>`. Only what is displayed changes — a unit's name and
+ * key stay exactly as written.
+ */
+export function readerText(text: string): string {
+  return text.replace(/(^|[^\w/-])\/gsd:([a-z0-9][a-z0-9-]*)/g, '$1/gsd-$2');
+}
+
 function unitLabel(u: WorkflowUnit): string {
-  if (u.kind === 'section') return `§ ${u.name}`;
-  if (u.malformed) return `${u.name}\n(шаг не закрыт)`;
-  return u.name;
+  if (u.kind === 'section') return `§ ${readerText(u.name)}`;
+  if (u.malformed) return `${readerText(u.name)}\n(шаг не закрыт)`;
+  return readerText(u.name);
 }
 
 function unitCondition(u: WorkflowUnit): string | null {
-  if (u.attrs.condition !== undefined) return `если: ${u.attrs.condition}`;
-  if (u.attrs.when !== undefined && u.attrs.when !== 'always') return `when: ${u.attrs.when}`;
+  if (u.attrs.condition !== undefined) return `если: ${readerText(u.attrs.condition)}`;
+  if (u.attrs.when !== undefined && u.attrs.when !== 'always') return `when: ${readerText(u.attrs.when)}`;
   return null;
 }
 
@@ -877,7 +887,7 @@ function headingGroups(units: readonly WorkflowUnit[]): { title: string; keys: s
     const major = u.kind === 'heading' && u.number !== null ? (/^\d{1,3}/.exec(u.number) ?? [''])[0] : null;
     const last = groups[groups.length - 1];
     if (last === undefined || (major !== null && major !== last.major)) {
-      groups.push({ major, title: u.name, keys: [u.key] });
+      groups.push({ major, title: readerText(u.name), keys: [u.key] });
     } else {
       last.keys.push(u.key);
     }
@@ -1085,7 +1095,7 @@ export function hasMap(map: WorkflowMap): boolean {
 }
 
 function cell(text: string): string {
-  return text.replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
+  return readerText(text).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|');
 }
 
 function code(text: string): string {

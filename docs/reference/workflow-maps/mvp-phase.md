@@ -21,7 +21,7 @@ flowchart TB
   u_heading_4__SPIDR_splitting_check["4. SPIDR splitting check"]
   u_heading_5__Update_ROADMAP_md["5. Update ROADMAP.md"]
   u_heading_6__Verify_the_write["6. Verify the write"]
-  u_heading_7__Delegate_to__gsd_plan_phase["7. Delegate to /gsd#58;plan-phase"]
+  u_heading_7__Delegate_to__gsd_plan_phase["7. Delegate to /gsd-plan-phase"]
   u_heading_8__Surface_deferred_phase_splits__if_any_["8. Surface deferred phase splits (if any)"]
   u_heading_9__Exit["9. Exit"]
   wf_root --> u_heading_1__Parse_and_validate_phase_argument
@@ -56,7 +56,7 @@ flowchart TB
 | 4 | `4. SPIDR splitting check` | H2 |  |  |  |  |
 | 5 | `5. Update ROADMAP.md` | H2 |  |  |  |  |
 | 6 | `6. Verify the write` | H2 |  |  |  |  |
-| 7 | `7. Delegate to /gsd:plan-phase` | H2 |  |  |  |  |
+| 7 | `7. Delegate to /gsd-plan-phase` | H2 |  |  |  |  |
 | 8 | `8. Surface deferred phase splits (if any)` | H2 |  |  |  |  |
 | 9 | `9. Exit` | H2 |  |  |  |  |
 
