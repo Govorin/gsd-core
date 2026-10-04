@@ -3,6 +3,8 @@ name: gsd-spec-reviewer
 description: Window review lens for the spec — does the work that landed match what its phases' plans, context and requirements asked for? Every finding quotes the spec line and the hunk; commits no phase claims are reported as unspecified, not judged. Spawned by /gsd:code-review --since.
 tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 color: orange
+# hooks:
+#   - before_write
 ---
 
 <role>
@@ -51,7 +53,7 @@ Commits in `window.unattributed` have no spec to measure against. List them unde
 </finding_rules>
 
 <output>
-Write `review_path`:
+Write `review_path` with the Write tool — never use `Bash(cat << 'EOF')` or heredoc commands for file creation:
 
 ````markdown
 ---
