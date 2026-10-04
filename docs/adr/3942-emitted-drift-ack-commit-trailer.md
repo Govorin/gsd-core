@@ -78,6 +78,21 @@ This is a strictly stronger form of what #2789 wanted. `readAckFileAtRef`, `list
 
 `staleAcks` itself is **retained** — a trailer declaring a key that no delta consumed is still an error (`tests/helpers/emitted-diff.cjs:648`). That check is per-PR and does not depend on persistence.
 
+> **Fork amendment — an ack needs a lifecycle in a long-lived fork (2026-10-04).** "Spent
+> stops existing" holds when `merge-base..HEAD` is one PR's commits. In a fork that tracks
+> upstream, the same range is the fork's whole history, and those commits are cited by hash in
+> its worklog and tags, so the remedy `staleAcks` prints — amend the commit — is not
+> available. A later commit therefore **withdraws** an ack:
+> `Emitted-Drift-Ack-Withdraw-<Kind>: <key> — <reason>` (the ack name with `Withdraw-`
+> inserted; Hash and Growth today). The reader takes the range oldest first
+> (`--reverse --topo-order`) and applies each commit's withdrawals before its acks
+> (`parseAckTrailerSequence`). A withdrawal must name a key an earlier commit acknowledged in the
+> same space and that is still live; withdrawing a key never acknowledged, acknowledged only
+> later, or already withdrawn is an error. It only removes the ack from the live map — it never
+> acknowledges a delta, so the gate can only get stricter. A key re-acknowledged after its
+> withdrawal is live again. Upstream PRs never need it; `CONTEXT.md`
+> `RULESET.EMITTED_ATTRIBUTION.withdraw` carries the predicate.
+
 ### 3. The two key spaces become structurally distinct
 
 Two trailer keys instead of one map. A growth acknowledgment can no longer satisfy a hash lookup by coincidence of naming. This closes the latent defect above rather than carrying it forward.

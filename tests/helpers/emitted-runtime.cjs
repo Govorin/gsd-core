@@ -45,7 +45,7 @@ const {
   extraEmitRootsFor,
   PKG_VERSION,
 } = require('./install-shared.cjs');
-const { ACK_TRAILER_HASH, ACK_TRAILER_GROWTH, parseAckTrailers } = require('./emitted-diff.cjs');
+const { ACK_KINDS, parseAckTrailerSequence } = require('./emitted-diff.cjs');
 const { runGit, OUTCOME } = require('./process-seam.cjs');
 const { escapeRegex } = require('../../gsd-core/bin/lib/pattern.cjs');
 
@@ -837,16 +837,23 @@ function findLastGithubSquashSuffixIndex(text) {
   }
   return last;
 }
+/** Every trailer the reader collects: each kind's ack and its (fork-local) withdrawal. */
+const ACK_TRAILER_NAMES = ACK_KINDS.flatMap((kind) => [kind.ack, kind.withdraw]);
 const ACK_TRAILER_LINE_RE = new RegExp(
-  `^(${escapeRegex(ACK_TRAILER_HASH)}|${escapeRegex(ACK_TRAILER_GROWTH)}):\\s*(.*)$`,
+  `^(${ACK_TRAILER_NAMES.map(escapeRegex).join('|')}):\\s*(.*)$`,
 );
+
+/** `{ <trailer name>: [] }` for every name in `ACK_TRAILER_NAMES`. */
+function emptyTrailerValues() {
+  return Object.fromEntries(ACK_TRAILER_NAMES.map((name) => [name, []]));
+}
 
 /**
  * Recover ack trailers buried mid-message by squash-merge concatenation. Returns
- * `{ hash: string[], growth: string[] }` of any ADDITIONAL values found beyond what the
- * whole-message `%(trailers:...)` pass in `readAckTrailers` already sees — callers
- * merge both into the same value lists before the final `parseAckTrailers` call, so
- * this never needs its own dedup or its own result-shape handling.
+ * `{ <trailer name>: string[] }` (every name in `ACK_TRAILER_NAMES`) of any ADDITIONAL
+ * values found beyond what the whole-message `%(trailers:...)` pass in `readAckTrailers`
+ * already sees — `readAckTrailers` merges both into the SAME commit's value lists, and
+ * drops a value both passes saw, before the final `parseAckTrailerSequence` call.
  *
  * A commit whose body does not contain GitHub's squash suffix signal is not a squash
  * commit by this heuristic and is returned untouched (empty arrays) — this is the sole
@@ -854,11 +861,10 @@ const ACK_TRAILER_LINE_RE = new RegExp(
  */
 function extractSquashBuriedTrailers(rawBody, { cwd, timeoutMs }) {
   const suffixIndex = findLastGithubSquashSuffixIndex(rawBody);
-  if (suffixIndex === -1) return { hash: [], growth: [] };
+  const recovered = emptyTrailerValues();
+  if (suffixIndex === -1) return recovered;
   const beforeSuffix = rawBody.slice(0, suffixIndex);
   const chunks = beforeSuffix.split(SQUASH_BULLET_SPLIT_RE);
-  const hash = [];
-  const growth = [];
   for (const chunk of chunks) {
     // A chunk with no blank-line-separated body (a bare `* subject` bullet, or the
     // pre-first-bullet PR-title preamble) cannot carry a trailer block at all —
@@ -877,11 +883,10 @@ function extractSquashBuriedTrailers(rawBody, { cwd, timeoutMs }) {
     for (const line of parsed.split('\n')) {
       const m = ACK_TRAILER_LINE_RE.exec(line);
       if (!m) continue;
-      if (m[1] === ACK_TRAILER_HASH) hash.push(m[2]);
-      else growth.push(m[2]);
+      recovered[m[1]].push(m[2]);
     }
   }
-  return { hash, growth };
+  return recovered;
 }
 
 // Record/field/value separators for the `git log --format` trailer extraction below.
@@ -889,7 +894,7 @@ function extractSquashBuriedTrailers(rawBody, { cwd, timeoutMs }) {
 // content, following the precedent at gsd-core/workflows/ship.md:312 (`%x1f`/`%x1e` for
 // a different `%(trailers:...)` extraction in this same repo).
 const ACK_TRAILER_RECORD_SEP = '\x1e'; // between commits
-const ACK_TRAILER_FIELD_SEP = '\x1f'; // between the hash-space list and growth-space list
+const ACK_TRAILER_FIELD_SEP = '\x1f'; // between the per-trailer-name lists of one commit
 const ACK_TRAILER_VALUE_SEP = '\x1d'; // between multiple values of the SAME trailer key
 
 /**
@@ -913,6 +918,12 @@ const ACK_TRAILER_VALUE_SEP = '\x1d'; // between multiple values of the SAME tra
  * mention of the trailer syntax (row 32 — this PR's own docs teach the grammar) is
  * correctly inert. `\r` is stripped from every value before parsing (row 27 — a CRLF
  * commit message must parse identically to LF).
+ *
+ * ── Fork-local: commits are read OLDEST FIRST (`--reverse --topo-order`) ─────────
+ * Withdrawals (`withdrawTrailerName`) are judged against what EARLIER commits declared,
+ * so the range is handed to `parseAckTrailerSequence` in history order: topo order puts
+ * every parent before its children, which is the only "earlier" a DAG defines. Both log
+ * reads use the same flags, so record i of each is the same commit.
  *
  * @param {{baseRef: string, headRef?: string, cwd?: string, timeoutMs?: number}} opts
  * @returns {{hash: Map<string, {reason: string}>, growth: Map<string, {reason: string}>, errors: string[]}}
@@ -946,29 +957,27 @@ function readAckTrailers({ baseRef, headRef = 'HEAD', cwd = REPO_ROOT, timeoutMs
   // of splitting into separate entries (silent data loss — the exact failure class
   // `MAX_ACK_TRAILERS` exists to prevent). Fixed by emitting the `%x` escape.
   const ackValueSepHex = `%x${ACK_TRAILER_VALUE_SEP.codePointAt(0).toString(16).padStart(2, '0')}`;
-  const format =
-    `${ACK_TRAILER_RECORD_SEP}%(trailers:key=${ACK_TRAILER_HASH},valueonly,separator=${ackValueSepHex})`
-    + `${ACK_TRAILER_FIELD_SEP}%(trailers:key=${ACK_TRAILER_GROWTH},valueonly,separator=${ackValueSepHex})`;
+  const format = ACK_TRAILER_RECORD_SEP + ACK_TRAILER_NAMES
+    .map((name) => `%(trailers:key=${name},valueonly,separator=${ackValueSepHex})`)
+    .join(ACK_TRAILER_FIELD_SEP);
+  const rangeArgs = ['log', '--reverse', '--topo-order', `${mergeBase}..${headRef}`];
 
   let raw;
   try {
-    raw = ackTrailerGit(['log', `${mergeBase}..${headRef}`, `--format=${format}`], { cwd, timeoutMs });
+    raw = ackTrailerGit([...rangeArgs, `--format=${format}`], { cwd, timeoutMs });
   } catch (err) {
     throw new Error(`emitted-ack-trailer: could not read commit trailers over the range: ${err.message}`);
   }
 
   const normalized = raw.replace(/\r/g, '');
-  const hashValues = [];
-  const growthValues = [];
   // index 0 is the (empty) text before the FIRST record separator — every real record
   // starts with one, by construction of the `--format` string above.
-  const records = normalized.split(ACK_TRAILER_RECORD_SEP).slice(1);
-  for (const record of records) {
-    const [hashField = '', growthFieldRaw = ''] = record.split(ACK_TRAILER_FIELD_SEP);
-    const growthField = growthFieldRaw.replace(/\n+$/, ''); // git's own between-commit newline
-    for (const v of hashField.split(ACK_TRAILER_VALUE_SEP)) if (v !== '') hashValues.push(v);
-    for (const v of growthField.split(ACK_TRAILER_VALUE_SEP)) if (v !== '') growthValues.push(v);
-  }
+  const commits = normalized.split(ACK_TRAILER_RECORD_SEP).slice(1).map((record) => {
+    const fields = record.replace(/\n+$/, '').split(ACK_TRAILER_FIELD_SEP); // git's own between-commit newline
+    return Object.fromEntries(ACK_TRAILER_NAMES.map((name, i) => [
+      name, (fields[i] || '').split(ACK_TRAILER_VALUE_SEP).filter((v) => v !== ''),
+    ]));
+  });
 
   // #4454 follow-on: recover any ack trailer the whole-message pass above cannot see
   // because a squash-merge concatenated other commits' bodies after it (see
@@ -980,21 +989,28 @@ function readAckTrailers({ baseRef, headRef = 'HEAD', cwd = REPO_ROOT, timeoutMs
   // discards everything but the trailers themselves and cannot supply this.
   let rawBodies;
   try {
-    rawBodies = ackTrailerGit(
-      ['log', `${mergeBase}..${headRef}`, `--format=${ACK_TRAILER_RECORD_SEP}%B`],
-      { cwd, timeoutMs },
-    );
+    rawBodies = ackTrailerGit([...rangeArgs, `--format=${ACK_TRAILER_RECORD_SEP}%B`], { cwd, timeoutMs });
   } catch (err) {
     throw new Error(`emitted-ack-trailer: could not read commit bodies over the range: ${err.message}`);
   }
   const bodyRecords = rawBodies.replace(/\r/g, '').split(ACK_TRAILER_RECORD_SEP).slice(1);
-  for (const body of bodyRecords) {
-    const recovered = extractSquashBuriedTrailers(body, { cwd, timeoutMs });
-    hashValues.push(...recovered.hash);
-    growthValues.push(...recovered.growth);
+  if (bodyRecords.length !== commits.length) {
+    throw new Error(
+      `emitted-ack-trailer: the trailer read saw ${commits.length} commit(s) over the range but `
+      + `the body read saw ${bodyRecords.length} — refusing to pair trailers with the wrong commit`,
+    );
   }
+  bodyRecords.forEach((body, i) => {
+    const recovered = extractSquashBuriedTrailers(body, { cwd, timeoutMs });
+    for (const name of ACK_TRAILER_NAMES) {
+      // A value both passes saw on the SAME commit is one declaration, not two: for an
+      // ack the parser would dedupe it anyway, but a withdrawal seen twice would read as
+      // "withdrawn twice".
+      for (const v of recovered[name]) if (!commits[i][name].includes(v)) commits[i][name].push(v);
+    }
+  });
 
-  return parseAckTrailers({ hash: hashValues, growth: growthValues });
+  return parseAckTrailerSequence(commits);
 }
 
 /**

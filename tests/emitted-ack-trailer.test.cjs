@@ -33,6 +33,7 @@
  *   real fixture reads via readAckTrailers      rows  1-7, 25-27, 31, 34, 35
  *   hostile IO: range/subprocess/timeout        rows 22-24
  *   round-trip and properties                   rows 33, 36, 37
+ *   withdrawal trailers (pure / gate / real)    fork-local ack lifecycle
  */
 
 const { test, describe } = require('node:test');
@@ -49,9 +50,15 @@ const {
   ACK_TRAILER_HASH,
   ACK_TRAILER_GROWTH,
   ACK_TRAILER_DELIM,
+  ACK_TRAILER_WITHDRAW_HASH,
+  ACK_TRAILER_WITHDRAW_GROWTH,
+  ACK_KINDS,
+  withdrawTrailerName,
   MAX_ACK_TRAILERS,
   parseAckTrailers,
+  parseAckTrailerSequence,
   renderAckTrailer,
+  diffEmitted,
 } = require('./helpers/emitted-diff.cjs');
 const { readAckTrailers } = require('./helpers/emitted-runtime.cjs');
 
@@ -755,6 +762,214 @@ describe('real fixture reads via readAckTrailers', () => {
       );
     },
   );
+});
+
+// ─── fork-local: withdrawal trailers, an ack's lifecycle ─────────────────────
+//
+// In a long-lived fork `merge-base..HEAD` is the fork's whole history and its commits are
+// cited by hash, so a stale ack cannot be amended away: a later commit withdraws it.
+
+describe('withdrawal trailers (pure parser)', () => {
+  const W_HASH = ACK_TRAILER_WITHDRAW_HASH;
+  const W_GROWTH = ACK_TRAILER_WITHDRAW_GROWTH;
+  const v = (key, reason) => `${key}${ACK_TRAILER_DELIM}${reason}`;
+
+  test('every kind derives its withdrawal name from its ack name', () => {
+    assert.deepEqual(ACK_KINDS.map((k) => [k.space, k.ack, k.withdraw]), [
+      ['hash', ACK_TRAILER_HASH, 'Emitted-Drift-Ack-Withdraw-Hash'],
+      ['growth', ACK_TRAILER_GROWTH, 'Emitted-Drift-Ack-Withdraw-Growth'],
+    ]);
+    assert.equal(withdrawTrailerName(ACK_TRAILER_GROWTH), W_GROWTH);
+  });
+
+  test('a withdrawal removes an earlier live ack and nothing else', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('gsd-executor.md', 'grew'), v('gsd-planner.md', 'grew too')] },
+      { [W_GROWTH]: [v('gsd-executor.md', 'shrank below upstream since')] },
+    ]);
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual([...r.growth.keys()], ['gsd-planner.md']);
+  });
+
+  test('withdrawing a key no commit acknowledged is an error', () => {
+    const r = parseAckTrailerSequence([{ [W_HASH]: [v('gsd-core/workflows/x.md', 'never acked')] }]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /Withdraw-Hash: trailer key "gsd-core\/workflows\/x\.md" withdraws no earlier Emitted-Drift-Ack-Hash/);
+  });
+
+  test('withdrawing an ack declared LATER than the withdrawal is an error', () => {
+    const r = parseAckTrailerSequence([
+      { [W_GROWTH]: [v('plan-phase.md', 'too early')] },
+      { [ACK_TRAILER_GROWTH]: [v('plan-phase.md', 'grew')] },
+    ]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /withdraws no earlier/);
+  });
+
+  test('an ack and its withdrawal on ONE commit: the withdrawal applies first, so it is an error', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('plan-phase.md', 'grew')], [W_GROWTH]: [v('plan-phase.md', 'same commit')] },
+    ]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /withdraws no earlier/);
+  });
+
+  test('withdrawing the same ack twice is an error', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('plan-phase.md', 'grew')] },
+      { [W_GROWTH]: [v('plan-phase.md', 'spent')] },
+      { [W_GROWTH]: [v('plan-phase.md', 'spent again')] },
+    ]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /withdrawn twice/);
+    assert.equal(r.growth.size, 0);
+  });
+
+  test('a withdrawal is per space: withdrawing a hash ack does not touch a growth ack', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('plan-phase.md', 'grew')] },
+      { [W_HASH]: [v('plan-phase.md', 'wrong space')] },
+    ]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /Withdraw-Hash: .*withdraws no earlier Emitted-Drift-Ack-Hash/);
+    assert.equal(r.growth.get('plan-phase.md')?.reason, 'grew');
+  });
+
+  test('a withdrawal is held to the ack grammar, and its errors name the withdrawal trailer', () => {
+    const r = parseAckTrailerSequence([{
+      [W_GROWTH]: ['no-delimiter', v('plan-phase.md', ''), v('__proto__', 'reserved'), v('<x>', 'placeholder')],
+    }]);
+    assert.equal(r.errors.length, 4);
+    for (const e of r.errors) assert.ok(e.startsWith(`${W_GROWTH}: `), e);
+  });
+
+  test('ack, withdraw, ack, withdraw — each withdrawal retracts the ack before it', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_HASH]: [v('a/b.md', 'one')] },
+      { [W_HASH]: [v('a/b.md', 'spent')] },
+      { [ACK_TRAILER_HASH]: [v('a/b.md', 'two')] },
+      { [W_HASH]: [v('a/b.md', 'spent again')] },
+    ]);
+    assert.deepEqual(r.errors, []);
+    assert.equal(r.hash.size, 0);
+  });
+
+  test('a key an ambiguous conflict dropped stays dropped; withdrawing it adds no error', () => {
+    const r = parseAckTrailerSequence([
+      { [ACK_TRAILER_HASH]: [v('a/b.md', 'one'), v('a/b.md', 'two')] },
+      { [W_HASH]: [v('a/b.md', 'retract')] },
+      { [ACK_TRAILER_HASH]: [v('a/b.md', 'three')] },
+    ]);
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /declared twice/);
+    assert.equal(r.hash.size, 0);
+  });
+
+  test('parseAckTrailers is the one-commit case: withdrawal arrays are not part of its input', () => {
+    const flat = parseAckTrailers({ hash: [v('a/b.md', 'r')], growth: [v('x.md', 'g')] });
+    const seq = parseAckTrailerSequence([{ [ACK_TRAILER_HASH]: [v('a/b.md', 'r')], [ACK_TRAILER_GROWTH]: [v('x.md', 'g')] }]);
+    assert.deepEqual(flat, seq);
+  });
+});
+
+describe('withdrawal trailers reach the gate: a withdrawn ack acknowledges nothing', () => {
+  const v = (key, reason) => `${key}${ACK_TRAILER_DELIM}${reason}`;
+  const sizeBaseline = { 'gsd-executor.md': 48000 };
+  const gate = (ack, sizeCurrent) => diffEmitted({
+    baseline: { claude: {} }, current: { claude: {} }, changedPaths: [],
+    sizeBaseline, sizeCurrent, ackHash: ack.hash, ackGrowth: ack.growth,
+  });
+
+  test('a withdrawn growth ack is not stale when the file shrank', () => {
+    const ack = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('gsd-executor.md', 'grew')] },
+      { [ACK_TRAILER_WITHDRAW_GROWTH]: [v('gsd-executor.md', 'shrank')] },
+    ]);
+    const r = gate(ack, { 'gsd-executor.md': 41000 });
+    assert.deepEqual(r.staleAcks, []);
+    assert.ok(r.ok);
+  });
+
+  test('a withdrawn growth ack no longer excuses growth', () => {
+    const ack = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('gsd-executor.md', 'grew')] },
+      { [ACK_TRAILER_WITHDRAW_GROWTH]: [v('gsd-executor.md', 'shrank')] },
+    ]);
+    const r = gate(ack, { 'gsd-executor.md': 49000 });
+    assert.equal(r.grown[0].acked, false);
+    assert.ok(!r.ok);
+  });
+
+  test('boundary: withdraw, then a LATER ack of the same key is live and consumed', () => {
+    const ack = parseAckTrailerSequence([
+      { [ACK_TRAILER_GROWTH]: [v('gsd-executor.md', 'grew')] },
+      { [ACK_TRAILER_WITHDRAW_GROWTH]: [v('gsd-executor.md', 'shrank')] },
+      { [ACK_TRAILER_GROWTH]: [v('gsd-executor.md', 'grew again for a new rule')] },
+    ]);
+    assert.deepEqual(ack.errors, []);
+    const r = gate(ack, { 'gsd-executor.md': 49000 });
+    assert.equal(r.grown[0].acked, true);
+    assert.deepEqual(r.staleAcks, []);
+    assert.ok(r.ok);
+  });
+});
+
+describe('withdrawal trailers over real history (readAckTrailers)', () => {
+  test('commits are judged oldest first: ack then withdraw retracts', (t) => {
+    const dir = makeTempRepo('gsd-ack-withdraw-order-');
+    withCleanup(t, dir);
+    commitMessage(dir, 'init\n\nbaseline\n');
+    const baseSha = headSha(dir);
+    commitMessage(dir, `grow\n\n${trailerLine(ACK_TRAILER_GROWTH, 'plan-phase.md', 'grew')}\n`);
+    commitMessage(dir, `shrink\n\n${trailerLine(ACK_TRAILER_WITHDRAW_GROWTH, 'plan-phase.md', 'shrank since')}\n`);
+    const r = readAckTrailers({ baseRef: baseSha, headRef: 'HEAD', cwd: dir });
+    assert.deepEqual(r.errors, []);
+    assert.equal(r.growth.size, 0);
+  });
+
+  test('a withdrawal committed BEFORE the ack is an error (newest-first reading would hide it)', (t) => {
+    const dir = makeTempRepo('gsd-ack-withdraw-early-');
+    withCleanup(t, dir);
+    commitMessage(dir, 'init\n\nbaseline\n');
+    const baseSha = headSha(dir);
+    commitMessage(dir, `early\n\n${trailerLine(ACK_TRAILER_WITHDRAW_GROWTH, 'plan-phase.md', 'too early')}\n`);
+    commitMessage(dir, `grow\n\n${trailerLine(ACK_TRAILER_GROWTH, 'plan-phase.md', 'grew')}\n`);
+    const r = readAckTrailers({ baseRef: baseSha, headRef: 'HEAD', cwd: dir });
+    assert.equal(r.errors.length, 1);
+    assert.match(r.errors[0], /withdraws no earlier/);
+  });
+
+  test('an ack on a merged side branch is withdrawn by a commit after the merge', (t) => {
+    const dir = makeTempRepo('gsd-ack-withdraw-merge-');
+    withCleanup(t, dir);
+    commitMessage(dir, 'init\n\nbaseline\n');
+    const baseSha = headSha(dir);
+    commitMessage(dir, `side\n\n${trailerLine(ACK_TRAILER_HASH, 'a/b.md', 'ripple')}\n`, { branch: 'side' });
+    checkout(dir, 'main');
+    commitMessage(dir, 'main work\n\nunrelated\n');
+    gitOrThrow(['merge', '-q', '--no-ff', '-m', 'merge side', 'side'], { cwd: dir, timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+    commitMessage(dir, `retract\n\n${trailerLine(ACK_TRAILER_WITHDRAW_HASH, 'a/b.md', 'ripple reverted')}\n`);
+    const r = readAckTrailers({ baseRef: baseSha, headRef: 'HEAD', cwd: dir });
+    assert.deepEqual(r.errors, []);
+    assert.equal(r.hash.size, 0);
+  });
+
+  test('withdraw and re-acknowledge with a new reason on one commit', (t) => {
+    const dir = makeTempRepo('gsd-ack-withdraw-reword-');
+    withCleanup(t, dir);
+    commitMessage(dir, 'init\n\nbaseline\n');
+    const baseSha = headSha(dir);
+    commitMessage(dir, `grow\n\n${trailerLine(ACK_TRAILER_GROWTH, 'plan-phase.md', 'first reason')}\n`);
+    commitMessage(
+      dir,
+      'reword\n\n'
+      + `${trailerLine(ACK_TRAILER_WITHDRAW_GROWTH, 'plan-phase.md', 'reason was wrong')}\n`
+      + `${trailerLine(ACK_TRAILER_GROWTH, 'plan-phase.md', 'second reason')}\n`,
+    );
+    const r = readAckTrailers({ baseRef: baseSha, headRef: 'HEAD', cwd: dir });
+    assert.deepEqual(r.errors, []);
+    assert.equal(r.growth.get('plan-phase.md')?.reason, 'second reason');
+  });
 });
 
 // ─── hostile IO: uncomputable range, subprocess failure, timeout — rows 22-24 ─

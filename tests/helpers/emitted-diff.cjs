@@ -110,6 +110,26 @@ const ACK_TRAILER_GROWTH = 'Emitted-Drift-Ack-Growth';
 const ACK_TRAILER_DELIM = ' — ';
 
 /**
+ * Fork-local: the withdrawal trailer for an ack of trailer `ackName`
+ * (`Emitted-Drift-Ack-<Kind>` → `Emitted-Drift-Ack-Withdraw-<Kind>`). ADR-3942 reads acks
+ * over `merge-base..HEAD`, which for a PR is the PR's own commits — an ack that went stale
+ * is amended away. In a long-lived fork the range is the fork's whole history and its
+ * commits are cited by hash, so an ack needs a lifecycle instead: a LATER commit withdraws
+ * it. A withdrawal only removes an ack from the live map; it never acknowledges anything.
+ * Derived from the ack name, so a new kind gets its withdrawal without a second constant.
+ */
+function withdrawTrailerName(ackName) {
+  return ackName.replace(/^Emitted-Drift-Ack-/, 'Emitted-Drift-Ack-Withdraw-');
+}
+const ACK_TRAILER_WITHDRAW_HASH = withdrawTrailerName(ACK_TRAILER_HASH);
+const ACK_TRAILER_WITHDRAW_GROWTH = withdrawTrailerName(ACK_TRAILER_GROWTH);
+/** Every ack kind, in the order `parseAckTrailerSequence` returns its spaces. */
+const ACK_KINDS = Object.freeze([
+  Object.freeze({ space: 'hash', ack: ACK_TRAILER_HASH, withdraw: ACK_TRAILER_WITHDRAW_HASH }),
+  Object.freeze({ space: 'growth', ack: ACK_TRAILER_GROWTH, withdraw: ACK_TRAILER_WITHDRAW_GROWTH }),
+]);
+
+/**
  * Self-serve remediation, as data rather than prose scattered across branches (#2778).
  *
  * ADR-2719 §3 makes the acknowledgment a *conspicuous declaration a contributor makes
@@ -159,7 +179,9 @@ const REMEDIATION = Object.freeze({
   rippleKeyRule: 'Key on the EMITTED PATH exactly as printed above',
   rippleReason: '<why this ripple is deliberate>',
   growthReason: '<why this growth is deliberate>',
-  staleAckFix: 'Remove the trailer, or correct it to name the ripple you actually made.',
+  staleAckFix: 'Remove the trailer, or correct it to name the ripple you actually made. '
+    + 'Where the commit carrying it cannot be amended (a long-lived fork), withdraw it in a '
+    + `later commit with the matching \`${withdrawTrailerName('Emitted-Drift-Ack-<Kind>')}\` trailer.`,
   /**
    * The taught trailer syntax, rendered through `renderAckTrailer` — the exact function
    * `parseAckTrailers` is the inverse of — so the printed example can never drift from
@@ -685,76 +707,136 @@ const MAX_ACK_TRAILERS = 128;
  * @returns {{hash: Map<string, {reason: string}>, growth: Map<string, {reason: string}>, errors: string[]}}
  */
 function parseAckTrailers({ hash = [], growth = [] } = {}) {
+  return parseAckTrailerSequence([{ [ACK_TRAILER_HASH]: hash, [ACK_TRAILER_GROWTH]: growth }]);
+}
+
+/**
+ * Split one raw trailer VALUE into `{key, reason}` under the grammar `parseAckTrailers`
+ * documents, or push the per-value error naming `trailerName` and return null. Shared by
+ * acknowledgments and withdrawals, so a withdrawal is held to exactly the ack grammar.
+ */
+function splitAckValue(trailerName, raw, errors) {
+  const delimIndex = raw.indexOf(ACK_TRAILER_DELIM);
+  if (delimIndex === -1) {
+    errors.push(
+      `${trailerName}: trailer value ${JSON.stringify(raw)} has no "${ACK_TRAILER_DELIM}" `
+      + 'delimiter — expected "<key> — <reason>"',
+    );
+    return null;
+  }
+  const key = raw.slice(0, delimIndex).trim();
+  const reason = raw.slice(delimIndex + ACK_TRAILER_DELIM.length).trim();
+
+  if (key === '') {
+    errors.push(`${trailerName}: trailer value ${JSON.stringify(raw)} has an empty key`);
+    return null;
+  }
+  if (reason === '') {
+    errors.push(
+      `${trailerName}: trailer value ${JSON.stringify(raw)} has an empty reason — `
+      + 'name it and say why (ADR-2719 §3)',
+    );
+    return null;
+  }
+  if (RESERVED_ACK_KEYS.has(key)) {
+    errors.push(
+      `${trailerName}: trailer key "${key}" is reserved and can never be a valid `
+      + 'emitted path or workflow/agent filename — remove it',
+    );
+    return null;
+  }
+  if (/[<>\s]/.test(key)) {
+    errors.push(
+      `${trailerName}: trailer key ${JSON.stringify(key)} is an invalid key — keys may `
+      + 'not contain "<", ">", or whitespace',
+    );
+    return null;
+  }
+  return { key, reason };
+}
+
+/**
+ * Fork-local: `parseAckTrailers` over an ORDERED history, with withdrawals
+ * (`withdrawTrailerName`). `commits` is oldest first; each entry maps a trailer name —
+ * an ack (`ACK_TRAILER_HASH`/`ACK_TRAILER_GROWTH`) or its withdrawal — to the raw values
+ * that commit carries. Within one commit withdrawals apply before acks, so a commit may
+ * withdraw an ack and re-declare the key with a new reason.
+ *
+ * Acks follow `parseAckTrailers`' rules unchanged. A withdrawal is strict, because it is
+ * the one trailer that can make a stale-ack failure disappear:
+ *   - it must name a key an EARLIER commit acknowledged in the same space and that is
+ *     still live — withdrawing a key never acknowledged, or acknowledged only LATER, is
+ *     an error ("withdraws no earlier ack");
+ *   - withdrawing a key already withdrawn (and not re-acknowledged since) is an error;
+ *   - it removes the ack from the live map and nothing else — it never acknowledges a
+ *     delta, so the gate can only get stricter.
+ * A key re-acknowledged after its withdrawal is live again (and consumable). A key an
+ * ambiguous conflict already dropped stays dropped; withdrawing it adds nothing.
+ *
+ * @param {Array<Record<string, string[]>>} commits
+ * @returns {{hash: Map<string, {reason: string}>, growth: Map<string, {reason: string}>, errors: string[]}}
+ */
+function parseAckTrailerSequence(commits = []) {
   const errors = [];
-  const spaces = [
-    { name: ACK_TRAILER_HASH, values: hash, map: new Map() },
-    { name: ACK_TRAILER_GROWTH, values: growth, map: new Map() },
-  ];
+  const spaces = ACK_KINDS.map((kind) => ({
+    ...kind,
+    map: new Map(),
+    conflicted: new Set(), // keys already reported ambiguous — never resurrected
+    withdrawn: new Set(), // keys withdrawn and not re-acknowledged since
+  }));
 
-  for (const space of spaces) {
-    const conflicted = new Set(); // keys already reported ambiguous — never resurrected
-    for (const raw of space.values) {
-      const delimIndex = raw.indexOf(ACK_TRAILER_DELIM);
-      if (delimIndex === -1) {
-        errors.push(
-          `${space.name}: trailer value ${JSON.stringify(raw)} has no "${ACK_TRAILER_DELIM}" `
-          + 'delimiter — expected "<key> — <reason>"',
-        );
-        continue;
+  for (const commit of commits) {
+    for (const space of spaces) {
+      for (const raw of commit[space.withdraw] || []) {
+        const parsed = splitAckValue(space.withdraw, raw, errors);
+        if (!parsed) continue;
+        const { key } = parsed;
+        if (space.conflicted.has(key)) continue;
+        if (space.map.has(key)) {
+          space.map.delete(key);
+          space.withdrawn.add(key);
+        } else if (space.withdrawn.has(key)) {
+          errors.push(
+            `${space.withdraw}: trailer key "${key}" is withdrawn twice — the earlier `
+            + `withdrawal already removed its ${space.ack}`,
+          );
+        } else {
+          errors.push(
+            `${space.withdraw}: trailer key "${key}" withdraws no earlier ${space.ack} — a `
+            + 'withdrawal must follow the acknowledgment it retracts',
+          );
+        }
       }
-      const key = raw.slice(0, delimIndex).trim();
-      const reason = raw.slice(delimIndex + ACK_TRAILER_DELIM.length).trim();
+      for (const raw of commit[space.ack] || []) {
+        const parsed = splitAckValue(space.ack, raw, errors);
+        if (!parsed) continue;
+        const { key, reason } = parsed;
+        if (space.conflicted.has(key)) continue;
 
-      if (key === '') {
-        errors.push(`${space.name}: trailer value ${JSON.stringify(raw)} has an empty key`);
-        continue;
-      }
-      if (reason === '') {
-        errors.push(
-          `${space.name}: trailer value ${JSON.stringify(raw)} has an empty reason — `
-          + 'name it and say why (ADR-2719 §3)',
-        );
-        continue;
-      }
-      if (RESERVED_ACK_KEYS.has(key)) {
-        errors.push(
-          `${space.name}: trailer key "${key}" is reserved and can never be a valid `
-          + 'emitted path or workflow/agent filename — remove it',
-        );
-        continue;
-      }
-      if (/[<>\s]/.test(key)) {
-        errors.push(
-          `${space.name}: trailer key ${JSON.stringify(key)} is an invalid key — keys may `
-          + 'not contain "<", ">", or whitespace',
-        );
-        continue;
-      }
-
-      if (conflicted.has(key)) continue;
-
-      const existing = space.map.get(key);
-      if (existing === undefined) {
-        space.map.set(key, { reason });
-      } else if (normalizeAckReason(existing.reason) === normalizeAckReason(reason)) {
-        // Identical after normalization (invisible chars stripped, whitespace collapsed)
-        // — dedupe silently, keep the first declaration.
-      } else {
-        errors.push(
-          `${space.name}: trailer key "${key}" is declared twice with ambiguous, `
-          + 'conflicting reasons — an ambiguous declaration cannot silently pick a winner',
-        );
-        space.map.delete(key);
-        conflicted.add(key);
+        const existing = space.map.get(key);
+        if (existing === undefined) {
+          space.map.set(key, { reason });
+          space.withdrawn.delete(key);
+        } else if (normalizeAckReason(existing.reason) === normalizeAckReason(reason)) {
+          // Identical after normalization (invisible chars stripped, whitespace collapsed)
+          // — dedupe silently, keep the first declaration.
+        } else {
+          errors.push(
+            `${space.ack}: trailer key "${key}" is declared twice with ambiguous, `
+            + 'conflicting reasons — an ambiguous declaration cannot silently pick a winner',
+          );
+          space.map.delete(key);
+          space.conflicted.add(key);
+        }
       }
     }
   }
 
   // Post-dedup: distinct (key, reason) declarations that actually survive into the
-  // returned Maps — see this function's doc comment for why raw input count is the
-  // wrong thing to cap on. A key dropped above (an ambiguous conflicting duplicate) is
-  // already absent from `space.map` here and correctly does not count either.
-  const distinctCount = spaces[0].map.size + spaces[1].map.size;
+  // returned Maps — see `parseAckTrailers`' doc comment for why raw input count is the
+  // wrong thing to cap on. A key dropped above (an ambiguous conflicting duplicate, or a
+  // withdrawn ack) is already absent from `space.map` here and correctly does not count.
+  const distinctCount = spaces.reduce((n, space) => n + space.map.size, 0);
   if (distinctCount > MAX_ACK_TRAILERS) {
     throw new Error(
       `emitted-drift ack: ${distinctCount} distinct commit trailer declarations were found `
@@ -794,7 +876,12 @@ module.exports = {
   ACK_TRAILER_HASH,
   ACK_TRAILER_GROWTH,
   ACK_TRAILER_DELIM,
+  ACK_TRAILER_WITHDRAW_HASH,
+  ACK_TRAILER_WITHDRAW_GROWTH,
+  ACK_KINDS,
+  withdrawTrailerName,
   MAX_ACK_TRAILERS,
   parseAckTrailers,
+  parseAckTrailerSequence,
   renderAckTrailer,
 };

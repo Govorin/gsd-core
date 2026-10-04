@@ -58,11 +58,24 @@ Use `Emitted-Drift-Ack-Hash:` instead if the fragment's key contained a `/`. A f
 
 ---
 
+## Withdrawing an ack in a long-lived fork
+
+A fork's `merge-base..HEAD` is its whole history, so a stale ack sits in a commit you may not amend. Withdraw it in a later commit instead, under the matching kind:
+
+```bash
+git commit --trailer "Emitted-Drift-Ack-Withdraw-Growth: <filename> — <why it no longer applies>"
+```
+
+A withdrawal must follow the ack it retracts, in the same space; withdrawing nothing, or the same ack twice, fails. It acknowledges nothing — to re-declare the key with a new reason, put the withdrawal and the new ack on one commit (withdrawals apply first). ADR-3942's fork amendment has the rules.
+
+---
+
 ## When it still fails
 
 | The failure says | What it means | What to do |
 |---|---|---|
 | an acknowledgment nothing consumed | you declared a key, but no delta matched it | remove the trailer, or correct the key to name the ripple you actually made — the message names which space it was declared in |
+| a withdrawal withdraws no earlier ack, or is withdrawn twice | the withdrawal names a key no earlier commit in that space still acknowledges | check the kind (Hash or Growth) and the key; drop the extra withdrawal |
 | a key was declared twice with different reasons | two commits in your range declare the same key and disagree | keep one. Identical repeats are deduplicated silently; conflicting ones are ambiguous and refused |
 | an invalid key | your key contains whitespace, `<`, or `>` | you probably pasted a placeholder from documentation. Use the real path or filename |
 | the range is structurally uncomputable | the checkout has no common ancestor — typically a shallow clone | this is a CI configuration problem, not something a trailer fixes. The gate fails loudly here rather than reading your branch as having no acknowledgments |
