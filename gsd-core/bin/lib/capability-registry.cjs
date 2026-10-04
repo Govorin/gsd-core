@@ -259,8 +259,8 @@ const capabilities = {
     "id": "architecture",
     "role": "feature",
     "version": "1.15.0",
-    "title": "Architecture design and review",
-    "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read. At plan:post a blocking gate checks the design's mermaid diagrams: every identifier they draw is declared in the code or introduced by the design itself.",
+    "title": "Architecture design, review and survey",
+    "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read. At plan:post a blocking gate checks the design's mermaid diagrams: every identifier they draw is declared in the code or introduced by the design itself. The survey half (/gsd:arch-survey, run by a person or proposed at milestone close) looks for drift outside any phase's promises: `gsd-tools arch metrics` counts hot spots, coupling, cycles and co-change and splits the code into zones, one gsd-arch-surveyor per zone writes deepening candidates, gsd-finding-refuter (mode arch) tries to refute them, and every decision lands in .planning/architecture/DECISIONS.md so a rejected candidate is never proposed again.",
     "tier": "full",
     "requires": [],
     "engines": {
@@ -272,10 +272,20 @@ const capabilities = {
       ],
       "unsupported": []
     },
-    "skills": [],
+    "skills": [
+      "arch-survey"
+    ],
     "agents": [
       "gsd-system-architect",
-      "gsd-architect-reviewer"
+      "gsd-architect-reviewer",
+      "gsd-arch-surveyor"
+    ],
+    "commands": [
+      {
+        "family": "arch",
+        "module": "arch-command-router.cjs",
+        "router": "routeArchCommand"
+      }
     ],
     "hooks": [],
     "config": {
@@ -293,6 +303,46 @@ const capabilities = {
         "type": "boolean",
         "default": false,
         "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement. It also blocks on a diagram whose names could not be checked — a block outside the subset, a state diagram without %% gsd:source, a derived block nothing can regenerate or that is stale; a name it cannot resolve for certain (ambiguous) is a warning, never a block."
+      },
+      "architecture.survey_window": {
+        "type": "string",
+        "default": "90d",
+        "description": "History window of an architecture survey: 90d, 12w, 6m, 1y, an ISO date, or a ref. Hot spots are churn x complexity over this window; a window with no readable commits falls back to complexity alone and the metrics say so."
+      },
+      "architecture.survey_top_zones": {
+        "type": "number",
+        "default": 5,
+        "description": "Zones an architecture survey fans out over, one gsd-arch-surveyor each (1 to 50). The cost knob of /gsd:arch-survey."
+      },
+      "architecture.small_module_loc": {
+        "type": "number",
+        "default": 40,
+        "description": "A module of at most this many non-blank lines counts as small for the survey's search signals (small-module clusters, pass-throughs). A signal for where to look, never a verdict."
+      },
+      "architecture.cochange_min_support": {
+        "type": "number",
+        "default": 3,
+        "description": "Commits two files must share before the survey reports them as a co-change pair (inclusive)."
+      },
+      "architecture.cochange_min_confidence": {
+        "type": "number",
+        "default": 0.6,
+        "description": "Minimum co-change confidence, in (0, 1], inclusive: confidence(a->b) = shared commits / commits of a, and a pair is reported when the larger of its two confidences reaches this value."
+      },
+      "architecture.survey_growth_threshold": {
+        "type": "number",
+        "default": 0.25,
+        "description": "Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%."
+      },
+      "architecture.survey_at_milestone": {
+        "type": "enum",
+        "values": [
+          "suggest",
+          "auto",
+          "off"
+        ],
+        "default": "suggest",
+        "description": "What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt."
       }
     },
     "steps": [
@@ -959,7 +1009,9 @@ const capabilities = {
     ],
     "agents": [
       "gsd-code-reviewer",
-      "gsd-code-fixer"
+      "gsd-code-fixer",
+      "gsd-standards-reviewer",
+      "gsd-spec-reviewer"
     ],
     "hooks": [],
     "config": {
@@ -991,6 +1043,11 @@ const capabilities = {
         "type": "string",
         "default": "correctness,standards,spec,simplify",
         "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."
+      },
+      "code_review.window_max_files_per_batch": {
+        "type": "number",
+        "default": 40,
+        "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
       }
     },
     "steps": [
@@ -4280,6 +4337,124 @@ const capabilities = {
     "contributions": [],
     "gates": []
   },
+  "retro": {
+    "id": "retro",
+    "role": "feature",
+    "version": "1.15.0",
+    "title": "Environment retrospective",
+    "description": "Retrospective on a coding session that proposes changes to the agent's ENVIRONMENT, not to the product: a deterministic pass reads the Claude Code transcript, the planning record and git history into friction signals (retro-signals) and an inventory of the checks already in place (retro-inventory); only when the weighted signal sum reaches retro.signal_threshold is a fresh gsd-retro-analyst worth running. Candidates are laid out by kind — mechanical → a check (project lint rule, hook, gate, verify_gates), judgement → reviewer skills (agent_skills.*), never CLAUDE.md, environment → settings — each tied to a signal and checked against the inventory. Nothing is applied automatically: the report is written to .planning/retro/ and a human routes each candidate. Accepted checks are journaled in .planning/retro/CHECKS.json so a check that never fires becomes a removal candidate. Claude Code only; every other runtime is degraded to git and .planning evidence and says so (ADR-5209).",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.15.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [
+      "retro"
+    ],
+    "agents": [
+      "gsd-retro-analyst"
+    ],
+    "activationKey": "retro.enabled",
+    "config": {
+      "retro.enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Enable the retro capability: the `gsd-tools retro` commands and /gsd-retro. Every read is local and read-only, and nothing a retro produces is applied without a human (ADR-5209), so it is on by default; set false to keep transcripts out of GSD entirely."
+      },
+      "retro.auto": {
+        "type": "enum",
+        "values": [
+          "suggest",
+          "auto",
+          "off"
+        ],
+        "default": "suggest",
+        "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
+      },
+      "retro.signal_threshold": {
+        "type": "number",
+        "default": 8,
+        "description": "Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights."
+      },
+      "retro.repeat_call_min": {
+        "type": "number",
+        "default": 3,
+        "description": "Identical tool calls in one session before they count as a repeated-call signal (at least this many)."
+      },
+      "retro.repeat_error_min": {
+        "type": "number",
+        "default": 2,
+        "description": "Occurrences of the same tool error before it counts as a repeated-tool-error signal."
+      },
+      "retro.reread_min": {
+        "type": "number",
+        "default": 3,
+        "description": "Reads of one file with no edit to it in between before they count as a reread signal."
+      },
+      "retro.edit_churn_min": {
+        "type": "number",
+        "default": 6,
+        "description": "Edits of one file in one session before they count as an edit-churn signal."
+      },
+      "retro.nav_streak_min": {
+        "type": "number",
+        "default": 8,
+        "description": "Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal."
+      },
+      "retro.checker_loop_min": {
+        "type": "number",
+        "default": 2,
+        "description": "Plan-checker spawns in one session before they count as a plan-checker revision loop."
+      },
+      "retro.checkpoint_min": {
+        "type": "number",
+        "default": 2,
+        "description": "Checkpoints reached in one session before they count as a repeated-checkpoint signal."
+      },
+      "retro.hook_block_min": {
+        "type": "number",
+        "default": 1,
+        "description": "Blocks by the same hook before they count as a hook-block signal."
+      },
+      "retro.excerpt_window": {
+        "type": "number",
+        "default": 6,
+        "description": "Transcript events on either side of a signal that the analyst is shown instead of the transcript."
+      },
+      "retro.max_signals": {
+        "type": "number",
+        "default": 40,
+        "description": "Signals listed in a report; the rest are enumerated by id in `omitted`, never dropped silently. Caps the list, never the score."
+      },
+      "retro.excerpt_chars": {
+        "type": "number",
+        "default": 160,
+        "description": "Maximum length of a redacted excerpt that leaves the transcript reader."
+      },
+      "retro.check_stale_days": {
+        "type": "number",
+        "default": 30,
+        "description": "A check journaled in .planning/retro/CHECKS.json that has not fired in the transcripts of this many days (and was accepted at least this long ago) is offered as a removal candidate. Removal, like acceptance, is a human decision."
+      }
+    },
+    "commands": [
+      {
+        "family": "retro",
+        "module": "retro-command-router.cjs",
+        "router": "routeRetroCommand"
+      }
+    ],
+    "hooks": [],
+    "steps": [],
+    "contributions": [],
+    "gates": []
+  },
   "schema-gate": {
     "id": "schema-gate",
     "role": "feature",
@@ -4942,12 +5117,14 @@ const capabilities = {
 
 const bySkill = {
   "ai-integration-phase": "ai-integration",
+  "arch-survey": "architecture",
   "code-review": "code-review",
   "graphify": "graphify",
   "mempalace-recall": "mempalace",
   "mempalace-capture": "mempalace",
   "validate-phase": "nyquist",
   "profile-user": "profile-pipeline",
+  "retro": "retro",
   "secure-phase": "security",
   "ui-phase": "ui",
   "ui-review": "ui"
@@ -4960,8 +5137,11 @@ const byAgent = {
   "gsd-eval-planner": "ai-integration",
   "gsd-system-architect": "architecture",
   "gsd-architect-reviewer": "architecture",
+  "gsd-arch-surveyor": "architecture",
   "gsd-code-reviewer": "code-review",
   "gsd-code-fixer": "code-review",
+  "gsd-standards-reviewer": "code-review",
+  "gsd-spec-reviewer": "code-review",
   "gsd-dom-verifier": "live-dom-uat",
   "gsd-mempalace-curator": "mempalace",
   "gsd-finding-refuter": "mn-verify-gate",
@@ -4969,6 +5149,7 @@ const byAgent = {
   "gsd-pattern-mapper": "pattern-mapper",
   "gsd-user-profiler": "profile-pipeline",
   "gsd-phase-researcher": "research",
+  "gsd-retro-analyst": "retro",
   "gsd-security-auditor": "security",
   "gsd-ui-checker": "ui",
   "gsd-ui-auditor": "ui"
@@ -6010,6 +6191,13 @@ const configKeys = {
   "workflow.architecture_design": "architecture",
   "workflow.architecture_review": "architecture",
   "workflow.architecture_diagrams_gate": "architecture",
+  "architecture.survey_window": "architecture",
+  "architecture.survey_top_zones": "architecture",
+  "architecture.small_module_loc": "architecture",
+  "architecture.cochange_min_support": "architecture",
+  "architecture.cochange_min_confidence": "architecture",
+  "architecture.survey_growth_threshold": "architecture",
+  "architecture.survey_at_milestone": "architecture",
   "workflow.assumption_delta": "assumption-delta",
   "workflow.windows_enforce": "broken-windows",
   "review.models.claude": "claude",
@@ -6023,6 +6211,7 @@ const configKeys = {
   "workflow.code_review_depth": "code-review",
   "workflow.code_review_point": "code-review",
   "code_review.window_lenses": "code-review",
+  "code_review.window_max_files_per_batch": "code-review",
   "review.max_prompt_tokens_per_reviewer.coderabbit": "coderabbit",
   "review.models.codex": "codex",
   "review.max_prompt_tokens_per_reviewer.codex": "codex",
@@ -6132,6 +6321,21 @@ const configKeys = {
   "refactor.complexity_jump_delta": "refactor-trigger",
   "refactor.trigger_strict": "refactor-trigger",
   "workflow.research": "research",
+  "retro.enabled": "retro",
+  "retro.auto": "retro",
+  "retro.signal_threshold": "retro",
+  "retro.repeat_call_min": "retro",
+  "retro.repeat_error_min": "retro",
+  "retro.reread_min": "retro",
+  "retro.edit_churn_min": "retro",
+  "retro.nav_streak_min": "retro",
+  "retro.checker_loop_min": "retro",
+  "retro.checkpoint_min": "retro",
+  "retro.hook_block_min": "retro",
+  "retro.excerpt_window": "retro",
+  "retro.max_signals": "retro",
+  "retro.excerpt_chars": "retro",
+  "retro.check_stale_days": "retro",
   "workflow.schema_push_detection": "schema-gate",
   "workflow.security_enforcement": "security",
   "workflow.security_asvs_level": "security",
@@ -6191,6 +6395,53 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Block planning when the phase DESIGN.md draws an identifier that exists nowhere — not declared in the code and not introduced by the design (gsd_run diagrams check). Ships off like the capability's other switches; turn it on together with workflow.architecture_design, which writes the DESIGN.md it checks. Deterministic: a declaration index of the project, not a model's judgement. It also blocks on a diagram whose names could not be checked — a block outside the subset, a state diagram without %% gsd:source, a derived block nothing can regenerate or that is stale; a name it cannot resolve for certain (ambiguous) is a warning, never a block."
+  },
+  "architecture.survey_window": {
+    "owner": "architecture",
+    "type": "string",
+    "default": "90d",
+    "description": "History window of an architecture survey: 90d, 12w, 6m, 1y, an ISO date, or a ref. Hot spots are churn x complexity over this window; a window with no readable commits falls back to complexity alone and the metrics say so."
+  },
+  "architecture.survey_top_zones": {
+    "owner": "architecture",
+    "type": "number",
+    "default": 5,
+    "description": "Zones an architecture survey fans out over, one gsd-arch-surveyor each (1 to 50). The cost knob of /gsd:arch-survey."
+  },
+  "architecture.small_module_loc": {
+    "owner": "architecture",
+    "type": "number",
+    "default": 40,
+    "description": "A module of at most this many non-blank lines counts as small for the survey's search signals (small-module clusters, pass-throughs). A signal for where to look, never a verdict."
+  },
+  "architecture.cochange_min_support": {
+    "owner": "architecture",
+    "type": "number",
+    "default": 3,
+    "description": "Commits two files must share before the survey reports them as a co-change pair (inclusive)."
+  },
+  "architecture.cochange_min_confidence": {
+    "owner": "architecture",
+    "type": "number",
+    "default": 0.6,
+    "description": "Minimum co-change confidence, in (0, 1], inclusive: confidence(a->b) = shared commits / commits of a, and a pair is reported when the larger of its two confidences reaches this value."
+  },
+  "architecture.survey_growth_threshold": {
+    "owner": "architecture",
+    "type": "number",
+    "default": 0.25,
+    "description": "Relative growth of a hot spot's score, compared with the last survey over the same scope, above which (strictly) arch metrics --compare-last reports growth. 0.25 = more than 25%."
+  },
+  "architecture.survey_at_milestone": {
+    "owner": "architecture",
+    "type": "enum",
+    "default": "suggest",
+    "description": "What complete-milestone does when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd:arch-survey and the zones), auto (run it), off. No growth, no prompt.",
+    "values": [
+      "suggest",
+      "auto",
+      "off"
+    ]
   },
   "workflow.assumption_delta": {
     "owner": "assumption-delta",
@@ -6283,6 +6534,12 @@ const configSchema = {
     "type": "string",
     "default": "correctness,standards,spec,simplify",
     "description": "Comma-separated lenses a window review (/gsd-code-review --since) runs when no --lens is supplied; each of correctness, standards, spec, simplify is its own reviewer (ADR-5208)."
+  },
+  "code_review.window_max_files_per_batch": {
+    "owner": "code-review",
+    "type": "number",
+    "default": 40,
+    "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
   },
   "review.max_prompt_tokens_per_reviewer.coderabbit": {
     "owner": "coderabbit",
@@ -6958,6 +7215,101 @@ const configSchema = {
     "type": "boolean",
     "default": true,
     "description": "Run phase research before planning when research artifacts are missing or explicitly refreshed."
+  },
+  "retro.enabled": {
+    "owner": "retro",
+    "type": "boolean",
+    "default": true,
+    "description": "Enable the retro capability: the `gsd-tools retro` commands and /gsd-retro. Every read is local and read-only, and nothing a retro produces is applied without a human (ADR-5209), so it is on by default; set false to keep transcripts out of GSD entirely."
+  },
+  "retro.auto": {
+    "owner": "retro",
+    "type": "enum",
+    "default": "suggest",
+    "description": "What `gsd-tools retro signals --decide` answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode.",
+    "values": [
+      "suggest",
+      "auto",
+      "off"
+    ]
+  },
+  "retro.signal_threshold": {
+    "owner": "retro",
+    "type": "number",
+    "default": 8,
+    "description": "Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights."
+  },
+  "retro.repeat_call_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 3,
+    "description": "Identical tool calls in one session before they count as a repeated-call signal (at least this many)."
+  },
+  "retro.repeat_error_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 2,
+    "description": "Occurrences of the same tool error before it counts as a repeated-tool-error signal."
+  },
+  "retro.reread_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 3,
+    "description": "Reads of one file with no edit to it in between before they count as a reread signal."
+  },
+  "retro.edit_churn_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 6,
+    "description": "Edits of one file in one session before they count as an edit-churn signal."
+  },
+  "retro.nav_streak_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 8,
+    "description": "Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal."
+  },
+  "retro.checker_loop_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 2,
+    "description": "Plan-checker spawns in one session before they count as a plan-checker revision loop."
+  },
+  "retro.checkpoint_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 2,
+    "description": "Checkpoints reached in one session before they count as a repeated-checkpoint signal."
+  },
+  "retro.hook_block_min": {
+    "owner": "retro",
+    "type": "number",
+    "default": 1,
+    "description": "Blocks by the same hook before they count as a hook-block signal."
+  },
+  "retro.excerpt_window": {
+    "owner": "retro",
+    "type": "number",
+    "default": 6,
+    "description": "Transcript events on either side of a signal that the analyst is shown instead of the transcript."
+  },
+  "retro.max_signals": {
+    "owner": "retro",
+    "type": "number",
+    "default": 40,
+    "description": "Signals listed in a report; the rest are enumerated by id in `omitted`, never dropped silently. Caps the list, never the score."
+  },
+  "retro.excerpt_chars": {
+    "owner": "retro",
+    "type": "number",
+    "default": 160,
+    "description": "Maximum length of a redacted excerpt that leaves the transcript reader."
+  },
+  "retro.check_stale_days": {
+    "owner": "retro",
+    "type": "number",
+    "default": 30,
+    "description": "A check journaled in .planning/retro/CHECKS.json that has not fired in the transcripts of this many days (and was accepted at least this long ago) is offered as a removal candidate. Removal, like acceptance, is a human decision."
   },
   "workflow.schema_push_detection": {
     "owner": "schema-gate",
@@ -9431,6 +9783,11 @@ const runtimes = {
 };
 
 const commandFamilies = {
+  "arch": {
+    "capId": "architecture",
+    "module": "arch-command-router.cjs",
+    "router": "routeArchCommand"
+  },
   "audit-open": {
     "capId": "audit",
     "module": "audit-command-router.cjs",
@@ -9496,6 +9853,11 @@ const commandFamilies = {
     "module": "refactor-trigger-command-router.cjs",
     "router": "routeRefactorTriggerCommand"
   },
+  "retro": {
+    "capId": "retro",
+    "module": "retro-command-router.cjs",
+    "router": "routeRetroCommand"
+  },
   "scan-sessions": {
     "capId": "profile-pipeline",
     "module": "profile-pipeline-command-router.cjs",
@@ -9511,6 +9873,9 @@ const commandFamilies = {
 const capabilityClusters = {
   "ai-integration": [
     "ai-integration-phase"
+  ],
+  "architecture": [
+    "arch-survey"
   ],
   "code-review": [
     "code-review"
@@ -9528,6 +9893,9 @@ const capabilityClusters = {
   "profile-pipeline": [
     "profile-user"
   ],
+  "retro": [
+    "retro"
+  ],
   "security": [
     "secure-phase"
   ],
@@ -9539,6 +9907,12 @@ const capabilityClusters = {
 
 const profileMembership = {
   "ai-integration": {
+    "tier": "full",
+    "profiles": [
+      "full"
+    ]
+  },
+  "architecture": {
     "tier": "full",
     "profiles": [
       "full"
@@ -9569,6 +9943,12 @@ const profileMembership = {
     ]
   },
   "profile-pipeline": {
+    "tier": "full",
+    "profiles": [
+      "full"
+    ]
+  },
+  "retro": {
     "tier": "full",
     "profiles": [
       "full"
@@ -9631,6 +10011,7 @@ const _requiresGraph = {
   "qwen": [],
   "refactor-trigger": [],
   "research": [],
+  "retro": [],
   "schema-gate": [],
   "security": [],
   "tdd": [],

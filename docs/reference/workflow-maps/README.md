@@ -32,9 +32,9 @@
 `</step>` (серый пунктир), вызов `Agent(` в прозе вместо блока кода, расхождение маркеров
 `gsd:section` с `section-manifest.json`.
 
-## Workflows (87)
+## Workflows (89)
 
-Всего фраз перехода: 382, из них не называют реальный шаг: 174. Дефектов: 0.
+Всего фраз перехода: 385, из них не называют реальный шаг: 174. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -44,6 +44,7 @@
 | [add-todo](add-todo.md) | 9 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
 | [ai-integration-phase](ai-integration-phase.md) | 12 разделов H2 | 0 | 0 |  | 0 / 1 | 0 |
 | [analyze-dependencies](analyze-dependencies.md) | 6 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
+| [arch-survey](arch-survey.md) | 8 шагов `<step>` | 2 | 2 |  | 0 / 1 | 0 |
 | [audit-fix](audit-fix.md) | 6 шагов `<step>` | 1 | 1 |  | 2 / 2 | 0 |
 | [audit-milestone](audit-milestone.md) | 9 разделов H2 | 1 | 1 | `verify:post` | 0 / 0 | 0 |
 | [audit-uat](audit-uat.md) | 4 шага `<step>` | 0 | 0 |  | 0 / 1 | 0 |
@@ -51,7 +52,7 @@
 | [check-todos](check-todos.md) | 10 шагов `<step>` | 0 | 0 |  | 5 / 6 | 0 |
 | [cleanup](cleanup.md) | 9 шагов `<step>` | 0 | 0 |  | 0 / 1 | 0 |
 | [code-review-fix](code-review-fix.md) | 10 шагов `<step>` | 3 | 2 | `execute:post` | 0 / 0 | 0 |
-| [code-review](code-review.md) | 10 шагов `<step>`, 2 секции `gsd:section` | 1 | 1 |  | 0 / 4 | 0 |
+| [code-review](code-review.md) | 11 шагов `<step>`, 2 секции `gsd:section` | 4 | 3 |  | 0 / 4 | 0 |
 | [complete-milestone](complete-milestone.md) | 13 шагов `<step>`, 1 секция `gsd:section` | 0 | 0 |  | 3 / 5 | 0 |
 | [debug](debug.md) | 8 разделов H2 | 3 | 1 |  | 3 / 3 | 0 |
 | [diagnose-issues](diagnose-issues.md) | 6 шагов `<step>` | 1 | 1 |  | 3 / 3 | 0 |
@@ -101,6 +102,7 @@
 | [remove-phase](remove-phase.md) | 7 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [remove-workspace](remove-workspace.md) | 6 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
 | [resume-project](resume-project.md) | 8 шагов `<step>` | 0 | 0 |  | 6 / 8 | 0 |
+| [retro](retro.md) | 8 шагов `<step>` | 2 | 2 |  | 0 / 2 | 0 |
 | [review](review.md) | 6 шагов `<step>`, 2 секции `gsd:section` | 0 | 0 |  | 0 / 1 | 0 |
 | [scan](scan.md) | 6 разделов H2 | 1 | 1 |  | 0 / 0 | 0 |
 | [secure-phase](secure-phase.md) | 9 разделов H2 | 1 | 1 | `verify:post` | 0 / 4 | 0 |

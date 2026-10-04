@@ -1,7 +1,7 @@
 ---
 name: gsd-code-review
 description: "Review source files changed during a phase for bugs, security issues, and code quality problems"
-argument-hint: "<phase-number> [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]] [reviewer-lane flags]"
+argument-hint: "<phase-number> | --since <7d|YYYY-MM-DD|ref|last> [--until <ref>] [--lens correctness,standards,spec,simplify] [--depth=quick|standard|deep] [--files file1,file2,...] [--fix [--all] [--auto]] [reviewer-lane flags]"
 allowed-tools:
   - Read
   - Bash
@@ -22,7 +22,8 @@ Review source files changed during a phase for bugs, security vulnerabilities, a
 Spawns the gsd-code-reviewer agent to analyze code at the specified depth level. Produces REVIEW.md artifact in the phase directory with severity-classified findings.
 
 Arguments:
-- Phase number (required) — which phase's changes to review (e.g., "2" or "02")
+- Phase number — which phase's changes to review (e.g., "2" or "02"). Required unless `--since` is given; never together with it.
+- `--since <7d|YYYY-MM-DD|ref|last>` (window review, ADR-5208) — review the work that landed in a period instead of a phase: a duration, a UTC date, a git ref, or `last` (from the tip of the previous window review). `--until <ref>` sets the tip (default HEAD). `--lens a,b` picks the lenses — `correctness` (gsd-code-reviewer), `standards` and `simplify` (gsd-standards-reviewer), `spec` (gsd-spec-reviewer) — default `code_review.window_lenses`. Each lens is its own agent and report; a deterministic pre-pass (`gsd-tools review window-prepass`) feeds them, `gsd-finding-refuter` checks their findings, and the result is `.planning/reviews/<date>-window/REVIEW.md`.
 - `--depth=quick|standard|deep` (optional) — review depth level, overrides workflow.code_review_depth config
   - quick: Pattern-matching only (~2 min)
   - standard: Per-file analysis with language-specific checks (~5-15 min, default)

@@ -51,6 +51,7 @@ module.exports = {
   "tests/code-review-fix-pipeline-regression.test.cjs",
   "tests/code-review-pipeline-regression.test.cjs",
   "tests/code-review-tier3-files-override-scoping.test.cjs",
+  "tests/code-review-window.test.cjs",
   "tests/code-review.test.cjs",
   "tests/codex-config-agents.test.cjs",
   "tests/codex-config-hooks.test.cjs",

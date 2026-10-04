@@ -193,6 +193,7 @@ module.exports = {
   "tests/require-issue-link-policy.test.cjs",
   "tests/response-language-coverage.test.cjs",
   "tests/retired-artifact-cleanup.test.cjs",
+  "tests/retro-artifacts.test.cjs",
   "tests/review-build-prompt-optional-sections.test.cjs",
   "tests/review-lane-runner.test.cjs",
   "tests/review-lane-windows-spawn-resolution.test.cjs",
