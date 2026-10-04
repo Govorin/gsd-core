@@ -266,6 +266,28 @@ describe('lint-retired-runtime-name — path allowlist works', () => {
       cleanup(dir);
     }
   });
+
+  test('exits 0 under the fork records dir (.plans/)', (t) => {
+    const dir = createTempRepo();
+    t.after(() => cleanup(dir));
+    seedFillerFiles(dir, MIN_EXPECTED_FILES);
+    writeFile(dir, '.plans/upstream-sync-plan.md', `# Sync\n\nThe ${RETIRED_NAME} review lane was removed upstream.\n`);
+    gitAddAll(dir);
+
+    const result = runGuard(dir);
+    assert.equal(result.status, 0, `expected exit 0 under .plans/, got ${result.status}; stderr: ${result.stderr}`);
+  });
+
+  test('a plans dir outside the repo root (docs/plans/) is still scanned', (t) => {
+    const dir = createTempRepo();
+    t.after(() => cleanup(dir));
+    seedFillerFiles(dir, MIN_EXPECTED_FILES);
+    writeFile(dir, 'docs/plans/upstream-sync-plan.md', `# Sync\n\nThe ${RETIRED_NAME} review lane was removed upstream.\n`);
+    gitAddAll(dir);
+
+    const result = runGuard(dir);
+    assert.equal(result.status, 1, `expected exit 1 under docs/plans/, got ${result.status}; stderr: ${result.stderr}`);
+  });
 });
 
 describe('lint-retired-runtime-name — anti-vacuity floor', () => {

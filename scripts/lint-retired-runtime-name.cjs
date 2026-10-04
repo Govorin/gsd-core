@@ -139,6 +139,13 @@ const ALLOWLIST_DIR_PREFIXES = [
   'docs/issueevidence/',
   'docs/discussions/',
   'docs/superpowers/',
+  // The fork's dated working records (sync plans, gap analyses, harness
+  // research), carried verbatim from the fork's `next`. Never installed or
+  // loaded by a runtime; their hits record upstream history ("the reviewer
+  // lane was removed in 1.15.0") and third-party research, the same class as
+  // docs/research/. Markers would fork the copy from its source and break on
+  // the next carry.
+  '.plans/',
 ];
 
 // TIER 2 — pinned occurrences. relPath -> [{ snippet, reason }]. A match is
