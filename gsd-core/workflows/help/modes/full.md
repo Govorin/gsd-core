@@ -105,9 +105,7 @@ Help articulate your vision for a phase before planning.
 - Optional `--batch` asks 2-5 related questions at a time instead of one-by-one
 
 Usage: `/gsd:discuss-phase 2`
-Usage: `/gsd:discuss-phase 2 --batch`
-Usage: `/gsd:discuss-phase 2 --batch=3`
-Usage: `/gsd:discuss-phase 2 --grill`
+Usage: `/gsd:discuss-phase 2 --batch` (or `--batch=3`, or `--grill`)
 
 **`/gsd:plan-phase <number> [--research] [--skip-research] [--research-phase <N>] [--view] [--gaps] [--skip-verify] [--skip-ui] [--prd <file>] [--ingest <path-or-glob>] [--ingest-format <auto|nygard|madr|narrative>] [--reviews] [--text] [--bounce] [--skip-bounce] [--chunked] [--tdd] [--mvp] [--granularity <coarse|standard|fine>] [--no-tracer] [--no-reversibility-gates]`**
 Create detailed execution plan for a specific phase.
@@ -311,10 +309,8 @@ Modes:
 
 Usage: `/gsd:progress`
 Usage: `/gsd:progress --next`
-Usage: `/gsd:progress --next --auto`
-Usage: `/gsd:progress --next --auto --converge`
-Usage: `/gsd:progress --forensic`
-Usage: `/gsd:progress --graph`
+Usage: `/gsd:progress --next --auto` (or `--next --auto --converge`)
+Usage: `/gsd:progress --forensic` (or `--graph`)
 
 ### Session Management
 
