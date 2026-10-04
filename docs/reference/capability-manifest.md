@@ -64,8 +64,8 @@ The `config` field is an object whose keys are federated configuration keys cont
 
 | Property | Type | Description |
 |---|---|---|
-| `type` | `"boolean"` \| `"string"` \| `"number"` \| `"enum"` | Value type. |
-| `default` | (type-consistent) | Default value; must be consistent with `type`. |
+| `type` | `"boolean"` \| `"string"` \| `"number"` \| `"enum"` \| `"string-map"` | Value type. `string-map` is an object of string keys to string values (e.g. check name → command line); `config-set` takes it as a JSON object argument and the loader rejects any other shape. |
+| `default` | (type-consistent) | Default value; must be consistent with `type` (`{}` or an object of strings for `string-map`). |
 | `description` | string | Human-readable explanation of the key's effect. |
 | `values` | string[] | **`enum` only.** Exhaustive list of permitted string values. |
 

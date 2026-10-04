@@ -2548,7 +2548,22 @@ describe('validateConfigSliceEntry adversarial cases (ADR-857 phase 3b)', () => 
     assert.ok(types.includes('string'), 'Must include string');
     assert.ok(types.includes('number'), 'Must include number');
     assert.ok(types.includes('enum'), 'Must include enum');
-    assert.strictEqual(types.length, 4, 'Must have exactly 4 types');
+    assert.ok(types.includes('string-map'), 'Must include string-map');
+    assert.strictEqual(types.length, 5, 'Must have exactly 5 types');
+  });
+
+  test('valid string-map slice (empty or string-valued default) passes', () => {
+    for (const def of [{}, { tests: 'npm test' }]) {
+      const errors = validateConfigSliceEntry(CAP_ID, KEY, { type: 'string-map', default: def, description: 'ok' });
+      assert.deepEqual(errors, [], `default ${JSON.stringify(def)}: ${JSON.stringify(errors)}`);
+    }
+  });
+
+  test('REJECTED: string-map default that is not an object of strings', () => {
+    for (const def of ['', '{}', [], null, { tests: 1 }, { tests: 'npm test', lint: null }]) {
+      const errors = validateConfigSliceEntry(CAP_ID, KEY, { type: 'string-map', default: def, description: 'ok' });
+      assert.equal(errors.length, 1, `default ${JSON.stringify(def)} must be rejected, got: ${JSON.stringify(errors)}`);
+    }
   });
 
   test('valid boolean slice passes validation', () => {

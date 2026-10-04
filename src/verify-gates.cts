@@ -49,6 +49,9 @@ const { extractFrontmatter, spliceFrontmatter } = frontmatterModule;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
 import phaseLocator = require('./phase-locator.cjs');
 const { findPhaseInternal } = phaseLocator;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import cliExitModule = require('./cli-exit.cjs');
+const { projectOutcome, getContractVersion } = cliExitModule;
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -58,6 +61,14 @@ interface GateCheck {
   /** The command line, exactly as configured. */
   command: string;
 }
+
+/**
+ * What `workflow.verify_gates` resolved to. An empty roster and an unreadable
+ * one are different answers: the first is "nothing configured yet", the second
+ * is "configured, but not in a form that can run" — and reporting the second
+ * as the first sends the user looking for a setting they already wrote.
+ */
+type ChecksConfig = { ok: true; checks: GateCheck[] } | { ok: false; problems: string[] };
 
 interface GateResult {
   name: string;
@@ -387,43 +398,67 @@ function verificationPathFor(phaseDir: string): string {
  * default: only the project knows what its own green looks like, and inventing
  * a default (`npm test`) would produce an unrunnable check on most projects,
  * which is worse than no check at all.
+ *
+ * The key is declared `string-map`, so `config-set` stores a real object. A
+ * string holding that object as JSON text is still read: it is what the key
+ * had to be when the capability config schema admitted scalars only, and a
+ * config written then must not start refusing.
+ *
+ * The file is read raw rather than through loadConfig, which replaces a
+ * wrong-typed value with the default `{}` — that is exactly the collapse of
+ * "malformed" into "nothing configured" this reader exists to prevent.
+ *
+ * Absent, null, an empty string and an empty object all mean "nothing
+ * configured". Anything else that does not resolve to an object of non-empty
+ * command lines is a problem the caller reports as such: dropping a
+ * malformed entry would let half a roster stand in for the whole one, and
+ * collapsing a typo into "nothing configured" hides the setting the user wrote.
  */
-function readChecks(cwd: string): GateCheck[] {
-  let cfg: Record<string, unknown>;
+function readChecks(cwd: string): ChecksConfig {
+  let text: string;
   try {
-    cfg = JSON.parse(fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8')) as Record<
-      string,
-      unknown
-    >;
-  } catch {
-    return [];
+    text = fs.readFileSync(path.join(cwd, '.planning', 'config.json'), 'utf8');
+  } catch (err) {
+    if ((err as { code?: string } | null)?.code === 'ENOENT') return { ok: true, checks: [] };
+    return { ok: false, problems: [`.planning/config.json could not be read: ${(err as Error).message}`] };
   }
-  const workflow = (cfg['workflow'] || {}) as Record<string, unknown>;
-  let raw = workflow['verify_gates'];
+  let cfg: unknown;
+  try {
+    cfg = JSON.parse(text);
+  } catch (err) {
+    return { ok: false, problems: [`.planning/config.json is not valid JSON: ${(err as Error).message}`] };
+  }
+  const workflow = cfg && typeof cfg === 'object' ? (cfg as Record<string, unknown>)['workflow'] : undefined;
+  let raw = workflow && typeof workflow === 'object' ? (workflow as Record<string, unknown>)['verify_gates'] : undefined;
+  if (raw === undefined || raw === null) return { ok: true, checks: [] };
 
-  // Both shapes are accepted. The capability config schema admits boolean,
-  // string, number and enum only, so the key is DECLARED as a string holding
-  // JSON — but a hand-written config.json will naturally carry a real object,
-  // and rejecting that would make the command silently refuse on a config that
-  // reads as perfectly correct.
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
-    if (!trimmed) return [];
+    if (!trimmed) return { ok: true, checks: [] };
     try {
       raw = JSON.parse(trimmed);
-    } catch {
-      return [];
+    } catch (err) {
+      return { ok: false, problems: [`workflow.verify_gates is not valid JSON: ${(err as Error).message}`] };
     }
   }
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    const got = Array.isArray(raw) ? 'an array' : raw === null ? 'null' : `a ${typeof raw}`;
+    return {
+      ok: false,
+      problems: [`workflow.verify_gates must be an object of check name → command line, got ${got}`],
+    };
+  }
 
   const checks: GateCheck[] = [];
+  const problems: string[] = [];
   for (const [name, command] of Object.entries(raw as Record<string, unknown>)) {
     if (typeof command === 'string' && command.trim()) {
       checks.push({ name, command: command.trim() });
+    } else {
+      problems.push(`workflow.verify_gates.${name} must be a non-empty command line, got ${JSON.stringify(command)}`);
     }
   }
-  return checks;
+  return problems.length > 0 ? { ok: false, problems } : { ok: true, checks };
 }
 
 // ─── CLI ──────────────────────────────────────────────────────────────────
@@ -451,6 +486,7 @@ interface CmdOptions {
  *   0  the results were recorded (whatever they say)
  *   1  a check failed AND --strict was passed
  *   2  the results could not be recorded, or nothing was configured to run
+ *  69  workflow.verify_gates is set but malformed (UNAVAILABLE, ADR-3889)
  *
  * The default 0-on-red is deliberate; see the module header.
  */
@@ -509,7 +545,26 @@ function cmdVerifyGates(
     return;
   }
 
-  const checks = readChecks(cwd);
+  const config = readChecks(cwd);
+  if (!config.ok) {
+    // UNAVAILABLE, the registry's "could not run — input unreadable" (ADR-3889),
+    // the same outcome core gives an unparseable config.json. It is not the
+    // no_checks_configured refusal: the user did configure something, and
+    // telling them to add a setting they already wrote is the wrong advice.
+    emit(
+      {
+        ok: false,
+        reason: 'invalid_checks_config',
+        problems: config.problems,
+        message:
+          'workflow.verify_gates is set but cannot be run. It takes an object of check name → command line, ' +
+          `e.g. gsd_run query config-set workflow.verify_gates '{"tests":"npm test"}'.`,
+      },
+      projectOutcome('UNAVAILABLE', getContractVersion())
+    );
+    return;
+  }
+  const checks = config.checks;
   if (checks.length === 0) {
     // Refusing rather than passing: "no checks configured" recorded as
     // all_passed:true would be a green field that proves nothing, and a gate
@@ -519,7 +574,8 @@ function cmdVerifyGates(
         ok: false,
         reason: 'no_checks_configured',
         message:
-          'workflow.verify_gates names no commands. Add e.g. {"tests":"npm test","typecheck":"npx tsc --noEmit"} — ' +
+          'workflow.verify_gates names no commands. Set it with e.g. ' +
+          `gsd_run query config-set workflow.verify_gates '{"tests":"npm test","typecheck":"npx tsc --noEmit"}' — ` +
           'recording "no checks" as a pass would be a green field that proves nothing.',
       },
       2

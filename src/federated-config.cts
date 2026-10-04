@@ -8,6 +8,7 @@
  * Exported function:
  *   mergeFederatedConfig({ configSchema, isCentralKey, userConfig })
  *     → { values, validKeys, warnings }
+ *   isStringMap(value) — the `string-map` slice type's value rule
  *
  * Design:
  *   - For each key in configSchema:
@@ -60,9 +61,19 @@ interface MergeFederatedConfigResult {
 
 // ─── Allowed slice types (mirrors gen-capability-registry.cjs VALID_CONFIG_SLICE_TYPES) ──
 
-const VALID_SLICE_TYPES = new Set<string>(['boolean', 'string', 'number', 'enum']);
+const VALID_SLICE_TYPES = new Set<string>(['boolean', 'string', 'number', 'enum', 'string-map']);
 
 // ─── Internal helpers ──────────────────────────────────────────────────────────
+
+/**
+ * True for a `string-map` value: a plain JSON object whose every value is a
+ * string (e.g. check name → command line). Arrays and null are not maps.
+ * Exported so config-set validates a write by the same rule the loader reads by.
+ */
+function isStringMap(value: unknown): value is Record<string, string> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.values(value as Record<string, unknown>).every((v) => typeof v === 'string');
+}
 
 /**
  * Returns true if `slice` has a non-empty type, a `default` property, and a
@@ -86,6 +97,7 @@ function _typeMatches(value: unknown, slice: ConfigSliceEntry): boolean {
     case 'boolean': return typeof value === 'boolean';
     case 'string':  return typeof value === 'string';
     case 'number':  return typeof value === 'number';
+    case 'string-map': return isStringMap(value);
     case 'enum':
       // Must be a string AND, if values list is present, must be in it
       if (typeof value !== 'string') return false;
@@ -227,4 +239,4 @@ function mergeFederatedConfig(input: MergeFederatedConfigInput): MergeFederatedC
   return { values, validKeys, warnings };
 }
 
-export = { mergeFederatedConfig };
+export = { mergeFederatedConfig, isStringMap };

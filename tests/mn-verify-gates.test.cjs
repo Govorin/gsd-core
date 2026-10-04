@@ -38,6 +38,7 @@ const { evaluatePredicate } = require(path.join(
   'lib',
   'gate-predicate-evaluator.cjs'
 ));
+const { exitCodeFor } = require(path.join(REPO_ROOT, 'gsd-core', 'bin', 'lib', 'exit-code-registry.cjs'));
 const { extractFrontmatter } = require(path.join(
   REPO_ROOT,
   'gsd-core',
@@ -186,37 +187,6 @@ describe('verify gates — recording', () => {
     assert.equal(block.tests_failed_count, 0);
   });
 
-  test('reads the roster as an object or as a JSON string', () => {
-    // The capability config schema admits scalars only, so the key is DECLARED
-    // as a string holding JSON — but a hand-written config.json will naturally
-    // carry a real object, and refusing that would make the command silently
-    // inert on a config that reads as perfectly correct.
-    const dir = createTempDir();
-    try {
-      fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
-      const write = (value) =>
-        fs.writeFileSync(
-          path.join(dir, '.planning', 'config.json'),
-          JSON.stringify({ workflow: { verify_gates: value } })
-        );
-
-      write({ tests: 'npm test' });
-      assert.deepEqual(verifyGates.readChecks(dir), [{ name: 'tests', command: 'npm test' }]);
-
-      write('{"tests":"npm test","lint":"npm run lint"}');
-      assert.equal(verifyGates.readChecks(dir).length, 2);
-
-      // Malformed input yields no checks, which the CLI then refuses on —
-      // better than half a roster silently standing in for the whole one.
-      for (const bad of ['not json', '', [1, 2], null]) {
-        write(bad);
-        assert.deepEqual(verifyGates.readChecks(dir), [], `unusable roster: ${JSON.stringify(bad)}`);
-      }
-    } finally {
-      cleanup(dir);
-    }
-  });
-
   test('an empty roster is not a pass', () => {
     const block = verifyGates.buildGatesFrontmatter([], '2026-01-01T00:00:00Z');
     assert.equal(
@@ -224,6 +194,138 @@ describe('verify gates — recording', () => {
       false,
       'recording "nothing ran" as green would be a field that proves nothing'
     );
+  });
+});
+
+describe('verify gates — reading the roster', () => {
+  // The key is a string-map, so config-set and a hand-written config.json both
+  // carry a real object. A string holding the object as JSON text is what the
+  // key had to be while the capability config schema admitted scalars only,
+  // and a config written then must keep working.
+  let dir;
+  beforeEach(() => {
+    dir = createTempDir();
+    fs.mkdirSync(path.join(dir, '.planning'), { recursive: true });
+  });
+  afterEach(() => {
+    cleanup(dir);
+  });
+  const write = (value) =>
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ workflow: { verify_gates: value } }));
+
+  test('reads a hand-written object', () => {
+    write({ tests: 'npm test' });
+    assert.deepEqual(verifyGates.readChecks(dir), { ok: true, checks: [{ name: 'tests', command: 'npm test' }] });
+  });
+
+  test('reads a legacy JSON-text string', () => {
+    write('{"tests":"npm test","lint":"npm run lint"}');
+    const config = verifyGates.readChecks(dir);
+    assert.equal(config.ok, true);
+    assert.deepEqual(
+      config.checks.map((c) => c.name),
+      ['tests', 'lint']
+    );
+  });
+
+  test('absent, null, blank and an empty object all mean nothing configured', () => {
+    for (const empty of [undefined, null, '', '   ', {}, '{}']) {
+      write(empty);
+      assert.deepEqual(verifyGates.readChecks(dir), { ok: true, checks: [] }, `empty roster: ${JSON.stringify(empty)}`);
+    }
+    fs.unlinkSync(path.join(dir, '.planning', 'config.json'));
+    assert.deepEqual(verifyGates.readChecks(dir), { ok: true, checks: [] }, 'no config.json at all');
+  });
+
+  test('a set but malformed value is a problem, not an empty roster', () => {
+    // Collapsing these into "nothing configured" sent the user to add a setting
+    // they had already written.
+    for (const bad of ['not json', '{"tests":', '[1,2]', '123', 'true', '"npm test"', 'null', [1, 2], 7, false]) {
+      write(bad);
+      const config = verifyGates.readChecks(dir);
+      assert.equal(config.ok, false, `malformed roster: ${JSON.stringify(bad)}`);
+      assert.equal(config.problems.length, 1);
+    }
+  });
+
+  test('one bad entry fails the whole roster and is named', () => {
+    // Dropping it silently would let half a roster stand in for the whole one.
+    write({ tests: 'npm test', lint: '', typecheck: 42 });
+    const config = verifyGates.readChecks(dir);
+    assert.equal(config.ok, false);
+    assert.equal(config.problems.length, 2);
+    assert.ok(config.problems.some((p) => p.startsWith('workflow.verify_gates.lint ')));
+    assert.ok(config.problems.some((p) => p.startsWith('workflow.verify_gates.typecheck ')));
+  });
+
+  test('an unparseable config.json is a problem, not an empty roster', () => {
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), '{"workflow": {');
+    assert.equal(verifyGates.readChecks(dir).ok, false);
+  });
+});
+
+/**
+ * The key was unsettable through the CLI in every form: it was declared a
+ * `string` holding JSON, config-set parsed the JSON argument into an object,
+ * and the capability validator then rejected the object as not a string. It is
+ * now a `string-map`. Driven end to end through the real binary.
+ */
+describe('verify gates — configured through config-set', () => {
+  let dir;
+  let phaseDir;
+  beforeEach(() => {
+    dir = createTempDir();
+    phaseDir = makeProject(dir, null);
+  });
+  afterEach(() => {
+    cleanup(dir);
+  });
+  const configPath = () => path.join(dir, '.planning', 'config.json');
+  const configSet = (value) => runNode([TOOLS, 'config-set', 'workflow.verify_gates', value, '--cwd', dir], { cwd: dir });
+  const stored = () => JSON.parse(fs.readFileSync(configPath(), 'utf8')).workflow.verify_gates;
+
+  test('config-set stores the object and verify gates runs it', () => {
+    const set = configSet('{"smoke":"true"}');
+    assert.equal(set.exitCode, 0, set.stderr);
+    assert.deepEqual(stored(), { smoke: 'true' });
+
+    const result = runGatesCli(dir, phaseDir);
+    assert.equal(result.exitCode, 0, result.stdout + result.stderr);
+    assert.equal(result.payload.allPassed, true);
+  });
+
+  test('setting the same value twice leaves the same config', () => {
+    const value = '{"tests":"true","lint":"true"}';
+    configSet(value);
+    const first = fs.readFileSync(configPath(), 'utf8');
+    const again = configSet(value);
+    assert.equal(again.exitCode, 0, again.stderr);
+    assert.equal(fs.readFileSync(configPath(), 'utf8'), first);
+  });
+
+  test('an empty object is accepted and reads as nothing configured', () => {
+    assert.equal(configSet('{}').exitCode, 0);
+    assert.deepEqual(stored(), {});
+    assert.equal(runGatesCli(dir, phaseDir).payload.reason, 'no_checks_configured');
+  });
+
+  test('config-set refuses anything that is not an object of strings, and writes nothing', () => {
+    // One string value (accepted above) against one non-string value, and the
+    // shapes that are JSON but not a map.
+    const before = fs.readFileSync(configPath(), 'utf8');
+    for (const bad of ['{"tests": "npm test",}', '{"tests":1}', '{"tests":null}', '["npm test"]', '123', 'true', 'npm test', '']) {
+      const set = configSet(bad);
+      assert.equal(set.outcome, OUTCOME.EXITED, `config-set ${JSON.stringify(bad)}`);
+      assert.notEqual(set.exitCode, 0, `config-set ${JSON.stringify(bad)} must be refused`);
+      assert.equal(fs.readFileSync(configPath(), 'utf8'), before, `config-set ${JSON.stringify(bad)} must not write`);
+    }
+  });
+
+  test('null still clears the key', () => {
+    configSet('{"tests":"true"}');
+    assert.equal(configSet('null').exitCode, 0);
+    assert.equal(stored(), undefined);
+    assert.equal(runGatesCli(dir, phaseDir).payload.reason, 'no_checks_configured');
   });
 });
 
@@ -247,6 +349,16 @@ describe('verify gates — CLI contract', () => {
       false,
       'a refusal must not leave a half-written record behind'
     );
+  });
+
+  test('a malformed roster fails as UNAVAILABLE, names the problem, and writes nothing', () => {
+    const phaseDir = makeProject(dir, '{"tests": "npm test",}');
+    const result = runGatesCli(dir, phaseDir);
+    assert.equal(result.outcome, OUTCOME.EXITED);
+    assert.equal(result.exitCode, exitCodeFor('UNAVAILABLE'));
+    assert.equal(result.payload.reason, 'invalid_checks_config');
+    assert.equal(result.payload.problems.length, 1);
+    assert.equal(fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')), false);
   });
 
   test('records a green run and exits 0', () => {

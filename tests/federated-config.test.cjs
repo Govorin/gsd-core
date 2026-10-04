@@ -61,6 +61,14 @@ const ENUM_SLICE_WITH_VALUES = {
   description: 'A test enum key with values list.',
 };
 
+/** A minimal well-formed string-map config slice entry. */
+const STRING_MAP_SLICE = {
+  owner: 'test-cap',
+  type: 'string-map',
+  default: {},
+  description: 'A test string-map key.',
+};
+
 /** A never-central isCentralKey that always returns false. */
 const neverCentral = (_key) => false;
 
@@ -303,6 +311,18 @@ describe('valid federated key — user override with correct type', () => {
     assert.strictEqual(result.values['mytool.level'], 'high');
     assert.deepEqual(result.warnings, []);
   });
+
+  test('string-map key with an object of strings (nested) → user value used', () => {
+    for (const map of [{}, { tests: 'npm test' }, { tests: 'npm test', lint: '' }]) {
+      const result = mergeFederatedConfig({
+        configSchema: { 'mytool.checks': STRING_MAP_SLICE },
+        isCentralKey: neverCentral,
+        userConfig: { mytool: { checks: map } },
+      });
+      assert.deepEqual(result.values['mytool.checks'], map);
+      assert.deepEqual(result.warnings, []);
+    }
+  });
 });
 
 // ─── 6. Valid federated key — wrong-type user override ───────────────────────
@@ -343,6 +363,18 @@ describe('valid federated key — wrong-type user override', () => {
     });
     assert.strictEqual(result.values['mytool.timeout'], 42, 'Should fall back to default');
     assert.ok(result.warnings.length >= 1);
+  });
+
+  test('string-map key with anything but an object of strings → falls back to default + warning', () => {
+    for (const bad of ['{"tests":"npm test"}', ['npm test'], { tests: 1 }, { tests: 'npm test', lint: null }, true]) {
+      const result = mergeFederatedConfig({
+        configSchema: { 'mytool.checks': STRING_MAP_SLICE },
+        isCentralKey: neverCentral,
+        userConfig: { mytool: { checks: bad } },
+      });
+      assert.deepEqual(result.values['mytool.checks'], {}, `fallback for ${JSON.stringify(bad)}`);
+      assert.equal(result.warnings.length, 1);
+    }
   });
 });
 
