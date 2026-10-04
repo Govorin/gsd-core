@@ -67,8 +67,8 @@ interface TemplateSelectResult {
 }
 
 /**
- * The single merged SUMMARY template. Was three files (`summary-minimal.md`,
- * `summary-standard.md`, `summary-complex.md`) whose bodies differed only in heading text,
+ * The single merged SUMMARY template. Was three per-variant files (minimal, standard,
+ * complex) whose bodies differed only in heading text,
  * bullet count and which optional sections appeared — three copies of one contract, with
  * nothing reconciling them.
  */
@@ -125,7 +125,7 @@ function cmdTemplateSelect(cwd: string, planPath: string | null | undefined, raw
     output(result, raw, SUMMARY_TEMPLATE);
   } catch (e) {
     // Fallback to standard. Both the object AND the raw-output argument must name the merged
-    // template: before the merge each hardcoded `summary-standard.md`, and leaving either
+    // template: before the merge each hardcoded the standard variant's file, and leaving either
     // behind would make the error path emit a path to a deleted file — an unreadable failure
     // for exactly the caller who already hit an error.
     output(

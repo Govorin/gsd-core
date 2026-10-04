@@ -173,10 +173,10 @@ None - no external service configuration required.
 this file; `variant` is one of `minimal | standard | complex` and says how much of the File
 Template above to fill in.
 
-Before the merge these were three separate files — `summary-minimal.md`,
-`summary-standard.md`, `summary-complex.md` — whose bodies differed only in heading text,
-bullet count, and which optional sections appeared. Three copies of one contract with nothing
-reconciling them is how the copies drift; the selector is now the only thing that varies.
+Before the merge these were three separate files, one per variant, whose bodies differed only
+in heading text, bullet count, and which optional sections appeared. Three copies of one
+contract with nothing reconciling them is how the copies drift; the selector is now the only
+thing that varies.
 
 **The frontmatter block is identical in all three variants.** Every field above is filled
 regardless of granularity — including `requires`, which is present on purpose: the selector
