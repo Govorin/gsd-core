@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { runGsdTools, createTempGitProject, cleanup } = require('./helpers.cjs');
+const { runGsdTools, createTempGitProject, createTempDir, cleanup } = require('./helpers.cjs');
 const { HOST_COMMAND_ROUTERS } = require('../gsd-core/bin/gsd-tools.cjs');
 
 const fence = (...body) => ['```mermaid', ...body, '```'].join('\n');
@@ -384,5 +384,116 @@ describe('gsd-tools diagrams check', () => {
     assert.equal(JSON.parse(missing.error).reason, 'diagrams_source_unavailable');
     const empty = check('docs/a.md');
     assert.deepEqual([empty.diagram_count, empty.blocker_count, empty.scanned], [0, 0, 0], 'no diagram, no index walk');
+  });
+});
+
+// Review M6 follow-up: the index already reads the whole repository of a monorepo sub-project, so
+// a path a document records must be readable across the same boundary — relative to the project,
+// confined to its repository. One boundary for the index, `gsd:source` and derived regeneration.
+describe('gsd-tools diagrams check in a monorepo sub-project: one content boundary', () => {
+  let repo;
+  let project;
+  let outside;
+  const schema = (extra) => JSON.stringify({ type: 'object', properties: { name: { type: 'string' }, address: { type: 'object', properties: { city: { type: 'string' }, ...extra } } }, required: ['name'] });
+  beforeEach(() => {
+    repo = createTempGitProject('gsd-diagrams-mono-');
+    project = path.join(repo, 'packages', 'app');
+    fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+    write(repo, 'libs/core/src/status.ts', "export enum OrderStatus { Pending = 'pending', Paid = 'paid' }\n");
+    write(repo, 'libs/schemas/thing.json', schema({}));
+    write(project, 'src/local.ts', "export enum LocalStatus { Open = 'open' }\n");
+    outside = createTempDir('gsd-diagrams-outside-');
+    write(outside, 'status.ts', "export enum OrderStatus { Pending = 'pending', Paid = 'paid' }\n");
+    write(outside, 'thing.json', schema({}));
+  });
+  afterEach(() => {
+    cleanup(repo);
+    cleanup(outside);
+  });
+
+  function write(base, rel, text) {
+    fs.mkdirSync(path.dirname(path.join(base, rel)), { recursive: true });
+    fs.writeFileSync(path.join(base, rel), text);
+  }
+  function check(rel) {
+    const r = runGsdTools(['diagrams', 'check', '--file', rel], project);
+    assert.equal(r.success, true, r.error);
+    return JSON.parse(r.output);
+  }
+  const sources = (json) => json.diagrams.flatMap((d) => d.ids.filter((x) => x.kind === 'source').map((x) => [x.id, x.verdict]));
+  /** `../../../<outside>/<file>` from packages/app: one step past the repository's top level. */
+  const pastRepo = (file) => `../../../${path.basename(outside)}/${file}`;
+
+  test('a gsd:source in libs/ resolves from the sub-project; one in the project still reads as written', () => {
+    write(project, 'docs/s.md', [
+      fence('stateDiagram-v2', '  %% gsd:source ../../libs/core/src/status.ts#OrderStatus', '  [*] --> Pending', '  Pending --> Shipped'),
+      fence('stateDiagram-v2', '  %% gsd:source src/local.ts#LocalStatus', '  [*] --> Open'),
+    ].join('\n'));
+    const json = check('docs/s.md');
+    assert.equal(json.content_root, fs.realpathSync(repo));
+    assert.deepEqual(sources(json), [['../../libs/core/src/status.ts#OrderStatus', 'declared'], ['src/local.ts#LocalStatus', 'declared']]);
+    assert.deepEqual(json.findings.map((f) => [f.severity, f.reason, f.claim]), [['BLOCKER', 'absent', 'Shipped']], 'the libs enum is really read: an invented state is still caught');
+  });
+
+  test('a gsd:source past the repository, or through a symlink out of it, is refused', () => {
+    fs.symlinkSync(outside, path.join(project, 'ext'));
+    write(project, 'docs/s.md', [
+      fence('stateDiagram-v2', `  %% gsd:source ${pastRepo('status.ts')}#OrderStatus`, '  [*] --> Pending'),
+      fence('stateDiagram-v2', '  %% gsd:source ext/status.ts#OrderStatus', '  [*] --> Pending'),
+    ].join('\n'));
+    const json = check('docs/s.md');
+    assert.deepEqual(sources(json).map((s) => s[1]), ['absent', 'absent']);
+    assert.equal(json.blocker_count, 2);
+  });
+
+  test('a zod-fieldtable block generated from a libs/ schema is regenerated from there: fresh, then stale', () => {
+    const gen = runGsdTools(['mn', 'zod-fieldtable', '--json-schema', '../../libs/schemas/thing.json', '--export', 'Thing'], project);
+    assert.equal(gen.success, true, gen.error);
+    write(project, 'docs/thing.md', `# Thing\n\n${JSON.parse(gen.output).markdown}`);
+    assert.deepEqual(check('docs/thing.md').diagrams.map((d) => d.freshness), ['fresh']);
+    write(repo, 'libs/schemas/thing.json', schema({ zip: { type: 'string' } }));
+    assert.deepEqual(check('docs/thing.md').findings.map((f) => f.reason), ['derived_stale']);
+  });
+
+  test('a schema past the repository is refused by the generator, and a marker naming one is unverifiable', () => {
+    const gen = runGsdTools(['mn', 'zod-fieldtable', '--json-schema', pastRepo('thing.json'), '--export', 'Thing'], project);
+    assert.equal(gen.success, false);
+    // The marker a generator run in the outside directory would write, pointed back at it.
+    const inOutside = runGsdTools(['mn', 'zod-fieldtable', '--json-schema', 'thing.json', '--export', 'Thing'], outside);
+    assert.equal(inOutside.success, true, inOutside.error);
+    const emitted = JSON.parse(inOutside.output).markdown.replace('json-schema=thing.json', `json-schema=${pastRepo('thing.json')}`);
+    write(project, 'docs/thing.md', `# Thing\n\n${emitted}`);
+    const json = check('docs/thing.md');
+    assert.deepEqual(json.diagrams.map((d) => d.freshness), ['unverifiable']);
+    assert.ok(json.findings.some((f) => f.reason === 'derived_unverifiable'), JSON.stringify(json.findings));
+  });
+});
+
+describe('gsd-tools diagrams check outside git: the boundary is the project', () => {
+  let parent;
+  let project;
+  beforeEach(() => {
+    parent = createTempDir('gsd-diagrams-nogit-');
+    project = path.join(parent, 'app');
+    fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+    fs.mkdirSync(path.join(project, 'src'), { recursive: true });
+    fs.mkdirSync(path.join(parent, 'shared'), { recursive: true });
+    fs.writeFileSync(path.join(project, 'src', 'status.ts'), "export enum OrderStatus { Pending = 'pending' }\n");
+    fs.writeFileSync(path.join(parent, 'shared', 'status.ts'), "export enum OrderStatus { Pending = 'pending' }\n");
+  });
+  afterEach(() => {
+    cleanup(parent);
+  });
+
+  test('a source inside the project is read; a sibling directory is outside the boundary', () => {
+    fs.writeFileSync(path.join(project, 's.md'), [
+      fence('stateDiagram-v2', '  %% gsd:source src/status.ts#OrderStatus', '  [*] --> Pending'),
+      fence('stateDiagram-v2', '  %% gsd:source ../shared/status.ts#OrderStatus', '  [*] --> Pending'),
+    ].join('\n'));
+    const r = runGsdTools(['diagrams', 'check', '--file', 's.md'], project);
+    assert.equal(r.success, true, r.error);
+    const json = JSON.parse(r.output);
+    assert.equal(json.content_root, fs.realpathSync(project));
+    assert.deepEqual(json.diagrams.map((d) => d.ids[0].verdict), ['declared', 'absent']);
   });
 });

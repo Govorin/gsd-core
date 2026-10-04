@@ -6,7 +6,8 @@
  *
  * Checks every mermaid block of one markdown document (src/diagrams-check.cts):
  * the block keeps to the subset the builders express, and each identifier it
- * claims is declared in the code under `--root` (default: the project). The
+ * claims is declared in the code of `--root`'s repository (`--root` defaults to
+ * the project; a monorepo sub-project's code lives beside it — review M6). The
  * mode defaults from the file name — `*DESIGN.md` is `design`, where names
  * the document itself introduces count as planned.
  *
@@ -32,7 +33,6 @@ import io = require('./io.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cjsCommandRouterAdapter = require('./cjs-command-router-adapter.cjs');
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
-import { buildProjectSymbolIndex } from './symbol-index.cjs';
 
 const { output, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -93,9 +93,6 @@ function routeDiagramsCommand({ args, cwd, raw, error, _diagramsCheck }: RouteDi
         const result = dc.runDiagramsCheck({
           file,
           root,
-          // Identifiers are looked up across the whole repository, not only under the project
-          // directory: a monorepo sub-project's code lives beside it (review M6).
-          buildIndex: buildProjectSymbolIndex,
           strict: args.includes('--strict'),
           ...(modeArg !== null ? { mode: modeArg } : {}),
         });

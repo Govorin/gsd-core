@@ -23,6 +23,13 @@
  *     `%% gsd:source path#Symbol`; without one the diagram is unverifiable;
  *   - flowchart — syntax only (its ids are arbitrary node names).
  *
+ * Roots (project-root.cts `projectRoots`): the index covers the project's
+ * content boundary — its git repository, else the project directory — and a
+ * path a document records (`gsd:source`, a marker's `source=… file=<path>`) is
+ * relative to the project directory and must resolve inside that same
+ * boundary. In a monorepo sub-project `../../libs/x.ts` is therefore readable,
+ * a `..` past the repository or a symlink out of it is not.
+ *
  * Findings: `absent` → BLOCKER; `ambiguous` → WARNING. A block outside the
  * subset, an unterminated fence, a stateDiagram with no `%% gsd:source` and a
  * participant label that is not an identifier are WARNINGs in `docs` mode and BLOCKERs in `design` mode (the blocking
@@ -58,7 +65,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { scanFencedBlocks, collectSection } from './markdown-sectionizer.cjs';
 import { parseMarkdownTable } from './markdown-table.cjs';
-import { tryWithinRoot, PathAcceptance } from './security.cjs';
+import { projectRoots, resolveProjectContentPath } from './project-root.cjs';
+import type { ProjectRoots } from './project-root.cjs';
 import { parseMermaid } from './mermaid-parse.cjs';
 import type { DiagramType, ParseFailureReason, ParseSuccess } from './mermaid-parse.cjs';
 import type { SequenceStep, SequenceMessage } from './mermaid.cjs';
@@ -150,11 +158,12 @@ export type IndexProvider = () => SymbolIndex;
  * cannot. `null` = no regenerator is registered for that source.
  */
 export type RegenerateResult = { ok: true; markdown: string } | { ok: false; message: string };
-export type DerivedRegenerator = (source: string, root: string) => RegenerateResult | null;
+export type DerivedRegenerator = (source: string, roots: ProjectRoots) => RegenerateResult | null;
 
 export interface CheckOptions {
   mode: CheckMode;
-  root: string;
+  /** A `gsd:source` / `source=` path is relative to `roots.project` and confined to `roots.content`. */
+  roots: ProjectRoots;
   index: IndexProvider;
   /** Absent = no regenerator: every derived block that needs one is unverifiable. */
   regenerate?: DerivedRegenerator;
@@ -438,7 +447,7 @@ function checkErDiagram(ctx: DiagramContext): void {
 }
 
 const SOURCE_FAILURE: Readonly<Record<'file_missing' | 'symbol_absent' | 'unsupported_language', string>> = Object.freeze({
-  file_missing: 'names a file that is not in the project',
+  file_missing: "names a file that is not in the project's repository",
   symbol_absent: 'names no enum, literal union, const object or z.enum in that file',
   unsupported_language: 'names a file in a language the recognizer does not parse',
 });
@@ -458,8 +467,9 @@ function checkStateDiagram(ctx: DiagramContext): void {
   const groups: string[][] = [];
   for (const src of directives.sources) {
     const claim: Claim = { id: `${src.path}#${src.symbol}`, kind: 'source', line: src.line, kinds: [] };
-    const contained = tryWithinRoot(src.path, ctx.opts.root, PathAcceptance.RelativeOnly);
-    const res = contained === null ? ({ ok: false, reason: 'file_missing' } as const) : symbolMembers(ctx.opts.root, path.relative(ctx.opts.root, contained), src.symbol);
+    const { content } = ctx.opts.roots;
+    const contained = resolveProjectContentPath(src.path, ctx.opts.roots);
+    const res = contained === null ? ({ ok: false, reason: 'file_missing' } as const) : symbolMembers(content, path.relative(content, contained), src.symbol);
     if (!res.ok) {
       record(ctx, claim, { verdict: 'absent', note: SOURCE_FAILURE[res.reason] });
       continue;
@@ -552,7 +562,7 @@ function regenerated(
   opts: CheckOptions,
 ): { freshness: Freshness; message: string } | null {
   if (marker.source === null || opts.regenerate === undefined) return null;
-  const res = opts.regenerate(marker.source, opts.root);
+  const res = opts.regenerate(marker.source, opts.roots);
   if (res === null) return null;
   if (!res.ok) return { freshness: 'unverifiable', message: `source=${marker.source} could not be regenerated: ${res.message}` };
   const want = trimLines(body);
@@ -653,14 +663,15 @@ export function checkDiagrams(markdown: string, opts: CheckOptions): CheckReport
 
 /**
  * The regenerators `diagrams check` knows. Each re-runs the command a marker
- * names, from the inputs the marker records, inside the project root:
+ * names, from the inputs the marker records, in the project directory — the
+ * same place, and the same path base and boundary, the command ran with:
  *   - `zod-fieldtable <kind>=<target> export=<Name>` → `gsd_run mn zod-fieldtable`
  *     (a JSON Schema is read; a TS file or module is loaded in the project's
  *     own runtime, exactly as the command that produced the block did).
  * A bare `source=zod-fieldtable` (written before the marker recorded its
  * inputs) cannot be re-run: unverifiable, regenerate it once.
  */
-export function defaultRegenerator(source: string, root: string): RegenerateResult | null {
+export function defaultRegenerator(source: string, roots: ProjectRoots): RegenerateResult | null {
   const name = source.trim().split(/\s+/)[0];
   if (name !== 'zod-fieldtable') return null;
   const origin = parseZodFieldtableOrigin(source);
@@ -671,26 +682,29 @@ export function defaultRegenerator(source: string, root: string): RegenerateResu
   if (origin.kind === 'module') {
     zsource = { kind: 'module', target: origin.target };
   } else {
-    const contained = tryWithinRoot(origin.target, root, PathAcceptance.RelativeOnly);
-    if (contained === null) return { ok: false, message: `${origin.kind} ${JSON.stringify(origin.target)} is outside the project` };
+    const contained = resolveProjectContentPath(origin.target, roots);
+    if (contained === null) return { ok: false, message: `${origin.kind} ${JSON.stringify(origin.target)} is outside the project's repository` };
     zsource = origin.kind === 'file' ? { kind: 'file', target: contained } : { kind: 'json-schema', path: contained };
   }
-  const res = runZodFieldtable({ cwd: root, source: zsource, exportName: origin.exportName });
+  const res = runZodFieldtable({ cwd: roots.project, source: zsource, exportName: origin.exportName });
   return res.ok ? { ok: true, markdown: res.markdown } : { ok: false, message: res.message };
 }
 
 export type RunResult =
-  | ({ ok: true; file: string; root: string; scanned: number; skipped: number; strict_failed: boolean } & CheckReport)
+  | ({ ok: true; file: string; root: string; content_root: string; scanned: number; skipped: number; strict_failed: boolean } & CheckReport)
   | { ok: false; reason: 'file_unreadable' | 'root_missing'; message: string };
 
 export interface RunOptions {
   /** Absolute path of the markdown file (already confined by the caller). */
   file: string;
-  /** Absolute project root the identifiers are looked up in. */
+  /**
+   * Absolute project directory. Identifiers are looked up across its content
+   * boundary (`projectRoots`): in a monorepo, the whole repository (review M6).
+   */
   root: string;
   mode?: CheckMode;
   strict?: boolean;
-  /** Test seam: replaces the index builder. */
+  /** Test seam: replaces the index builder; called with the content root. */
   buildIndex?: (root: string) => SymbolIndex;
   /** Test seam: replaces `defaultRegenerator`. */
   regenerate?: DerivedRegenerator;
@@ -708,19 +722,21 @@ export function runDiagramsCheck(opts: RunOptions): RunResult {
   } catch {
     return { ok: false, reason: 'root_missing', message: `root ${opts.root} is not a directory` };
   }
+  const roots = projectRoots(opts.root);
   let built: SymbolIndex | null = null;
   const index: IndexProvider = () => {
-    if (built === null) built = (opts.buildIndex ?? buildSymbolIndex)(opts.root);
+    if (built === null) built = (opts.buildIndex ?? buildSymbolIndex)(roots.content);
     return built;
   };
   const report = checkDiagrams(markdown, {
-    mode: opts.mode ?? modeFor(opts.file), root: opts.root, index, regenerate: opts.regenerate ?? defaultRegenerator,
+    mode: opts.mode ?? modeFor(opts.file), roots, index, regenerate: opts.regenerate ?? defaultRegenerator,
   });
   const usedIndex = built as SymbolIndex | null;
   return {
     ok: true,
-    file: path.relative(opts.root, opts.file).split(path.sep).join('/') || path.basename(opts.file),
+    file: path.relative(roots.project, fs.realpathSync(opts.file)).split(path.sep).join('/') || path.basename(opts.file),
     root: opts.root,
+    content_root: roots.content,
     scanned: usedIndex?.scanned ?? 0,
     skipped: usedIndex?.skipped.length ?? 0,
     strict_failed: opts.strict === true && report.blocker_count > 0,
