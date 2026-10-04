@@ -58,7 +58,10 @@ in a DESIGN.md (none of its names were checked): rewrite it in the subset rather
 - **States** are looked up only when the block names where they are defined:
   `%% gsd:source src/order/order-status.ts#OrderStatus` (an enum, a string-literal union, a const object,
   `z.enum([...])`, a Python `Enum`, a Prisma/SQL enum). Without it the diagram is unverifiable — a warning
-  in docs, a blocker in a DESIGN.md.
+  in docs, a blocker in a DESIGN.md. The path is relative to the project directory (the one holding
+  `.planning/`) and may reach anywhere in its git repository — from a monorepo sub-project,
+  `../../libs/order/src/order-status.ts#OrderStatus`. A path out of the repository (out of the project,
+  outside git) names nothing.
 - **DESIGN.md is written before the code.** A name the same document introduces — a `## Layer Placement`
   row, a declaration in a `## Contracts` code block, a row of a Contracts table — counts as planned. Once
   frontmatter says `contracts_superseded: true`, every name must exist in the code.

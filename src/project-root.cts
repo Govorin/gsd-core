@@ -8,6 +8,9 @@
  *   (4) nearest ancestor .planning/ (#1414, Resolution Provenance P1)
  * Bounded by FIND_PROJECT_ROOT_MAX_DEPTH ancestors. Sync I/O.
  *
+ * Also the project's content boundary (`projectRoots`): the git work tree that
+ * holds the project, inside which a recorded source path may point.
+ *
  * ADR-457 build-at-publish: the hand-written bin/lib/project-root.cjs
  * collapsed to a TypeScript source of truth. Behaviour is preserved
  * byte-for-behaviour from the prior hand-written .cjs; only types are added.
@@ -16,6 +19,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { tryWithinRoot, PathAcceptance } from './security.cjs';
+import type { ContainedPath, PathAcceptancePolicy } from './security.cjs';
+import { execGit } from './shell-command-projection.cjs';
 
 const FIND_PROJECT_ROOT_MAX_DEPTH = 10;
 
@@ -314,4 +320,72 @@ export function consentProjectRoot(cwd: string): string {
   } catch {
     return path.resolve(root);
   }
+}
+
+// ─── Content boundary ───────────────────────────────────────────────────────
+
+/**
+ * Where a project's code may be read from, as two roots with distinct jobs:
+ *
+ *   - `project` — the project directory (where `.planning/` lives). Every path a
+ *     tool RECORDS for later reading (`%% gsd:source <path>#<Symbol>`, a derived
+ *     marker's `source=zod-fieldtable file=<path>`) is relative to it, and is read
+ *     back relative to it — one base, so a recorded path has one meaning.
+ *   - `content` — the boundary such a path must stay inside: the top level of the
+ *     git work tree holding the project, else the project directory itself. A
+ *     monorepo keeps `.planning/` in a sub-project (apps/rpg) while the code its
+ *     documents name lives beside it (libs/…); a boundary at the sub-project
+ *     refuses `../../libs/…` although the declaration index reads that very code
+ *     (review M6).
+ *
+ * Both are realpath'd, so a path relative to one and a file the index lists
+ * under the other compare without a `/var` ↔ `/private/var` mismatch.
+ */
+export interface ProjectRoots {
+  project: string;
+  content: string;
+}
+
+function realOrResolved(dir: string): string {
+  try {
+    return fs.realpathSync(dir);
+  } catch {
+    return path.resolve(dir);
+  }
+}
+
+/** Runs `git <args>` in `cwd`: its trimmed stdout, or null when git fails. The seam `projectRoots` takes. */
+export type GitRunner = (args: string[], cwd: string) => string | null;
+
+function runGit(args: string[], cwd: string): string | null {
+  const r = execGit(args, { cwd, timeout: 10_000 });
+  return r.exitCode === 0 && r.error === null ? r.stdout : null;
+}
+
+/**
+ * THE derivation of a project's content boundary — the declaration index, the
+ * `gsd:source` lookup, derived-block regeneration and the assertion baseline
+ * all take their roots from here, so what one tool can see and where another
+ * may point never disagree.
+ */
+export function projectRoots(projectDir: string, git: GitRunner = runGit): ProjectRoots {
+  const project = realOrResolved(projectDir);
+  const top = git(['rev-parse', '--show-toplevel'], project);
+  return { project, content: top ? realOrResolved(top) : project };
+}
+
+/**
+ * A path resolved against `roots.project` and confined to `roots.content`
+ * (realpath containment, ADR-4650: a `..` past the boundary and a symlink out of
+ * it are both refused). `RelativeOnly` (the default) is for recorded paths,
+ * which are never absolute; `AbsoluteInsideRoot` is for a path typed on the
+ * command line.
+ */
+export function resolveProjectContentPath(
+  candidate: string,
+  roots: ProjectRoots,
+  policy: PathAcceptancePolicy = PathAcceptance.RelativeOnly,
+): ContainedPath | null {
+  if (candidate === '' || (policy === PathAcceptance.RelativeOnly && path.isAbsolute(candidate))) return null;
+  return tryWithinRoot(path.resolve(roots.project, candidate), roots.content, PathAcceptance.AbsoluteInsideRoot);
 }

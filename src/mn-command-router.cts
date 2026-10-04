@@ -18,10 +18,14 @@
  * Output follows the gsd-tools convention: a JSON result by default; with
  * `--raw`, the document itself (markdown, or the worktree-gc report).
  *
- * Paths are user input, so every one is confined to the project (`--cwd`): a
- * relative path resolves against it, an absolute one must still lie inside it.
- * `assertion-baseline` walks the REPOSITORY (a project may sit in a monorepo
- * sub-directory), so its `--paths` are confined to the repository root.
+ * Paths are user input, so every one is confined: a relative path resolves
+ * against the project (`--cwd`), an absolute one must still lie inside the
+ * boundary. For most tools the boundary is the project itself.
+ * `zod-fieldtable` reads a schema anywhere in the project's repository
+ * (project-root.cts `projectRoots` — a monorepo sub-project's DTOs live in
+ * libs/ beside it), the same boundary `diagrams check` regenerates its block
+ * inside. `assertion-baseline` walks the REPOSITORY too, so its `--paths` are
+ * confined to the repository root.
  *
  * Failure mapping (ADR-3889 registry, through io.error's reason → outcome):
  *   - a missing/contradictory flag, a path outside the project, a name the
@@ -52,6 +56,7 @@ import io = require('./io.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import cjsCommandRouterAdapter = require('./cjs-command-router-adapter.cjs');
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
+import { projectRoots, resolveProjectContentPath } from './project-root.cjs';
 
 const { output, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -75,7 +80,7 @@ interface RouteMnCommandOptions {
   _zodFieldtable?: Pick<typeof zodFieldtable, 'runZodFieldtable'>;
   _designRegistry?: Pick<typeof designRegistry, 'runDesignRegistry'>;
   _worktreeGc?: Pick<typeof worktreeGc, 'runWorktreeGc'>;
-  _assertionCount?: Pick<typeof assertionCount, 'resolveRepoRoot' | 'recordAssertionBaseline'>;
+  _assertionCount?: Pick<typeof assertionCount, 'recordAssertionBaseline'>;
 }
 
 /** A non-negative integer flag value, or null when it is not one. */
@@ -111,18 +116,21 @@ function routeZodFieldtable(opts: RouteMnCommandOptions): void {
   }
   const kind = given[0];
   const value = flagValue(args, kind) as string;
+  // The block records the path relative to the project and `diagrams check` re-reads it from
+  // there, inside the same boundary — so the generator accepts exactly what the check can verify.
+  const roots = projectRoots(cwd);
   let source: zodFieldtable.ZodFieldtableSource;
   if (kind === 'module') {
     source = { kind: 'module', target: value };
   } else {
-    const resolved = tryWithinRoot(value, cwd, PathAcceptance.AbsoluteInsideRoot);
+    const resolved = resolveProjectContentPath(value, roots, PathAcceptance.AbsoluteInsideRoot);
     if (resolved === null) {
-      error(`mn zod-fieldtable: --${kind} ${JSON.stringify(value)} is outside the project`, ERROR_REASON.USAGE);
+      error(`mn zod-fieldtable: --${kind} ${JSON.stringify(value)} is outside the project's repository`, ERROR_REASON.USAGE);
       return;
     }
     source = kind === 'file' ? { kind: 'file', target: resolved } : { kind: 'json-schema', path: resolved };
   }
-  const result = zf.runZodFieldtable({ cwd, source, exportName });
+  const result = zf.runZodFieldtable({ cwd: roots.project, source, exportName });
   if (!result.ok) {
     const hint = result.available && result.available.length > 0 ? ` (available: ${result.available.join(', ')})` : '';
     error(
@@ -202,7 +210,7 @@ function routeAssertionBaseline(opts: RouteMnCommandOptions): void {
     error(BASELINE_USAGE, ERROR_REASON.USAGE);
     return;
   }
-  const repoRoot = ac.resolveRepoRoot(cwd);
+  const repoRoot = projectRoots(cwd).content;
   const pathsArg = flagValue(args, 'paths');
   const rels = pathsArg === null ? [...assertionCount.DEFAULT_ROOTS] : pathsArg.split(/\s+/).filter(Boolean);
   if (rels.length === 0) {

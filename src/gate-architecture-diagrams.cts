@@ -28,7 +28,7 @@ import type { GateResult } from './gate-verdict.cjs';
 import { resolveContainedPath } from './gate-phase-context.cjs';
 import { runDiagramsCheck } from './diagrams-check.cjs';
 import type { Finding } from './diagrams-check.cjs';
-import { buildProjectSymbolIndex } from './symbol-index.cjs';
+import { buildSymbolIndex } from './symbol-index.cjs';
 import type { SymbolIndex } from './symbol-index.cjs';
 
 /** A phase design document: `DESIGN.md` or `<N>-DESIGN.md`. */
@@ -80,9 +80,10 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
     });
   }
 
+  // Every design of the phase has the same content root, so one index serves them all.
   let shared: SymbolIndex | null = null;
   const buildIndex = (root: string): SymbolIndex => {
-    if (shared === null) shared = (input.buildIndex ?? buildProjectSymbolIndex)(root);
+    if (shared === null) shared = (input.buildIndex ?? buildSymbolIndex)(root);
     return shared;
   };
   const files: Array<{ file: string; diagram_count: number; blocker_count: number; warning_count: number }> = [];

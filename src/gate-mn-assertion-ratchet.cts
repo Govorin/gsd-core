@@ -23,15 +23,17 @@ import path from 'node:path';
 import type { GateResult } from './gate-verdict.cjs';
 import { mnFinding, mnPass, mnUnresolvable, withMnProject } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
-import { countAssertions, readAssertionBaseline, resolveRepoRoot, DEFAULT_ROOTS } from './mn-assertion-count.cjs';
+import { countAssertions, readAssertionBaseline, DEFAULT_ROOTS } from './mn-assertion-count.cjs';
+import { projectRoots } from './project-root.cjs';
+import type { GitRunner } from './project-root.cjs';
 import type { AssertionCounts } from './mn-assertion-count.cjs';
 
 /** How a baseline is recorded — named in every verdict that needs one. */
 export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline';
 
-/** Injected effects: the git lookup of the repository root (production: `git rev-parse --show-toplevel`). */
+/** Injected effects: the git runner `projectRoots` asks for the repository root (production: real git). */
 export interface MnAssertionRatchetDeps {
-  git?: (args: string[], cwd: string) => string | null;
+  git?: GitRunner;
 }
 
 export interface AssertionComparison {
@@ -55,7 +57,7 @@ export function evaluateMnAssertionRatchet(input: MnGateInput, deps: MnAssertion
   return withMnProject('mn-assertion-ratchet', () => {
     // The baseline and the spec roots are anchored on the REPOSITORY root, exactly where
     // `mn assertion-baseline` records and walks (src/mn-assertion-count.cts).
-    const repoRoot = resolveRepoRoot(input.projectDir, deps.git);
+    const repoRoot = projectRoots(input.projectDir, deps.git).content;
     const read = readAssertionBaseline(repoRoot);
     if (!read.ok) {
       return mnUnresolvable(

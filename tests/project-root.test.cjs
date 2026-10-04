@@ -15,8 +15,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { findProjectRoot } = require('../gsd-core/bin/lib/project-root.cjs');
-const { cleanup } = require('./helpers.cjs');
+const { findProjectRoot, projectRoots, resolveProjectContentPath } = require('../gsd-core/bin/lib/project-root.cjs');
+const { PathAcceptance } = require('../gsd-core/bin/lib/security.cjs');
+const { cleanup, createTempDir, createTempGitProject, createTempProject } = require('./helpers.cjs');
 
 // ─── helpers ────────────────────────────────────────────────────────────────
 
@@ -429,6 +430,93 @@ describe('findProjectRoot nearest-.planning resolution (#1414)', () => {
       fs.mkdirSync(path.join(own, '.planning'), { recursive: true });
 
       assert.strictEqual(findProjectRoot(own, { declaredOnly: true }), own);
+    });
+  });
+});
+
+// ─── content boundary ────────────────────────────────────────────────────────
+
+describe('projectRoots / resolveProjectContentPath: one content boundary (review M6)', () => {
+  // A monorepo: the git root holds libs/ and the sub-project packages/app, whose
+  // .planning/ makes it the project. Paths are written relative to the project
+  // and must stay inside the repository.
+  let repo;
+  let project;
+  let outside;
+  beforeEach(() => {
+    repo = createTempGitProject('gsd-content-root-');
+    project = mkDeep(repo, 'packages', 'app');
+    mkDeep(project, '.planning');
+    mkDeep(repo, 'libs', 'core');
+    fs.writeFileSync(path.join(repo, 'libs', 'core', 'status.ts'), 'export enum S { A }\n');
+    fs.writeFileSync(path.join(repo, 'top.ts'), 'export enum T { A }\n');
+    outside = createTempDir('gsd-content-outside-');
+    fs.writeFileSync(path.join(outside, 'x.ts'), 'export enum X { A }\n');
+  });
+  afterEach(() => {
+    cleanup(repo);
+    cleanup(outside);
+  });
+
+  const real = (p) => fs.realpathSync(p);
+
+  test('in a git work tree the boundary is its top level; the base stays the project', () => {
+    assert.deepStrictEqual(projectRoots(project), { project: real(project), content: real(repo) });
+  });
+
+  test('a path climbing out of the project resolves inside the repository, up to and including its top level', () => {
+    const roots = projectRoots(project);
+    // limit-1: below the top level; limit: a file in the top level, and the top level itself.
+    assert.strictEqual(resolveProjectContentPath('../../libs/core/status.ts', roots), real(path.join(repo, 'libs', 'core', 'status.ts')));
+    assert.strictEqual(resolveProjectContentPath('../../top.ts', roots), real(path.join(repo, 'top.ts')));
+    assert.strictEqual(resolveProjectContentPath('../..', roots), real(repo));
+    // limit+1: one step past the top level.
+    const escape = path.join('..', '..', '..', path.basename(outside), 'x.ts');
+    assert.strictEqual(resolveProjectContentPath(escape, roots), null);
+  });
+
+  test('a project-relative path inside the project keeps its meaning (blocks written before the boundary widened)', () => {
+    fs.writeFileSync(path.join(project, 'local.ts'), 'export enum L { A }\n');
+    assert.strictEqual(resolveProjectContentPath('local.ts', projectRoots(project)), real(path.join(project, 'local.ts')));
+  });
+
+  test('a symlink out of the repository is refused; one that stays inside is followed', () => {
+    fs.symlinkSync(outside, path.join(project, 'ext'));
+    fs.symlinkSync(path.join(repo, 'libs'), path.join(project, 'libs-link'));
+    const roots = projectRoots(project);
+    assert.strictEqual(resolveProjectContentPath('ext/x.ts', roots), null);
+    assert.strictEqual(resolveProjectContentPath('libs-link/core/status.ts', roots), real(path.join(repo, 'libs', 'core', 'status.ts')));
+  });
+
+  test('a recorded path is never absolute; a command-line path may be, inside the boundary only', () => {
+    const roots = projectRoots(project);
+    const inside = path.join(repo, 'libs', 'core', 'status.ts');
+    assert.strictEqual(resolveProjectContentPath(inside, roots), null);
+    assert.strictEqual(resolveProjectContentPath(inside, roots, PathAcceptance.AbsoluteInsideRoot), real(inside));
+    assert.strictEqual(resolveProjectContentPath(path.join(outside, 'x.ts'), roots, PathAcceptance.AbsoluteInsideRoot), null);
+  });
+
+  test('an empty path or one with a NUL byte names nothing', () => {
+    const roots = projectRoots(project);
+    assert.strictEqual(resolveProjectContentPath('', roots), null);
+    assert.strictEqual(resolveProjectContentPath('../../top.ts\0', roots), null);
+  });
+
+  describe('outside git', () => {
+    let plain;
+    beforeEach(() => {
+      plain = createTempProject('gsd-content-nogit-');
+      fs.writeFileSync(path.join(plain, 'in.ts'), 'export enum I { A }\n');
+    });
+    afterEach(() => {
+      cleanup(plain);
+    });
+
+    test('the boundary is the project directory itself', () => {
+      const roots = projectRoots(plain);
+      assert.deepStrictEqual(roots, { project: real(plain), content: real(plain) });
+      assert.strictEqual(resolveProjectContentPath('in.ts', roots), real(path.join(plain, 'in.ts')));
+      assert.strictEqual(resolveProjectContentPath(path.join('..', path.basename(outside), 'x.ts'), roots), null);
     });
   });
 });

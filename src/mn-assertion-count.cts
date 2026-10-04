@@ -23,7 +23,10 @@
  * project directory (apps/rpg) while the monorepo's code sits above it. From
  * the sub-project, `libs`/`apps` are invisible, the walk finds zero specs, and
  * recording that would arm a ratchet that never fires again — so zero spec
- * files is a refusal, never a baseline.
+ * files is a refusal, never a baseline. The repository root is the project's
+ * content root (project-root.cts `projectRoots(...).content`): the git top
+ * level, or the project itself outside git (the zero-spec refusal still
+ * catches a miss).
  *
  * Ported from `capabilities/mn-verify-gate/scripts/assertion-ratchet.mjs`
  * (its `--update` half; the comparison is the verify:pre gate's).
@@ -34,7 +37,6 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execGit } from './shell-command-projection.cjs';
 
 export const ASSERTION_PATTERN = /expect\(|\bassert\(|\bassert\.|\.toThrow|\bshould\./g;
 export const SKIP_PATTERN = /\b(it|test|describe)\.(skip|todo)\b|\bxit\(|\bxdescribe\(/g;
@@ -92,16 +94,6 @@ export function countAssertions(roots: readonly string[]): AssertionCounts {
     }
   }
   return total;
-}
-
-/** The repository top level for `cwd`, or `cwd` itself outside git (the zero-spec refusal still catches a miss). */
-export function resolveRepoRoot(cwd: string, git: (args: string[], cwd: string) => string | null = defaultGit): string {
-  return git(['rev-parse', '--show-toplevel'], cwd) || cwd;
-}
-
-function defaultGit(args: string[], cwd: string): string | null {
-  const r = execGit(args, { cwd });
-  return r.exitCode === 0 ? r.stdout : null;
 }
 
 export interface BaselineRecord extends AssertionCounts {

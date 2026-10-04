@@ -350,7 +350,8 @@ export const ZOD_FIELDTABLE_SOURCE = 'zod-fieldtable';
 /**
  * The derived marker's `source=` for one run: the command name plus what it
  * read, `zod-fieldtable <kind>=<target> export=<Name>` (a file or JSON Schema
- * path relative to the project root, or a module specifier). It is what lets
+ * path relative to the project root — in a monorepo sub-project it may climb
+ * into the repository, `../../libs/…` — or a module specifier). It is what lets
  * `diagrams check` regenerate the block and compare (plan 5.7b) instead of
  * trusting the marker. Values are percent-encoded where the marker forbids or
  * the word split would break them (whitespace, `%`, `>`, a `-` before `-`).

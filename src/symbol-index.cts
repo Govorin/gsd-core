@@ -814,22 +814,10 @@ export interface BuildOptions {
 }
 
 /**
- * The root a project's declaration index is built from: the git work tree's top level, else the
- * project directory itself. A monorepo keeps `.planning/` in a sub-project (apps/rpg) while the
- * code a design names lives beside it (libs/…); an index rooted at the sub-project marks every
- * such identifier `absent` — a false BLOCKER (review M6). The assertion ratchet anchors at the
- * git root for the same reason (mn-assertion-count.cts resolveRepoRoot).
+ * Index every declaration under `root`. For a project, `root` is its content boundary
+ * (project-root.cts `projectRoots(...).content`) — the repository a monorepo sub-project sits in,
+ * not the sub-project alone (review M6).
  */
-export function indexRootFor(projectDir: string): string {
-  const r = execGit(['rev-parse', '--show-toplevel'], { cwd: projectDir, timeout: 10_000 });
-  return r.exitCode === 0 && r.error === null && r.stdout !== '' ? r.stdout : projectDir;
-}
-
-/** `buildSymbolIndex` over the project's whole repository (see `indexRootFor`). */
-export function buildProjectSymbolIndex(projectDir: string): SymbolIndex {
-  return buildSymbolIndex(indexRootFor(projectDir));
-}
-
 export function buildSymbolIndex(root: string, opts: BuildOptions = {}): SymbolIndex {
   const files = opts.files ?? (opts.listFiles ?? listProjectFiles)(root);
   const index: SymbolIndex = { root, decls: new Map(), mentioned: new Set(), foreignWords: new Set(), skipped: [], scanned: 0 };
