@@ -9,7 +9,7 @@
  * the refutation heading grammar, the CLI's subcommands).
  */
 
-const { describe, test } = require('node:test');
+const { describe, test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -54,16 +54,24 @@ function bash(script, args = [], options = {}) {
 }
 
 describe('code-review.md — phase or window, decided by the invocation IR', { skip: !HAS_BASH }, () => {
-  const dispatch = slice(WORKFLOW, 'INVOCATION_JSON=$(node -e', 'PHASE_ARG=$(printf');
-  const run = (args) => bash(`${dispatch}\nprintf '%s|%s' "$REVIEW_MODE" "$PHASE_ARG"`, args, { cwd: ROOT });
+  const dispatch = slice(WORKFLOW, 'INVOCATION_JSON=$(gsd_run review invocation', 'FILES_OVERRIDE=$(_ir');
+  const GSD_TOOLS = path.join(ROOT, 'gsd-core', 'bin', 'gsd-tools.cjs');
+  // Run from a directory that is not this repository: an installed workflow runs in the user's
+  // project, where no ./gsd-core exists — the IR must come through gsd_run, not a relative require.
+  let elsewhere;
+  before(() => { elsewhere = createTempDir('gsd-cr-invocation-'); });
+  after(() => cleanup(elsewhere));
+  const run = (args) =>
+    bash(`gsd_run() { node ${JSON.stringify(GSD_TOOLS)} "$@"; }\n${dispatch}\nprintf '%s|%s|%s' "$REVIEW_MODE" "$PHASE_ARG" "$FIX_FLAG"`, args, { cwd: elsewhere });
 
   test('[happy] a phase is the first positional wherever it sits; --since alone is a window', () => {
     for (const [args, expected] of [
-      [['3'], 'phase|3'],
-      [['--depth=deep', '03.1'], 'phase|03.1'],
-      [['--files', 'a.js', '4', '--fix'], 'phase|4'],
-      [['--since', '7d'], 'window|'],
-      [['--since', 'last', '--lens', 'standards,spec', '--fix'], 'window|'],
+      [['3'], 'phase|3|false'],
+      [['--depth=deep', '03.1'], 'phase|03.1|false'],
+      [['--files', 'a.js', '4', '--fix'], 'phase|4|true'],
+      [['--auto', '5'], 'phase|5|true'],
+      [['--since', '7d'], 'window||false'],
+      [['--since', 'last', '--lens', 'standards,spec', '--fix'], 'window||true'],
     ]) {
       const r = run(args);
       assert.equal(r.exitCode, 0, `${args.join(' ')}: ${r.stderr}`);

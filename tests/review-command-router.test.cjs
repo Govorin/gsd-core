@@ -17,6 +17,7 @@ const path = require('node:path');
 const { cleanup, runGsdTools } = require('./helpers.cjs');
 const { gitOrThrow } = require('./helpers/git-fixture.cjs');
 const { parseLastWindowMarker } = require('../gsd-core/bin/lib/gate-evaluation-scope.cjs');
+const { exitCodeFor } = require('../gsd-core/bin/lib/exit-code-registry.cjs');
 
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@test.io',
@@ -231,5 +232,21 @@ describe('review stage (milestone:pre)', () => {
     const repo = makeRepo();
     assert.equal(reason(run(repo, ['stage', '--milestone=-x'])), 'usage');
     assert.equal(reason(run(repo, ['stage', '--date', '05-10-2026'])), 'usage');
+  });
+});
+
+describe('review invocation', () => {
+  test('[happy] the IR of the /gsd-code-review arguments after --, from any directory', () => {
+    const repo = makeRepo();
+    const out = json(runGsdTools(['review', 'invocation', '--', '--since', '7d', '--lens', 'spec', '--auto'], repo.dir));
+    assert.deepEqual([out.ok, out.mode, out.since, out.lenses, out.flags.fix], [true, 'window', '7d', ['spec'], true]);
+  });
+
+  test('[unhappy] a refusal exits with the registry USAGE code and its code-review message; no -- is usage', () => {
+    const repo = makeRepo();
+    const refused = run(repo, ['invocation', '--', '3', '--since', '7d']);
+    assert.equal(refused.exitCode, exitCodeFor('USAGE'));
+    assert.deepEqual([failure(refused).reason, failure(refused).code], ['usage', 'phase-and-since']);
+    assert.equal(reason(run(repo, ['invocation', '3'])), 'usage');
   });
 });

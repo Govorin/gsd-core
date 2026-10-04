@@ -22,6 +22,12 @@
  *   review window-paths --review <path to a window REVIEW.md>
  *       Validate a window REVIEW.md path for `code-review-fix.md --review`.
  *
+ *   review invocation -- <the /gsd-code-review arguments>
+ *       The invocation IR of `/gsd-code-review` (code-review-flags.cts): phase or window mode and
+ *       every flag, as JSON. A refusal (a phase with --since, --lens without --since, …) exits
+ *       with the registry's USAGE code and its `code-review: …` message. The workflow reads its
+ *       arguments through this instead of requiring the module from the project directory, which
+ *       only exists in this repository.
  *   review stage [--milestone vX.Y] [--date YYYY-MM-DD]
  *       The code-review capability's `milestone:pre` command step: resolve the milestone's window
  *       (`last`, else the previous `v*` tag), run the pre-pass over it (written like
@@ -54,7 +60,7 @@ import planningWorkspaceMod = require('./planning-workspace.cjs');
 import brokenWindowsMod = require('./broken-windows.cjs');
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
 import { parseWindowSince, isSafeRefArgument } from './gate-evaluation-scope.cjs';
-import { CODE_REVIEW_LENSES } from './code-review-flags.cjs';
+import { CODE_REVIEW_LENSES, resolveCodeReviewInvocation } from './code-review-flags.cjs';
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
   computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
@@ -64,14 +70,14 @@ import {
 import type { GitRunner, WindowPrepass } from './window-review.cjs';
 import { formatGsdSlashFor } from './runtime-slash.cjs';
 
-const { output, ERROR_REASON } = io;
+const { output, getJsonErrorMode, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
 const { resolveConfigKey } = capabilityActivationMod;
 const { loadConfig } = configLoaderMod;
 const { planningDir } = planningWorkspaceMod;
 
 export const REVIEW_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'stage', 'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
+  'invocation', 'stage', 'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
 ]);
 
 const USAGE = Object.freeze({
@@ -81,6 +87,7 @@ const USAGE = Object.freeze({
   'window-mark': 'Usage: gsd-tools review window-mark --dir <window dir>',
   'window-paths': 'Usage: gsd-tools review window-paths --review <window REVIEW.md>',
   stage: 'Usage: gsd-tools review stage [--milestone vX.Y] [--date YYYY-MM-DD]',
+  invocation: 'Usage: gsd-tools review invocation -- <code-review arguments>',
 });
 
 interface RouteReviewCommandOptions {
@@ -235,6 +242,22 @@ function handlePrepass(args: string[], cwd: string, raw: boolean, clock: { now()
   output({ ...prepass, prepass: rel(cwd, file), reviewedAlready, warnings }, raw, `${rel(cwd, file)}\n`);
 }
 
+function handleInvocation(args: string[], raw: boolean): void {
+  const sep = args.indexOf('--');
+  if (sep === -1) throw new UsageError(USAGE.invocation);
+  const invocation = resolveCodeReviewInvocation(args.slice(sep + 1));
+  if (invocation.ok) {
+    output(invocation, raw);
+    return;
+  }
+  // The refusal carries its own `code-review: …` message and the registry's USAGE exit code
+  // (ADR-3889), which the workflow passes on as its own exit status.
+  process.stderr.write(getJsonErrorMode()
+    ? `${JSON.stringify({ ok: false, reason: ERROR_REASON.USAGE, code: invocation.code, message: invocation.message })}\n`
+    : `${invocation.message}\n`);
+  process.exitCode = invocation.exitCode;
+}
+
 function handleStage(args: string[], cwd: string, raw: boolean, clock: { now(): number } | undefined, execGit: GitRunner | undefined): void {
   const milestone = flagValue(args, 'milestone');
   if (milestone !== null && !isSafeRefArgument(milestone)) throw new UsageError(`--milestone must be a version like v1.2, got ${milestone}`);
@@ -374,6 +397,7 @@ function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit }: RouteRe
     args,
     subcommands: [...REVIEW_SUBCOMMANDS],
     handlers: {
+      invocation: guarded(() => handleInvocation(args, raw)),
       stage: guarded(() => handleStage(args, cwd, raw, _clock, _execGit)),
       'window-prepass': guarded(() => handlePrepass(args, cwd, raw, _clock)),
       'window-compose': guarded(() => handleCompose(args, cwd, raw, _clock)),
