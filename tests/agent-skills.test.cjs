@@ -1795,7 +1795,10 @@ describe('bug #1243: plugin-namespaced agent skills', () => {
       'gsd-verifier',
       // ── mn fork agents: the architect and the reviewer load the project's
       // skills through project-skills-discovery to judge layer placement; the
-      // refuter declares Skill so it can invoke one while checking a finding.
+      // refuter declares Skill so it can invoke one while checking a finding;
+      // the arch surveyor reads the project's skills the same way when judging
+      // whether a seam is where the project says it belongs.
+      'gsd-arch-surveyor',
       'gsd-architect-reviewer',
       'gsd-finding-refuter',
       'gsd-system-architect',
