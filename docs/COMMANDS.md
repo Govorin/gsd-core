@@ -768,6 +768,7 @@ Show status, next steps, and automatically advance to the next logical workflow 
 | Reviewer flags | With `--converge`, pass through every reviewer lane flag: `--claude`, `--codex`, `--coderabbit`, `--opencode`, `--qwen`, `--cursor`, `--agy` / `--antigravity`, `--ollama`, `--lm-studio`, `--llama-cpp`, `--kimi-code`, `--all`, and `--max-cycles N` |
 | `--do "task description"` | Analyze freeform intent and dispatch to the most appropriate GSD command |
 | `--forensic` | Append a 6-check integrity audit after the standard report (STATE consistency, orphaned handoffs, deferred scope drift, memory-flagged pending work, blocking todos, uncommitted code) |
+| `--graph` | Append the roadmap phase graph and the current phase plan graph — mermaid documents built by `gsd-tools roadmap graph` / `plan graph` from ROADMAP and PLAN frontmatter, defects drawn in red. Off by default |
 
 > **Milestone name and version.** The milestone this report shows comes from one
 > implementation shared with `/gsd-stats`, `/gsd-manager` and `roadmap analyze`.
@@ -796,6 +797,7 @@ Status reporting is scoped to the current milestone's `ROADMAP.md` window and se
 /gsd-progress --next --auto --converge  # Hands-free run with plan-review convergence
 /gsd-progress --do "fix the auth bug"  # Dispatch freeform intent to best GSD command
 /gsd-progress --forensic            # Standard report + integrity audit
+/gsd-progress --graph               # Standard report + phase and plan graphs
 ```
 
 ### `/gsd-resume-work`

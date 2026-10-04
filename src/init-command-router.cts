@@ -263,8 +263,8 @@ function routeInitCommand({ init, args, cwd, raw, error }: RouteInitCommandOptio
       'milestone-op': () => init.cmdInitMilestoneOp(cwd, raw),
       'map-codebase': () => init.cmdInitMapCodebase(cwd, raw),
       progress: () => {
-        const namedArgs = parseNamedArgsOrExit(args, { booleanFlags: ['forensic'], positionals: 2 }, error);
-        init.cmdInitProgress(cwd, raw, { forensic: namedArgs['forensic'] });
+        const namedArgs = parseNamedArgsOrExit(args, { booleanFlags: ['forensic', 'graph'], positionals: 2 }, error);
+        init.cmdInitProgress(cwd, raw, { forensic: namedArgs['forensic'], graph: namedArgs['graph'] });
       },
       // Keep manager on CJS for now so runtime-specific command rendering
       // (e.g. $gsd-* for codex) stays consistent with runtime-slash helpers.

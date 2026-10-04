@@ -625,7 +625,9 @@ describe('frozen when= vocabulary', () => {
     // was removed (never consumed by any `when=` marker — `quick.md` folds
     // `--full` into `--discuss`/`--research`/`--validate` before evaluation),
     // and `state:needs-codebase-map` gained its first real consumer
-    // (`new-project.md`'s `codebase-map-offer` section). This is the row the
+    // (`new-project.md`'s `codebase-map-offer` section). A fork-local ADR-1671
+    // amendment then widened it 29 -> 30: `flag:--graph` (`progress.md`'s
+    // `graphs` section). This is the row the
     // lock exists to force — a deliberate, coordinated update, never a
     // silent drift (Greenspun's Tenth Rule / ADR-1671:69).
     assert.equal(Object.isFrozen(WHEN_VOCABULARY), true);
@@ -637,6 +639,7 @@ describe('frozen when= vocabulary', () => {
         'flag:--discuss',
         'flag:--fix',
         'flag:--forensic',
+        'flag:--graph',
         'flag:--ingest',
         'flag:--prd',
         'flag:--research',

@@ -469,12 +469,13 @@ describe('planningPaths exposes the debug directory (matrix §E)', () => {
 // ─── Group G: regressions this change must not cause ───────────────────────
 
 describe('init.debug does not widen the applicability grammar (matrix §G)', () => {
-  test('WHEN_VOCABULARY is unchanged at 29 entries (row G3)', () => {
+  test('WHEN_VOCABULARY carries no debug atom (row G3)', () => {
     // ADR-1671: the vocabulary is CLOSED and widening it is a coordinated
     // amendment. This PR delivers admission gate (2) only — the atom that
-    // consumes it belongs to #3128, which owns the amendment.
+    // consumes it belongs to #3128, which owns the amendment. 30 = #2994's
+    // 29 plus the fork's flag:--graph amendment (progress), not a debug atom.
     const { WHEN_VOCABULARY } = require('../gsd-core/bin/lib/workflow-fragments.cjs');
-    assert.equal(WHEN_VOCABULARY.length, 29);
+    assert.equal(WHEN_VOCABULARY.length, 30);
     assert.equal(WHEN_VOCABULARY.includes('flag:--diagnose'), false);
     assert.equal(WHEN_VOCABULARY.includes('flag:--runtime-probes'), false);
   });

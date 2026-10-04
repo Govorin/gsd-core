@@ -447,40 +447,110 @@ describe('#2912: progress report step has explicit context-authority directive',
   });
 }
 
-describe('phase 5.2: the progress report embeds the roadmap phase graph', () => {
+// Task 4.7 moved both graphs out of the report step into the `--graph`-gated
+// progress/steps/graphs.md section: a plain report neither draws nor loads them.
+const GRAPHS_STEP_PATH = path.join(__dirname, '..', 'gsd-core', 'workflows', 'progress', 'steps', 'graphs.md');
+
+describe('task 4.7: the graphs are shown only with --graph', () => {
+  const { beforeEach, afterEach } = require('node:test');
+  const { runGsdTools, createTempProject, cleanup } = require('./helpers.cjs');
+  const { parseWorkflowSections } = require('../gsd-core/bin/lib/workflow-fragments.cjs');
   const workflow = fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'workflows', 'progress.md'), 'utf-8');
   const reportStart = workflow.indexOf('<step name="report">');
   const report = workflow.slice(reportStart, workflow.indexOf('</step>', reportStart));
+
+  test('progress.md wires a graphs section gated on flag:--graph', () => {
+    const graphs = parseWorkflowSections(workflow).filter((s) => s.explicit && s.id === 'graphs');
+    assert.equal(graphs.length, 1, 'exactly one graphs section');
+    assert.equal(graphs[0].when, 'flag:--graph');
+  });
+
+  test('the default report step neither draws nor prints a graph', () => {
+    for (const token of ['gsd_run roadmap graph', 'gsd_run plan graph', '{ROADMAP_GRAPH}', '{PLAN_GRAPH}']) {
+      assert.ok(!report.includes(token), `report step must not carry ${token}`);
+    }
+  });
+
+  test('init_context forwards --graph to init.progress', () => {
+    const initStart = workflow.indexOf('<step name="init_context">');
+    const init = workflow.slice(initStart, workflow.indexOf('</step>', initStart));
+    assert.ok(init.includes('GRAPH_PARAM="--graph"'), 'the flag is detected in $ARGUMENTS');
+    assert.ok(/INIT=\$\(gsd_run query init\.progress [^)]{0,200}\$GRAPH_PARAM\)/.test(init), 'and passed to init.progress');
+  });
+
+  test('the command advertises --graph and passes it through', () => {
+    const command = fs.readFileSync(path.join(__dirname, '..', 'commands', 'gsd', 'progress.md'), 'utf8');
+    const hint = command.match(/^argument-hint: (.*)$/m);
+    assert.ok(hint && hint[1].includes('--graph'), 'argument-hint includes --graph');
+  });
+
+  describe('init.progress selects the graphs section from the flag', () => {
+    let project;
+    beforeEach(() => {
+      project = createTempProject('gsd-progress-graph-flag-');
+    });
+    afterEach(() => {
+      cleanup(project);
+    });
+
+    function manifest(args) {
+      const r = runGsdTools(['query', 'init.progress', ...args], project);
+      assert.equal(r.success, true, r.error);
+      const m = JSON.parse(r.output).section_manifest;
+      assert.ok(m !== null, 'the shipped section manifest loads');
+      return m;
+    }
+
+    test('no flag: graphs excluded, its step file not in read', () => {
+      const m = manifest([]);
+      assert.ok(m.excluded.includes('graphs'));
+      assert.ok(!m.read.some((p) => p.endsWith('progress/steps/graphs.md')));
+    });
+
+    test('--graph: graphs included and its step file read', () => {
+      const m = manifest(['--graph']);
+      assert.ok(m.included.includes('graphs'));
+      assert.ok(m.read.some((p) => p.endsWith('progress/steps/graphs.md')));
+    });
+
+    test('--graph with --forensic: both sections included, independently', () => {
+      const m = manifest(['--forensic', '--graph']);
+      assert.ok(m.included.includes('graphs') && m.included.includes('forensic-audit'));
+      assert.ok(manifest(['--forensic']).excluded.includes('graphs'));
+    });
+  });
+});
+
+describe('phase 5.2: the graphs step embeds the roadmap phase graph', () => {
+  const step = fs.readFileSync(GRAPHS_STEP_PATH, 'utf-8');
   const { ROADMAP_SUBCOMMANDS } = require('../gsd-core/bin/lib/command-aliases.cjs');
   const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
-  test('the report step calls a real roadmap subcommand for the graph, as a document (--raw), never writing a file', () => {
+  test('the graphs step calls a real roadmap subcommand for the graph, as a document (--raw), never writing a file', () => {
     const assignment = /^ROADMAP_GRAPH=\$\(gsd_run roadmap (\S{1,40})([^)]{0,200})\)/;
-    const call = splitLines(report).map((line) => line.match(assignment)).find((m) => m !== null);
-    assert.ok(call, 'report step assigns ROADMAP_GRAPH from gsd_run roadmap …');
+    const call = splitLines(step).map((line) => line.match(assignment)).find((m) => m !== null);
+    assert.ok(call, 'graphs step assigns ROADMAP_GRAPH from gsd_run roadmap …');
     assert.ok(ROADMAP_SUBCOMMANDS.includes(call[1]), `${call[1]} is a roadmap subcommand`);
     assert.ok(call[2].includes('--raw'), 'the document, not the JSON envelope');
     assert.ok(!call[2].includes('--out'), 'the graph is derived state: embedded, not saved under .planning/');
   });
 
-  test('the presented report prints the graph verbatim', () => {
-    assert.ok(report.includes('{ROADMAP_GRAPH}'), 'the template has a slot for the graph');
+  test('the presented section prints the graph verbatim', () => {
+    assert.ok(step.includes('{ROADMAP_GRAPH}'), 'the template has a slot for the graph');
   });
 });
 
-describe('phase 5.3a: the progress report embeds the current phase plan graph', () => {
+describe('phase 5.3a: the graphs step embeds the current phase plan graph', () => {
   const { beforeEach, afterEach } = require('node:test');
   const { runGsdTools, createTempProject, cleanup } = require('./helpers.cjs');
   const { PLAN_SUBCOMMANDS } = require('../gsd-core/bin/lib/plan-command-router.cjs');
   const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
-  const workflow = fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'workflows', 'progress.md'), 'utf-8');
-  const reportStart = workflow.indexOf('<step name="report">');
-  const report = workflow.slice(reportStart, workflow.indexOf('</step>', reportStart));
+  const report = fs.readFileSync(GRAPHS_STEP_PATH, 'utf-8');
 
-  test('the report step calls a real plan subcommand on the current phase directory, as a document (--raw), never writing a file', () => {
+  test('the graphs step calls a real plan subcommand on the current phase directory, as a document (--raw), never writing a file', () => {
     const assignment = /^\s*PLAN_GRAPH=\$\(gsd_run plan (\S{1,40})([^)]{0,200})\)/;
     const call = splitLines(report).map((line) => line.match(assignment)).find((m) => m !== null);
-    assert.ok(call, 'report step assigns PLAN_GRAPH from gsd_run plan …');
+    assert.ok(call, 'graphs step assigns PLAN_GRAPH from gsd_run plan …');
     assert.ok(PLAN_SUBCOMMANDS.includes(call[1]), `${call[1]} is a plan subcommand`);
     assert.ok(call[2].includes('--dir "$CURRENT_PHASE_DIR"'), 'the graph is drawn for the current phase');
     assert.ok(call[2].includes('--raw'), 'the document, not the JSON envelope');
@@ -491,7 +561,7 @@ describe('phase 5.3a: the progress report embeds the current phase plan graph', 
     );
   });
 
-  test('the presented report prints the plan graph verbatim, next to the phase graph', () => {
+  test('the presented section prints the plan graph verbatim, next to the phase graph', () => {
     const phaseGraph = report.indexOf('{ROADMAP_GRAPH}');
     const planGraph = report.indexOf('{PLAN_GRAPH}');
     assert.ok(planGraph !== -1, 'the template has a slot for the plan graph');

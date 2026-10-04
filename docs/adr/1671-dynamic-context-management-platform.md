@@ -251,6 +251,18 @@ Pure Agent Skills (A alone) and pure MCP (D alone) were rejected as the foundati
   *Open-questions numbering is corrected.* The list enumerates three questions, while two "Resolved
   by" blocks below resolve a "Question 4" that was never added to it. Question 4 — index keying,
   stable ids vs baked line numbers — is now listed explicitly.
+
+  **Amended in this fork (Phase 4, task 4.7) — the vocabulary widens 29 → 30.** *Shipped (1).*
+  `flag:--graph`, gating `progress.md`'s `graphs` section: the `roadmap graph` and `plan graph`
+  mermaid documents, which the report had embedded unconditionally since the fork's Phase 5. A
+  graph is a picture for the human; the routing that follows the report never reads it, so it is
+  shown on request, the way `--forensic` already gates the integrity audit. Both admission gates
+  hold: (1) the consuming section is a contiguous step file well over 400 bytes, and the default
+  report no longer loads it at all; (2) `cmdInitProgress` is already a dedicated entry point that
+  receives the flag (`init progress --graph`), so the fact is computed at a real call site. The
+  section's degraded path (`section_manifest` is `null`) falls back to the raw flag rather than to
+  inclusion, because inclusion-on-null would show the graphs by default — the opposite of the
+  decision.
 - **Budget unit:** bytes for emission caps (matches `lfByteCount`, deterministic, offline-safe); a token estimate for run-time selection.
 
   **Corrected by #2931 (Phase 4) — the Windsurf cap was never load-bearing.** The Context

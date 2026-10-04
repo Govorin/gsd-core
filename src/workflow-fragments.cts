@@ -105,8 +105,12 @@ import contextComposer = require('./context-composer.cjs');
  * #2994 slice (epic #1671 Phase 6.3) fragmentizing
  * `docs-update.md`, `update.md`, `transition.md`, and `new-milestone.md` —
  * every one of the 13 workflows targeted by ADR-1671 is now on the fragment
- * model. The vocabulary remains CLOSED: no operators, no negation, no nesting.
- * Cardinality is not expressiveness — a 29-entry flat list with no
+ * model. A fork-local ADR-1671 amendment then widened it from 29 to 30 with
+ * `flag:--graph` (`progress.md`'s `graphs` section — the roadmap and plan
+ * mermaid graphs, shown only on request; `cmdInitProgress` already owns a
+ * dedicated entry point, so the fact is computed, not invented). The
+ * vocabulary remains CLOSED: no operators, no negation, no nesting.
+ * Cardinality is not expressiveness — a 30-entry flat list with no
  * composition is still not a language.
  *
  * Held at 14, not wider: an atom whose fact is never computed always
@@ -214,6 +218,7 @@ export const WHEN_VOCABULARY: readonly string[] = Object.freeze([
   'flag:--discuss',
   'flag:--fix',
   'flag:--forensic',
+  'flag:--graph',
   'flag:--ingest',
   'flag:--prd',
   'flag:--research',
