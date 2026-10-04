@@ -3056,6 +3056,7 @@ describe('workflow call sites declare --files (#2269)', () => {
     // commands that shipped rather than an instruction to run one.
     const NOT_INSTRUCTION = new Map([
       ['CHANGELOG.md', 'generated from .changeset/ fragments; a historical record, not instruction'],
+      ['BACKLOG.md', "the fork owner's backlog; it describes what a test invokes, it is not instruction"],
     ]);
     const strays = uncoveredFiles(
       trackedMd, scanRoots, NOT_INSTRUCTION,
