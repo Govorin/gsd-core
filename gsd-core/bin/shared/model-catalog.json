@@ -167,6 +167,8 @@
     "gsd-assumptions-analyzer":   { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "discuss",      "routingTier": "heavy" },
     "gsd-code-fixer":             { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "execution",    "routingTier": "standard" },
     "gsd-code-reviewer":          { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
+    "gsd-standards-reviewer":     { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
+    "gsd-spec-reviewer":          { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
     "gsd-debug-session-manager":  { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "execution",    "routingTier": "heavy" },
     "gsd-doc-classifier":         { "golden": "sonnet", "balanced": "haiku",  "budget": "haiku",  "phaseType": "research",     "routingTier": "light" },
     "gsd-doc-synthesizer":        { "golden": "opus",   "balanced": "sonnet", "budget": "haiku",  "phaseType": "research",     "routingTier": "standard" },

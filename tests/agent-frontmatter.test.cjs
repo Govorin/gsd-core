@@ -269,6 +269,15 @@ describe('MODEL: no agent hardcodes a model frontmatter pin', () => {
     );
   });
 
+  test('every shipped agent has a model-catalog entry (no agent resolves as unknown_agent)', () => {
+    // An agent missing from the catalog resolves to the default model under every profile
+    // (`unknown_agent: true`), so `golden` never reaches it, and agent-install checks that
+    // enumerate the catalog never look for it — the window review lenses shipped that way.
+    const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'bin', 'shared', 'model-catalog.json'), 'utf-8'));
+    const missing = ALL_AGENTS.filter((agent) => !(catalog.agents && catalog.agents[agent]));
+    assert.deepEqual(missing, [], `agents without a model-catalog.json entry: ${missing.join(', ')}`);
+  });
+
   test('the curator keeps its catalog entry (deleting the pin must not orphan the agent)', () => {
     const catalog = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'bin', 'shared', 'model-catalog.json'), 'utf-8'));
     const entry = catalog.agents && catalog.agents['gsd-mempalace-curator'];
