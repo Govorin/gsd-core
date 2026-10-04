@@ -1174,10 +1174,13 @@ describe('bug #3683 — workflow/reference colon-namespace leak (Claude local in
     'ui-interaction-capture',   // <!-- gsd:ui-interaction-capture --> / <!-- /gsd:ui-interaction-capture -->
     'template-registry',        // fork (mn): <!-- gsd:template-registry --> / <!-- /gsd:template-registry --> (gen-template-registry region)
     'feature-vocabulary',       // fork (mn): <!-- gsd:feature-vocabulary --> / <!-- /gsd:feature-vocabulary --> region in ROADMAP.md (gen-feature-vocabulary)
+    'derived',                  // fork (phase 5): <!-- gsd:derived source=… --> marker of a generated document/diagram (mermaid.cts derivedMarker)
   ]);
   const BARE_MARKER_TOKENS = new Set([
     'guard',      // `# gsd:guard=orchestrator-cwd-drift`
     'dispatch',   // `[gsd:dispatch phase="…" plan="…"]`
+    'external',   // fork (phase 5.7): `%% gsd:external A, B` — mermaid comment directive read by `diagrams check`
+    'source',     // fork (phase 5.7): `%% gsd:source path#Symbol` — mermaid comment directive read by `diagrams check`
   ]);
   const IN_HTML_COMMENT = /<!--[^>]*gsd:/;
   // `<!-- gsd: no compact sibling … -->` — the compact-content disclosure

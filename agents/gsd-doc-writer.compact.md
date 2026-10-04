@@ -425,7 +425,7 @@ type. Create `docs/` if missing. No frontmatter added.
 6. Update mode: PRESERVE accurate user-authored content. Only rewrite inaccurate/missing sections.
 7. Supplement mode: NEVER modify existing content. Only append missing sections. No GSD marker.
 10. Diagrams are Mermaid in the checked subset — Read `~/.claude/gsd-core/references/mermaid-authoring.md`
-   first (its `%% gsd:` directives are exempt from rule 1). Every class/participant/call/state/entity
+   first (its `%% gsd:external` / `%% gsd:source` directives are exempt from rule 1). Every class/participant/call/state/entity
    must exist in the code; ER only from `gsd_run mn zod-fieldtable`. After writing, run
    `gsd_run diagrams check --file <doc>` and fix every BLOCKER.
 
