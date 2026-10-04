@@ -756,9 +756,9 @@ The prompt-level data/instruction isolation seam for untrusted web/document ingr
 `WORKTREE.SEAM.decision-1=retain non-destructive default; destructive path only as explicit future opt-in scaffold`
 
 `CONTENT-ROOT.SEAM.files=[src/project-root.cts]`
-`CONTENT-ROOT.SEAM.interface=[projectRoots(projectDir) -> {project, content}, resolveProjectContentPath(candidate, roots, policy?) -> ContainedPath|null]`
+`CONTENT-ROOT.SEAM.interface=[projectRoots(projectDir, git?: GitRunner) -> {project, content}, resolveProjectContentPath(candidate, roots, policy?) -> ContainedPath|null]`
 `CONTENT-ROOT.SEAM.rule=content = git --show-toplevel of the project, else the project; both realpath'd; recorded paths (gsd:source, zod-fieldtable source=) are relative to project and confined to content via tryWithinRoot`
-`CONTENT-ROOT.SEAM.consumers=[diagrams-check index + gsd:source + defaultRegenerator, gate-architecture-diagrams, mn zod-fieldtable --file/--json-schema]`
+`CONTENT-ROOT.SEAM.consumers=[diagrams-check index + gsd:source + defaultRegenerator, gate-architecture-diagrams, mn zod-fieldtable --file/--json-schema, mn assertion-baseline + mn-assertion-ratchet repository root]`
 `CONTENT-ROOT.SEAM.decision-1=one base (project) for writing and reading a recorded path, never a fallback between two bases — a path valid under both would be ambiguous`
 `CONTENT-ROOT.SEAM.test-anchors=[tests/project-root.test.cjs::one content boundary, tests/diagrams-check.test.cjs::monorepo sub-project: one content boundary|outside git: the boundary is the project]`
 
