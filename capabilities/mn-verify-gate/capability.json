@@ -394,11 +394,7 @@
     {
       "point": "ship:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/uat-open.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 90
-        }
+        "query": "mn-uat-open"
       },
       "when": "workflow.uat_enforce",
       "blocking": true,

@@ -4,7 +4,7 @@
  * Behavioural evals for the enforcement layer — the situations that actually
  * burned this author's projects, each with one verdict the harness must reach.
  *
- * Seam: the four hooks and the UAT gate, driven through their real decision
+ * Seam: the four hooks and the UAT gate (check mn-uat-open), driven through their real decision
  * surfaces, from a declarative case file (`tests/qa/enforcement-cases.json`).
  *
  * Why this exists next to the per-hook unit tests, which already pass:
@@ -35,7 +35,6 @@ const { describe, test, before, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
 const { createTempDir, cleanup } = require('./helpers.cjs');
 
 const HOOKS = path.join(__dirname, '..', 'hooks');
@@ -44,21 +43,9 @@ const tamper = require(path.join(HOOKS, 'gsd-test-tamper-guard.js'));
 const exitGate = require(path.join(HOOKS, 'gsd-exit-gate.js'));
 const worktree = require(path.join(HOOKS, 'gsd-worktree-provision.js'));
 
-const UAT_GATE = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'uat-open.mjs'
-);
-
-/**
- * Bounds one run of the UAT gate over a case fixture. Passed as `timeoutMs`:
- * the seam ignores a `timeout` key, so this bound used to be dead and the call
- * fell back to the seam's 60000ms default.
- */
-const UAT_GATE_TIMEOUT_MS = 90000;
+// The UAT gate is `check mn-uat-open` (src/gate-mn-uat-open.cts), evaluated in-process: its
+// verdict's `block` is the decision.
+const { evaluateMnUatOpen } = require('../gsd-core/bin/lib/gate-mn-uat-open.cjs');
 
 const CASES = JSON.parse(
   fs.readFileSync(path.join(__dirname, 'qa', 'enforcement-cases.json'), 'utf8')
@@ -189,9 +176,9 @@ const RUNNERS = {
           `### 1. Login works\nexpected: dashboard appears\nresult: ${testCase.uat}\n`
       );
     }
-    const result = runNode([UAT_GATE, '--dir', phaseDir], { timeoutMs: UAT_GATE_TIMEOUT_MS });
-    assert.equal(result.outcome, OUTCOME.EXITED, `${testCase.id}: the gate must exit cleanly`);
-    return result.exitCode === 0 ? 'allow' : 'block';
+    const verdict = evaluateMnUatOpen({ projectDir: dir, args: [phaseDir] });
+    assert.ok(!verdict.failure, `${testCase.id}: the gate must reach a verdict`);
+    return verdict.block ? 'block' : 'allow';
   },
 };
 
