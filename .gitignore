@@ -356,6 +356,8 @@ build/
 /gsd-core/bin/lib/plan-status.cjs
 /gsd-core/bin/lib/feature-vocabulary.cjs
 /gsd-core/bin/lib/feature-view.cjs
+/gsd-core/bin/lib/mn-command-router.cjs
+/gsd-core/bin/lib/mn-zod-fieldtable.cjs
 __pycache__/
 *.pyc
 .venv/

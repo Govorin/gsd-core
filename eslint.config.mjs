@@ -453,6 +453,9 @@ export default tseslint.config(
       // Phase 5 (05-01/05-03): tsc-generated runtime artifacts — lint the src/*.cts sources.
       'gsd-core/bin/lib/feature-vocabulary.cjs',
       'gsd-core/bin/lib/feature-view.cjs',
+      // 3.12 (mn-verify-gate tools → `gsd-tools mn`): tsc-generated — lint the src/mn-*.cts sources.
+      'gsd-core/bin/lib/mn-command-router.cjs',
+      'gsd-core/bin/lib/mn-zod-fieldtable.cjs',
     ],
   },
 

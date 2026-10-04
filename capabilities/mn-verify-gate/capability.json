@@ -19,6 +19,13 @@
   "agents": [
     "gsd-finding-refuter"
   ],
+  "commands": [
+    {
+      "family": "mn",
+      "module": "mn-command-router.cjs",
+      "router": "routeMnCommand"
+    }
+  ],
   "hooks": [],
   "config": {
     "workflow.verify_enforce": {
