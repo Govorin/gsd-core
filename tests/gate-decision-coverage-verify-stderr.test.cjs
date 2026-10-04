@@ -107,7 +107,8 @@ describe('decision-coverage-verify on a non-git project directory', () => {
       const child = spawnSync(
         process.execPath,
         ['-e', `require('node:child_process').execFileSync('git', ['log', '-n', '1'], { cwd: ${JSON.stringify(dir)}, encoding: 'utf-8' })`],
-        { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS, env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(dir)) } },
+        // The locale is pinned so git's message is the untranslated one the match names.
+        { encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS, env: { ...process.env, LC_ALL: 'C.UTF-8', LANGUAGE: '', GIT_CEILING_DIRECTORIES: path.dirname(fs.realpathSync(dir)) } },
       );
       assert.match(child.stderr, /not a git repository/i);
     } finally {
