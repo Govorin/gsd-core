@@ -331,6 +331,25 @@ describe('code-graph: size and exports', () => {
     assert.deepEqual(stats['src/assign.cts'], [2, 2]);
   });
 
+  test('exportedNames lists what an importer can bind: aliases, default, namespaces, CommonJS keys', () => {
+    const { lex } = require('../gsd-core/bin/lib/symbol-index.cjs');
+    const names = (text) => cg.exportedNames(lex(text, 'ts').code);
+    assert.deepEqual(names([
+      'export const a = 1;',
+      'export async function b() {}',
+      'export default class {}',
+      'export type T = string;',
+      'const x = 1, y = 2;',
+      'export { x, y as z, type T as U };',
+      "export * as ns from './m';",
+      "export * from './cjs';",
+      "// export const commented = 1;",
+      "const s = 'export const quoted = 1';",
+    ].join('\n')), ['U', 'a', 'b', 'default', 'ns', 'x', 'z', 'T'].sort());
+    assert.deepEqual(names("exports.one = 1;\nmodule.exports = { three, four: () => {}, ...rest, 'quoted': 1 };\n"), ['four', 'one', 'three']);
+    assert.deepEqual(names('module.exports = factory();\n'), ['default']);
+  });
+
   test('a file is lexed up to MAX_FILE_BYTES exactly: N-1 and N are scanned, N+1 is skipped', () => {
     const body = "import './t';\n";
     /** `body`, then one comment line padding the file to exactly `n` bytes. */
@@ -358,6 +377,18 @@ describe('code-graph: scope and determinism', () => {
 
   test('a scope path outside the root is refused', () => {
     assert.throws(() => cg.buildImportGraph(root, { paths: ['../elsewhere'] }), /outside the root/);
+  });
+
+  test('`readText` graphs another revision: listed files are read through it, null leaves a file unscanned', () => {
+    write(root, 'src/x.ts', 'export {};\n');
+    const texts = { 'src/a.ts': "import { gone } from './gone';\n", 'src/gone.ts': 'export const gone = 1;\n' };
+    const graph = cg.buildImportGraph(root, {
+      listFiles: () => ['src/a.ts', 'src/gone.ts', 'src/x.ts'],
+      readText: (rel) => (rel === 'src/a.ts' ? texts[rel] : null),
+    });
+    assert.deepEqual(graph.edges.map((e) => [e.from, e.to, e.names]), [['src/a.ts', 'src/gone.ts', ['gone']]]);
+    assert.deepEqual(graph.nodes.map((n) => [n.file, n.scanned]), [['src/a.ts', true], ['src/gone.ts', false]]);
+    assert.deepEqual(graph.skipped, []);
   });
 
   test('two builds of the same tree are equal', () => {

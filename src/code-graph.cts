@@ -166,6 +166,12 @@ export interface GraphOptions {
   aliases?: AliasConfig;
   /** File lister seam (tests); default `listProjectFiles`. */
   listFiles?: ListFiles;
+  /**
+   * Source reader: the text of a listed root-relative file, or null to leave it unscanned (and
+   * unreported). Default: the work tree. A caller graphing another revision passes the file set
+   * of that revision as `listFiles` and reads each file from it here (`git show <rev>:<file>`).
+   */
+  readText?: (rel: string) => string | null;
 }
 
 export interface ModuleStats {
@@ -519,7 +525,10 @@ export function importSites(text: string, lexed: Lexed = lex(text, 'ts')): Impor
 // ─── Exports and LOC ─────────────────────────────────────────────────────────
 
 const ESM_DECL_EXPORT_RE =
-  /(?<![\w$.])export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\s*\*?|class|const|let|var|interface|type(?!\s*\{)|enum|namespace|module)\s+[\w$]+/g;
+  /(?<![\w$.])export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function\s*\*?|class|const|let|var|interface|type(?!\s*\{)|enum|namespace|module)\s+([\w$]+)/g;
+const ESM_DEFAULT_EXPORT_RE = /(?<![\w$.])export\s+default\b/;
+const ESM_STAR_AS_EXPORT_RE = /(?<![\w$.])export\s+\*\s*as\s+([\w$]+)/g;
+const OBJECT_KEY_RE = /^\s*(?:async\s+)?\*?\s*([A-Za-z_$][\w$]*)/;
 const ESM_LIST_EXPORT_RE = /(?<![\w$.])export\s+(?:type\s+)?\{([^}]*)\}/g;
 const ESM_OTHER_EXPORT_RE = /(?<![\w$.])export\s+(?:default\b|\*)/g;
 const CJS_PROP_EXPORT_RE = /(?<![\w$.])(?:module\s*\.\s*)?exports\s*\.\s*([\w$]+)\s*=(?!=)/g;
@@ -565,6 +574,63 @@ export function countExports(code: string): number {
     n += code[at] === '{' ? objectEntries(code, at) : 1;
   }
   return n;
+}
+
+/** Top-level keys of the object literal opening at `open` (strings blanked, so a quoted key is skipped). */
+function objectKeys(code: string, open: number): string[] {
+  const keys: string[] = [];
+  let depth = 0;
+  let start = open + 1;
+  const take = (end: number): void => {
+    const segment = code.slice(start, end);
+    if (!segment.trimStart().startsWith('...')) {
+      const m = OBJECT_KEY_RE.exec(segment);
+      if (m !== null) keys.push(m[1]);
+    }
+  };
+  for (let i = open; i < code.length; i++) {
+    const c = code[i];
+    if (c === '{' || c === '(' || c === '[') {
+      depth++;
+    } else if (c === '}' || c === ')' || c === ']') {
+      depth--;
+      if (depth === 0) {
+        take(i);
+        break;
+      }
+    } else if (depth === 1 && c === ',') {
+      take(i);
+      start = i + 1;
+    }
+  }
+  return keys;
+}
+
+/**
+ * The names a lexed (strings-blanked) JS/TS text exports — what an importer's `names` can bind:
+ * declarations, `export { a as b }` (→ `b`), `export * as ns`, `export default` and `export =` /
+ * a non-object `module.exports =` (→ `default`), `exports.x =` and an object `module.exports`'s keys.
+ * A bare `export * from` re-exports names this text does not spell, so it adds none. Sorted, unique.
+ */
+export function exportedNames(code: string): string[] {
+  const names = new Set<string>();
+  for (const m of code.matchAll(ESM_DECL_EXPORT_RE)) names.add(m[1]);
+  if (ESM_DEFAULT_EXPORT_RE.test(code)) names.add('default');
+  for (const m of code.matchAll(ESM_STAR_AS_EXPORT_RE)) names.add(m[1]);
+  for (const m of code.matchAll(ESM_LIST_EXPORT_RE)) {
+    for (const part of m[1].split(',')) {
+      const words = part.trim().replace(/^type\s+/, '').split(/\s+as\s+/);
+      const exported = (words[1] ?? words[0]).trim();
+      if (/^[A-Za-z_$][\w$]*$/.test(exported)) names.add(exported);
+    }
+  }
+  for (const m of code.matchAll(CJS_PROP_EXPORT_RE)) names.add(m[1]);
+  for (const m of code.matchAll(CJS_OBJECT_EXPORT_RE)) {
+    const at = m.index + m[0].length;
+    if (code[at] === '{') for (const key of objectKeys(code, at)) names.add(key);
+    else names.add('default');
+  }
+  return [...names].sort();
 }
 
 function countLoc(withStrings: string): number {
@@ -736,17 +802,27 @@ export function buildImportGraph(root: string, opts: GraphOptions = {}): ImportG
 
   for (const rel of [...listed].sort()) {
     if (languageOf(rel) !== 'ts' || !inScope(rel, scope)) continue;
-    const abs = path.join(root, rel);
     let text: string;
-    try {
-      if (fs.statSync(abs).size > MAX_FILE_BYTES) {
+    if (opts.readText !== undefined) {
+      const read = opts.readText(rel);
+      if (read === null) continue;
+      if (Buffer.byteLength(read, 'utf-8') > MAX_FILE_BYTES) {
         skipped.push({ file: rel, reason: 'too_large' });
         continue;
       }
-      text = fs.readFileSync(abs, 'utf-8');
-    } catch {
-      if (fs.existsSync(abs)) skipped.push({ file: rel, reason: 'unreadable' });
-      continue; // listed by git but deleted in the work tree
+      text = read;
+    } else {
+      const abs = path.join(root, rel);
+      try {
+        if (fs.statSync(abs).size > MAX_FILE_BYTES) {
+          skipped.push({ file: rel, reason: 'too_large' });
+          continue;
+        }
+        text = fs.readFileSync(abs, 'utf-8');
+      } catch {
+        if (fs.existsSync(abs)) skipped.push({ file: rel, reason: 'unreadable' });
+        continue; // listed by git but deleted in the work tree
+      }
     }
     const lx = lex(text, 'ts');
     const externals = new Set<string>();
