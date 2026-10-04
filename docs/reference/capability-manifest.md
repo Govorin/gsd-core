@@ -144,7 +144,7 @@ for the authoring walkthrough.
 
 ## Valid `point` values
 
-The 12 loop extension points are a **closed, additive-only vocabulary**. Every `steps`, `contributions`, and `gates` entry must use one of these identifiers exactly.
+The 14 loop extension points — the 12 of the phase loop plus the two of the milestone boundary — are a **closed, additive-only vocabulary**. Every `steps`, `contributions`, and `gates` entry must use one of these identifiers exactly.
 
 A valid point is necessary but not sufficient: each host workflow decides, per point, which hook **kinds** its dispatch text handles, and a point may dispatch a subset. The registry build derives the real answer from the host workflows (`getWiredKinds()` in `scripts/gen-loop-host-contract.cjs`) and rejects a manifest declaring a kind the point does not dispatch — so an unsupported combination is a build-time error naming the point, the kind, and the kinds that point does cover. It is never a hook that renders and is then silently dropped.
 
@@ -164,6 +164,8 @@ A valid point is necessary but not sufficient: each host workflow decides, per p
 | `verify:post` | Verify | After the verify step completes |
 | `ship:pre` | Ship | Before the ship step executes |
 | `ship:post` | Ship | After the ship step completes |
+| `milestone:pre` | Milestone | In `complete-milestone`, once the milestone is confirmed ready and before anything is archived. A `ref.command` here runs with `--milestone <version>` instead of `--phase` |
+| `milestone:post` | Milestone | In `complete-milestone`, after the milestone is archived and tagged |
 
 ---
 

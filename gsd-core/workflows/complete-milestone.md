@@ -1,3 +1,10 @@
+<!-- gsd:loop-host
+step: milestone
+points: milestone:pre, milestone:post
+agent-roles: orchestrator
+produces: MILESTONES.md
+consumes: ROADMAP.md
+-->
 <purpose>
 
 Mark a shipped version (v1.0, v1.1, v2.0) as complete. Creates historical record in MILESTONES.md, performs full PROJECT.md evolution review, reorganizes ROADMAP.md with milestone groupings, and tags the release in git.
@@ -174,6 +181,18 @@ Wait for confirmation.
 - "wait": Stop, user returns when ready.
 
 </if>
+
+</step>
+
+<step name="milestone_pre_hooks">
+
+The milestone is confirmed ready and nothing is archived yet — the boundary where work accumulated over the whole milestone is looked at once (code-review's window stage runs here).
+
+```bash
+MILESTONE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks milestone:pre --raw)
+```
+
+Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). At milestone points a `ref.command` runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Steps are advisory: none blocks the close.
 
 </step>
 
@@ -648,6 +667,18 @@ git commit -m "chore: remove REQUIREMENTS.md for v[X.Y] milestone"
 ```
 
 Confirm: "Committed: chore: remove REQUIREMENTS.md for v[X.Y] milestone"
+
+</step>
+
+<step name="milestone_post_hooks">
+
+The milestone is archived and tagged. Capabilities that compare this milestone with the last one run here (architecture's metrics stage does).
+
+```bash
+MILESTONE_POST_HOOKS_JSON=$(gsd_run loop render-hooks milestone:post --raw)
+```
+
+Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none), with `--milestone "v[X.Y]"` for a `ref.command`. Advisory: a failure is a warning, never a reopened milestone.
 
 </step>
 

@@ -38,6 +38,8 @@ const POINT_ORDER = [
   'verify:post',
   'ship:pre',
   'ship:post',
+  'milestone:pre',
+  'milestone:post',
 ];
 
 // C1: Artifact availability — host-produced artifacts become available at their step's :post

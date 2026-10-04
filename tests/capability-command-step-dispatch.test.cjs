@@ -62,6 +62,8 @@ const POINT_WORKFLOW = {
   'verify:post': 'verify-work.md',
   'ship:pre': 'ship.md',
   'ship:post': 'ship.md',
+  'milestone:pre': 'complete-milestone.md',
+  'milestone:post': 'complete-milestone.md',
 };
 
 // ─── The dispatcher contract, read from the reference ────────────────────────

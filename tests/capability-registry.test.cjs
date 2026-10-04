@@ -1102,7 +1102,7 @@ describe('normalizeLineEndings', () => {
 // ─── 5. Registry shape from multiple capabilities ────────────────────────────
 
 describe('registry structure', () => {
-  test('byLoopPoint contains all 12 valid points', () => {
+  test('byLoopPoint contains all 14 valid points', () => {
     const capDir = makeTempCapDir({ ui: UI_CAP });
     const { capMap } = loadAndValidate(new Set(), capDir);
     const registry = buildRegistry(capMap);
@@ -1113,6 +1113,7 @@ describe('registry structure', () => {
       'execute:pre', 'execute:wave:pre', 'execute:wave:post', 'execute:post',
       'verify:pre', 'verify:post',
       'ship:pre', 'ship:post',
+      'milestone:pre', 'milestone:post',
     ];
     for (const point of expectedPoints) {
       assert.ok(
@@ -1189,13 +1190,14 @@ describe('#3778 — plan:pre contribution set feeding the quick.md planner dispa
     );
 
     const contract = buildContract();
-    assert.strictEqual(STEP_WORKFLOWS.length, 5, 'canonical step rows must stay at five');
-    assert.strictEqual(contract.length, 5, 'serialized contract must stay at five entries');
+    // Six step rows: the phase loop's five plus the milestone boundary (ADR-857 amendment).
+    assert.strictEqual(STEP_WORKFLOWS.length, 6, 'canonical step rows must stay at six');
+    assert.strictEqual(contract.length, 6, 'serialized contract must stay at six entries');
     assert.deepEqual(contract, LOOP_HOST_CONTRACT, 'auxiliary metadata must not be serialized');
 
     const points = contract.flatMap((entry) => entry.points);
-    assert.strictEqual(points.length, 12, 'serialized contract must stay at 12 points');
-    assert.strictEqual(new Set(points).size, 12, 'serialized lifecycle points must remain unique');
+    assert.strictEqual(points.length, 14, 'serialized contract must stay at 14 points');
+    assert.strictEqual(new Set(points).size, 14, 'serialized lifecycle points must remain unique');
   });
 });
 

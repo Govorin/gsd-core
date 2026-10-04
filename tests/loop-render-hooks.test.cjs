@@ -115,8 +115,8 @@ describe('canonical point validation', () => {
     }
   });
 
-  test('12 canonical points total', () => {
-    assert.strictEqual(CANONICAL_POINTS_FALLBACK.length, 12);
+  test('14 canonical points total', () => {
+    assert.strictEqual(CANONICAL_POINTS_FALLBACK.length, 14);
   });
 
   test('invalid point throws with a clear message', () => {
@@ -181,9 +181,9 @@ describe('canonical point validation', () => {
   });
 
   // CANONICAL_POINTS is derived from LOOP_HOST_CONTRACT, not from registry keys
-  test('CANONICAL_POINTS and CANONICAL_POINTS_FALLBACK are the same 12 points', () => {
+  test('CANONICAL_POINTS and CANONICAL_POINTS_FALLBACK are the same 14 points', () => {
     assert.deepEqual(CANONICAL_POINTS, CANONICAL_POINTS_FALLBACK);
-    assert.strictEqual(CANONICAL_POINTS.length, 12);
+    assert.strictEqual(CANONICAL_POINTS.length, 14);
   });
 });
 
