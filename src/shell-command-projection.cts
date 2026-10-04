@@ -682,14 +682,36 @@ function _spawnResult(result: { error?: NodeJS.ErrnoException | null; status?: n
   };
 }
 
+/**
+ * Locale pin for every git call made through `execGit`. Callers read git's
+ * human-readable text in places where git has no machine format — "nothing to
+ * commit", "not a git repository", the refusal a caller is shown — and under a
+ * translated locale (LANG=ru_RU.UTF-8) those strings arrive localized, so the
+ * match silently misses and the outcome is misclassified.
+ *
+ * `C.UTF-8` rather than `C`: git never transcodes paths or commit messages by
+ * locale (paths are raw bytes under `-z` and octal-quoted otherwise in both;
+ * log output follows i18n.logOutputEncoding), but hooks git runs (pre-commit)
+ * inherit this environment and must keep a UTF-8 codeset. Where `C.UTF-8` is
+ * not installed, setlocale() falls back to `C`, which is untranslated too.
+ * LANGUAGE is cleared because GNU gettext consults it ahead of LC_ALL whenever
+ * the locale is not literally `C`, and an empty value is ignored.
+ */
+export const GIT_STABLE_LOCALE_ENV: Readonly<Record<string, string>> = Object.freeze({
+  LC_ALL: 'C.UTF-8',
+  LANGUAGE: '',
+});
+
 export function execGit(args: string[], opts: { cwd?: string; env?: Record<string, string>; timeout?: number } = {}): SpawnResultOutput {
   // Non-interactive defaults: a hung credential prompt or terminal-input
-  // probe must surface as a timeout, not block the tool forever. Callers
-  // can override via opts.env.
+  // probe must surface as a timeout, not block the tool forever. The locale
+  // is pinned so the text callers match on is git's untranslated text.
+  // Callers can override any of these via opts.env.
   const env = {
     ...process.env,
     GIT_TERMINAL_PROMPT: '0',
     GCM_INTERACTIVE: 'never',
+    ...GIT_STABLE_LOCALE_ENV,
     ...(opts.env || {}),
   };
   const result = childProcess.spawnSync('git', args, {

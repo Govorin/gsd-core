@@ -1872,7 +1872,7 @@ describe('resolve-model command', () => {
 
 describe('commit command', () => {
   const { createTempGitProject } = require('./helpers.cjs');
-  const { gitOrThrow, throwIfFailed } = require('./helpers/git-fixture.cjs');
+  const { gitOrThrow, throwIfFailed, translatedGitLocale } = require('./helpers/git-fixture.cjs');
   const { runNode } = require('./helpers/process-seam.cjs');
   let tmpDir;
 
@@ -1916,6 +1916,20 @@ describe('commit command', () => {
   test('handles nothing to commit', () => {
     // Don't modify any files after initial commit
     const result = runGsdTools('commit "test message"', tmpDir);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.committed, false);
+    assert.strictEqual(output.reason, 'nothing_to_commit');
+  });
+
+  test('handles nothing to commit under a translated git locale', (t) => {
+    // git's own empty-commit refusal is matched as text; under LANG=ru_RU.UTF-8
+    // it arrived as "нечего коммитить" and was misreported as commit_failed
+    // until execGit pinned the locale it runs git under.
+    const locale = translatedGitLocale();
+    if (!locale.env) { t.skip(locale.reason); return; }
+    const result = runGsdTools('commit "test message"', tmpDir, locale.env);
     assert.ok(result.success, `Command failed: ${result.error}`);
 
     const output = JSON.parse(result.output);

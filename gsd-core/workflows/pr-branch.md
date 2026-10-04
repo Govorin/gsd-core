@@ -209,8 +209,8 @@ if [ -n "$REMOTE_SLUG" ]; then
          > /dev/null 2>&1; then
       SUB_TARGET="$TARGET"
     else
-      SUB_TARGET=$(git -C "$SUB_REPO_DIR" remote show origin 2>/dev/null \
-        | awk '/HEAD branch/ {print $NF}')
+      SUB_TARGET=$(git -C "$SUB_REPO_DIR" ls-remote --symref origin HEAD 2>/dev/null \
+        | awk '/^ref:/ {sub("refs/heads/", "", $2); print $2}')
       SUB_TARGET="${SUB_TARGET:-main}"
     fi
   fi

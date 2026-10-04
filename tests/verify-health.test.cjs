@@ -22,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const { runGsdTools, createTempProject, cleanup } = require('./helpers.cjs');
 const { VALID_PROFILES } = require('../gsd-core/bin/lib/model-catalog.cjs');
-const { gitOrThrow } = require('./helpers/git-fixture.cjs');
+const { gitOrThrow, translatedGitLocale } = require('./helpers/git-fixture.cjs');
 
 // ─── Helpers for setting up minimal valid projects ────────────────────────────
 
@@ -948,17 +948,21 @@ describe('validate health command', () => {
 
   // ─── Overall status ────────────────────────────────────────────────────────
 
-  test("returns 'healthy' when all checks pass", () => {
-    writeMinimalProjectMd(tmpDir);
-    writeMinimalRoadmap(tmpDir, ['1']);
-    writeMinimalStateMd(tmpDir, '# Session State\n\nPhase 1 in progress.\n');
-    writeValidConfigJson(tmpDir);
+  function writeHealthyProject(dir) {
+    writeMinimalProjectMd(dir);
+    writeMinimalRoadmap(dir, ['1']);
+    writeMinimalStateMd(dir, '# Session State\n\nPhase 1 in progress.\n');
+    writeValidConfigJson(dir);
     // Create valid phase dir matching ROADMAP
-    const phaseDir = path.join(tmpDir, '.planning', 'phases', '01-a');
+    const phaseDir = path.join(dir, '.planning', 'phases', '01-a');
     fs.mkdirSync(phaseDir, { recursive: true });
     // Add PLAN+SUMMARY so no I001
     fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
     fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), '# Summary\n');
+  }
+
+  test("returns 'healthy' when all checks pass", () => {
+    writeHealthyProject(tmpDir);
 
     const result = runGsdTools('validate health', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
@@ -966,6 +970,22 @@ describe('validate health command', () => {
     const output = JSON.parse(result.output);
     assert.strictEqual(output.status, 'healthy', `Expected healthy, got ${output.status}. Errors: ${JSON.stringify(output.errors)}, Warnings: ${JSON.stringify(output.warnings)}`);
     assert.deepStrictEqual(output.errors, [], 'should have no errors');
+    assert.deepStrictEqual(output.warnings, [], 'should have no warnings');
+  });
+
+  test("returns 'healthy' for a non-git project under a translated git locale", (t) => {
+    // `git worktree list` outside a repository is classified not_a_git_repo by
+    // matching git's "not a git repository"; translated, it fell through to
+    // git_list_failed and raised W020 until execGit pinned git's locale.
+    const locale = translatedGitLocale();
+    if (!locale.env) { t.skip(locale.reason); return; }
+    writeHealthyProject(tmpDir);
+
+    const result = runGsdTools('validate health', tmpDir, locale.env);
+    assert.ok(result.success, `Command failed: ${result.error}`);
+
+    const output = JSON.parse(result.output);
+    assert.strictEqual(output.status, 'healthy', `Warnings: ${JSON.stringify(output.warnings)}`);
     assert.deepStrictEqual(output.warnings, [], 'should have no warnings');
   });
 

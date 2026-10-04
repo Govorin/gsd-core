@@ -30,7 +30,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { runHook: runHookSeam } = require('./helpers/process-seam.cjs');
-const { throwIfFailed } = require('./helpers/git-fixture.cjs');
+const { gitOrThrow, throwIfFailed } = require('./helpers/git-fixture.cjs');
 const { cleanup, TEST_ENV_BASE } = require('./helpers.cjs');
 const { escapeRegex } = require('../gsd-core/bin/lib/pattern.cjs');
 
@@ -776,6 +776,9 @@ describe('runtime-launcher-parity (#373)', () => {
     const { createTempGitProject, cleanup: cleanupDir } = require('./helpers.cjs');
     const project = createTempGitProject('gsd-4834-k2-');
     const projectControl = createTempGitProject('gsd-4834-k2c-');
+    // The fixture's `git init` names the branch after the developer's
+    // init.defaultBranch (often `main`); this scenario needs `master`.
+    for (const dir of [project, projectControl]) gitOrThrow(['branch', '-M', 'master'], { cwd: dir });
     const fakeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4834-k2-home-'));
     const foreignBin = writeForeignGsdRun(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4834-k2-path-')));
     const fakeRuntime = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4834-k2-rt-'));

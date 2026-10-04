@@ -947,7 +947,9 @@ describe('#4767: step 0c <automated> guard executes against a real worktree', { 
     // CONTROL: reproduce the exact real-world failure. With PS1 truly unset and the startup file
     // sourced under -u, the guard idiom itself must error — proves the failure mode is real on
     // this platform's bash, not hypothetical, before trusting the row below.
-    const controlEnv = { ...process.env, BASH_ENV: rcFile };
+    // The locale is pinned: bash translates its own diagnostics, and the match below names the
+    // untranslated one.
+    const controlEnv = { ...process.env, BASH_ENV: rcFile, LC_ALL: 'C.UTF-8', LANGUAGE: '' };
     delete controlEnv.PS1;
     const unfiltered = spawnSync('bash', ['-eu', '-c', guard], {
       cwd: wt,

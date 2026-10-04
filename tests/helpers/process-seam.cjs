@@ -199,12 +199,36 @@ function runNode(args, options = {}) {
 }
 
 /**
+ * Locale pin for `runGit`, mirroring execGit's GIT_STABLE_LOCALE_ENV in
+ * src/shell-command-projection.cts: a test that reads git's text must read
+ * the untranslated text whatever LANG the developer runs under.
+ */
+const GIT_STABLE_LOCALE_ENV = Object.freeze({ LC_ALL: 'C.UTF-8', LANGUAGE: '' });
+
+/**
+ * The env `runGit` spawns with: the caller's env (or the inherited one) with
+ * the locale pinned. A caller whose `options.env` sets LC_ALL or LANGUAGE to
+ * something other than the inherited value keeps it — that is how a test asks
+ * for translated output on purpose. (A `{ ...process.env, ... }` spread merely
+ * carries the developer's own locale along, which is what the pin replaces.)
+ */
+function gitSeamEnv(env) {
+  const pinned = { ...(env ?? process.env), ...GIT_STABLE_LOCALE_ENV };
+  if (env) {
+    for (const key of Object.keys(GIT_STABLE_LOCALE_ENV)) {
+      if (Object.hasOwn(env, key) && env[key] !== process.env[key]) pinned[key] = env[key];
+    }
+  }
+  return pinned;
+}
+
+/**
  * Run `git`.
  * @param {string[]} args - argv passed to git.
- * @param {object} [options] - see spawnSeam.
+ * @param {object} [options] - see spawnSeam; `env` is passed through gitSeamEnv.
  */
 function runGit(args, options = {}) {
-  return spawnSeam('git', args, options);
+  return spawnSeam('git', args, { ...options, env: gitSeamEnv(options.env) });
 }
 
 const GIT_BASH_NOT_FOUND =
