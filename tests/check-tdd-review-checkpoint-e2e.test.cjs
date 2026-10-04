@@ -165,6 +165,10 @@ function runTools(args, cwd) {
 
 describe('execute:post render-hooks — typed envelope resolution', () => {
   let tmpDir;
+  // execute:post also carries retro's lifecycle stage (`retro stage`, retro.enabled, on by
+  // default — pinned in loop-hooks-empty-points-e2e). These cases pin the code-review/tdd
+  // pair, so every config switches retro off to keep their exact counts about that pair.
+  const RETRO_OFF = { retro: { enabled: false } };
 
   afterEach(() => { if (tmpDir) { cleanup(tmpDir); tmpDir = null; } });
 
@@ -173,7 +177,7 @@ describe('execute:post render-hooks — typed envelope resolution', () => {
     fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ workflow: { code_review: true, tdd_mode: true } }),
+      JSON.stringify({ ...RETRO_OFF, workflow: { code_review: true, tdd_mode: true } }),
       'utf8'
     );
 
@@ -207,7 +211,7 @@ describe('execute:post render-hooks — typed envelope resolution', () => {
     fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ workflow: { code_review: false, tdd_mode: false } }),
+      JSON.stringify({ ...RETRO_OFF, workflow: { code_review: false, tdd_mode: false } }),
       'utf8'
     );
 
@@ -229,7 +233,7 @@ describe('execute:post render-hooks — typed envelope resolution', () => {
     fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ workflow: { tdd_mode: false } }),
+      JSON.stringify({ ...RETRO_OFF, workflow: { tdd_mode: false } }),
       'utf8'
     );
 
@@ -251,7 +255,7 @@ describe('execute:post render-hooks — typed envelope resolution', () => {
     fs.mkdirSync(path.join(tmpDir, '.planning'), { recursive: true });
     fs.writeFileSync(
       path.join(tmpDir, '.planning', 'config.json'),
-      JSON.stringify({ workflow: { code_review: true, tdd_mode: true } }),
+      JSON.stringify({ ...RETRO_OFF, workflow: { code_review: true, tdd_mode: true } }),
       'utf8'
     );
 
