@@ -1,0 +1,25 @@
+variants: A, B, C; failed runs: 0
+variant | runs | recall | 95% CI | precision | FP (all/control runs) | neutral (dup+companion) | noise | $/run | out tok/run | s/run
+A | 32 | 80.6% | [65.3%, 93.1%] | 87.9% | 8/8 | 4 | 10 | 0.0741 | 9486 | 74.7
+B | 32 | 76.4% | [58.3%, 91.7%] | 90.2% | 6/6 | 7 | 6 | 0.0734 | 9173 | 70.8
+C | 32 | 80.6% | [68.1%, 91.7%] | 93.5% | 4/4 | 13 | 8 | 0.0795 | 10286 | 84.0
+diff B-A: 95% CI [-11.1%, 4.2%]
+diff C-A: 95% CI [-12.5%, 12.5%]
+category flagged: A 34/36  B 36/36  C 36/36  B-A [0.0%, 16.7%]  C-A [0.0%, 16.7%]
+category visible: A 3/12  B 1/12  C 7/12  B-A [-25.0%, 0.0%]  C-A [25.0%, 50.0%]
+category text: A 21/24  B 18/24  C 15/24  B-A [-20.8%, -4.2%]  C-A [-41.7%, -8.3%]
+class cycle: A 12/12  B 12/12  C 12/12
+class missing: A 12/12  B 12/12  C 12/12
+class wave: A 10/12  B 12/12  C 12/12
+class status: A 3/12  B 1/12  C 7/12
+class undeclared: A 10/12  B 8/12  C 5/12
+class file_conflict: A 11/12  B 10/12  C 10/12
+per-defect B vs A (all): better 1, worse 5, same 12; sign test p=0.219
+per-defect B vs A (flagged): better 1, worse 0, same 8; sign test p=1.000
+per-defect B vs A (visible): better 0, worse 2, same 1; sign test p=0.500
+per-defect B vs A (text): better 0, worse 3, same 3; sign test p=0.250
+per-defect C vs A (all): better 4, worse 4, same 10; sign test p=1.000
+per-defect C vs A (flagged): better 1, worse 0, same 8; sign test p=1.000
+per-defect C vs A (visible): better 3, worse 0, same 0; sign test p=0.250
+per-defect C vs A (text): better 0, worse 4, same 2; sign test p=0.125
+unadjudicated unmatched structural findings: 0
