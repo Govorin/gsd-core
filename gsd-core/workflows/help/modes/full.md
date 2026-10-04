@@ -290,7 +290,7 @@ Usage: `/gsd:complete-milestone 1.0.0`
 
 ### Progress Tracking
 
-**`/gsd:progress [--next | --forensic | --do "<description>"]`**
+**`/gsd:progress [--next | --forensic | --graph | --do "<description>"]`**
 Check project status and intelligently route to next action.
 
 - Shows visual progress bar and completion percentage
@@ -306,6 +306,7 @@ Modes:
 - **`--next --auto`** — like `--next`, but chains steps automatically until milestone completion or a blocking decision
 - **`--next --converge`** — when the next action is planning, route it through `/gsd:plan-review-convergence` instead of `/gsd:plan-phase`; requires `workflow.plan_review_convergence=true`. `--cross-ai` is an alias. Reviewer flags (`--codex`, `--claude`, `--opencode`, `--ollama`, `--lm-studio`, `--llama-cpp`, `--all`) and `--max-cycles N` forward to the convergence loop.
 - **`--forensic`** — append a 6-check integrity audit after the progress report
+- **`--graph`** — append the roadmap phase graph and the current phase's plan graph (mermaid, defects listed under each); a plain report draws neither
 - **`--do "<text>"`** — smart router: dispatch freeform intent to the matching `/gsd-*` command (see *Smart Router* above)
 
 Usage: `/gsd:progress`
@@ -313,6 +314,7 @@ Usage: `/gsd:progress --next`
 Usage: `/gsd:progress --next --auto`
 Usage: `/gsd:progress --next --auto --converge`
 Usage: `/gsd:progress --forensic`
+Usage: `/gsd:progress --graph`
 
 ### Session Management
 

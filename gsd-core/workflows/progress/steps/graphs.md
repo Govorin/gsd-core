@@ -9,7 +9,8 @@ _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-pars
 ROADMAP_GRAPH=$(gsd_run roadmap graph --raw 2>/dev/null || echo '')
 # Current phase's plans by wave / depends_on (defects listed under it); none without a current phase.
 # A fresh shell: init_context's $INIT is gone, so read the current phase again.
-INIT=$(gsd_run query init.progress 2>/dev/null || echo '{}')
+GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+INIT=$(gsd_run query init.progress ${GSD_WS:+--ws=${GSD_WS##* }} 2>/dev/null || echo '{}')
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 CURRENT_PHASE_DIR=$(printf '%s' "$INIT" | jq -r '.current_phase.directory // empty' 2>/dev/null)
 PLAN_GRAPH=''
