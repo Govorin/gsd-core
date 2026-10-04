@@ -1,55 +1,47 @@
 'use strict';
 
 /**
- * assertion-ratchet.mjs — a ratchet on the number of live assertions.
+ * The assertion ratchet — `gsd_run check mn-assertion-ratchet` (src/gate-mn-assertion-ratchet.cts)
+ * over the shared counter src/mn-assertion-count.cts. Replaces scripts/assertion-ratchet.mjs.
  *
- * It catches a failure nothing else does: a test that stops failing because the
- * assertion was removed from it. Deleting an assert makes the suite greener, and
- * no green run reports it. Coverage stays silent too — the line still executes,
- * its result is simply no longer checked.
+ * It catches a failure nothing else does: a test that stops failing because the assertion was
+ * removed from it. Deleting an assert makes the suite greener, and no green run reports it.
  *
- * The invariant is one-directional by design. A drop is allowed, but only when
- * declared: refactoring tests and merging duplicates legitimately reduce the
- * count. What the ratchet forbids is an UNDECLARED drop.
- *
- * The gate runs on the live project and had no tests. These pin the ratchet's
- * direction, its two exit codes, and the first-run behaviour — a fresh baseline
- * must be created rather than treated as a violation, or the gate would block
- * the first phase that ever ran it.
+ * The invariant is one-directional by design. A drop is allowed, but only when declared — the
+ * baseline is re-recorded. The gate itself NEVER writes: the script created the baseline on its
+ * first run, which let a gate be satisfied by deleting the file it judges against. Recording is
+ * the baseline tool's job — `gsd_run mn assertion-baseline [--update]`, a CLI owned by the `mn`
+ * tool family (agent 3.12B). Its write path is pinned here through the counter module's exported
+ * `writeAssertionBaseline`, which that tool reuses.
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
-const { runNode } = require('./helpers/process-seam.cjs');
+
 const { cleanup } = require('./helpers.cjs');
+const { createMnProject, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
+const { evaluateMnAssertionRatchet } = require('../gsd-core/bin/lib/gate-mn-assertion-ratchet.cjs');
+const {
+  assertionBaselinePath,
+  countAssertions,
+  measureAssertions,
+  readAssertionBaseline,
+  writeAssertionBaseline,
+  compareAssertionCounts,
+} = require('../gsd-core/bin/lib/mn-assertion-count.cjs');
 
-const SCRIPT = path.join(
-  __dirname,
-  '..',
-  'capabilities',
-  'mn-verify-gate',
-  'scripts',
-  'assertion-ratchet.mjs',
-);
+const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
-/** Bounds one run of the gate script against a small temp fixture. */
-const RUN_TIMEOUT_MS = 60000;
-
-const HELD = 0;
-const DROPPED = 1;
-
-describe('assertion-ratchet gate', () => {
+describe('assertion ratchet', () => {
   let repo;
-  let baseline;
+  /** Not a git work tree: the counter falls back to the project directory as the repository root. */
+  const deps = { gitTopLevel: () => null };
 
   beforeEach(() => {
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-assertion-ratchet-'));
-    fs.mkdirSync(path.join(repo, '.planning'), { recursive: true });
+    repo = createMnProject('gsd-mn-assertion-ratchet-');
     fs.mkdirSync(path.join(repo, 'libs'), { recursive: true });
-    baseline = path.join(repo, '.planning', 'assertion-baseline.json');
   });
 
   afterEach(() => {
@@ -57,102 +49,193 @@ describe('assertion-ratchet gate', () => {
   });
 
   /** Write a spec carrying a known number of assertions. */
-  function writeSpec(name, assertionCount) {
-    const body = Array.from(
-      { length: assertionCount },
-      (_, i) => `  expect(value${i}).toBe(${i});`,
-    ).join('\n');
-    fs.writeFileSync(
-      path.join(repo, 'libs', name),
-      `describe('suite', () => {\n  it('checks things', () => {\n${body}\n  });\n});\n`,
-    );
+  function writeSpec(name, assertionCount, extra = '') {
+    const body = Array.from({ length: assertionCount }, (_, i) => `  expect(value${i}).toBe(${i});`).join('\n');
+    fs.writeFileSync(path.join(repo, 'libs', name), `describe('suite', () => {\n  it('checks things', () => {\n${body}\n  });\n${extra}});\n`);
   }
 
-  function run(extra = []) {
-    return runNode([SCRIPT, '--baseline', baseline, '--paths', 'libs', ...extra], {
-      cwd: repo,
-      timeoutMs: RUN_TIMEOUT_MS,
-    });
+  /** What `mn assertion-baseline --update` records: measure, then write. */
+  function recordBaseline() {
+    const written = writeAssertionBaseline(assertionBaselinePath(repo), measureAssertions(repo, { deps }).count);
+    assert.equal(written.ok, true, JSON.stringify(written));
+    return written.baseline;
   }
 
-  test('creates the baseline on first run instead of failing', () => {
-    // Without this the gate would block the very first phase to enable it —
-    // a gate that fails on day one gets switched off on day one.
+  const gate = () => evaluateMnAssertionRatchet({ projectDir: repo, args: [] }, deps).payload;
+
+  // ── the gate ──────────────────────────────────────────────────────────────
+
+  test('with no baseline the gate is unresolvable and names how to record one', () => {
+    // A read-only gate cannot establish its own floor; blocking says so instead of passing blind.
     writeSpec('a.spec.ts', 5);
-
-    const r = run();
-    assert.equal(r.exitCode, HELD, `a first run must establish the baseline: ${r.stderr}`);
-    assert.ok(fs.existsSync(baseline), 'the baseline file must be written');
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'unresolvable');
+    assert.equal(v.baselineProblem, 'missing');
+    assert.equal(fs.existsSync(assertionBaselinePath(repo)), false, 'the gate must never write the baseline');
   });
 
   test('holds when the assertion count is unchanged', () => {
     writeSpec('a.spec.ts', 5);
-    run(); // establish
-
-    const r = run();
-    assert.equal(r.exitCode, HELD, `an unchanged count must pass: ${r.stderr}`);
+    recordBaseline();
+    const v = gate();
+    assert.equal(v.block, false);
+    assert.equal(v.assertionDelta, 0);
   });
 
   test('holds when assertions are added', () => {
     // The ratchet is one-directional: growth is always fine.
     writeSpec('a.spec.ts', 5);
-    run();
-
+    recordBaseline();
     writeSpec('a.spec.ts', 9);
-    const r = run();
-    assert.equal(r.exitCode, HELD, `adding assertions must never block: ${r.stderr}`);
+    const v = gate();
+    assert.equal(v.block, false);
+    assert.equal(v.assertionDelta, 4);
   });
 
-  test('blocks when assertions disappear without a record', () => {
-    // The defect: a test that no longer checks anything, in a suite that is
-    // still green.
+  test('blocks when one assertion disappears — the smallest drop', () => {
     writeSpec('a.spec.ts', 8);
-    run();
+    recordBaseline();
+    writeSpec('a.spec.ts', 7);
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.equal(v.status, 'finding');
+    assert.deepEqual([v.baseline.assertions, v.current.assertions, v.assertionDelta], [8, 7, -1]);
+  });
 
-    writeSpec('a.spec.ts', 3);
-    const r = run();
-    assert.equal(r.exitCode, DROPPED, `an undeclared drop must block: ${r.stdout}`);
-    const output = `${r.stdout}${r.stderr}`;
+  test('blocks when assertions disappear without a record, reporting both counts', () => {
     // The numbers must appear, or the reader cannot tell a refactor from a gutting.
-    assert.match(output, /8/, `the previous count must be reported: ${output}`);
-    assert.match(output, /3/, `the current count must be reported: ${output}`);
+    writeSpec('a.spec.ts', 8);
+    recordBaseline();
+    writeSpec('a.spec.ts', 3);
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.deepEqual([v.baseline.assertions, v.current.assertions], [8, 3]);
   });
 
   test('blocks when a whole spec file is deleted', () => {
-    // Deleting the file is the same failure as emptying it, and is easier to do
-    // by accident during a refactor.
     writeSpec('a.spec.ts', 4);
     writeSpec('b.spec.ts', 4);
-    run();
-
+    recordBaseline();
     fs.unlinkSync(path.join(repo, 'libs', 'b.spec.ts'));
-    const r = run();
-    assert.equal(r.exitCode, DROPPED, `losing a spec file must block: ${r.stdout}`);
+    assert.equal(gate().block, true);
   });
 
-  test('--update records the new count so an intended drop can proceed', () => {
-    // The escape hatch that keeps the gate honest: a legitimate refactor is
-    // declared, not silently tolerated.
-    writeSpec('a.spec.ts', 8);
-    run();
-
-    writeSpec('a.spec.ts', 3);
-    const updated = run(['--update']);
-    assert.equal(updated.exitCode, HELD, `--update must accept the new count: ${updated.stderr}`);
-
-    const after = run();
-    assert.equal(after.exitCode, HELD, 'the recorded count becomes the new floor');
+  test('blocks when a test is newly skipped, even with the assertion count intact', () => {
+    // `it.skip` neither fails nor checks — the quiet equivalent of deletion.
+    writeSpec('a.spec.ts', 4);
+    recordBaseline();
+    writeSpec('a.spec.ts', 4, "  it.skip('later', () => {});\n");
+    const v = gate();
+    assert.equal(v.block, true);
+    assert.equal(v.skippedDelta, 1);
   });
 
-  test('counts assertions across several files', () => {
+  test('counts assertions across several files — the total, not per file', () => {
     writeSpec('a.spec.ts', 3);
     writeSpec('b.spec.ts', 4);
-    run();
-
-    // Removing from one file while adding more to another must net out as growth.
+    recordBaseline();
     writeSpec('a.spec.ts', 1);
     writeSpec('b.spec.ts', 9);
-    const r = run();
-    assert.equal(r.exitCode, HELD, `the ratchet compares the total, not per file: ${r.stdout}`);
+    assert.equal(gate().block, false);
+  });
+
+  test('a re-recorded baseline lets an intended drop proceed', () => {
+    // The escape hatch that keeps the gate honest: a legitimate refactor is declared, not tolerated.
+    writeSpec('a.spec.ts', 8);
+    recordBaseline();
+    writeSpec('a.spec.ts', 3);
+    assert.equal(gate().block, true);
+    recordBaseline();
+    assert.equal(gate().block, false, 'the recorded count becomes the new floor');
+  });
+
+  test('zero spec files is unresolvable, not a pass', () => {
+    writeSpec('a.spec.ts', 3);
+    recordBaseline();
+    cleanup(path.join(repo, 'libs'));
+    const v = gate();
+    assert.equal(v.status, 'unresolvable');
+  });
+
+  test('a malformed baseline is unresolvable', () => {
+    writeSpec('a.spec.ts', 3);
+    fs.writeFileSync(assertionBaselinePath(repo), '{ not json');
+    assert.equal(gate().baselineProblem, 'malformed');
+    fs.writeFileSync(assertionBaselinePath(repo), JSON.stringify({ assertions: -1, skipped: 0 }));
+    assert.equal(gate().baselineProblem, 'malformed');
+  });
+
+  test('spec roots are anchored at the repository root, not the project directory', () => {
+    // GSD may run from a sub-project while the monorepo's specs live above it.
+    const project = path.join(repo, 'apps', 'rpg');
+    fs.mkdirSync(path.join(project, '.planning'), { recursive: true });
+    writeSpec('a.spec.ts', 2);
+    const measured = measureAssertions(project, { deps: { gitTopLevel: () => repo } });
+    assert.equal(measured.repoRoot, repo);
+    assert.equal(measured.count.assertions, 2);
+    assert.equal(assertionBaselinePath(project), path.join(project, '.planning', 'assertion-baseline.json'));
+  });
+
+  test('the phase the dispatcher appends is ignored', () => {
+    writeSpec('a.spec.ts', 2);
+    recordBaseline();
+    const v = evaluateMnAssertionRatchet({ projectDir: repo, args: ['.planning/phases/09-x', 'REQ-1'] }, deps).payload;
+    assert.equal(v.block, false);
+  });
+
+  // ── the counter and the write path the baseline tool reuses ───────────────
+
+  test('countAssertions counts every assertion shape and prunes vendored trees', () => {
+    fs.writeFileSync(
+      path.join(repo, 'libs', 'shapes.spec.ts'),
+      "expect(a).toBe(1);\nassert(b);\nassert.equal(c, 1);\nexpect(() => f()).toThrow();\nx.should.equal(1);\nxit('a');\ndescribe.todo('b');\n",
+    );
+    fs.mkdirSync(path.join(repo, 'libs', 'node_modules'), { recursive: true });
+    fs.writeFileSync(path.join(repo, 'libs', 'node_modules', 'vendored.spec.ts'), 'expect(1);\n');
+    fs.writeFileSync(path.join(repo, 'libs', 'not-a-spec.ts'), 'expect(1);\n');
+    assert.deepEqual(countAssertions([path.join(repo, 'libs')]), { assertions: 6, skipped: 2, files: 1 });
+  });
+
+  test('writeAssertionBaseline records the count with a timestamp, and readAssertionBaseline reads it back', () => {
+    const file = assertionBaselinePath(repo);
+    const now = () => new Date('2026-10-04T00:00:00.000Z');
+    const written = writeAssertionBaseline(file, { assertions: 5, skipped: 1, files: 2 }, now);
+    assert.equal(written.ok, true);
+    const read = readAssertionBaseline(file);
+    assert.deepEqual(read, { ok: true, baseline: { assertions: 5, skipped: 1, files: 2, updated: '2026-10-04T00:00:00.000Z' } });
+  });
+
+  test('writeAssertionBaseline refuses a zero-spec count — a zeroed ratchet never fires again', () => {
+    const file = assertionBaselinePath(repo);
+    const written = writeAssertionBaseline(file, { assertions: 0, skipped: 0, files: 0 });
+    assert.equal(written.ok, false);
+    assert.equal(written.reason, 'no_specs');
+    assert.equal(fs.existsSync(file), false);
+  });
+
+  test('compareAssertionCounts: equal, -1 and +1 at both metrics', () => {
+    const base = { assertions: 10, skipped: 2, files: 1 };
+    assert.deepEqual(compareAssertionCounts(base, { assertions: 10, skipped: 2, files: 1 }).problems, []);
+    assert.equal(compareAssertionCounts(base, { assertions: 9, skipped: 2, files: 1 }).problems.length, 1);
+    assert.deepEqual(compareAssertionCounts(base, { assertions: 11, skipped: 2, files: 1 }).problems, []);
+    assert.deepEqual(compareAssertionCounts(base, { assertions: 10, skipped: 1, files: 1 }).problems, []);
+    assert.equal(compareAssertionCounts(base, { assertions: 10, skipped: 3, files: 1 }).problems.length, 1);
+  });
+
+  // ── wiring ────────────────────────────────────────────────────────────────
+
+  test('the capability declares the gate as check mn-assertion-ratchet at verify:pre', () => {
+    const gateDecl = CAPABILITY.gates.find((g) => g.when === 'workflow.assertion_ratchet');
+    assert.equal(gateDecl.point, 'verify:pre');
+    assert.deepEqual(gateDecl.check, { query: 'mn-assertion-ratchet' });
+  });
+
+  test('gsd_run check mn-assertion-ratchet prints the verdict (CLI)', () => {
+    writeSpec('a.spec.ts', 3);
+    fs.writeFileSync(assertionBaselinePath(repo), JSON.stringify({ assertions: 5, skipped: 0, files: 1 }));
+    const payload = runMnCheck(repo, 'mn-assertion-ratchet', ['.planning/phases/01-x']);
+    assert.equal(payload.block, true);
+    assert.equal(payload.status, 'finding');
   });
 });

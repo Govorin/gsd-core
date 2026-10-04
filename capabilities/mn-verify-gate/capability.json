@@ -44,7 +44,7 @@
     "workflow.assertion_ratchet": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. Requires .planning/assertion-baseline.json — create it with `node ~/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs --update`."
+      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json, recorded (first time, or after a declared drop) with `gsd_run mn assertion-baseline --update`; without one it blocks as unresolvable."
     },
     "workflow.data_contract_for_ui": {
       "type": "boolean",
@@ -104,7 +104,7 @@
     "workflow.mutation_spot_check": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
+      "description": "Block verification when a mutant survives in code the phase declared: the source is changed in one place (>= to >, === to !==, true to false), the project's own test command runs, and a suite that stays green proves nothing checks that behaviour. workflow.assertion_ratchet catches a check that was DELETED; it cannot catch one that never checked anything, since expect(true).toBe(true) counts the same as a real assertion. This project has the case on record — a summary reading \"my own test was a false green, caught by mutation\" — found by hand, and left as a technique someone has to remember rather than a step that runs. Runs as a verify:pre step (`gsd_run verify mutation`, bounded to nine minutes) that records a mutation: block in VERIFICATION.md; the gate reads that record and blocks on a survivor, on a missing or stale record, or when the step could not check. Requires workflow.mutation_test_command. Refuses (rather than reporting kills) on an already-red suite, where a killed mutant cannot be told from a pre-existing failure."
     },
     "workflow.mutation_test_command": {
       "type": "string",
@@ -114,7 +114,7 @@
     "workflow.mutation_max_mutants": {
       "type": "number",
       "default": 3,
-      "description": "How many mutants the spot-check introduces per phase. It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command."
+      "description": "How many mutants the spot-check introduces per phase (one per declared source file). It is a spot-check, not coverage: killing three says the tests react at three points, which is the claim being made. Each mutant costs one full run of workflow.mutation_test_command, and the step stops starting new ones once its nine-minute budget is spent."
     },
     "workflow.worktree_provision": {
       "type": "boolean",
@@ -267,6 +267,16 @@
       "consumes": [],
       "when": "workflow.verify_gates_record",
       "onError": "skip"
+    },
+    {
+      "point": "verify:pre",
+      "ref": {
+        "command": "verify mutation"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "workflow.mutation_spot_check",
+      "onError": "skip"
     }
   ],
   "contributions": [
@@ -403,11 +413,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/mutation-spot-check.mjs\" --dir \"${PHASE_DIR}\"",
-          "timeout": 1800
-        }
+        "query": "mn-mutation-spot-check"
       },
       "when": "workflow.mutation_spot_check",
       "blocking": true,
@@ -446,11 +452,7 @@
     {
       "point": "verify:pre",
       "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "node \"$HOME/.gsd/mn-verify-gate/scripts/assertion-ratchet.mjs\" --baseline .planning/assertion-baseline.json",
-          "timeout": 120
-        }
+        "query": "mn-assertion-ratchet"
       },
       "when": "workflow.assertion_ratchet",
       "blocking": true,
