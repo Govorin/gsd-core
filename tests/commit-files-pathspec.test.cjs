@@ -3056,6 +3056,9 @@ describe('workflow call sites declare --files (#2269)', () => {
     // commands that shipped rather than an instruction to run one.
     const NOT_INSTRUCTION = new Map([
       ['CHANGELOG.md', 'generated from .changeset/ fragments; a historical record, not instruction'],
+      // Fork-local: the owner's backlog quotes a test's `gsd-tools commit "test message"` call
+      // while describing that test; it is never installed and never run.
+      ['BACKLOG.md', "fork owner's backlog; quotes a test's commit call as a description, not instruction"],
     ]);
     const strays = uncoveredFiles(
       trackedMd, scanRoots, NOT_INSTRUCTION,
