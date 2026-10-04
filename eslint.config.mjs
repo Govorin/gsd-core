@@ -128,11 +128,12 @@ export default tseslint.config(
       'gsd-core/bin/lib/resolution.cjs',
       'gsd-core/bin/lib/unusable-input.cjs',
       'gsd-core/bin/lib/plan-drift-guard.cjs',
-      // Phase 5 (mermaid): tsc-generated — lint src/mermaid.cts, src/plan-graph.cts and
-      // src/plan-command-router.cts, not these.
+      // Phase 5 (mermaid): tsc-generated — lint src/mermaid.cts, src/plan-graph.cts,
+      // src/plan-command-router.cts and src/workflow-map.cts, not these.
       'gsd-core/bin/lib/mermaid.cjs',
       'gsd-core/bin/lib/plan-graph.cjs',
       'gsd-core/bin/lib/plan-command-router.cjs',
+      'gsd-core/bin/lib/workflow-map.cjs',
       // #4917 (epic #4906 Phase 1, ADR-4910): lint src/planning-document.cts, not this.
       'gsd-core/bin/lib/planning-document.cjs',
       // #2401: tsc-generated runtime artifact — lint the src/verify-command-grounding.cts source.
