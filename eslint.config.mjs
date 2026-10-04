@@ -808,6 +808,20 @@ export default tseslint.config(
     },
   },
 
+  // ── isolated dev suites: tools/**/*.mjs (phase 5.7) ─────────────────────────
+  // Self-contained Node ESM checks with their own package.json/lock (e.g.
+  // tools/mermaid-check, the real-mermaid conformance run). Never installed,
+  // never part of npm test; the generic Node quality rules apply.
+  {
+    files: ['tools/**/*.mjs'],
+    languageOptions: { sourceType: 'module', globals: { ...globals.node } },
+    rules: {
+      ...js.configs.recommended.rules,
+      'no-var': 'error',
+      'prefer-const': 'warn',
+    },
+  },
+
   // ── tests/**/*.test.cjs ─────────────────────────────────────────────────────
   {
     files: ['tests/**/*.cjs'],

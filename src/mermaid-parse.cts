@@ -35,7 +35,7 @@
  * them as comments. Any other `%% gsd:` word is refused, so a typo cannot
  * silently switch a check off.
  *
- * Leaf module: imports only `mermaid.cts`. Pure — no I/O.
+ * Imports only `mermaid.cts` and the frontmatter-fence locator. Pure — no I/O.
  *
  * ADR-457 build-at-publish: source in src/mermaid-parse.cts, compiled to
  * gsd-core/bin/lib/mermaid-parse.cjs (gitignored).
@@ -53,6 +53,7 @@ import {
   STATE_TERMINAL,
   SEQUENCE_MAX_DEPTH,
 } from './mermaid.cjs';
+import { locateFrontmatterFence } from './frontmatter-fence.cjs';
 import type {
   FlowchartSpec,
   FlowDirection,
@@ -274,9 +275,6 @@ function preprocess(lines: Line[]): { statements: Line[]; directives: ParseDirec
       }
       continue;
     }
-    if (ln.body === '---') {
-      refuse('unsupported_construct', ln.no, ln.col, 'front-matter configuration is outside the subset');
-    }
     statements.push(ln);
   }
   return { statements, directives };
@@ -292,6 +290,9 @@ const ALWAYS_UNSUPPORTED = /^(click|style|accTitle|accDescr|call|href|callback|l
 
 export function parseMermaid(text: string): ParseResult {
   try {
+    if (locateFrontmatterFence(text) !== null) {
+      refuse('unsupported_construct', 1, 1, 'front-matter configuration is outside the subset');
+    }
     const { statements, directives } = preprocess(lineOf(text));
     if (statements.length === 0) refuse('syntax', 1, 1, 'empty diagram');
     const [header, ...body] = statements;
@@ -893,7 +894,7 @@ function parseClassDiagram(body: Line[], lines: Record<string, number>): ClassDi
     }
   };
   const setAnnotation = (c: ClassNode, raw: string, ln: Line): void => {
-    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(raw)) refuse('unsupported_construct', ln.no, ln.col, `annotation <<${raw}>> is outside the subset (one word)`);
+    if (!/^[A-Za-z]\w*$/.test(raw)) refuse('unsupported_construct', ln.no, ln.col, `annotation <<${raw}>> is outside the subset (one word)`);
     if (c.annotation !== undefined && c.annotation !== raw) refuse('unsupported_construct', ln.no, ln.col, `class ${c.id} has two annotations`);
     c.annotation = raw;
   };

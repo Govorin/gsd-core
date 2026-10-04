@@ -80,10 +80,10 @@ describe('check architecture.diagrams', () => {
     assert.equal(runGsdTools(['check', 'architecture.diagrams', '../../elsewhere'], root).success, false);
   });
 
-  test('the capability declares the gate at plan:post behind a default-on config key', () => {
+  test('the capability declares the gate at plan:post behind an opt-in config key, like its other switches', () => {
     const manifest = JSON.parse(fs.readFileSync(MANIFEST, 'utf-8'));
     const gates = manifest.gates.filter((g) => g.check.query === 'architecture.diagrams');
     assert.deepEqual(gates, [{ point: 'plan:post', check: { query: 'architecture.diagrams' }, when: 'workflow.architecture_diagrams_gate', blocking: true, onError: 'halt' }]);
-    assert.equal(manifest.config['workflow.architecture_diagrams_gate'].default, true);
+    assert.equal(manifest.config['workflow.architecture_diagrams_gate'].default, false);
   });
 });
