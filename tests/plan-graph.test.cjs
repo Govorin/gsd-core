@@ -4,13 +4,12 @@
  * plan-graph.cjs (built from src/plan-graph.cts) — mermaid for a phase's plans,
  * built from `wave` and `depends_on`.
  *
- * Ported from tests/mn-plan-graph.test.cjs (which keeps testing the legacy
- * capabilities/mn-verify-gate/scripts/plan-graph.mjs until its callers move to
- * `gsd-tools plan graph`). Same rules, same cases, driven through the module's
- * typed surface — `runPlanGraph` returns `{ ok, …counts, defects, markdown,
- * strict_failed }` or `{ ok: false, reason }` — instead of a subprocess's exit
- * code. One case at the end spawns the legacy script on the same fixture and
- * asserts both draw the same graph, so the two cannot drift while both exist.
+ * Ported from the tests of the retired
+ * capabilities/mn-verify-gate/scripts/plan-graph.mjs. Same rules, same cases,
+ * driven through the module's typed surface — `runPlanGraph` returns
+ * `{ ok, …counts, defects, markdown, strict_failed }` or `{ ok: false, reason }`
+ * — instead of a subprocess's exit code. The CLI surface is pinned in
+ * tests/plan-command-router.test.cjs.
  *
  * The markdown is parsed into a model (nodes, edges, red edges) and models are
  * compared, never substrings of the produced text.
@@ -20,13 +19,10 @@ const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
-const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 const { createTempDir, cleanup } = require('./helpers.cjs');
 
 const pg = require('../gsd-core/bin/lib/plan-graph.cjs');
 const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
-const LEGACY_SCRIPT = path.join(__dirname, '..', 'capabilities', 'mn-verify-gate', 'scripts', 'plan-graph.mjs');
 
 const FENCE = '`'.repeat(3);
 
@@ -348,26 +344,5 @@ describe('plan-graph module', () => {
     assert.deepEqual([run().ok, run().reason], [false, 'no_plans']);
     const gone = pg.runPlanGraph({ dir: path.join(dir, 'nope'), out: null, strict: false });
     assert.deepEqual([gone.ok, gone.reason], [false, 'not_found']);
-  });
-
-  // ── parity with the legacy script while both exist ────────────────────────
-
-  test('draws the same graph as capabilities/mn-verify-gate/scripts/plan-graph.mjs', () => {
-    plan('01-01', { wave: 1, depends_on: '[]' });
-    summary('01-01');
-    plan('01-02', { wave: 2, depends_on: '["01-01"]', status: 'in_progress' });
-    plan('01-03', { wave: 2, depends_on: '["01-01", "01-09"]', status: 'superseded' });
-    plan('01-04', { wave: 2, depends_on: '["01-02"]' });
-    plan('02.1-01', { depends_on: '["01-04"]' });
-
-    const legacy = runNode([LEGACY_SCRIPT, '--dir', dir], { timeoutMs: PROBE_TIMEOUT_MS });
-    assert.equal(legacy.outcome, OUTCOME.EXITED);
-    const a = parseGraph(legacy.stdout);
-    const b = graph(run());
-    assert.deepEqual(b.subgraphs, a.subgraphs);
-    assert.deepEqual([...b.nodes], [...a.nodes]);
-    assert.deepEqual(b.edges, a.edges);
-    assert.deepEqual(b.red, a.red);
-    assert.deepEqual(b.defectLines, a.defectLines);
   });
 });

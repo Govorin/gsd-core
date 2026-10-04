@@ -467,6 +467,11 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-mn-uat-open.cjs',
       'gsd-core/bin/lib/mn-assertion-count.cjs',
       'gsd-core/bin/lib/verify-mutation.cjs',
+      // 3.12 (mn-verify-gate tools → `gsd-tools mn`): tsc-generated — lint the src/mn-*.cts sources.
+      'gsd-core/bin/lib/mn-command-router.cjs',
+      'gsd-core/bin/lib/mn-zod-fieldtable.cjs',
+      'gsd-core/bin/lib/mn-design-registry.cjs',
+      'gsd-core/bin/lib/mn-worktree-gc.cjs',
     ],
   },
 

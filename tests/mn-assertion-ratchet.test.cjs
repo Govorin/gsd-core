@@ -50,7 +50,7 @@ describe('assertion ratchet', () => {
     fs.writeFileSync(path.join(repo, 'libs', name), `describe('suite', () => {\n  it('checks things', () => {\n${body}\n  });\n${extra}});\n`);
   }
 
-  /** What `mn assertion-baseline --update` records: measure, then write. */
+  /** What `mn assertion-baseline` records: measure, then write. */
   function recordBaseline() {
     const written = recordAssertionBaseline({ repoRoot: repo, roots: DEFAULT_ROOTS.map((r) => path.join(repo, r)) });
     assert.equal(written.ok, true, JSON.stringify(written));

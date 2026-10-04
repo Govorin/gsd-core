@@ -13,7 +13,7 @@
  *
  * The gate never writes. The script created the baseline on its first run; a gate that writes
  * the floor it is about to judge against can be satisfied by deleting the file. Recording a
- * baseline — first time, or after a declared drop — is `gsd_run mn assertion-baseline --update`.
+ * baseline — first time, or after a declared drop — is `gsd_run mn assertion-baseline`.
  *
  * Project-scoped: the dispatcher appends the phase, and the gate ignores it — the ratchet counts
  * the whole repository.
@@ -27,7 +27,7 @@ import { countAssertions, readAssertionBaseline, resolveRepoRoot, DEFAULT_ROOTS 
 import type { AssertionCounts } from './mn-assertion-count.cjs';
 
 /** How a baseline is recorded — named in every verdict that needs one. */
-export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline --update';
+export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline';
 
 /** Injected effects: the git lookup of the repository root (production: `git rev-parse --show-toplevel`). */
 export interface MnAssertionRatchetDeps {

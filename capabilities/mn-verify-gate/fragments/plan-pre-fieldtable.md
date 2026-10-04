@@ -6,11 +6,11 @@ The visual contract (UI-SPEC.md) carries palette, spacing and typography. It car
 The half of the contract that already exists in code should be read, not retyped:
 
 ```bash
-bun "$HOME/.gsd/mn-verify-gate/scripts/zod-fieldtable.mjs" \
-  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName>
+gsd_run mn zod-fieldtable \
+  --file libs/<domain>/dtos/src/<name>.dto.ts --export <schemaName> --raw
 ```
 
-It emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema.
+Run it from the project root: it loads the schema in the project's own runtime — bun when installed (it resolves tsconfig path aliases), otherwise Node with type stripping (it does not). It emits field · type · required · bounds · enum values · default, plus an `erDiagram` when the schema nests. Paste that output into the plan's context for the UI task. It is marked `gsd:derived` — regenerate it, never hand-edit it, or it becomes a second source of truth that drifts from the schema. If the schema cannot be loaded, the command fails and says why; record that in the plan instead of retyping the fields.
 
 What the schema does **not** decide, and what the plan must therefore state explicitly:
 

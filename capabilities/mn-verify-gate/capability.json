@@ -19,6 +19,13 @@
   "agents": [
     "gsd-finding-refuter"
   ],
+  "commands": [
+    {
+      "family": "mn",
+      "module": "mn-command-router.cjs",
+      "router": "routeMnCommand"
+    }
+  ],
   "hooks": [],
   "config": {
     "workflow.verify_enforce": {
@@ -44,7 +51,7 @@
     "workflow.assertion_ratchet": {
       "type": "boolean",
       "default": false,
-      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json, recorded (first time, or after a declared drop) with `gsd_run mn assertion-baseline --update`; without one it blocks as unresolvable."
+      "description": "Block verification when the count of live assertions dropped or tests were newly skipped since the recorded baseline. Catches the one failure mode a green suite cannot report: a check that was deleted rather than fixed. The gate only reads: it needs .planning/assertion-baseline.json — create it, and re-record it after a deliberate drop, with `gsd_run mn assertion-baseline`; without one it blocks as unresolvable."
     },
     "workflow.data_contract_for_ui": {
       "type": "boolean",
@@ -59,7 +66,7 @@
     "workflow.design_registry": {
       "type": "boolean",
       "default": false,
-      "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from scripts/design-registry.mjs; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
+      "description": "Instruct the planner to read the project's DESIGN-SYSTEM.md and derive a node-to-code registry before any screen is planned. The bridge document already exists under the quality-design skill — component ids, states, zone map, screen registry — and nothing in the pipeline reads it: UI-SPEC.md carries palette and spacing but not one component, so the planner invents the component list. Derived half (does a file exist for this node) comes from `gsd_run mn design-registry`; the authored half (todo/done, deliberate divergence, breakpoints) stays in DESIGN-SYSTEM.md, which is authoritative only while it matches the live design file."
     },
     "workflow.user_route": {
       "type": "boolean",

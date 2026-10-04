@@ -10,7 +10,7 @@
 // long-running-harness guidance states the rule flatly in its feature list:
 // "unacceptable to remove or edit tests".
 //
-// This fork already owns the after-the-fact half: `assertion-ratchet.mjs`
+// This fork already owns the after-the-fact half: `check mn-assertion-ratchet`
 // compares live assertion counts against `.planning/assertion-baseline.json` at
 // verify:pre. That catches the deletion after it is committed. This guard
 // catches it at the write, where the answer is "no" instead of "revert" — and
@@ -74,7 +74,7 @@ function isTestFile(relPath) {
 /**
  * Count live assertions.
  *
- * Same vocabulary as capabilities/mn-verify-gate/scripts/assertion-ratchet.mjs,
+ * Same vocabulary as src/mn-assertion-count.cts (the ratchet's counter),
  * so a write this guard permits cannot fail the ratchet for the reason the
  * guard just cleared. Comment-only lines are excluded: a commented-out
  * assertion is a deleted assertion, and counting it would let the deletion
@@ -274,7 +274,7 @@ function evaluateTestWrite(data, options = {}) {
     `Removing a check is the cheapest way to turn a suite green and the one failure a green ` +
     `suite cannot report. If the assertion is genuinely obsolete — the behaviour it pinned was ` +
     `deliberately removed — say so in the plan's deviation notes and re-record the baseline ` +
-    `(assertion-ratchet.mjs --update); the ratchet at verify:pre reads the same counts this ` +
+    `(gsd_run mn assertion-baseline); the ratchet at verify:pre reads the same counts this ` +
     `guard just read. If it is failing, fix the code it is testing instead.`;
 
   return {

@@ -216,8 +216,9 @@ function frontmatterBody(text) {
  * (`files_modified:` followed by `  - path` lines) and the inline array
  * (`files_modified: [a, b]`). A full YAML parser would be a dependency for a
  * guard that must run without installation; anything that matches neither shape
- * ends the list rather than being guessed at. Shared shape with
- * capabilities/mn-verify-gate/scripts/blast-radius.mjs `declaredFiles`.
+ * ends the list rather than being guessed at. The gate that reads the same key
+ * (`check mn-blast-radius`, src/gate-mn-blast-radius.cts `declaredFilesOf`)
+ * goes through the full frontmatter parser, which this hook cannot load.
  */
 function declaredFiles(text) {
   const body = frontmatterBody(text);

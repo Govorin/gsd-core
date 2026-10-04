@@ -2,9 +2,8 @@
  * Plan Graph Module — a phase's plans as a mermaid flowchart, built from each
  * plan's `wave` and `depends_on`, never from a model's memory.
  *
- * Ported from `capabilities/mn-verify-gate/scripts/plan-graph.mjs` (the script
- * stays until its callers move to `gsd-tools plan graph`); the rules are the
- * same:
+ * Ported from the retired `capabilities/mn-verify-gate/scripts/plan-graph.mjs`;
+ * the rules are the same:
  *
  *   - a node is a `*-PLAN.md` file, an edge is a `depends_on` entry, and
  *     nothing else is drawn (mermaid.cts refuses an edge to an undeclared node);
