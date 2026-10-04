@@ -467,3 +467,78 @@ describe('phase 5.2: the progress report embeds the roadmap phase graph', () => 
     assert.ok(report.includes('{ROADMAP_GRAPH}'), 'the template has a slot for the graph');
   });
 });
+
+describe('phase 5.3a: the progress report embeds the current phase plan graph', () => {
+  const { beforeEach, afterEach } = require('node:test');
+  const { runGsdTools, createTempProject, cleanup } = require('./helpers.cjs');
+  const { PLAN_SUBCOMMANDS } = require('../gsd-core/bin/lib/plan-command-router.cjs');
+  const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
+  const workflow = fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'workflows', 'progress.md'), 'utf-8');
+  const reportStart = workflow.indexOf('<step name="report">');
+  const report = workflow.slice(reportStart, workflow.indexOf('</step>', reportStart));
+
+  test('the report step calls a real plan subcommand on the current phase directory, as a document (--raw), never writing a file', () => {
+    const assignment = /^\s*PLAN_GRAPH=\$\(gsd_run plan (\S{1,40})([^)]{0,200})\)/;
+    const call = splitLines(report).map((line) => line.match(assignment)).find((m) => m !== null);
+    assert.ok(call, 'report step assigns PLAN_GRAPH from gsd_run plan …');
+    assert.ok(PLAN_SUBCOMMANDS.includes(call[1]), `${call[1]} is a plan subcommand`);
+    assert.ok(call[2].includes('--dir "$CURRENT_PHASE_DIR"'), 'the graph is drawn for the current phase');
+    assert.ok(call[2].includes('--raw'), 'the document, not the JSON envelope');
+    assert.ok(!call[2].includes('--out'), 'the graph is derived state: embedded, not saved under .planning/');
+    assert.ok(
+      splitLines(report).some((line) => line.startsWith('CURRENT_PHASE_DIR=') && line.includes('.current_phase.directory')),
+      'the directory comes from the init.progress current_phase',
+    );
+  });
+
+  test('the presented report prints the plan graph verbatim, next to the phase graph', () => {
+    const phaseGraph = report.indexOf('{ROADMAP_GRAPH}');
+    const planGraph = report.indexOf('{PLAN_GRAPH}');
+    assert.ok(planGraph !== -1, 'the template has a slot for the plan graph');
+    assert.ok(phaseGraph !== -1 && planGraph > phaseGraph, 'the plan graph follows the phase graph');
+  });
+
+  describe('the init.progress field the report reads feeds plan graph', () => {
+    let project;
+    beforeEach(() => {
+      project = createTempProject('gsd-progress-plan-graph-');
+    });
+    afterEach(() => {
+      cleanup(project);
+    });
+
+    function phaseWithPlans(dirName, plans) {
+      const dir = path.join(project, '.planning', 'phases', dirName);
+      fs.mkdirSync(dir, { recursive: true });
+      for (const [id, front] of plans) {
+        fs.writeFileSync(path.join(dir, `${id}-PLAN.md`), `---\nphase: 01\n${front}\n---\n\n# ${id}\n`);
+      }
+    }
+
+    function currentPhaseDir() {
+      const init = runGsdTools(['query', 'init.progress'], project);
+      assert.equal(init.success, true, init.error);
+      const current = JSON.parse(init.output).current_phase;
+      return current === null ? null : current.directory;
+    }
+
+    test('a phase with plans in progress: current_phase.directory is accepted by plan graph', () => {
+      phaseWithPlans('01-demo', [
+        ['01-01', 'wave: 1\ndepends_on: []'],
+        ['01-02', 'wave: 2\ndepends_on: ["01-01"]'],
+      ]);
+      const dir = currentPhaseDir();
+      assert.ok(typeof dir === 'string' && dir.length > 0, 'init.progress names the current phase directory');
+      const r = runGsdTools(['plan', 'graph', '--dir', dir], project);
+      assert.equal(r.success, true, r.error);
+      const json = JSON.parse(r.output);
+      assert.equal(json.ok, true);
+      assert.deepEqual([json.plan_count, json.edge_count, json.defect_count, json.written], [2, 1, 0, null]);
+    });
+
+    test('no phase in progress: current_phase is null, so the report draws no plan graph', () => {
+      fs.mkdirSync(path.join(project, '.planning', 'phases', '01-demo'), { recursive: true });
+      assert.equal(currentPhaseDir(), null);
+    });
+  });
+});
