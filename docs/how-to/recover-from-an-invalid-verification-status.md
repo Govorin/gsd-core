@@ -1,6 +1,6 @@
 # How to recover from an invalid verification status
 
-**Goal:** Get a phase passing again when a command fails with `verification_status_invalid`, `/gsd-health` reports `W030` or `W031`, or `verification status` answers `phase_dir_not_found`.
+**Goal:** Get a phase passing again when a command fails with `verification_status_invalid`, `/gsd-health` reports `W030`, `W031` or `W032`, or `verification status` answers `phase_dir_not_found`.
 
 **Prerequisites:** A phase directory under `.planning/phases/` (the examples use `.planning/phases/01-foo`) and shell access to run `gsd-tools`.
 
@@ -39,7 +39,21 @@ Legacy values fail the same way: `Passed`, `pending`, and `partial` are no longe
 
 ### `W031`: `status: verified`
 
-`verified` is the older spelling of `passed`, with no other meaning, so `/gsd-health` reports it as `W031` (`"repairable": true`) and `/gsd-health --repair` rewrites the report's frontmatter `status:` to `passed`. Nothing else in the file changes. If the report was edited after the check and no longer says `verified`, or its path is outside `.planning/`, the repair is skipped and listed as failed in `repairs_performed`.
+`verified` is the older spelling of `passed`, with no other meaning, so `/gsd-health` reports it as `W031` (`"repairable": true`) and `/gsd-health --repair` rewrites the report's frontmatter `status:` to `passed` — archived reports under `.planning/milestones/` included. Nothing else in the file changes. `/gsd-health --repair --only W031` makes that the only repair in the run, leaving config.json and MILESTONES.md as they are. If the report was edited after the check and no longer says `verified`, or its path is outside `.planning/`, the repair is skipped and listed as failed in `repairs_performed`.
+
+### `W032`: the frontmatter does not parse
+
+A report whose frontmatter block is not YAML has no readable `status`. `verification status` answers `unparseable`; `audit-open`, `audit-uat` and `phase uat-passed` fail with `verification_status_invalid`, naming the line the parser stopped at; `/gsd-health` reports `W032` with the same line. The usual cause is a nested key indented under a scalar:
+
+```yaml
+---
+status: passed
+re_verification: true
+  previous_status: gaps_found
+---
+```
+
+Make the parent a mapping (`re_verification:` with no value) or move the nested keys to the top level, then re-run `/gsd-health`.
 
 ---
 

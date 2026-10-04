@@ -43,6 +43,10 @@ import scanPhasePlans = require('./plan-scan.cjs');
 import coreUtilsMod = require('./core-utils.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
 import planningScopeMod = require('./planning-scope.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
+import phaseLocatorMod = require('./phase-locator.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
+import planningWorkspaceMod = require('./planning-workspace.cjs');
 import { execGit } from './shell-command-projection.cjs';
 import { formatGsdSlash, resolveRuntime } from './runtime-slash.cjs';
 import { isContainedIn, requireSafePath, PathAcceptance } from './security.cjs';
@@ -53,10 +57,12 @@ import { parseNamedArgsOrExit } from './command-arg-projection.cjs';
 
 const { output, error } = io;
 const { extractPhaseToken, scopeToPhase } = phaseId;
-const { extractFrontmatter, FRONTMATTER_UNPARSEABLE } = frontmatterMod;
+const { extractFrontmatter, parseFrontmatterStrict, FRONTMATTER_UNPARSEABLE } = frontmatterMod;
 const { normalizeLineEndings } = coreUtilsMod;
 const { SCOPE } = planningScopeMod;
 type Scope = planningScopeMod.Scope;
+const { listActiveAndArchivedPhaseDirs } = phaseLocatorMod;
+const { planningDir } = planningWorkspaceMod;
 
 // ─── The closed VerificationStatus enum (#5118, ADR-5057 §1 / Phase 4) ────────
 
@@ -198,9 +204,11 @@ class VerificationStatusError extends Error {
   readonly file: string;
   readonly accepted: readonly VerifierStatus[];
 
-  constructor(rawStatus: unknown, file: string) {
+  /** `message` is for a subclass that names a different defect (`VerificationReportUnparseableError`). */
+  constructor(rawStatus: unknown, file: string, message?: string) {
     const accepted = [...VERIFIER_STATUSES];
     super(
+      message ??
       `Verification report ${io.formatDiagnosticToken(file)} has status ${describeRawStatus(rawStatus)}, ` +
       `which is outside the closed set — accepted values: ${accepted.join(' | ')}. ` +
       `Recovery: set the report's frontmatter \`status:\` to one of ${accepted.join(' | ')}, ` +
@@ -210,6 +218,45 @@ class VerificationStatusError extends Error {
     this.rawStatus = rawStatus;
     this.file = file;
     this.accepted = accepted;
+  }
+}
+
+/**
+ * A report whose frontmatter block exists but does not parse as YAML — its
+ * `status` cannot be read at all. Found while repairing live projects: a
+ * nested key under a scalar (`re_verification: true` followed by indented
+ * keys) made `extractFrontmatter` hand back an empty object, and every
+ * aggregate read that as "no status" — the report vanished from `audit-open`,
+ * `audit-uat` and the UAT predicate without a trace. Same rule as an
+ * out-of-set value: refused where it is read, never folded into "no status".
+ *
+ * A subclass of `VerificationStatusError`, so it rides every path that
+ * already carries one — the same `code`, the same `reason`
+ * (`verification_status_invalid`: the status is unreadable), the first-error
+ * carry rule, `isPhaseComplete`'s UNREADABLE projection and the central CLI
+ * translation. `rawStatus` is `undefined` (there is no value); `line` is the
+ * 1-based document line the parser stopped at (`null` when the refusal has no
+ * position) and `parseReason` the parser's own reason.
+ *
+ * `readVerificationStatus` keeps its own answer for this report, `unparseable`
+ * (#4806) — a single-report query has a status for it; an aggregate does not.
+ */
+class VerificationReportUnparseableError extends VerificationStatusError {
+  readonly line: number | null;
+  readonly parseReason: string;
+
+  constructor(file: string, line: number | null, parseReason: string) {
+    super(
+      undefined,
+      file,
+      `Verification report ${io.formatDiagnosticToken(file)} has a frontmatter block that does not parse` +
+      `${line === null ? '' : ` (line ${line})`}: ${io.formatDiagnosticToken(parseReason)} — its status cannot be read. ` +
+      'Recovery: fix the YAML in the report\'s frontmatter (a nested key under a scalar is the usual cause) ' +
+      "so `status:` reads as one of passed | gaps_found | human_needed, or delete the report and re-run the phase's verification.",
+    );
+    this.name = 'VerificationReportUnparseableError';
+    this.line = line;
+    this.parseReason = parseReason;
   }
 }
 
@@ -240,14 +287,19 @@ function firstStatusError<E extends VerificationStatusError>(
  * place a VERIFICATION report's `status` scalar is read (#5118: phase.cts,
  * audit.cts and uat-predicate.cts used to read it themselves). Returns the
  * writer-set member, or `null` when the report carries no status (absent key,
- * `null`, an empty string, or an unparseable block — the caller routes
- * those). Throws `VerificationStatusError` for anything else, including a
- * non-string value.
+ * `null`, an empty string — the caller routes those). Throws
+ * `VerificationStatusError` for anything else, including a non-string value,
+ * and `VerificationReportUnparseableError` for an unparseable block (the
+ * `FRONTMATTER_UNPARSEABLE` marker): a block that does not parse is not a
+ * report without a status. A reader holding the report's text calls
+ * `readReportStatus`, which names the line and the parser's reason.
  *
  * `fm` is `extractFrontmatter`'s result for the report at `filePath`.
  */
 function reportStatusOf(fm: Record<string, unknown>, filePath: string): VerifierStatus | null {
-  if ((fm as unknown as Record<symbol, unknown>)[FRONTMATTER_UNPARSEABLE] === true) return null;
+  if ((fm as unknown as Record<symbol, unknown>)[FRONTMATTER_UNPARSEABLE] === true) {
+    throw new VerificationReportUnparseableError(filePath, null, 'the frontmatter block is not YAML');
+  }
   const raw = fm['status'];
   if (raw === undefined || raw === null) return null;
   if (typeof raw === 'string') {
@@ -257,6 +309,23 @@ function reportStatusOf(fm: Record<string, unknown>, filePath: string): Verifier
     throw new VerificationStatusError(trimmed, filePath);
   }
   throw new VerificationStatusError(raw, filePath);
+}
+
+/**
+ * Judge a report from its text: the frontmatter (for the caller's other keys)
+ * and `reportStatusOf`'s answer. A frontmatter block that does not parse
+ * throws `VerificationReportUnparseableError` naming the line and the
+ * parser's reason. `content` is the report's text with line endings already
+ * normalized.
+ */
+function readReportStatus(
+  content: string,
+  filePath: string,
+): { fm: Record<string, unknown>; status: VerifierStatus | null } {
+  const parsed = parseFrontmatterStrict(content, filePath);
+  if (!parsed.ok) throw new VerificationReportUnparseableError(filePath, parsed.line, parsed.reason);
+  const fm = parsed.frontmatter as Record<string, unknown>;
+  return { fm, status: reportStatusOf(fm, filePath) };
 }
 
 // ─── The one routing table ─────────────────────────────────────────────────────
@@ -1359,6 +1428,132 @@ function findVerificationStatusError(
     }
   }
   return null;
+}
+
+// ─── The report set every reader judges ───────────────────────────────────────
+
+/** A dashed report name as the aggregate readers have always matched it (`01-VERIFICATION.md`, `01-VERIFICATION-r2.md`). */
+function isDashedReportName(name: string): boolean {
+  return name.includes('-VERIFICATION') && name.endsWith('.md');
+}
+
+/**
+ * The VERIFICATION reports in one phase directory listing that a reader may
+ * judge, sorted: every dashed report scoped to THIS phase (#3511 — the set
+ * `audit-open`, `audit-uat` and the UAT predicate read) plus the one report
+ * `resolveVerificationFile` picks for the phase (the file
+ * `verification status` reads — which may be a bare `VERIFICATION.md`,
+ * #4187). One selection for every reader, so no reader can read a report the
+ * others (and `validate health`) never look at.
+ */
+function selectPhaseVerificationReports(
+  entries: readonly string[],
+  phaseDirName: string,
+  convention?: string | null,
+): string[] {
+  const selected = new Set(scopeToPhase(entries.filter(isDashedReportName), phaseDirName, convention));
+  const resolved = resolveVerificationFile([...entries], {
+    allowBare: true,
+    phaseToken: convention === 'bracket' ? extractPhaseToken(phaseDirName, convention) : extractPhaseToken(phaseDirName),
+    phaseDirName,
+    convention,
+  });
+  if (resolved) selected.add(resolved);
+  return [...selected].sort();
+}
+
+/** One report a reader judges, located. `milestone` is the archive label (`v1.0`, `<ws>/v1.0`) of an archived phase. */
+interface VerificationReportRef {
+  dir: string;
+  phaseDir: string;
+  file: string;
+  filePath: string;
+  milestone?: string;
+}
+
+/**
+ * Every VERIFICATION report the readers judge — the ONE enumeration
+ * `audit-open`, `audit-uat` and `validate health` share. Phase directories
+ * come from `listActiveAndArchivedPhaseDirs` (every directory under the
+ * active `phases/` root, unfiltered, plus every archived
+ * `milestones/*-phases/` directory across workstreams); reports from
+ * `selectPhaseVerificationReports`. A report whose real path escapes its
+ * phase directory is left out — no reader reads it (#5118 containment).
+ *
+ * `opts.convention` widens the selection with the convention-aware reading
+ * `verification status` resolves under (#612); a reader that resolves without
+ * one passes none. `activeUnreadable` is the active root's read failure, for
+ * a caller that reports it.
+ */
+function listVerificationReports(
+  cwd: string,
+  opts: { convention?: string | null } = {},
+): { reports: VerificationReportRef[]; activeUnreadable: boolean } {
+  const { targets, activeUnreadable } = listActiveAndArchivedPhaseDirs(planningDir(cwd), cwd);
+  const reports: VerificationReportRef[] = [];
+  for (const target of targets) {
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(target.fullPath);
+    } catch {
+      continue;
+    }
+    const names = new Set(selectPhaseVerificationReports(entries, target.dir));
+    if (opts.convention) {
+      for (const name of selectPhaseVerificationReports(entries, target.dir, opts.convention)) names.add(name);
+    }
+    for (const file of [...names].sort()) {
+      const filePath = path.join(target.fullPath, file);
+      if (!isReportContained(target.fullPath, filePath)) continue;
+      reports.push({
+        dir: target.dir,
+        phaseDir: target.fullPath,
+        file,
+        filePath,
+        ...(target.milestone !== undefined ? { milestone: target.milestone } : {}),
+      });
+    }
+  }
+  return { reports, activeUnreadable };
+}
+
+/** A report the readers refuse, and why — what `validate health` reports instead of failing. */
+type VerificationReportDefect =
+  | { kind: 'out_of_set'; report: VerificationReportRef; message: string; rawStatus: unknown }
+  | { kind: 'unparseable'; report: VerificationReportRef; message: string; line: number | null; reason: string };
+
+/**
+ * Judge every report in `listVerificationReports` with the readers' own
+ * judgement (`readReportStatus`) and return the ones they refuse: a `status`
+ * outside the closed set, or a frontmatter block that does not parse. A
+ * report that cannot be read is skipped, as every reader skips it.
+ */
+function listVerificationReportDefects(
+  cwd: string,
+  opts: { convention?: string | null } = {},
+): { defects: VerificationReportDefect[]; activeUnreadable: boolean } {
+  const { reports, activeUnreadable } = listVerificationReports(cwd, opts);
+  const defects: VerificationReportDefect[] = [];
+  for (const report of reports) {
+    let content: string;
+    try {
+      content = normalizeLineEndings(fs.readFileSync(report.filePath, 'utf-8'));
+    } catch {
+      continue;
+    }
+    try {
+      readReportStatus(content, report.filePath);
+    } catch (err) {
+      if (err instanceof VerificationReportUnparseableError) {
+        defects.push({ kind: 'unparseable', report, message: err.message, line: err.line, reason: err.parseReason });
+      } else if (err instanceof VerificationStatusError) {
+        defects.push({ kind: 'out_of_set', report, message: err.message, rawStatus: err.rawStatus });
+      } else {
+        throw err;
+      }
+    }
+  }
+  return { defects, activeUnreadable };
 }
 
 interface ResolveVerificationFileOptions {
@@ -2555,11 +2750,16 @@ const verificationModule = {
   isVerificationStatus,
   assertVerificationStatus,
   VerificationStatusError,
+  VerificationReportUnparseableError,
   VERIFICATION_STATUS_ERROR_CODE,
   failOnVerificationStatusError,
   firstStatusError,
   reportStatusOf,
+  readReportStatus,
   isReportContained,
+  selectPhaseVerificationReports,
+  listVerificationReports,
+  listVerificationReportDefects,
   routeResult,
   findVerificationStatusError,
   defaultPhaseCleanCommitTimesMs,
@@ -2587,7 +2787,15 @@ const verificationModule = {
 // `v.VerificationStatus`.
 // eslint-disable-next-line @typescript-eslint/no-namespace
 declare namespace verificationModule {
-  export { VerificationStatus, VerifierStatus, VerificationStatusResult, RouteCommand, PhaseVerificationReading };
+  export {
+    VerificationStatus,
+    VerifierStatus,
+    VerificationStatusResult,
+    RouteCommand,
+    PhaseVerificationReading,
+    VerificationReportRef,
+    VerificationReportDefect,
+  };
 }
 
 export = verificationModule;

@@ -36,7 +36,7 @@ import phaseIdMod = require('./phase-id.cjs');
 const { PHASE_NUMBER_TOKEN_SOURCE, scopeToPhase } = phaseIdMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseLocator = require('./phase-locator.cjs');
-const { getAllArchivedPhaseDirs } = phaseLocator;
+const { listActiveAndArchivedPhaseDirs } = phaseLocator;
 import { requireSafePath, sanitizeForDisplay, sanitizeLabel, PathAcceptance } from './security.cjs';
 import { platformWriteSync } from './shell-command-projection.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -46,7 +46,7 @@ import { parseNamedArgsOrExit } from './command-arg-projection.cjs';
 // #5118: the verification-status owner's report reader and closed enum.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import verificationMod = require('./verification.cjs');
-const { reportStatusOf, VERIFICATION_STATUS, VerificationStatusError } = verificationMod;
+const { readReportStatus, listVerificationReports, VERIFICATION_STATUS, VerificationStatusError } = verificationMod;
 import { realClock } from './clock.cjs';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -918,98 +918,11 @@ function scanSeeds(planDir: string): ScanOutcome<SeedItem> {
 
 // ─── listAuditPhaseTargets ────────────────────────────────────────────────────
 
-interface AuditPhaseTarget {
-  dir: string;
-  fullPath: string;
-  milestone?: string;
-}
-
-/**
- * Enumerate phase directories across BOTH the active `.planning/phases/` root
- * and every archived `.planning/milestones/vX.Y-phases/` root. Shared by the
- * four phase-scoped scanners below (#3458 — epic #3473 B2/F2). Previously each
- * scanner hand-rolled its own active-only `readdirSync(phasesDir)` walk and
- * bailed out entirely when the active root was missing, so items still
- * unresolved when a milestone closed and its phase dirs archived became
- * permanently invisible to every later audit.
- *
- * ACTIVE dirs: raw readdirSync + isDirectory filter + sort. The enumeration
- * walk itself (readdirSync + isDirectory filter + sort) is UNCHANGED from the
- * scanners' prior inline behavior; what IS new is that a failed read here no
- * longer aborts the whole scan the way each scanner's own inline
- * `if (!fs.existsSync) return []` / try-readdirSync-catch-return-sentinel
- * pair used to — see `activeUnreadable` below, which is how that signal is
- * now surfaced to callers instead. Deliberately NOT routed through
- * listMilestonePhaseDirs: these scanners are deliberately not
- * milestone-filtered today, and switching would silently add window/sentinel
- * filtering — a behavior change belonging to #3372, not here.
- *
- * A missing/unreadable active root does NOT short-circuit the archive walk —
- * the old `if (!fs.existsSync(phasesDir)) return []` was the whole bug in a
- * fully-archived project; it degrades to "skip the active half" only. An
- * UNREADABLE (as opposed to merely absent) active root is reported back via
- * `activeUnreadable: true` so each of the four callers can still emit the
- * `scan_error` sentinel they emitted pre-#3458 for this exact case (a real
- * I/O failure, not "verified clean") — see each scanner's own use of it.
- *
- * ARCHIVED dirs: sourced from `getArchivedPhaseDirs` (phase-locator.cjs), the
- * canonical archive-enumeration seam `uat.cts`'s `cmdAuditUat` already uses.
- * Archived dirs are deliberately NOT milestone-filtered either — see the
- * comment at src/uat.cts:107-111: listMilestonePhaseDirs derives the CURRENT
- * milestone's phase dirs (window + sentinel filtered) from ROADMAP.md, and
- * archived phases belong to past milestones by definition, so filtering them
- * discards every one and silently reinstates the bug this function fixes.
- *
- * An unreadable/unresolvable ARCHIVE root does NOT get its own sentinel.
- * Pre-#3458 there was no archived read at all, so — unlike the active root —
- * there is no prior `scan_error` contract to preserve here, and no existing
- * consumer can regress. It also degrades the same way `listArchiveVersionDirs`
- * (phase-locator.cts) already treats an absent `milestones/` dir: a real
- * empty, not a failure, matching this function's existing "skip that root"
- * idiom for the missing-active-dir case above. Adding a second sentinel path
- * would let a machine consumer conflate "no milestones archived yet" (the
- * overwhelmingly common case for an active project) with an actual read
- * failure, which is a worse signal-to-noise trade than the one this
- * function's own fix removes for the active root.
- *
- * Same-named dirs in both roots (e.g. "01-alpha" active AND archived) are
- * DISTINCT targets — no dedupe.
- */
-function listAuditPhaseTargets(planDir: string, cwd: string): { targets: AuditPhaseTarget[]; activeUnreadable: boolean } {
-  const targets: AuditPhaseTarget[] = [];
-  let activeUnreadable = false;
-
-  const phasesDir = path.join(planDir, 'phases');
-  if (fs.existsSync(phasesDir)) {
-    try {
-      const dirs = fs.readdirSync(phasesDir, { withFileTypes: true })
-        .filter(e => e.isDirectory())
-        .map(e => e.name)
-        .sort();
-      for (const dir of dirs) {
-        targets.push({ dir, fullPath: path.join(phasesDir, dir) });
-      }
-    } catch {
-      // Unreadable active root: skip it, do not abort the archive walk, but
-      // report it so callers can emit their pre-#3458 scan_error sentinel.
-      activeUnreadable = true;
-    }
-  }
-
-  // #3804: the audit is cross-workstream by design — the shared
-  // getAllArchivedPhaseDirs helper (root + every workstream, distinct
-  // '<ws>/<version>' labels) owns that walk.
-  try {
-    for (const archived of getAllArchivedPhaseDirs(cwd)) {
-      targets.push({ dir: archived.name, fullPath: archived.fullPath, milestone: archived.milestone });
-    }
-  } catch {
-    // Unreadable/unresolvable archive root: skip it, keep whatever active
-    // targets were already collected. No sentinel — see docstring above.
-  }
-
-  return { targets, activeUnreadable };
-}
+// The active + archived phase-directory walk the four phase-scoped scanners
+// share — owned by phase-locator.cts (`listActiveAndArchivedPhaseDirs`), the
+// same walk `verification.cts`'s `listVerificationReports` takes, so
+// `validate health` judges exactly the reports these scanners read.
+const listAuditPhaseTargets = listActiveAndArchivedPhaseDirs;
 
 // ─── scanUatGaps ──────────────────────────────────────────────────────────────
 
@@ -1099,73 +1012,58 @@ function scanUatGaps(planDir: string, cwd: string): ScanOutcome<UatGapItem> {
 
 /**
  * Scan .planning/phases (active) and .planning/milestones/vX.Y-phases (archived)
- * for VERIFICATION gaps.
+ * for VERIFICATION gaps. The reports are the verification owner's one
+ * enumeration (`listVerificationReports`) — the same set `validate health`
+ * judges, so a report this scan refuses is a health finding too.
  */
 function scanVerificationGaps(planDir: string, cwd: string): ScanOutcome<VerificationGapItem> {
   const results: VerificationGapItem[] = [];
   let acknowledged = 0;
-  const { targets, activeUnreadable } = listAuditPhaseTargets(planDir, cwd);
+  const { reports, activeUnreadable } = listVerificationReports(cwd);
   if (activeUnreadable) {
     results.push({ scan_error: true, phase: '', file: '', status: '' });
   }
 
-  for (const target of targets) {
-    const phaseMatch = target.dir.match(new RegExp(`^(${PHASE_NUMBER_TOKEN_SOURCE})`, 'i'));
-    const phaseNum = phaseMatch ? phaseMatch[1] : target.dir;
+  for (const report of reports) {
+    const phaseMatch = report.dir.match(new RegExp(`^(${PHASE_NUMBER_TOKEN_SOURCE})`, 'i'));
+    const phaseNum = phaseMatch ? phaseMatch[1] : report.dir;
 
-    let files: string[];
+    let safeFilePath: string;
     try {
-      files = fs.readdirSync(target.fullPath);
+      safeFilePath = requireSafePath(report.filePath, planDir, 'VERIFICATION file', PathAcceptance.AbsoluteInsideRoot);
     } catch {
       continue;
     }
 
-    // Scoped to THIS phase's own token (#3511) so a stray, cross-phase, or
-    // ad-hoc VERIFICATION file cannot surface as this phase's gap.
-    for (const file of scopeToPhase(
-      files.filter(f => f.includes('-VERIFICATION') && f.endsWith('.md')),
-      target.dir,
-    )) {
-      const filePath = path.join(target.fullPath, file);
+    // #3078-CR MEDIUM 2 (security review follow-up): normalize a lone-CR
+    // document at this read boundary, same seam as `src/uat.cts`'s
+    // `readNormalizedDocument` — `platformReadSync` performs no line-ending
+    // normalization itself, and a lone-CR file's frontmatter fence would not
+    // be found at all.
+    const rawContent = platformReadSync(safeFilePath);
+    if (rawContent === null) continue;
+    const content = normalizeLineEndings(rawContent);
 
-      let safeFilePath: string;
-      try {
-        safeFilePath = requireSafePath(filePath, planDir, 'VERIFICATION file', PathAcceptance.AbsoluteInsideRoot);
-      } catch {
-        continue;
-      }
+    // #5118: the owner's report reader judges `status` — exact match, no
+    // case folding; an out-of-set value throws VerificationStatusError, and a
+    // frontmatter block that does not parse throws its subclass
+    // VerificationReportUnparseableError (never read as "no status").
+    const { fm, status } = readReportStatus(content, safeFilePath);
 
-      // #3078-CR MEDIUM 2 (security review follow-up): normalize a lone-CR
-      // document at this read boundary, same seam as `src/uat.cts`'s
-      // `readNormalizedDocument` — `platformReadSync` performs no line-ending
-      // normalization itself, and extractFrontmatter/status-derivation below
-      // degrade a lone-CR file's frontmatter to `unknown`, which every scan
-      // in this module treats as "not open" (fail-open, the permissive
-      // direction) rather than a real parse gap.
-      const rawContent = platformReadSync(safeFilePath);
-      if (rawContent === null) continue;
-      const content = normalizeLineEndings(rawContent);
+    if (status !== VERIFICATION_STATUS.GAPS_FOUND && status !== VERIFICATION_STATUS.HUMAN_NEEDED) continue;
 
-      const fm = extractFrontmatter(content, safeFilePath);
-      // #5118: the owner's report reader judges `status` — exact match, no
-      // case folding; an out-of-set value throws VerificationStatusError.
-      const status = reportStatusOf(fm, safeFilePath);
-
-      if (status !== VERIFICATION_STATUS.GAPS_FOUND && status !== VERIFICATION_STATUS.HUMAN_NEEDED) continue;
-
-      if (isAuditItemAcknowledged(fm, { snapshotKey: 'status', currentValue: status })) {
-        acknowledged++;
-        continue;
-      }
-
-      const item: VerificationGapItem = {
-        phase: sanitizeLabel(phaseNum),
-        file: sanitizeLabel(file),
-        status: sanitizeForDisplay(status),
-      };
-      if (target.milestone !== undefined) item.archived_milestone = sanitizeLabel(target.milestone);
-      results.push(item);
+    if (isAuditItemAcknowledged(fm, { snapshotKey: 'status', currentValue: status })) {
+      acknowledged++;
+      continue;
     }
+
+    const item: VerificationGapItem = {
+      phase: sanitizeLabel(phaseNum),
+      file: sanitizeLabel(report.file),
+      status: sanitizeForDisplay(status),
+    };
+    if (report.milestone !== undefined) item.archived_milestone = sanitizeLabel(report.milestone);
+    results.push(item);
   }
 
   return { items: results, acknowledged };

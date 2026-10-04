@@ -428,3 +428,173 @@ describe('W031 — verification report carries an unambiguous legacy status', ()
     }
   });
 });
+
+// ─── Coverage: W030/W031 judge every report the readers read (fork FU-F) ───
+//
+// MECHANICAL MUTATION of `makeCompletePhaseDir`'s passing report, placed where
+// the audits read it but the current milestone's phase list does not: an
+// archived phase (`milestones/v1.0-phases/`) and an active directory outside
+// the milestone window. Health used to judge only the window, so it reported
+// nothing while `audit-open` failed on exactly these reports.
+
+describe('W030/W031 coverage — the reports outside the current milestone', () => {
+  test('an archived report with `status: verified` is W031, labelled with its archive, its remedy naming the archived file', (t) => {
+    const cwd = createTempDir('gsd-fuf-w031-archived-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    makeCompletePhaseDir(cwd, '.planning/phases/02-bar');
+    writeFile(cwd, '.planning/milestones/v1.0-phases/01-old/01-VERIFICATION.md', '---\nstatus: verified\n---\n');
+
+    const snap = buildPlanningSnapshot(cwd);
+    assert.equal(snap.phaseDirs.value.includes('01-old'), false, 'fixture sanity: archived phase is not in the window');
+    const [diagnostic, ...rest] = ruleByCode['W031'].check(snap);
+    assert.deepEqual(rest, []);
+    assert.match(diagnostic.message, /^Phase v1\.0\/01-old: /);
+    assert.equal(
+      diagnostic.remedy.args.file,
+      path.join(cwd, '.planning', 'milestones', 'v1.0-phases', '01-old', '01-VERIFICATION.md'),
+    );
+    assert.deepEqual(ruleByCode['W030'].check(snap), []);
+  });
+
+  test('an archived report with an ambiguous status is W030 with its proposal', (t) => {
+    const cwd = createTempDir('gsd-fuf-w030-archived-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/milestones/v1.0-phases/01-old/01-VERIFICATION.md', '---\nstatus: passed-degraded\n---\n');
+
+    const [diagnostic, ...rest] = ruleByCode['W030'].check(buildPlanningSnapshot(cwd));
+    assert.deepEqual(rest, []);
+    assert.match(diagnostic.message, /^Phase v1\.0\/01-old: /);
+    assert.equal(diagnostic.remedy.args.suggested, 'gaps_found');
+  });
+
+  test('an active directory outside the milestone window is still judged', (t) => {
+    const cwd = createTempDir('gsd-fuf-w031-window-');
+    t.after(() => cleanup(cwd));
+    writeState(cwd, { milestone: 'v2.0' });
+    writeRoadmap(cwd, ['## v2.0 Current 🚧', '', '### Phase 2: Bar', ''].join('\n'));
+    makeCompletePhaseDir(cwd, '.planning/phases/02-bar');
+    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', '---\nstatus: verified\n---\n');
+
+    const snap = buildPlanningSnapshot(cwd);
+    assert.deepEqual(snap.phaseDirs.value, ['02-bar'], 'fixture sanity: 01-foo is outside the window');
+    assert.deepEqual(ruleByCode['W031'].check(snap).map((d) => d.message.split(':')[0]), ['Phase 01-foo']);
+  });
+
+  test('a bare VERIFICATION.md — the report `verification status` reads — is judged too', (t) => {
+    const cwd = createTempDir('gsd-fuf-w030-bare-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/phases/01-foo/VERIFICATION.md', '---\nstatus: Passed\n---\n');
+
+    const [diagnostic] = ruleByCode['W030'].check(buildPlanningSnapshot(cwd));
+    assert.ok(diagnostic, 'a bare report with an out-of-set status is a finding');
+    assert.match(diagnostic.remedy.args.file, /01-foo[\\/]VERIFICATION\.md$/);
+  });
+
+  test('a stray report naming another phase is not this phase\'s report and is not judged under it', (t) => {
+    const cwd = createTempDir('gsd-fuf-w030-stray-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    makeCompletePhaseDir(cwd, '.planning/phases/01-foo');
+    writeFile(cwd, '.planning/phases/01-foo/07-VERIFICATION.md', '---\nstatus: verified\n---\n');
+
+    assert.deepEqual(ruleByCode['W031'].check(buildPlanningSnapshot(cwd)), []);
+  });
+
+  test('a report symlinked outside its phase directory is not read — no finding, nothing of it reaches a message', { skip: process.platform === 'win32' }, (t) => {
+    const cwd = createTempDir('gsd-fuf-w031-escape-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, 'outside/02-VERIFICATION.md', '---\nstatus: verified\n---\n');
+    fs.mkdirSync(path.join(cwd, '.planning', 'phases', '02-bar'), { recursive: true });
+    fs.symlinkSync(path.join(cwd, 'outside', '02-VERIFICATION.md'), path.join(cwd, '.planning', 'phases', '02-bar', '02-VERIFICATION.md'));
+
+    const snap = buildPlanningSnapshot(cwd);
+    assert.deepEqual(snap.verificationReportDefects.value, []);
+  });
+});
+
+// ─── W032 — verification report frontmatter does not parse (fork FU-F) ─────
+//
+// MECHANICAL MUTATION from a live project: a nested key indented under a
+// scalar (`re_verification: true` followed by indented keys) — the shape that
+// made the report's status vanish, read as "no status" by every aggregate.
+
+describe('W032 — verification report frontmatter does not parse', () => {
+  const NESTED_UNDER_SCALAR = [
+    '---',
+    'phase: 01',
+    'status: passed',
+    're_verification: true',
+    '  previous_status: gaps_found',
+    '  gaps_closed: 2',
+    '---',
+    '# Verification',
+    '',
+  ].join('\n');
+
+  test('MECHANICAL MUTATION: a nested key under a scalar fires W032 naming the file, line 5 and the parser\'s reason — not W030/W031', (t) => {
+    const cwd = createTempDir('gsd-fuf-w032-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    makeCompletePhaseDir(cwd, '.planning/phases/01-foo');
+    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', NESTED_UNDER_SCALAR);
+
+    const snap = buildPlanningSnapshot(cwd);
+    const diagnostics = ruleByCode['W032'].check(snap);
+    assert.deepEqual(diagnostics.map((d) => d.code), ['W032']);
+    const [diagnostic] = diagnostics;
+    assert.equal(diagnostic.severity, 'warning');
+    assert.equal(diagnostic.remedy.action, 'advise');
+    assert.equal(diagnostic.remedy.args.line, 5);
+    assert.equal(diagnostic.remedy.args.reason, 'bad indentation of a mapping entry');
+    assert.match(diagnostic.remedy.args.file, /01-foo[\\/]01-VERIFICATION\.md$/);
+    assert.match(diagnostic.remedy.args.command, /at line 5/);
+    assert.equal(ruleByCode['W032'].repairable, false);
+    assert.deepEqual(ruleByCode['W030'].check(snap), []);
+    assert.deepEqual(ruleByCode['W031'].check(snap), []);
+  });
+
+  test('an archived unparseable report is W032 too', (t) => {
+    const cwd = createTempDir('gsd-fuf-w032-archived-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/milestones/v1.0-phases/01-old/01-VERIFICATION.md', NESTED_UNDER_SCALAR);
+
+    const [diagnostic, ...rest] = ruleByCode['W032'].check(buildPlanningSnapshot(cwd));
+    assert.deepEqual(rest, []);
+    assert.match(diagnostic.message, /^Phase v1\.0\/01-old: /);
+  });
+
+  test('a refusal with no position (an anchor) carries `line: null` and no line in the fix', (t) => {
+    const cwd = createTempDir('gsd-fuf-w032-anchor-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', '---\nstatus: &verdict passed\n---\n');
+
+    const [diagnostic] = ruleByCode['W032'].check(buildPlanningSnapshot(cwd));
+    assert.ok(diagnostic, 'an anchor is refused by the parser');
+    assert.equal(diagnostic.remedy.args.line, null);
+    assert.doesNotMatch(diagnostic.remedy.args.command, /at line/);
+  });
+
+  test('baseline: the same report with the nested keys under a mapping parses — no W032', (t) => {
+    const cwd = createTempDir('gsd-fuf-w032-neg-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', NESTED_UNDER_SCALAR.replace('re_verification: true', 're_verification:'));
+
+    assert.deepEqual(ruleByCode['W032'].check(buildPlanningSnapshot(cwd)), []);
+  });
+
+  test('baseline: an unterminated fence is not W032 — it keeps its own #1882 reading', (t) => {
+    const cwd = createTempDir('gsd-fuf-w032-unterminated-');
+    t.after(() => cleanup(cwd));
+    baseFixture(cwd);
+    writeFile(cwd, '.planning/phases/01-foo/01-VERIFICATION.md', '---\nstatus: passed\n');
+
+    assert.deepEqual(ruleByCode['W032'].check(buildPlanningSnapshot(cwd)), []);
+  });
+});

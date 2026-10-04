@@ -29,8 +29,9 @@ import phaseLocatorMod = require('./phase-locator.cjs');
 const { listMilestonePhaseDirs, listAllPhaseDirs } = phaseLocatorMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import verificationMod = require('./verification.cjs');
-const { isPhaseComplete } = verificationMod;
+const { isPhaseComplete, listVerificationReportDefects } = verificationMod;
 type VerificationStatus = verificationMod.VerificationStatus;
+type VerificationReportDefect = verificationMod.VerificationReportDefect;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import scanPhasePlans = require('./plan-scan.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -131,17 +132,13 @@ function worstScope(...scopes: Scope[]): Scope {
 interface PhaseSnapshot {
   dir: string;
   complete: boolean;
-  /** `null` exactly when `verificationStatusError` is set (#5118). */
-  verificationStatus: VerificationStatus | null;
   /**
-   * #5118: the report whose `status` is outside the closed set, when there is
-   * one — `isPhaseComplete` absorbed its VerificationStatusError (scope
-   * UNREADABLE) and the snapshot CARRIES it. Diagnostic surfaces report it as
-   * the W030 finding; a query surface built on the snapshot fails with it.
-   * `rawStatus` is the value the report carried (trimmed when a string), so a
-   * diagnostic can propose a replacement for a known legacy value (W031).
+   * `null` exactly when the phase's report is refused (#5118) — `isPhaseComplete`
+   * absorbed its VerificationStatusError (scope UNREADABLE). The refused report
+   * itself is in `verificationReportDefects`, which covers every report the
+   * readers judge, not only this milestone's.
    */
-  verificationStatusError: { file: string; message: string; rawStatus: unknown } | null;
+  verificationStatus: VerificationStatus | null;
   planCount: number;
   summaryCount: number;
   scope: Scope;
@@ -310,6 +307,18 @@ interface PlanningSnapshot {
   // scope because per-workstream phase numbering is deliberate and a
   // cross-workstream "declared" union would silence genuine drift.
   workstream: string | null;
+  // ─── Fork FU-F addition ────────────────────────────────────────────────────
+  // Every VERIFICATION report the readers refuse — a `status` outside the
+  // closed set (W030/W031) or a frontmatter block that does not parse (W032).
+  // Sourced from the verification owner's ONE report enumeration
+  // (`listVerificationReportDefects` over `listVerificationReports`), the set
+  // `audit-open` and `audit-uat` read: every active phase directory, not only
+  // this milestone's, and every archived one. Health used to judge only the
+  // current milestone's phases, so it reported nothing while `audit-open`
+  // failed on an archived report. A diagnostics surface reports each one
+  // instead of failing on it. `scope` is UNREADABLE when the active
+  // `phases/` root could not be read.
+  verificationReportDefects: { value: VerificationReportDefect[]; scope: Scope };
 }
 
 /**
@@ -327,14 +336,10 @@ function buildPhaseSnapshot(phasesDir: string, dir: string, convention: string |
   // report exactly like its legacy twin.
   const completionResult = isPhaseComplete(fullPhaseDir, { convention });
   const scanResult = scanPhasePlans(fullPhaseDir);
-  const statusError = completionResult.value.statusError;
   return {
     dir,
     complete: completionResult.value.complete,
     verificationStatus: completionResult.value.verification.status,
-    verificationStatusError: statusError
-      ? { file: statusError.file, message: statusError.message, rawStatus: statusError.rawStatus }
-      : null,
     planCount: scanResult.planCount,
     summaryCount: scanResult.summaryCount,
     scope: worstScope(completionResult.scope, scanResult.scope),
@@ -1277,6 +1282,20 @@ function buildPerPhasePlanScanFields(
 }
 
 /**
+ * The reports the readers refuse, judged by the verification owner over its
+ * one report enumeration. The convention widens the per-phase selection with
+ * the convention-aware reading `verification status` uses (#612), so the set
+ * covers that reader as well as the audits.
+ */
+function buildVerificationReportDefectsField(
+  cwd: string,
+  convention: string | null,
+): { value: VerificationReportDefect[]; scope: Scope } {
+  const { defects, activeUnreadable } = listVerificationReportDefects(cwd, { convention });
+  return { value: defects, scope: activeUnreadable ? SCOPE.UNREADABLE : SCOPE.COMPLETE };
+}
+
+/**
  * Build the full `.planning/` projection for `cwd`. Composes the six §7
  * owners named in the design doc's "Owners consumed" table, plus (Phase 11,
  * #3309) the three additive subject-surface fields `config`/`agentInstall`/
@@ -1357,6 +1376,7 @@ function buildPlanningSnapshot(cwd: string): PlanningSnapshot {
     roadmapSentinelPhaseTokens: roadmapDeclared.sentinelTokens,
     roadmapBracketIncoherences: buildRoadmapBracketIncoherencesField(paths.roadmap, phaseIdConvention),
     workstream,
+    verificationReportDefects: buildVerificationReportDefectsField(cwd, phaseIdConvention),
   };
 }
 

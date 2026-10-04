@@ -21,7 +21,7 @@ import markdownSectionizer = require('./markdown-sectionizer.cjs');
 const { stripFencedCode } = markdownSectionizer;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import verification = require('./verification.cjs');
-const { readVerificationStatus, reportStatusOf, isReportContained, VERIFICATION_STATUS } = verification;
+const { readVerificationStatus, readReportStatus, selectPhaseVerificationReports, isReportContained, VERIFICATION_STATUS } = verification;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseIdMod = require('./phase-id.cjs');
 const { scopeToPhase } = phaseIdMod;
@@ -592,10 +592,9 @@ function evaluateUatPassed(
     dirEntries.filter(f => f.includes('-UAT') && f.endsWith('.md')),
     phaseDirBaseName,
   );
-  const verFileNames = scopeToPhase(
-    dirEntries.filter(f => f.includes('-VERIFICATION') && f.endsWith('.md')),
-    phaseDirBaseName,
-  );
+  // VERIFICATION: the verification owner's one per-phase selection — the
+  // scoped dashed reports plus the report `verification status` resolves.
+  const verFileNames = selectPhaseVerificationReports(dirEntries, phaseDirBaseName);
 
   // ── Process UAT files ──────────────────────────────────────────────────────
   for (const file of uatFileNames) {
@@ -692,8 +691,9 @@ function evaluateUatPassed(
     }
 
     // #5118: judged by the owner's report reader — a status outside the
-    // closed writer set throws VerificationStatusError (no silent pass-through).
-    const vStatus = reportStatusOf(extractFrontmatter(raw, verificationFilePath), verificationFilePath);
+    // closed writer set throws VerificationStatusError (no silent pass-through),
+    // and so does a frontmatter block that does not parse (its subclass).
+    const vStatus = readReportStatus(raw, verificationFilePath).status;
 
     if (vStatus === VERIFICATION_STATUS.HUMAN_NEEDED || vStatus === VERIFICATION_STATUS.GAPS_FOUND) {
       blockers.push(`${file}: verification status=${vStatus}`);

@@ -590,11 +590,109 @@ function getAllArchivedPhaseDirs(cwd: string): ArchivedPhaseDir[] {
   return out;
 }
 
+// ─── listActiveAndArchivedPhaseDirs ───────────────────────────────────────────
+
+interface PhaseScanTarget {
+  dir: string;
+  fullPath: string;
+  milestone?: string;
+}
+
+/**
+ * Enumerate phase directories across BOTH the active `.planning/phases/` root
+ * and every archived `.planning/milestones/vX.Y-phases/` root. Shared by the
+ * four phase-scoped scanners in `audit.cts` (#3458 — epic #3473 B2/F2) and by
+ * `verification.cts`'s `listVerificationReports` — moved here from `audit.cts`
+ * so the audit readers and `validate health` walk one set of phase directories.
+ * Previously each scanner hand-rolled its own active-only `readdirSync(phasesDir)` walk and
+ * bailed out entirely when the active root was missing, so items still
+ * unresolved when a milestone closed and its phase dirs archived became
+ * permanently invisible to every later audit.
+ *
+ * ACTIVE dirs: raw readdirSync + isDirectory filter + sort. The enumeration
+ * walk itself (readdirSync + isDirectory filter + sort) is UNCHANGED from the
+ * scanners' prior inline behavior; what IS new is that a failed read here no
+ * longer aborts the whole scan the way each scanner's own inline
+ * `if (!fs.existsSync) return []` / try-readdirSync-catch-return-sentinel
+ * pair used to — see `activeUnreadable` below, which is how that signal is
+ * now surfaced to callers instead. Deliberately NOT routed through
+ * listMilestonePhaseDirs: these scanners are deliberately not
+ * milestone-filtered today, and switching would silently add window/sentinel
+ * filtering — a behavior change belonging to #3372, not here.
+ *
+ * A missing/unreadable active root does NOT short-circuit the archive walk —
+ * the old `if (!fs.existsSync(phasesDir)) return []` was the whole bug in a
+ * fully-archived project; it degrades to "skip the active half" only. An
+ * UNREADABLE (as opposed to merely absent) active root is reported back via
+ * `activeUnreadable: true` so each of the four callers can still emit the
+ * `scan_error` sentinel they emitted pre-#3458 for this exact case (a real
+ * I/O failure, not "verified clean") — see each scanner's own use of it.
+ *
+ * ARCHIVED dirs: sourced from `getArchivedPhaseDirs` (phase-locator.cjs), the
+ * canonical archive-enumeration seam `uat.cts`'s `cmdAuditUat` already uses.
+ * Archived dirs are deliberately NOT milestone-filtered either — see the
+ * comment at src/uat.cts:107-111: listMilestonePhaseDirs derives the CURRENT
+ * milestone's phase dirs (window + sentinel filtered) from ROADMAP.md, and
+ * archived phases belong to past milestones by definition, so filtering them
+ * discards every one and silently reinstates the bug this function fixes.
+ *
+ * An unreadable/unresolvable ARCHIVE root does NOT get its own sentinel.
+ * Pre-#3458 there was no archived read at all, so — unlike the active root —
+ * there is no prior `scan_error` contract to preserve here, and no existing
+ * consumer can regress. It also degrades the same way `listArchiveVersionDirs`
+ * (phase-locator.cts) already treats an absent `milestones/` dir: a real
+ * empty, not a failure, matching this function's existing "skip that root"
+ * idiom for the missing-active-dir case above. Adding a second sentinel path
+ * would let a machine consumer conflate "no milestones archived yet" (the
+ * overwhelmingly common case for an active project) with an actual read
+ * failure, which is a worse signal-to-noise trade than the one this
+ * function's own fix removes for the active root.
+ *
+ * Same-named dirs in both roots (e.g. "01-alpha" active AND archived) are
+ * DISTINCT targets — no dedupe.
+ */
+function listActiveAndArchivedPhaseDirs(planDir: string, cwd: string): { targets: PhaseScanTarget[]; activeUnreadable: boolean } {
+  const targets: PhaseScanTarget[] = [];
+  let activeUnreadable = false;
+
+  const phasesDir = path.join(planDir, 'phases');
+  if (fs.existsSync(phasesDir)) {
+    try {
+      const dirs = fs.readdirSync(phasesDir, { withFileTypes: true })
+        .filter(e => e.isDirectory())
+        .map(e => e.name)
+        .sort();
+      for (const dir of dirs) {
+        targets.push({ dir, fullPath: path.join(phasesDir, dir) });
+      }
+    } catch {
+      // Unreadable active root: skip it, do not abort the archive walk, but
+      // report it so callers can emit their pre-#3458 scan_error sentinel.
+      activeUnreadable = true;
+    }
+  }
+
+  // #3804: the audit is cross-workstream by design — the shared
+  // getAllArchivedPhaseDirs helper (root + every workstream, distinct
+  // '<ws>/<version>' labels) owns that walk.
+  try {
+    for (const archived of getAllArchivedPhaseDirs(cwd)) {
+      targets.push({ dir: archived.name, fullPath: archived.fullPath, milestone: archived.milestone });
+    }
+  } catch {
+    // Unreadable/unresolvable archive root: skip it, keep whatever active
+    // targets were already collected. No sentinel — see docstring above.
+  }
+
+  return { targets, activeUnreadable };
+}
+
 export = {
   searchPhaseInDir,
   findPhaseInternal,
   getArchivedPhaseDirs,
   getAllArchivedPhaseDirs,
+  listActiveAndArchivedPhaseDirs,
   listMilestonePhaseDirs,
   listAllPhaseDirs,
 };

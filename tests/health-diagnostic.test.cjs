@@ -292,9 +292,9 @@ describe('evaluateRuleTable — duplicate-code guard (row 13)', () => {
 // doc, "Two guards that stay OUTSIDE the rule table entirely").
 
 describe('RULES', () => {
-  test('is the full, frozen 35-rule table with every code unique', () => {
+  test('is the full, frozen 36-rule table with every code unique', () => {
     assert.equal(Array.isArray(RULES), true);
-    assert.equal(RULES.length, 35);
+    assert.equal(RULES.length, 36);
     const codes = RULES.map((r) => r.code);
     assert.equal(new Set(codes).size, codes.length, 'every rule code must be unique');
   });
@@ -747,7 +747,7 @@ describe('W031 — normalizeVerificationStatus repair (fork 3.4a)', () => {
     const w031 = report.warnings.find((w) => w.code === 'W031');
     assert.ok(w031, JSON.stringify(report.warnings));
     assert.equal(w031.repairable, true);
-    assert.match(w031.fix, /--repair to rewrite the report's status/);
+    assert.match(w031.fix, /--repair --only W031 to rewrite the report's status/);
 
     const repaired = run({ repair: true });
     assert.ok(

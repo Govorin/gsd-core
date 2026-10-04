@@ -42,7 +42,7 @@ const { isAuditItemAcknowledged, deriveUatGapSnapshotValue } = auditMod;
 // #5118: the verification-status owner's report reader and closed enum.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import verificationMod = require('./verification.cjs');
-const { reportStatusOf, isReportContained, VERIFICATION_STATUS } = verificationMod;
+const { readReportStatus, listVerificationReports, isReportContained, VERIFICATION_STATUS } = verificationMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import pristineBaseline = require('./pristine-baseline.cjs');
 const { gitExec } = pristineBaseline;
@@ -228,6 +228,13 @@ function collectAuditUat(cwd: string): AuditUatReport | null {
     });
   }
 
+  const reportsByPhaseDir = new Map<string, verificationMod.VerificationReportRef[]>();
+  for (const report of listVerificationReports(cwd).reports) {
+    const list = reportsByPhaseDir.get(report.phaseDir);
+    if (list) list.push(report);
+    else reportsByPhaseDir.set(report.phaseDir, [report]);
+  }
+
   for (const { dir, phaseDir, milestone } of scanTargets) {
     const phaseMatch = dir.match(new RegExp(`^(${PHASE_NUMBER_TOKEN_SOURCE})`, 'i'));
     const phaseNum = phaseMatch ? phaseMatch[1] : dir;
@@ -312,18 +319,18 @@ function collectAuditUat(cwd: string): AuditUatReport | null {
       }
     }
 
-    // Process VERIFICATION files — scoped to THIS phase's own token (#3511)
-    // for the same reason as the UAT loop above.
-    for (const file of scopeToPhase(files.filter(f => f.includes('-VERIFICATION') && f.endsWith('.md')), dir)) {
-      const verificationFilePath = path.join(phaseDir, file);
-      // #5118 security review (S1): containment BEFORE the read — an escaping
-      // report reads `missing` and never reaches `reportStatusOf`'s message.
-      if (!isReportContained(phaseDir, verificationFilePath)) continue;
+    // Process VERIFICATION files — this phase's share of the verification
+    // owner's one report enumeration (`listVerificationReports`, the set
+    // `audit-open` and `validate health` judge too): scoped to THIS phase's
+    // own token (#3511), plus the report `verification status` resolves, and
+    // never a report whose real path escapes the phase directory (#5118 S1).
+    for (const { file, filePath: verificationFilePath } of reportsByPhaseDir.get(phaseDir) ?? []) {
       const content = readNormalizedDocument(verificationFilePath);
-      const verFm = extractFrontmatter(content, verificationFilePath) as Record<string, unknown>;
       // #5118: the owner's report reader judges `status` (exact match, no case
-      // folding); an out-of-set value throws VerificationStatusError.
-      const status = reportStatusOf(verFm, verificationFilePath);
+      // folding); an out-of-set value throws VerificationStatusError, and a
+      // frontmatter block that does not parse throws its subclass (never read
+      // as "no status").
+      const { fm: verFm, status } = readReportStatus(content, verificationFilePath);
       // #3805: same marker, same 'status' snapshot key as scanVerificationGaps,
       // and the same ORDERING — the open-status gate runs FIRST (a marker on
       // a file that would never surface is not a suppressed item), then the

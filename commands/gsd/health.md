@@ -1,7 +1,7 @@
 ---
 name: gsd:health
 description: Diagnose planning directory health and optionally repair issues
-argument-hint: "[--repair] [--context]"
+argument-hint: "[--repair] [--only CODES] [--context]"
 allowed-tools:
   - Read
   - Bash
@@ -33,5 +33,5 @@ Validate `.planning/` directory integrity and report actionable issues. Checks f
 
 <process>
 Execute end-to-end.
-Parse `--repair` and `--context` flags from arguments and pass to workflow.
+Parse `--repair`, `--only` (with its comma-separated code list) and `--context` from arguments and pass to workflow.
 </process>

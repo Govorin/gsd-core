@@ -656,7 +656,7 @@ The commands above cover the most common day-to-day flows. Every command listed 
 
 ### Diagnostics & Maintenance
 
-- **`/gsd:health [--repair] [--context]`** — Diagnose planning directory health and optionally repair issues.
+- **`/gsd:health [--repair] [--only CODES] [--context]`** — Diagnose planning directory health and optionally repair issues (`--only W031` limits a repair to the listed codes).
 - **`/gsd:forensics [problem description]`** — Post-mortem investigation for failed GSD workflows; diagnoses what went wrong.
 - **`/gsd:undo --last N | --phase NN | --plan NN-MM`** — Safe git revert. Roll back phase or plan commits using the phase manifest with dependency checks.
 - **`/gsd:docs-update [--force] [--verify-only]`** — Generate or update project documentation verified against the codebase.
