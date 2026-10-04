@@ -190,7 +190,7 @@ describe('verify mutation — the run (injected runner and clock)', () => {
   // ── what is mutated ───────────────────────────────────────────────────────
 
   test('nothing mutable declared — globs, directories, tests — is nothing_to_mutate, and runs nothing', () => {
-    fs.writeFileSync(path.join(phaseDir, '03-01-PLAN.md'), planDeclaring(['libs/**', 'src.spec.js', 'tests/helper.js', 'docs/']));
+    fs.writeFileSync(path.join(phaseDir, '03-01-PLAN.md'), planDeclaring(['libs/**', 'src.spec.js', 'tests/helper.js', 'assets/']));
     fs.writeFileSync(path.join(projectDir, 'src.spec.js'), 'const x = true === true;\n');
     const { deps, calls } = fakeDeps();
     assert.equal(run({ deps }).status, MUTATION_STATUS.NOTHING_TO_MUTATE);
