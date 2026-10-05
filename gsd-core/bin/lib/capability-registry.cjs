@@ -4410,12 +4410,27 @@ const capabilities = {
       "retro.signal_threshold": {
         "type": "number",
         "default": 8,
-        "description": "Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights."
+        "description": "Session friction score at or above which a retro is worth a model pass (score >= threshold). Each signal has units = count − min + 1; per kind the units are taken as a rate over the session volume (retro.volume_turns, retro.volume_calls), capped at retro.kind_cap and weighted — see src/retro-signals.cts for the weights. Calibrated on real sessions (ADR-5209): at 8 a retro is suggested for about one session in ten, almost all of them with explicit user pushback."
+      },
+      "retro.kind_cap": {
+        "type": "number",
+        "default": 3,
+        "description": "Units one signal kind can add to the score, at most — one cause (a broken hook firing on every call, say) never piles up a score on its own."
+      },
+      "retro.volume_calls": {
+        "type": "number",
+        "default": 300,
+        "description": "Tool calls up to which tool-side signal units count as they are; past it they count as a rate per this many calls, so a long session is not a struggling one by length alone. Behavioural kinds use the main transcript's calls, environment kinds all calls including subagents."
+      },
+      "retro.volume_turns": {
+        "type": "number",
+        "default": 20,
+        "description": "User turns up to which user corrections, interrupts and rejected tool calls count as they are; past it they count as a rate per this many turns."
       },
       "retro.repeat_call_min": {
         "type": "number",
         "default": 3,
-        "description": "Identical tool calls in one session before they count as a repeated-call signal (at least this many)."
+        "description": "Identical tool calls with nothing edited in between before they count as a repeated-call signal (at least this many). Re-running a check after a fix is not a repetition, and polling tools (ListAgents, TaskOutput, ScheduleWakeup, …) never count."
       },
       "retro.repeat_error_min": {
         "type": "number",
@@ -4425,17 +4440,17 @@ const capabilities = {
       "retro.reread_min": {
         "type": "number",
         "default": 3,
-        "description": "Reads of one file with no edit to it in between before they count as a reread signal."
+        "description": "Reads of the same range of one file with no edit to it and no compaction in between before they count as a reread signal."
       },
       "retro.edit_churn_min": {
         "type": "number",
-        "default": 6,
-        "description": "Edits of one file in one session before they count as an edit-churn signal."
+        "default": 4,
+        "description": "Edits of one file that rewrite lines an earlier edit of the same session wrote, before they count as an edit-churn signal. Successive edits of different places are not churn."
       },
       "retro.nav_streak_min": {
         "type": "number",
-        "default": 8,
-        "description": "Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal."
+        "default": 12,
+        "description": "Navigation calls (Read/Grep/Glob, read-only shell, structural MCP navigation) with nothing else in between before they count as a nav-streak signal. Any other call — an edit, a command, a spawned agent — or a user turn ends the streak."
       },
       "retro.checker_loop_min": {
         "type": "number",
@@ -6433,6 +6448,9 @@ const configKeys = {
   "retro.enabled": "retro",
   "retro.auto": "retro",
   "retro.signal_threshold": "retro",
+  "retro.kind_cap": "retro",
+  "retro.volume_calls": "retro",
+  "retro.volume_turns": "retro",
   "retro.repeat_call_min": "retro",
   "retro.repeat_error_min": "retro",
   "retro.reread_min": "retro",
@@ -7358,13 +7376,31 @@ const configSchema = {
     "owner": "retro",
     "type": "number",
     "default": 8,
-    "description": "Weighted friction score at or above which a retro is worth a model pass (score >= threshold). Each signal scores weight × (count − min + 1); see src/retro-signals.cts for the weights."
+    "description": "Session friction score at or above which a retro is worth a model pass (score >= threshold). Each signal has units = count − min + 1; per kind the units are taken as a rate over the session volume (retro.volume_turns, retro.volume_calls), capped at retro.kind_cap and weighted — see src/retro-signals.cts for the weights. Calibrated on real sessions (ADR-5209): at 8 a retro is suggested for about one session in ten, almost all of them with explicit user pushback."
+  },
+  "retro.kind_cap": {
+    "owner": "retro",
+    "type": "number",
+    "default": 3,
+    "description": "Units one signal kind can add to the score, at most — one cause (a broken hook firing on every call, say) never piles up a score on its own."
+  },
+  "retro.volume_calls": {
+    "owner": "retro",
+    "type": "number",
+    "default": 300,
+    "description": "Tool calls up to which tool-side signal units count as they are; past it they count as a rate per this many calls, so a long session is not a struggling one by length alone. Behavioural kinds use the main transcript's calls, environment kinds all calls including subagents."
+  },
+  "retro.volume_turns": {
+    "owner": "retro",
+    "type": "number",
+    "default": 20,
+    "description": "User turns up to which user corrections, interrupts and rejected tool calls count as they are; past it they count as a rate per this many turns."
   },
   "retro.repeat_call_min": {
     "owner": "retro",
     "type": "number",
     "default": 3,
-    "description": "Identical tool calls in one session before they count as a repeated-call signal (at least this many)."
+    "description": "Identical tool calls with nothing edited in between before they count as a repeated-call signal (at least this many). Re-running a check after a fix is not a repetition, and polling tools (ListAgents, TaskOutput, ScheduleWakeup, …) never count."
   },
   "retro.repeat_error_min": {
     "owner": "retro",
@@ -7376,19 +7412,19 @@ const configSchema = {
     "owner": "retro",
     "type": "number",
     "default": 3,
-    "description": "Reads of one file with no edit to it in between before they count as a reread signal."
+    "description": "Reads of the same range of one file with no edit to it and no compaction in between before they count as a reread signal."
   },
   "retro.edit_churn_min": {
     "owner": "retro",
     "type": "number",
-    "default": 6,
-    "description": "Edits of one file in one session before they count as an edit-churn signal."
+    "default": 4,
+    "description": "Edits of one file that rewrite lines an earlier edit of the same session wrote, before they count as an edit-churn signal. Successive edits of different places are not churn."
   },
   "retro.nav_streak_min": {
     "owner": "retro",
     "type": "number",
-    "default": 8,
-    "description": "Navigation calls (Read/Grep/Glob and read-only shell) in a row with no edit before they count as a nav-streak signal."
+    "default": 12,
+    "description": "Navigation calls (Read/Grep/Glob, read-only shell, structural MCP navigation) with nothing else in between before they count as a nav-streak signal. Any other call — an edit, a command, a spawned agent — or a user turn ends the streak."
   },
   "retro.checker_loop_min": {
     "owner": "retro",
