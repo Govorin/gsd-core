@@ -9,5 +9,11 @@
   },
   "sonnet": {
     "arch-03/C/2#2": "arch-03:leaky_seam"
+  },
+  "haiku-d": {
+    "arch-04/D/4#0": "arch-04:shallow_interface",
+    "arch-05/D/2#3": "arch-05:leaky_seam",
+    "arch-04/D/2#1": "arch-04:scattered",
+    "arch-02/A/1#1": "arch-02:leaky_seam"
   }
 }

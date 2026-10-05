@@ -117,8 +117,12 @@ Variants, the code bytes identical in all three:
 | **C** | + `prepass.json` as is | + the `<signals>` block and the metrics rows as is |
 | **Cp** (C′) | + the `<window_prepass>` brief, produced by running the node snippet extracted from `gsd-core/workflows/code-review/steps/window-scope.md` at generation time | + the `<what_the_metrics_checked>` block, read verbatim from `agents/gsd-arch-surveyor.md` |
 
-Cp is the shipped form: both prompts already say which classes the pre-pass checked and that the
-rest is the model's to find. Each generator has seven (`window`) or six (`arch`) defect classes,
+| **D** (`arch` only) | — | A + the `<zone_and_metrics>` block the agent ships after the wave 3 patch: no metrics in the prompt, the counted classes reported by `arch report` instead |
+
+Cp was the shipped form when the batch ran: both prompts said which classes the pre-pass checked
+and that the rest is the model's to find. `fixtures-arch.cjs` reads Cp's block from the agent as of
+`CP_SOURCE_REV`, so the Cp reports stay byte-identical after the patch; D's block is read from the
+agent as it is now. D was measured in its own batch next to a fresh A (`runs-haiku-d.jsonl`). Each generator has seven (`window`) or six (`arch`) defect classes,
 each seeded three times across six fixtures, plus two clean controls. Half the classes are ones the
 pre-pass flags, half are ones it cannot see:
 
