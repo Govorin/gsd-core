@@ -5,32 +5,51 @@
  * This module decides that without a model: it reads the typed transcript
  * (session-transcript.cts) plus the planning record and git history, and
  * emits **signals** — each a kind, a weight, an occurrence count, pointers to
- * where it happened, and a short redacted excerpt. The weighted sum against
+ * where it happened, and a short redacted excerpt. The session score against
  * `retro.signal_threshold` answers "suggest a retro or stay silent".
  *
  * ── What counts as friction ─────────────────────────────────────────────
  *
  * Instance signals (every occurrence scores): a user correction ("нет",
  * "не так", "стоп", "no", "wrong", …), a user interrupt, a tool call the user
- * rejected, a permission denial, a revert (git revert / reset --hard /
- * checkout -- / restore in a Bash call, or a `Revert "…"` commit), a node
- * repair, a `gaps_found` verdict, an API error, a context compaction, a
- * navigation streak (many Read/Grep/Glob with no edit in between).
+ * rejected, a permission denial, a revert (`git revert`, a `Revert "…"`
+ * commit, or reset --hard / checkout -- / restore covering the agent's own
+ * uncommitted edits), a node repair, a `gaps_found` verdict, an API error, a
+ * context compaction, a navigation streak (navigation calls with nothing
+ * else in between).
  *
  * Repetition signals (score only from their threshold up): the same tool
- * error again, the same tool call again, the same file re-read with no edit
- * in between, the same file edited over and over, the plan-checker spawned
- * again (a revision loop), a checkpoint reached again, the same hook blocking
- * again.
+ * error again, the same tool call again with nothing edited since, the same
+ * range of a file re-read with no edit to it in between, the agent rewriting
+ * lines it wrote itself in one file, the plan-checker spawned again (a
+ * revision loop), a checkpoint reached again, the same hook blocking again.
  *
- * ── Thresholds ──────────────────────────────────────────────────────────
+ * Behavioural kinds (MAIN_ONLY_KINDS) come from the main transcript only;
+ * environment kinds come from subagent transcripts too.
+ *
+ * ── Thresholds and the score ────────────────────────────────────────────
  *
  * Every `*_min` threshold is "at least": a repetition signal exists when its
  * count is `>= min`, and its score is `weight × (count − min + 1)` — one
- * weight per occurrence at or past the threshold. `suggest` is
- * `score >= signal_threshold`. `max_signals` caps the list, never the score:
- * the cut signals are enumerated in `omitted`, by id, so "nothing else" and
- * "more than fit" are different answers.
+ * weight per occurrence at or past the threshold (its *units*). The session
+ * score is not the sum of those: per kind, units are taken as a rate over the
+ * session's volume and saturated —
+ *
+ *   kind score = weight × min(kind_cap, units × min(1, reference / volume))
+ *
+ * where volume is user turns for the user kinds (corrections, interrupts,
+ * rejections; reference `volume_turns`), main-transcript tool calls for the
+ * behavioural kinds and all tool calls for the rest (reference
+ * `volume_calls`). A session up to the reference volume scores its units as
+ * they are; a longer one scores the same rate, so length alone never crosses
+ * the threshold, and one cause can never add more than `kind_cap` weights.
+ * `suggest` is `score >= signal_threshold`. `max_signals` caps the list,
+ * never the score: the cut signals are enumerated in `omitted`, by id, so
+ * "nothing else" and "more than fit" are different answers.
+ *
+ * The defaults are calibrated on a corpus of real sessions (ADR-5209,
+ * "Calibration"): mins at about the 90th percentile of what each detector
+ * sees, references at about the 90th percentile of session volume.
  *
  * ── Privacy ─────────────────────────────────────────────────────────────
  *
@@ -61,17 +80,23 @@ const { planningPaths } = planningWorkspaceModule;
 // ─── Thresholds ───────────────────────────────────────────────────────────────
 
 export interface RetroThresholds {
-  /** `retro.signal_threshold` — total score at or above which a retro is suggested. */
+  /** `retro.signal_threshold` — session score at or above which a retro is suggested. */
   signalThreshold: number;
-  /** `retro.repeat_call_min` — identical tool calls. */
+  /** `retro.kind_cap` — units one kind can add to the score, at most. */
+  kindCap: number;
+  /** `retro.volume_calls` — tool calls up to which tool-side units count as they are. */
+  volumeCalls: number;
+  /** `retro.volume_turns` — user turns up to which user-side units count as they are. */
+  volumeTurns: number;
+  /** `retro.repeat_call_min` — identical tool calls with nothing edited in between. */
   repeatCallMin: number;
   /** `retro.repeat_error_min` — the same tool error. */
   repeatErrorMin: number;
-  /** `retro.reread_min` — reads of one file with no edit to it in between. */
+  /** `retro.reread_min` — reads of one file range with no edit to it in between. */
   rereadMin: number;
-  /** `retro.edit_churn_min` — edits of one file. */
+  /** `retro.edit_churn_min` — edits of one file that rewrite lines an earlier own edit wrote. */
   editChurnMin: number;
-  /** `retro.nav_streak_min` — navigation calls in a row with no edit. */
+  /** `retro.nav_streak_min` — navigation calls with nothing else in between. */
   navStreakMin: number;
   /** `retro.checker_loop_min` — plan-checker spawns. */
   checkerLoopMin: number;
@@ -89,11 +114,14 @@ export interface RetroThresholds {
 
 export const DEFAULT_RETRO_THRESHOLDS: Readonly<RetroThresholds> = Object.freeze({
   signalThreshold: 8,
+  kindCap: 3,
+  volumeCalls: 300,
+  volumeTurns: 20,
   repeatCallMin: 3,
   repeatErrorMin: 2,
   rereadMin: 3,
-  editChurnMin: 6,
-  navStreakMin: 8,
+  editChurnMin: 4,
+  navStreakMin: 12,
   checkerLoopMin: 2,
   checkpointMin: 2,
   hookBlockMin: 1,
@@ -104,6 +132,9 @@ export const DEFAULT_RETRO_THRESHOLDS: Readonly<RetroThresholds> = Object.freeze
 
 const THRESHOLD_KEYS: ReadonlyArray<[keyof RetroThresholds, string]> = [
   ['signalThreshold', 'signal_threshold'],
+  ['kindCap', 'kind_cap'],
+  ['volumeCalls', 'volume_calls'],
+  ['volumeTurns', 'volume_turns'],
   ['repeatCallMin', 'repeat_call_min'],
   ['repeatErrorMin', 'repeat_error_min'],
   ['rereadMin', 'reread_min'],
@@ -120,9 +151,11 @@ const THRESHOLD_KEYS: ReadonlyArray<[keyof RetroThresholds, string]> = [
 /**
  * Thresholds from a project config object (`retro.<key>` nested, or the flat
  * dotted form). A value that is not a non-negative integer (or, for the
- * `*_min` keys, below 1) keeps the default and is named in `problems` — a
- * typo never silently becomes "no threshold".
+ * `*_min`, cap and volume keys, below 1) keeps the default and is named in
+ * `problems` — a typo never silently becomes "no threshold".
  */
+const FLOOR_ONE_KEYS = new Set(['max_signals', 'excerpt_chars', 'kind_cap', 'volume_calls', 'volume_turns']);
+
 export function resolveRetroThresholds(config: Record<string, unknown> | null | undefined): {
   thresholds: RetroThresholds;
   problems: string[];
@@ -135,7 +168,7 @@ export function resolveRetroThresholds(config: Record<string, unknown> | null | 
   for (const [field, key] of THRESHOLD_KEYS) {
     const raw = nested[key] !== undefined ? nested[key] : config?.[`retro.${key}`];
     if (raw === undefined || raw === null) continue;
-    const floor = key.endsWith('_min') || key === 'max_signals' || key === 'excerpt_chars' ? 1 : 0;
+    const floor = key.endsWith('_min') || FLOOR_ONE_KEYS.has(key) ? 1 : 0;
     if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < floor) {
       problems.push(`retro.${key} must be an integer >= ${floor}, got ${JSON.stringify(raw)} — using ${DEFAULT_RETRO_THRESHOLDS[field]}`);
       continue;
@@ -338,7 +371,12 @@ export function isCorrection(text: string): boolean {
   return CORRECTION_START_RE.test(t) || CORRECTION_ANYWHERE_RE.test(t.slice(0, 400));
 }
 
-const REVERT_COMMAND_RE = /\bgit\s+(?:-C\s+\S+\s+)?(?:revert\b|reset\s+--hard\b|checkout\s+--\s|restore\b(?![^\n;&|]*--staged))/;
+// One git command that can throw work away. `git revert` always does; the
+// others only when they cover the agent's own uncommitted edits (see
+// `revertsOwnWork`) — `git reset --hard next` on a fresh worktree or
+// `git checkout -- <regenerated file>` is housekeeping, not a revert.
+const REVERT_COMMAND_RE = /\bgit\s+(?:-C\s+\S+\s+)?(revert\b|reset\s+--hard\b|checkout\s+--\s|restore\b(?![^\n;&|]*--staged))([^\n;&|>]*)/g;
+const COMMIT_COMMAND_RE = /\bgit\s+(?:-C\s+\S+\s+)?commit\b/;
 const NODE_REPAIR_RE = /\[Node Repair - (RETRY|DECOMPOSE|PRUNE)\]/;
 const CHECKPOINT_RE = /CHECKPOINT REACHED/;
 const GAPS_FOUND_RE = /\bstatus:\s*gaps_found\b|\bgaps_found\b/;
@@ -346,6 +384,95 @@ const GAPS_FOUND_RE = /\bstatus:\s*gaps_found\b|\bgaps_found\b/;
 const NAV_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LS', 'NotebookRead']);
 const EDIT_TOOLS = new Set(['Edit', 'Write', 'MultiEdit', 'NotebookEdit']);
 const NAV_BASH_RE = /^(?:cd\s+\S+\s*&&\s*)?(?:grep|rg|ag|find|ls|tree|cat|head|tail|wc|sed\s+-n|git\s+(?:grep|log|show|ls-files))\b/;
+// Structural navigation through MCP servers (LSP, code graph, Nx index,
+// indexed search): navigation like Read/Grep, never an edit.
+const MCP_NAV_RE = /^mcp__.*(?:serena__(?:find_|get_symbols|search_for_pattern|list_dir|read_file)|codebase-memory-mcp__(?:search_|trace_|get_|query_)|atlas__atlas_(?:get_|find_|search_|validate_)|context-mode__ctx_search$)/;
+// Symbol-level edits through serena: an edit like Edit/Write.
+const MCP_EDIT_RE = /^mcp__.*serena__(?:replace_|insert_|rename_symbol|create_text_file|safe_delete)/;
+// Waiting on agents, background jobs and schedules: asking again is how they are polled.
+const POLL_TOOLS = new Set(['ListAgents', 'ReadNotifications', 'ScheduleWakeup', 'TaskOutput', 'BashOutput', 'TaskList', 'TaskGet', 'Monitor', 'CronList']);
+
+/**
+ * Kinds that describe how an agent worked rather than what the environment
+ * did to it. They are detected in the main transcript only: a subagent's
+ * navigation and edit pattern is its assignment (an Explore agent does
+ * nothing but navigate, an executor edits one file many times), and a long
+ * orchestration would multiply them by the number of agents it spawned.
+ * Everything else — hooks, denials, repeated tool errors, API errors,
+ * verdicts — is the same environment wherever it hits, and counts from
+ * subagents too.
+ */
+export const MAIN_ONLY_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
+  SIGNAL_KIND.NavStreak, SIGNAL_KIND.Reread, SIGNAL_KIND.EditChurn, SIGNAL_KIND.RepeatedCall, SIGNAL_KIND.Revert,
+]);
+
+function isEditTool(tool: string): boolean {
+  return EDIT_TOOLS.has(tool) || MCP_EDIT_RE.test(tool);
+}
+
+function isNavigation(tool: string, command: string): boolean {
+  return NAV_TOOLS.has(tool) || MCP_NAV_RE.test(tool) || (tool === 'Bash' && NAV_BASH_RE.test(command.trim()));
+}
+
+/** Does a pathspec name this edited file (or a directory holding it)? */
+function pathspecCovers(spec: string, edited: string): boolean {
+  const s = spec.replace(/^\.\//, '').replace(/\/+$/, '');
+  if (s === '' || s === '.' || s === ':/') return true;
+  return edited === s || edited.endsWith(`/${s}`) || edited.includes(`/${s}/`) || edited.startsWith(`${s}/`); // allow-handrolled-containment: matches a git pathspec against a path string from the transcript (selection, no filesystem access), not a containment decision
+}
+
+/**
+ * The own uncommitted edits a shell command throws away, or null when it
+ * throws none away. `git revert` reverts a commit and always counts;
+ * `reset --hard` counts when there are own edits to lose; `checkout --` and
+ * `restore` count when a pathspec covers one.
+ */
+export function revertsOwnWork(command: string, ownEdits: ReadonlySet<string>): string[] | null {
+  // A commit message, an echo or a heredoc that mentions `git restore` runs nothing:
+  // heredoc bodies and quoted strings with a space in them are prose, not pathspecs.
+  // A heredoc cut at capture (no terminator) runs to the end of the text.
+  const code = command
+    .replace(/<<-?\s*['"]?(\w+)['"]?[^\n]*\n(?:[\s\S]*?\n\s*\1\b|[\s\S]*$)/g, ' ')
+    .replace(/"(?:[^"\\\n]|\\.)*\s(?:[^"\\\n]|\\.)*"|'[^'\n]*\s[^'\n]*'/g, ' ');
+  const lost = new Set<string>();
+  let reverted = false;
+  for (const m of code.matchAll(REVERT_COMMAND_RE)) {
+    const verb = m[1];
+    if (verb.startsWith('revert')) {
+      reverted = true;
+      continue;
+    }
+    if (verb.startsWith('reset')) {
+      for (const p of ownEdits) lost.add(p);
+      continue;
+    }
+    const specs = m[2].split(/\s+/).map(a => a.replace(/^["']|["']$/g, '')).filter(a => a && !a.startsWith('-'));
+    for (const p of ownEdits) if (specs.some(s => pathspecCovers(s, p))) lost.add(p);
+  }
+  return reverted || lost.size > 0 ? [...lost] : null;
+}
+
+/** Lines long enough to identify text, trimmed. */
+function substantiveLines(text: string | undefined): string[] {
+  return (text ?? '').split('\n').map(l => l.trim()).filter(l => l.length >= 12);
+}
+
+/** The (old, new) text pairs of one edit call; a Write has no old text. */
+function editPairs(ev: Extract<TranscriptEvent, { kind: 'tool-use' }>): Array<{ oldText: string | null; newText: string }> {
+  if (ev.tool === 'Write') return [{ oldText: null, newText: ev.input['content'] ?? '' }];
+  if (ev.tool === 'MultiEdit') {
+    try {
+      const edits = JSON.parse(ev.input['edits'] ?? '[]') as Array<{ old_string?: unknown; new_string?: unknown }>;
+      if (Array.isArray(edits)) {
+        return edits.map(e => ({ oldText: typeof e.old_string === 'string' ? e.old_string : '', newText: typeof e.new_string === 'string' ? e.new_string : '' }));
+      }
+    } catch {
+      // cut at capture: fall through to the raw text
+    }
+    return [{ oldText: ev.input['edits'] ?? '', newText: '' }];
+  }
+  return [{ oldText: ev.input['old_string'] ?? '', newText: ev.input['new_string'] ?? '' }];
+}
 
 /**
  * A command reduced to what identifies it as "the same call again": the home
@@ -372,7 +499,7 @@ function errorKey(text: string): string {
 }
 
 function filePathOf(ev: Extract<TranscriptEvent, { kind: 'tool-use' }>): string | null {
-  return ev.input['file_path'] ?? ev.input['notebook_path'] ?? ev.input['path'] ?? null;
+  return ev.input['file_path'] ?? ev.input['notebook_path'] ?? ev.input['path'] ?? ev.input['relative_path'] ?? null;
 }
 
 interface Occurrence {
@@ -420,27 +547,67 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
   }
 
   const toolUses = new Map<string, Extract<TranscriptEvent, { kind: 'tool-use' }>>();
-  // Per transcript file: navigation streak and reads-since-edit runs.
-  const streak = new Map<string, { start: number; last: number; length: number }>();
-  const readRuns = new Map<string, Map<string, Occurrence[]>>();
-  const maxRuns = new Map<string, Occurrence[]>();
+  // Main-transcript edit calls awaiting their result, by tool-use id → event index.
+  const useIndex = new Map<string, number>();
+  // Per transcript file: the navigation streak, reads since the last edit (by
+  // file and range), the lines each own edit introduced, own edits not yet
+  // committed, and the edit epoch (edits so far).
+  interface FileState {
+    streak: { start: number; last: number; length: number } | null;
+    reads: Map<string, Occurrence[]>;
+    introduced: Map<string, Set<string>>;
+    ownEdits: Set<string>;
+    epoch: number;
+  }
+  const states = new Map<string, FileState>();
+  const stateOf = (file: string): FileState => {
+    let s = states.get(file);
+    if (!s) {
+      s = { streak: null, reads: new Map(), introduced: new Map(), ownEdits: new Set(), epoch: 0 };
+      states.set(file, s);
+    }
+    return s;
+  };
+  const maxRuns = new Map<string, { path: string; run: Occurrence[] }>();
 
-  function closeStreak(file: string): void {
-    const s = streak.get(file);
-    if (s && s.length >= t.navStreakMin) {
+  function closeStreak(s: FileState): void {
+    const run = s.streak;
+    if (run && run.length >= t.navStreakMin) {
       instances.push({
-        kind: SIGNAL_KIND.NavStreak, key: `${s.length} navigation calls with no edit`, min: 1,
-        occurrences: [{ index: s.start, ptr: tptr(events[s.start]), text: null }, { index: s.last, ptr: tptr(events[s.last]), text: null }],
+        kind: SIGNAL_KIND.NavStreak, key: `${run.length} navigation calls in a row`, min: 1,
+        occurrences: [{ index: run.start, ptr: tptr(events[run.start]), text: null }, { index: run.last, ptr: tptr(events[run.last]), text: null }],
       });
     }
-    streak.delete(file);
+    s.streak = null;
+  }
+
+  /** An own edit of `p`: rewrites of earlier own lines are edit churn. */
+  function ownEdit(s: FileState, ev: Extract<TranscriptEvent, { kind: 'tool-use' }>, p: string, i: number): void {
+    s.ownEdits.add(p);
+    for (const key of [...s.reads.keys()]) if (key.split('\u0000')[0] === p) s.reads.delete(key);
+    if (!EDIT_TOOLS.has(ev.tool)) return;
+    const introduced = s.introduced.get(p) ?? new Set<string>();
+    let rewrite = false;
+    for (const { oldText, newText } of editPairs(ev)) {
+      const after = new Set(substantiveLines(newText));
+      // A Write replaces the whole file: every line an earlier edit introduced is its old text.
+      const before = oldText === null ? [...introduced] : substantiveLines(oldText);
+      if (before.some(l => introduced.has(l) && !after.has(l))) rewrite = true;
+      const beforeSet = new Set(before);
+      for (const l of after) if (!beforeSet.has(l)) introduced.add(l);
+    }
+    s.introduced.set(p, introduced);
+    if (rewrite) keyedHit(SIGNAL_KIND.EditChurn, excerpt(p, 120), t.editChurnMin, i, null, { identity: p });
   }
 
   events.forEach((ev, i) => {
     const file = ev.ptr.file;
+    // Behavioural kinds come from the main transcript only (MAIN_ONLY_KINDS).
+    const main = ev.ptr.agentId === undefined;
     switch (ev.kind) {
       case 'user-prompt':
         if (isCorrection(ev.text)) instance(SIGNAL_KIND.UserCorrection, i, null, ev.text);
+        if (main) closeStreak(stateOf(file));
         return;
       case 'user-interrupt':
         instance(SIGNAL_KIND.UserInterrupt, i, ev.duringToolUse ? 'during tool use' : null, null);
@@ -450,6 +617,8 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
         return;
       case 'compaction':
         instance(SIGNAL_KIND.Compaction, i, null, null);
+        // What was read before a compaction is gone from context: reading it again is not a reread.
+        stateOf(file).reads.clear();
         return;
       case 'assistant-text': {
         const repair = NODE_REPAIR_RE.exec(ev.text);
@@ -470,52 +639,63 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
       }
       case 'tool-use': {
         toolUses.set(`${file}\u0000${ev.toolUseId}`, ev);
-        const command = ev.input['command'] ?? '';
-        if (ev.tool === 'Bash' && REVERT_COMMAND_RE.test(command)) instance(SIGNAL_KIND.Revert, i, normalizeKey(command), null);
         if (ev.tool === 'Agent' || ev.tool === 'Task') {
           if (ev.input['subagent_type'] === 'gsd-plan-checker') keyedHit(SIGNAL_KIND.PlanCheckerLoop, 'gsd-plan-checker', t.checkerLoopMin, i, null);
         }
-        if (ev.tool !== 'Read') {
-          const call = `${ev.tool} ${JSON.stringify(ev.input)}`;
-          keyedHit(SIGNAL_KIND.RepeatedCall, normalizeKey(call, 160), t.repeatCallMin, i, null, { identity: call });
-        }
-        // Navigation streak.
-        const isNav = NAV_TOOLS.has(ev.tool) || (ev.tool === 'Bash' && NAV_BASH_RE.test(command.trim()));
-        if (EDIT_TOOLS.has(ev.tool)) {
-          closeStreak(file);
-        } else if (isNav) {
-          const s = streak.get(file);
-          if (s) {
-            s.length++;
-            s.last = i;
-          } else {
-            streak.set(file, { start: i, last: i, length: 1 });
-          }
-        }
-        // Reads since the last edit of the same path; edits per path.
+        if (!main) return;
+        const s = stateOf(file);
+        const command = ev.input['command'] ?? '';
         const p = filePathOf(ev);
-        if (p) {
-          let runs = readRuns.get(file);
-          if (!runs) {
-            runs = new Map();
-            readRuns.set(file, runs);
+        const edit = isEditTool(ev.tool);
+        if (ev.tool === 'Bash') {
+          const lost = revertsOwnWork(command, s.ownEdits);
+          if (lost) {
+            instance(SIGNAL_KIND.Revert, i, normalizeKey(command), null);
+            for (const q of lost) s.ownEdits.delete(q);
           }
-          if (ev.tool === 'Read') {
-            const run = runs.get(p) ?? [];
-            run.push({ index: i, ptr: tptr(ev), text: null });
-            runs.set(p, run);
-            const best = maxRuns.get(`${file}\u0000${p}`);
-            if (!best || run.length > best.length) maxRuns.set(`${file}\u0000${p}`, [...run]);
-          } else if (EDIT_TOOLS.has(ev.tool)) {
-            runs.delete(p);
-            keyedHit(SIGNAL_KIND.EditChurn, excerpt(p, 120), t.editChurnMin, i, null, { identity: p });
+          if (COMMIT_COMMAND_RE.test(command)) s.ownEdits.clear();
+        }
+        // The same call again with nothing edited since — re-running a check
+        // after a fix is the loop working, and polling is how waiting looks.
+        if (ev.tool !== 'Read' && !POLL_TOOLS.has(ev.tool)) {
+          const call = `${ev.tool} ${JSON.stringify(ev.input)}`;
+          keyedHit(SIGNAL_KIND.RepeatedCall, normalizeKey(call, 160), t.repeatCallMin, i, null, { identity: `${s.epoch}\u0000${call}` });
+        }
+        // Navigation streak: navigation calls with nothing else in between.
+        if (isNavigation(ev.tool, command)) {
+          if (s.streak) {
+            s.streak.length++;
+            s.streak.last = i;
+          } else {
+            s.streak = { start: i, last: i, length: 1 };
           }
+        } else {
+          closeStreak(s);
+        }
+        if (edit) useIndex.set(`${file}\u0000${ev.toolUseId}`, i);
+        if (!p) return;
+        if (ev.tool === 'Read') {
+          // The same range of the same file again, with no edit to it in between.
+          const readKey = [p, ev.input['offset'] ?? '', ev.input['limit'] ?? ''].join('\u0000');
+          const run = s.reads.get(readKey) ?? [];
+          run.push({ index: i, ptr: tptr(ev), text: null });
+          s.reads.set(readKey, run);
+          const best = maxRuns.get(`${file}\u0000${readKey}`);
+          if (!best || run.length > best.run.length) maxRuns.set(`${file}\u0000${readKey}`, { path: p, run: [...run] });
         }
         return;
       }
       case 'tool-result': {
-        if (!ev.isError) return;
         const use = toolUses.get(`${file}\u0000${ev.toolUseId}`);
+        // An edit counts once it went through: a rejected or failed edit changed nothing.
+        const editAt = useIndex.get(`${file}\u0000${ev.toolUseId}`);
+        if (use && editAt !== undefined && !ev.isError) {
+          const s = stateOf(file);
+          s.epoch++;
+          const p = filePathOf(use);
+          if (p) ownEdit(s, use, p, editAt);
+        }
+        if (!ev.isError) return;
         const subject = use ? `${use.tool} ${normalizeKey(use.input['command'] ?? filePathOf(use) ?? '', 80)}`.trim() : (ev.tool ?? 'tool');
         if (ev.denial === 'user-rejected') {
           instance(SIGNAL_KIND.ToolRejected, i, subject, null);
@@ -546,10 +726,9 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
     }
   });
 
-  for (const file of [...streak.keys()]) closeStreak(file);
-  for (const [id, run] of maxRuns) {
+  for (const s of states.values()) closeStreak(s);
+  for (const { path: p, run } of maxRuns.values()) {
     if (run.length < t.rereadMin) continue;
-    const p = id.split('\u0000')[1];
     instances.push({ kind: SIGNAL_KIND.Reread, key: excerpt(p, 120), min: t.rereadMin, occurrences: run });
   }
   return [...instances, ...[...keyed.values()].filter(g => g.occurrences.length >= g.min)];
@@ -568,13 +747,73 @@ export interface RetroSignalReport {
   };
   session: string | null;
   thresholds: RetroThresholds;
+  /** Per kind, units as a rate over the session volume, saturated at `kind_cap`, weighted — summed. */
   score: number;
   threshold: number;
   suggest: boolean;
+  /** The plain sum of signal scores: what the session would score with no rate and no cap. */
+  rawScore: number;
+  volume: SessionVolume;
+  scoreByKind: Partial<Record<SignalKind, number>>;
   countsByKind: Partial<Record<SignalKind, number>>;
   signals: RetroSignal[];
   /** Signals past `max_signals`, by id — listed, never dropped silently. */
   omitted: Array<{ id: string; kind: SignalKind; score: number }>;
+}
+
+/** How much session there was to have friction in. */
+export interface SessionVolume {
+  /** User prompts in the main transcript. */
+  userTurns: number;
+  /** Tool calls in the main transcript. */
+  mainToolCalls: number;
+  /** Tool calls in the main transcript and every subagent transcript. */
+  toolCalls: number;
+}
+
+/** Kinds that are the user pushing back; their volume is user turns. */
+export const USER_KINDS: ReadonlySet<SignalKind> = new Set<SignalKind>([
+  SIGNAL_KIND.UserCorrection, SIGNAL_KIND.UserInterrupt, SIGNAL_KIND.ToolRejected,
+]);
+
+export function sessionVolume(transcript: SessionTranscript | null): SessionVolume {
+  const volume: SessionVolume = { userTurns: 0, mainToolCalls: 0, toolCalls: 0 };
+  for (const ev of transcript?.events ?? []) {
+    const main = ev.ptr.agentId === undefined;
+    if (ev.kind === 'user-prompt' && main) volume.userTurns++;
+    if (ev.kind === 'tool-use') {
+      volume.toolCalls++;
+      if (main) volume.mainToolCalls++;
+    }
+  }
+  return volume;
+}
+
+const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * The session score (see the module header): per kind, units scaled to a
+ * rate past the reference volume, capped at `kind_cap`, times the weight.
+ * Rounded to two decimals so the threshold comparison is stable.
+ */
+export function sessionScore(signals: readonly RetroSignal[], volume: SessionVolume, t: RetroThresholds): {
+  score: number;
+  scoreByKind: Partial<Record<SignalKind, number>>;
+} {
+  const units = new Map<SignalKind, number>();
+  for (const s of signals) units.set(s.kind, (units.get(s.kind) ?? 0) + s.score / s.weight);
+  const scoreByKind: Partial<Record<SignalKind, number>> = {};
+  let score = 0;
+  for (const [kind, u] of units) {
+    const [actual, reference] = USER_KINDS.has(kind)
+      ? [volume.userTurns, t.volumeTurns]
+      : [MAIN_ONLY_KINDS.has(kind) ? volume.mainToolCalls : volume.toolCalls, t.volumeCalls];
+    const rate = Math.min(1, reference / Math.max(1, actual));
+    const kindScore = round2(SIGNAL_WEIGHTS[kind] * Math.min(t.kindCap, u * rate));
+    scoreByKind[kind] = kindScore;
+    score += kindScore;
+  }
+  return { score: round2(score), scoreByKind };
 }
 
 function pointerString(p: SignalPointer): string {
@@ -692,7 +931,8 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     (a.pointers[0] ? pointerString(a.pointers[0]) : '').localeCompare(b.pointers[0] ? pointerString(b.pointers[0]) : '', 'en', { numeric: true }) ||
     a.id.localeCompare(b.id));
 
-  const score = all.reduce((sum, s) => sum + s.score, 0);
+  const volume = sessionVolume(transcript);
+  const { score, scoreByKind } = sessionScore(all, volume, thresholds);
   const countsByKind: Partial<Record<SignalKind, number>> = {};
   for (const s of all) countsByKind[s.kind] = (countsByKind[s.kind] ?? 0) + s.count;
 
@@ -708,6 +948,9 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     score,
     threshold: thresholds.signalThreshold,
     suggest: score >= thresholds.signalThreshold,
+    rawScore: all.reduce((sum, s) => sum + s.score, 0),
+    volume,
+    scoreByKind,
     countsByKind,
     signals: all.slice(0, thresholds.maxSignals),
     omitted: all.slice(thresholds.maxSignals).map(s => ({ id: s.id, kind: s.kind, score: s.score })),

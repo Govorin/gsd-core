@@ -23,11 +23,11 @@ const st = require('../gsd-core/bin/lib/session-transcript.cjs');
 
 // ─── Synthetic transcript builder ─────────────────────────────────────────────
 
-function builder(file = 'main.jsonl') {
+function builder(file = 'main.jsonl', opts = {}) {
   const events = [];
   let line = 0;
   let ids = 0;
-  const ptr = (f = file) => ({ session: 'sess', file: f, line: ++line, uuid: `uuid-${line}`, timestamp: null });
+  const ptr = (f = file) => ({ session: 'sess', file: f, line: ++line, uuid: `uuid-${line}`, timestamp: null, ...(opts.agentId ? { agentId: opts.agentId } : {}) });
   const api = {
     events,
     prompt(text) { events.push({ kind: 'user-prompt', ptr: ptr(), text }); return api; },
@@ -46,6 +46,7 @@ function builder(file = 'main.jsonl') {
       events.push({ kind: 'hook', ptr: ptr(), event: 'PreToolUse', hook: null, tool: 'Bash', outcome, text: 'Blocked: sleep 60 followed by: cat', ...extra });
       return api;
     },
+    compact() { events.push({ kind: 'compaction', ptr: ptr() }); return api; },
     transcript() {
       return { status: 'ok', reason: null, runtime: 'claude', session: 'sess', events, files: [{ file, agentId: null, agentType: null, stats: { truncatedBytes: false, truncatedEvents: false, oversizeLines: 0, malformedLines: 0 }, recognisedRecords: 1 }], toolResults: { count: 0, bytes: 0 } };
     },
@@ -119,8 +120,10 @@ boundary('same tool error', 'repeated-tool-error', 2, 'repeatErrorMin', (b, n) =
 boundary('reread', 'reread', 3, 'rereadMin', (b, n) => {
   for (let i = 0; i < n; i++) b.call('Read', { file_path: '/p/a.ts' });
 });
-boundary('edit churn', 'edit-churn', 4, 'editChurnMin', (b, n) => {
-  for (let i = 0; i < n; i++) b.call('Edit', { file_path: '/p/a.ts', old_string: `a${i}`, new_string: 'b' });
+boundary('rewrite of own lines', 'edit-churn', 4, 'editChurnMin', (b, n) => {
+  // One edit writes the line, then each of n edits rewrites what the last one wrote.
+  b.call('Edit', { file_path: '/p/a.ts', old_string: 'export {};', new_string: 'const value = compute(0);' });
+  for (let i = 1; i <= n; i++) b.call('Edit', { file_path: '/p/a.ts', old_string: `const value = compute(${i - 1});`, new_string: `const value = compute(${i});` });
 });
 boundary('plan-checker loop', 'plan-checker-loop', 2, 'checkerLoopMin', (b, n) => {
   for (let i = 0; i < n; i++) b.call('Agent', { subagent_type: 'gsd-plan-checker', prompt: `check round ${i}` });
@@ -140,7 +143,7 @@ describe('nav-streak at navStreakMin boundary', () => {
       b.call('Edit', { file_path: '/p/x.ts', old_string: 'a', new_string: 'b' });
       const found = signalsOf(run(b, { navStreakMin: 5 }), 'nav-streak');
       assert.equal(found.length, expected);
-      if (expected) assert.equal(found[0].key, `${count} navigation calls with no edit`);
+      if (expected) assert.equal(found[0].key, `${count} navigation calls in a row`);
     });
   }
 
@@ -198,6 +201,8 @@ describe('instance signals', () => {
     b.interrupt();
     b.call('Edit', { file_path: '/p/a.ts' }, { ok: false, text: "The user doesn't want to proceed", denial: 'user-rejected', blockedBy: 'denial' });
     b.call('Bash', { command: 'cat .env' }, { ok: false, text: 'Permission to use Bash has been denied', denial: 'permission-rule', blockedBy: 'denial' });
+    // The rejected edit above changed nothing; this one is an own edit the reset throws away.
+    b.call('Edit', { file_path: '/p/b.ts', old_string: 'x', new_string: 'y' });
     b.call('Bash', { command: 'git reset --hard HEAD~1' });
     b.call('Bash', { command: 'git restore --staged a.ts' });
     b.say('[Node Repair - RETRY] Task 3: widened the timeout');
@@ -248,10 +253,11 @@ describe('max_signals boundary', () => {
   };
   for (const [n, kept, omitted] of [[2, 2, 0], [3, 3, 0], [4, 3, 1]]) {
     test(`${n} signals with max 3 → ${kept} listed, ${omitted} omitted`, () => {
-      const report = run(nCorrections(n), { maxSignals: 3 });
+      const report = run(nCorrections(n), { maxSignals: 3, kindCap: 100 });
       assert.equal(report.signals.length, kept);
       assert.equal(report.omitted.length, omitted);
-      assert.equal(report.score, 3 * n, 'the cap never lowers the score');
+      assert.equal(report.score, 3 * n, 'the list cap never lowers the score');
+      assert.equal(report.rawScore, 3 * n);
     });
   }
 
@@ -260,6 +266,213 @@ describe('max_signals boundary', () => {
     const all = run(nCorrections(5), { maxSignals: 100 });
     assert.deepEqual(report.omitted.map((o) => o.id), all.signals.slice(3).map((s) => s.id));
     assert.ok(report.omitted.every((o) => o.kind === 'user-correction' && o.score === 3));
+  });
+});
+
+// ─── Session score: saturation and volume ─────────────────────────────────────
+
+describe('kind_cap boundary', () => {
+  // Corrections weigh 3; with the cap at 3 units the kind tops out at 9.
+  for (const [n, score] of [[2, 6], [3, 9], [4, 9]]) {
+    test(`${n} corrections with kind_cap 3 → score ${score}`, () => {
+      const b = builder();
+      for (let i = 0; i < n; i++) b.prompt(`нет ${i}`);
+      const report = run(b, { kindCap: 3 });
+      assert.equal(report.score, score);
+      assert.equal(report.scoreByKind['user-correction'], score);
+      assert.equal(report.rawScore, 3 * n, 'the raw sum is uncapped');
+    });
+  }
+});
+
+describe('volume_turns boundary', () => {
+  // Two corrections (6) among N user turns, reference 10: a rate only past 10 turns.
+  for (const [turns, score] of [[9, 6], [10, 6], [11, 5.45]]) {
+    test(`2 corrections in ${turns} turns with volume_turns 10 → score ${score}`, () => {
+      const b = builder().prompt('нет').prompt('нет');
+      for (let i = 2; i < turns; i++) b.prompt(`add case ${i}`);
+      const report = run(b, { volumeTurns: 10 });
+      assert.equal(report.volume.userTurns, turns);
+      assert.equal(report.score, score);
+    });
+  }
+});
+
+describe('volume_calls boundary', () => {
+  // Two hook errors (weight 1) among N tool calls, reference 10.
+  for (const [calls, score] of [[9, 2], [10, 2], [11, 1.82]]) {
+    test(`2 hook errors in ${calls} tool calls with volume_calls 10 → score ${score}`, () => {
+      const b = builder().hook('timed-out', { text: 'slow' }).hook('timed-out', { text: 'slow' });
+      for (let i = 0; i < calls; i++) b.call('Bash', { command: `npm run step${i}` });
+      const report = run(b, { volumeCalls: 10 });
+      assert.equal(report.volume.toolCalls, calls);
+      assert.equal(report.score, score);
+    });
+  }
+
+  test('a main-only kind is diluted by main calls only; an environment kind by every call', () => {
+    const main = builder();
+    for (let i = 0; i < 3; i++) main.call('Bash', { command: 'git push origin main' });
+    main.hook('timed-out', { text: 'slow' }).hook('timed-out', { text: 'slow' });
+    const sub = builder('sub/agent-a.jsonl', { agentId: 'a' });
+    for (let i = 0; i < 20; i++) sub.call('Bash', { command: `npm run step${i}` });
+    const t = main.transcript();
+    t.events = [...main.events, ...sub.events];
+    const report = rs.computeRetroSignals({ transcript: t, thresholds: { volumeCalls: 10 } });
+    assert.deepEqual(report.volume, { userTurns: 0, mainToolCalls: 3, toolCalls: 23 });
+    assert.equal(report.scoreByKind['repeated-call'], 1, '3 main calls ≤ 10: counted as is');
+    assert.equal(report.scoreByKind['hook-error'], 0.87, '2 × 10/23');
+  });
+
+  test('a long session with the same rate of friction scores the same as a reference-length one', () => {
+    const at = (calls) => {
+      const b = builder();
+      for (let i = 0; i < calls / 100; i++) b.hook('timed-out', { text: 'slow' });
+      for (let i = 0; i < calls; i++) b.call('Bash', { command: `npm run step${i}` });
+      return run(b, { volumeCalls: 300, kindCap: 100 }).score;
+    };
+    assert.equal(at(300), 3);
+    assert.equal(at(3000), 3, 'ten times the session, ten times the hook errors: the same score');
+  });
+});
+
+// ─── Regressions: false positives found on real sessions ──────────────────────
+
+describe('nav-streak: navigation with progress in between is not a streak', () => {
+  test('reads interleaved with commands and spawned agents never accumulate (no edit needed)', () => {
+    const b = builder();
+    for (let i = 0; i < 12; i++) {
+      b.call('Read', { file_path: `/p/f${i}.ts` });
+      b.call(i % 2 ? 'Agent' : 'Bash', i % 2 ? { subagent_type: 'gsd-executor', prompt: `task ${i}` } : { command: `npm test -- f${i}` });
+    }
+    assert.equal(signalsOf(run(b, { navStreakMin: 5 }), 'nav-streak').length, 0);
+  });
+
+  test('structural MCP navigation is navigation; a serena edit or a user turn ends the streak', () => {
+    const nav = (b, n) => {
+      for (let i = 0; i < n; i++) {
+        b.call(i % 2 ? 'mcp__plugin_serena_serena__find_symbol' : 'mcp__codebase-memory-mcp__search_graph', { name_path: `s${i}` });
+      }
+    };
+    const streak = builder();
+    nav(streak, 5);
+    assert.equal(signalsOf(run(streak, { navStreakMin: 5 }), 'nav-streak').length, 1);
+    const edited = builder();
+    nav(edited, 3);
+    edited.call('mcp__plugin_serena_serena__replace_symbol_body', { relative_path: 'src/a.ts', body: 'x' });
+    nav(edited, 3);
+    edited.prompt('продолжай');
+    nav(edited, 3);
+    assert.equal(signalsOf(run(edited, { navStreakMin: 5 }), 'nav-streak').length, 0);
+  });
+});
+
+describe('revert: only own uncommitted edits thrown away', () => {
+  const reverts = (b) => signalsOf(run(b), 'revert').map((s) => s.key);
+
+  test('worktree and branch housekeeping with no own edits is not a revert', () => {
+    const b = builder();
+    b.call('Bash', { command: 'git -C ../wt reset --hard next' });
+    b.call('Bash', { command: 'git checkout -- tests/fixtures/install-tree/claude.json' });
+    b.call('Bash', { command: 'git worktree remove ../wt --force && git stash list' });
+    assert.deepEqual(reverts(b), []);
+  });
+
+  test('restoring a file the agent did not edit is not a revert; restoring one it did is', () => {
+    const b = builder();
+    b.call('Edit', { file_path: '/repo/src/a.ts', old_string: 'x', new_string: 'y' });
+    b.call('Bash', { command: 'npm run regen && git checkout -- docs/INVENTORY-MANIFEST.json' });
+    b.call('Bash', { command: 'cd /repo && git checkout -- src/a.ts' });
+    assert.deepEqual(reverts(b), ['cd /repo && git checkout -- src/a.ts']);
+  });
+
+  test('a commit makes edits no longer the agent\'s to lose; a message that mentions restore runs nothing', () => {
+    const b = builder();
+    b.call('Edit', { file_path: '/repo/src/a.ts', old_string: 'x', new_string: 'y' });
+    b.call('Bash', { command: "git commit -m \"$(cat <<'EOF'\nfix: stop using git restore src/a.ts\nEOF\n)\"" });
+    b.call('Bash', { command: 'git reset --hard HEAD' });
+    b.call('Edit', { file_path: '/repo/src/b.ts', old_string: 'x', new_string: 'y' });
+    b.call('Bash', { command: 'echo "next: git restore src/b.ts if lint fails"' });
+    assert.deepEqual(reverts(b), []);
+  });
+
+  test('git revert of a commit always counts', () => {
+    assert.deepEqual(reverts(builder().call('Bash', { command: 'git revert --no-edit abc1234' })), ['git revert --no-edit H']);
+  });
+
+  test('revertsOwnWork names the edits a reset or a covering pathspec loses', () => {
+    const own = new Set(['/repo/src/a.ts', '/repo/lib/b.ts']);
+    assert.deepEqual(rs.revertsOwnWork('git checkout -- src', own), ['/repo/src/a.ts']);
+    assert.deepEqual(rs.revertsOwnWork('git restore .', own).sort(), ['/repo/lib/b.ts', '/repo/src/a.ts']);
+    assert.equal(rs.revertsOwnWork('git restore --staged src/a.ts', own), null);
+    assert.equal(rs.revertsOwnWork('git reset --hard next', new Set()), null);
+  });
+});
+
+describe('edit-churn: rewriting own lines, not editing many places', () => {
+  test('six successive edits of different places in one file are not churn', () => {
+    const b = builder();
+    for (let i = 0; i < 6; i++) b.call('Edit', { file_path: '/p/a.ts', old_string: `// anchor number ${i} here`, new_string: `// anchor number ${i} here\nexport const added${i} = make(${i});` });
+    assert.equal(signalsOf(run(b, { editChurnMin: 1 }), 'edit-churn').length, 0);
+  });
+
+  test('anchoring a new edit on a line the last edit wrote keeps that line: not a rewrite', () => {
+    const b = builder();
+    b.call('Edit', { file_path: '/p/a.ts', old_string: 'export {};', new_string: 'export function first() {}' });
+    b.call('Edit', { file_path: '/p/a.ts', old_string: 'export function first() {}', new_string: 'export function first() {}\nexport function second() {}' });
+    assert.equal(signalsOf(run(b, { editChurnMin: 1 }), 'edit-churn').length, 0);
+  });
+
+  test('a failed edit and a Write over a file never written before are not rewrites; a Write over own lines is', () => {
+    const b = builder();
+    b.call('Edit', { file_path: '/p/a.ts', old_string: 'missing', new_string: 'const never = applied();' }, { ok: false, text: 'String to replace not found' });
+    b.call('Write', { file_path: '/p/a.ts', content: 'const first = version(1);' });
+    b.call('Write', { file_path: '/p/a.ts', content: 'const second = version(2);' });
+    const churn = signalsOf(run(b, { editChurnMin: 1 }), 'edit-churn');
+    assert.equal(churn.length, 1);
+    assert.equal(churn[0].count, 1);
+  });
+});
+
+describe('repeated-call and reread: progress and polling are not repetition', () => {
+  test('the same check re-run after each fix is the loop working', () => {
+    const b = builder();
+    for (let i = 0; i < 4; i++) {
+      b.call('Bash', { command: 'npm test' }, { ok: false, text: `Exit code 1\nnot ok ${i}` });
+      b.call('Edit', { file_path: '/p/a.ts', old_string: `bug number ${i} here`, new_string: `fixed number ${i} here` });
+    }
+    assert.equal(signalsOf(run(b), 'repeated-call').length, 0);
+  });
+
+  test('polling agents and background jobs never counts', () => {
+    const b = builder();
+    for (let i = 0; i < 10; i++) b.call('ListAgents', {}).call('TaskOutput', { task_id: 'bg1' });
+    assert.equal(signalsOf(run(b), 'repeated-call').length, 0);
+  });
+
+  test('different ranges of one file are not rereads; the same range after a compaction is not either', () => {
+    const b = builder();
+    for (let i = 0; i < 4; i++) b.call('Read', { file_path: '/p/big.ts', offset: String(i * 200), limit: '200' });
+    b.call('Read', { file_path: '/p/a.ts' }).call('Read', { file_path: '/p/a.ts' }).compact().call('Read', { file_path: '/p/a.ts' });
+    assert.equal(signalsOf(run(b, { rereadMin: 3 }), 'reread').length, 0);
+  });
+});
+
+describe('subagent transcripts: environment kinds only', () => {
+  test('a subagent\'s navigation, rereads, rewrites and repeats are its assignment; its hook errors are the environment', () => {
+    const sub = builder('sub/agent-x.jsonl', { agentId: 'x' });
+    for (let i = 0; i < 14; i++) sub.call('Grep', { pattern: `p${i}` });
+    for (let i = 0; i < 4; i++) sub.call('Read', { file_path: '/p/a.ts' });
+    for (let i = 0; i < 4; i++) sub.call('Bash', { command: 'git status' });
+    sub.call('Edit', { file_path: '/p/a.ts', old_string: 'export {};', new_string: 'const value = compute(0);' });
+    for (let i = 1; i <= 5; i++) sub.call('Edit', { file_path: '/p/a.ts', old_string: `const value = compute(${i - 1});`, new_string: `const value = compute(${i});` });
+    sub.call('Bash', { command: 'git checkout -- /p/a.ts' });
+    sub.hook('timed-out', { text: 'slow' });
+    const t = builder().transcript();
+    t.events = sub.events;
+    const kinds = Object.keys(rs.computeRetroSignals({ transcript: t }).countsByKind);
+    assert.deepEqual(kinds, ['hook-error']);
+    for (const k of kinds) assert.equal(rs.MAIN_ONLY_KINDS.has(k), false);
   });
 });
 
