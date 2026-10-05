@@ -784,7 +784,8 @@ The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
   step 3's block. Moved to the first `gsd_run` block (`f583b6127`).
   `sync-runtime-launcher.cjs` keeps an existing placement (#3146), so it could not fix this.
 - `slash-command namespace (#3443)`: `3afbaaca9` wrote `/gsd-code-review --since` in the
-  audit-fix command and workflow; now colon form (`7cddbf3ef`).
+  audit-fix command and workflow; now colon form (`7cddbf3ef`). In colon form,
+  lint-skill-deps sees the reference, so `requires:` now lists `code-review` (`616a8f56e`).
 - `#2517 model-omit guard`: arch-survey's inline rule matched only by accident (`model=`
   read case-insensitively inside `REFUTER_MODEL=` within 200 chars of "Omit").
   `83a9dc34e` put a paragraph between them. Now the marker block (`2769f328d`).
@@ -792,6 +793,12 @@ The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
   `Emitted-Drift-Ack-Growth: arch-survey.md` trailer of `83a9dc34e` was stale from
   birth. Growth keys on files that exist upstream, and arch-survey is fork-new. The
   commit recording this entry withdraws it.
+- `lint-fix-has-regression-tests`, `lint-example-parser-parity`, `lint-no-adhoc-regex-escape`
+  were listed as failing too, but each exits 0 on `62cfcf0bf` and after. No change.
+- **Checks:** emitted-attribution vs `merge-base(HEAD, upstream/next)` 140/140,
+  `regen:derived` (no drift) + `lint:generated-sync`, `lint`, the 50 `lint:ci` steps one by
+  one (only `removed-but-needed` fails), `test:mermaid-real` 150/150. Full `npm test`: 45 551
+  tests, 4 failures, exactly the reference set.
 
 ### Long-lived state
 
