@@ -20,7 +20,7 @@
  * `--mode` picks the artifact and the system prompt: `plan` (4.9, the default: phase plans,
  * variants A,B,C, ./out), `window` (pocock wave 3: a window of commits, variants A,C,Cp,
  * ./out-window) or `arch` (pocock wave 3: one zone for the architecture surveyor, variants
- * A,C,Cp,D, ./out-arch).
+ * A,C,Cp,D,D2, ./out-arch).
  *
  * Usage:
  *   node scripts/experiments/report-ab/run.cjs [--mode plan|window|arch] [--out <dir>] [--reps 3]
@@ -79,7 +79,7 @@ const ARCH_SYSTEM_PROMPT = [
 const MODES = Object.freeze({
   plan: { systemPrompt: SYSTEM_PROMPT, userPrefix: 'Review this artifact.\n\n', out: 'out', variants: 'A,B,C' },
   window: { systemPrompt: WINDOW_SYSTEM_PROMPT, userPrefix: 'Review this artifact.\n\n', out: 'out-window', variants: 'A,C,Cp' },
-  arch: { systemPrompt: ARCH_SYSTEM_PROMPT, userPrefix: 'Survey this zone.\n\n', out: 'out-arch', variants: 'A,C,Cp,D' },
+  arch: { systemPrompt: ARCH_SYSTEM_PROMPT, userPrefix: 'Survey this zone.\n\n', out: 'out-arch', variants: 'A,C,Cp,D,D2' },
 });
 
 const RUN_TIMEOUT_MS = 300_000;

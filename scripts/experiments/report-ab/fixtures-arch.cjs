@@ -12,7 +12,7 @@
  *
  *   repos/<fx>/          a small TypeScript service per fixture, a real git repository whose
  *                        history has fixed dates, so every sha is reproducible
- *   reports/<fx>/{A,C,Cp,D}.md the four variants of what the surveyor reads
+ *   reports/<fx>/{A,C,Cp,D,D2}.md  the variants of what the surveyor reads
  *   ground-truth.json    the seeded defects (the answer key) and each report's sha256
  *
  * Variants — the SOURCE is the same bytes in all three, only the metrics around it differ. The
@@ -24,8 +24,10 @@
  *       `coChange`, `hotspots`) exactly as `gsd-tools arch metrics` writes them;
  *   Cp  C + the `<what_the_metrics_checked>` block, read verbatim from agents/gsd-arch-surveyor.md
  *       as of CP_SOURCE_REV — the form the fork shipped (C′ of 4.9: "checked only X; find the rest");
- *   D   A + the `<zone_and_metrics>` block the agent ships now, read at generation time: no metrics
- *       in the prompt, the counted classes reported by `arch report` instead (the wave 3 patch).
+ *   D   A + the `<zone_and_metrics>` block as of D_SOURCE_REV: no metrics in the prompt, the
+ *       counted classes reported by `arch report` instead (the wave 3 patch);
+ *   D2  A + the `<zone_and_metrics>` block the agent ships now, read at generation time (D, with
+ *       modules that only forward handed back to the surveyor as shallow interfaces).
  *
  * Defect classes (three per category, each seeded three times across six fixtures; two fixtures
  * are clean controls):
@@ -59,9 +61,11 @@ const METRICS_DATE = '2026-10-01';
 const SINCE = '2026-08-01';
 // Enough zones that every hot spot opens one; the seed shown is the first zone's (default is 5).
 const TOP_ZONES = 20;
-const VARIANTS = ['A', 'C', 'Cp', 'D'];
+const VARIANTS = ['A', 'C', 'Cp', 'D', 'D2'];
 // The commit whose agents/gsd-arch-surveyor.md still carried the C′ block (before the D patch).
 const CP_SOURCE_REV = 'ca14cffb3';
+// The commit that introduced the first `<zone_and_metrics>` block (variant D, before the D2 wording).
+const D_SOURCE_REV = '83a9dc34e';
 const ts = String.raw;
 
 // ─── Fixture table ───────────────────────────────────────────────────────────
@@ -2412,12 +2416,18 @@ function surveyorChecklist() {
   return surveyorBlock(text, 'what_the_metrics_checked', `${CP_SOURCE_REV}:agents/gsd-arch-surveyor.md`);
 }
 
-/** D: the block the agent ships now — metrics only chose the zone; counted classes are reported without it. */
+/** D: the first `<zone_and_metrics>` block (metrics only chose the zone), read from git as of D_SOURCE_REV. */
 function surveyorZoneNote() {
+  const text = execFileSync('git', ['show', `${D_SOURCE_REV}:agents/gsd-arch-surveyor.md`], { cwd: ROOT, encoding: 'utf8' });
+  return surveyorBlock(text, 'zone_and_metrics', `${D_SOURCE_REV}:agents/gsd-arch-surveyor.md`);
+}
+
+/** D2: the `<zone_and_metrics>` block the agent ships now (D with forwarding modules handed back to the surveyor). */
+function surveyorZoneNoteNow() {
   return surveyorBlock(fs.readFileSync(SURVEYOR, 'utf8'), 'zone_and_metrics', SURVEYOR);
 }
 
-function buildReports(files, metrics, checklist, zoneNote) {
+function buildReports(files, metrics, checklist, zoneNote, zoneNoteNow) {
   const sources = Object.keys(files).sort();
   const header = [
     'Zone: all — whole repository',
@@ -2446,6 +2456,7 @@ function buildReports(files, metrics, checklist, zoneNote) {
     C: [header, signals, direction, '', body].join('\n'),
     Cp: [header, signals, '', checklist, '', direction, '', body].join('\n'),
     D: [header, '', zoneNote, '', direction, '', body].join('\n'),
+    D2: [header, '', zoneNoteNow, '', direction, '', body].join('\n'),
   };
 }
 
@@ -2454,6 +2465,7 @@ function buildReports(files, metrics, checklist, zoneNote) {
 function generate(outDir) {
   const checklist = surveyorChecklist();
   const zoneNote = surveyorZoneNote();
+  const zoneNoteNow = surveyorZoneNoteNow();
   const truth = { mode: 'arch', generated_by: 'scripts/experiments/report-ab/fixtures-arch.cjs', metrics_date: METRICS_DATE, since: SINCE, fixtures: {}, report_sha256: {} };
   for (const fx of FIXTURES) {
     const repo = path.join(outDir, 'repos', fx.id);
@@ -2461,7 +2473,7 @@ function generate(outDir) {
     const metrics = runMetrics(repo);
     const defects = defectsOf(fx);
     checkFixture(fx, metrics, defects);
-    const reports = buildReports(files, metrics, checklist, zoneNote);
+    const reports = buildReports(files, metrics, checklist, zoneNote, zoneNoteNow);
     const reportDir = path.join(outDir, 'reports', fx.id);
     fs.mkdirSync(reportDir, { recursive: true });
     for (const v of VARIANTS) {
