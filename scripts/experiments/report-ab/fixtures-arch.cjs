@@ -26,8 +26,9 @@
  *       as of CP_SOURCE_REV — the form the fork shipped (C′ of 4.9: "checked only X; find the rest");
  *   D   A + the `<zone_and_metrics>` block as of D_SOURCE_REV: no metrics in the prompt, the
  *       counted classes reported by `arch report` instead (the wave 3 patch);
- *   D2  A + the `<zone_and_metrics>` block the agent ships now, read at generation time (D, with
- *       modules that only forward handed back to the surveyor as shallow interfaces).
+ *   D2  A + the `<zone_and_metrics>` block as of D2_SOURCE_REV (D, with modules that only forward
+ *       handed back to the surveyor as shallow interfaces).
+ * The agent finally ships the neutral form — the zone only, no word on the metrics — which is A.
  *
  * Defect classes (three per category, each seeded three times across six fixtures; two fixtures
  * are clean controls):
@@ -56,7 +57,6 @@ const { execFileSync } = require('node:child_process');
 
 const ROOT = path.resolve(__dirname, '..', '..', '..');
 const GSD_TOOLS = path.join(ROOT, 'gsd-core', 'bin', 'gsd-tools.cjs');
-const SURVEYOR = path.join(ROOT, 'agents', 'gsd-arch-surveyor.md');
 const METRICS_DATE = '2026-10-01';
 const SINCE = '2026-08-01';
 // Enough zones that every hot spot opens one; the seed shown is the first zone's (default is 5).
@@ -66,6 +66,9 @@ const VARIANTS = ['A', 'C', 'Cp', 'D', 'D2'];
 const CP_SOURCE_REV = 'ca14cffb3';
 // The commit that introduced the first `<zone_and_metrics>` block (variant D, before the D2 wording).
 const D_SOURCE_REV = '83a9dc34e';
+// The commit with the D2 wording. The agent now ships neither: it gets the zone only, which is
+// variant A by construction, so no variant reads the current agent file.
+const D2_SOURCE_REV = 'e24a67616';
 const ts = String.raw;
 
 // ─── Fixture table ───────────────────────────────────────────────────────────
@@ -2422,9 +2425,10 @@ function surveyorZoneNote() {
   return surveyorBlock(text, 'zone_and_metrics', `${D_SOURCE_REV}:agents/gsd-arch-surveyor.md`);
 }
 
-/** D2: the `<zone_and_metrics>` block the agent ships now (D with forwarding modules handed back to the surveyor). */
+/** D2: the `<zone_and_metrics>` block as of D2_SOURCE_REV (D with forwarding modules handed back to the surveyor). */
 function surveyorZoneNoteNow() {
-  return surveyorBlock(fs.readFileSync(SURVEYOR, 'utf8'), 'zone_and_metrics', SURVEYOR);
+  const text = execFileSync('git', ['show', `${D2_SOURCE_REV}:agents/gsd-arch-surveyor.md`], { cwd: ROOT, encoding: 'utf8' });
+  return surveyorBlock(text, 'zone_and_metrics', `${D2_SOURCE_REV}:agents/gsd-arch-surveyor.md`);
 }
 
 function buildReports(files, metrics, checklist, zoneNote, zoneNoteNow) {
