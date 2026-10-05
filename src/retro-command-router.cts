@@ -103,7 +103,7 @@ const DEFAULT_MAX_SESSIONS = 200;
 
 /** The `retro.*` threshold keys `resolveRetroThresholds` reads (retro-signals). */
 const RETRO_THRESHOLD_KEYS = Object.freeze([
-  'signal_threshold', 'repeat_call_min', 'repeat_error_min', 'reread_min', 'edit_churn_min',
+  'signal_threshold', 'kind_cap', 'volume_calls', 'volume_turns', 'repeat_call_min', 'repeat_error_min', 'reread_min', 'edit_churn_min',
   'nav_streak_min', 'checker_loop_min', 'checkpoint_min', 'hook_block_min',
   'excerpt_window', 'max_signals', 'excerpt_chars',
 ] as const);
