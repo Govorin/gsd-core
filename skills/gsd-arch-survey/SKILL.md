@@ -19,7 +19,7 @@ The text inside `<arguments>` is exactly what the user typed after the command n
 <objective>
 Find where the codebase's structure makes change expensive — shallow modules, leaky seams, behaviour smeared across files — and turn it into decisions, not a to-do list.
 
-`gsd-tools arch metrics` counts hot spots, coupling, cycles and co-change and splits the code into zones; one `gsd-arch-surveyor` per zone writes candidate cards; `gsd-finding-refuter` tries to refute them; the survivors land in `.planning/architecture/SURVEY-<date>.md`. The user picks what to explore, plan, park or reject, and every decision is journalled in `.planning/architecture/DECISIONS.md` so a rejected candidate never comes back.
+`gsd-tools arch metrics` counts hot spots, coupling, cycles and co-change, splits the code into zones and reports the cycles, pass-through modules and small-module clusters it found; one `gsd-arch-surveyor` per zone writes candidate cards for what counting cannot show; `gsd-finding-refuter` tries to refute them; the survivors land in `.planning/architecture/SURVEY-<date>.md`. The user picks what to explore, plan, park or reject, and every decision is journalled in `.planning/architecture/DECISIONS.md` so a rejected candidate never comes back.
 </objective>
 
 <execution_context>
