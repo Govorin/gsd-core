@@ -55,7 +55,11 @@ AGENT_SKILLS_SURVEYOR=$(gsd_run query agent-skills gsd-arch-surveyor ${GSD_WS:+-
 
 The metrics choose the zones and stay out of the surveyor prompt: handed to the model, they pull its cards toward the classes they count and away from the ones they cannot see. Cycles, pass-through modules and small-module clusters reach the report from the metrics themselves (`arch report`, "Found by metrics").
 
-Omit the `model` parameter when a resolved value is `inherit` or empty (#2517). Spawn **one `gsd-arch-surveyor` per zone, all in one message, `run_in_background=true`**. Each runs in a fresh context; the orchestrator never reads the zones' code itself.
+<!-- #2517 model-omit-on-inherit -->
+
+> **Model omission (#2517).** Omit the `model` parameter entirely when the value it would carry (`SURVEYOR_MODEL`, `REFUTER_MODEL`) is `"inherit"` or empty. An empty value 404s on runtimes without native tier aliases — the default on non-Claude runtimes. Omitting it inherits the orchestrator's model. See @gsd-core/references/model-profile-resolution.md.
+
+Spawn **one `gsd-arch-surveyor` per zone, all in one message, `run_in_background=true`**. Each runs in a fresh context; the orchestrator never reads the zones' code itself.
 
 Print: "Spawning {N} architecture surveyors, one per zone (each runs in a subagent — no output until they return)."
 
