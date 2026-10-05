@@ -1,0 +1,161 @@
+variants: A, C, Cp; failed runs: 0
+variant | runs | recall | 95% CI | precision | FP (all/control runs) | neutral (dup+companion) | noise | $/run | out tok/run | s/run
+A | 32 | 70.2% | [51.2%, 89.3%] | 52.7% | 53/17 | 5 | 2 | 0.0869 | 11615 | 99.4
+C | 32 | 73.8% | [58.3%, 88.1%] | 66.0% | 32/12 | 1 | 1 | 0.0803 | 9255 | 77.8
+Cp | 32 | 72.6% | [54.8%, 88.1%] | 57.5% | 45/19 | 4 | 1 | 0.0845 | 10015 | 87.1
+(window/arch: "FP" = structural findings matching no seeded defect — mostly real latent issues of the fixture code; "refuted" = those of a kind the pre-pass measures, false by construction)
+A: unseeded findings/run 1.66; refuted 1 {"complexity_growth":1}
+C: unseeded findings/run 1.00; refuted 0 {}
+Cp: unseeded findings/run 1.41; refuted 0 {}
+diff C-A: 95% CI [-8.3%, 15.5%]
+diff Cp-A: 95% CI [-6.0%, 10.7%]
+diff Cp-C: 95% CI [-11.9%, 9.5%]
+category flagged: A 23/48  C 28/48  Cp 26/48  C-A [-8.3%, 29.2%]  Cp-A [-6.3%, 18.8%]  Cp-C [-20.8%, 12.5%]
+category unflagged: A 36/36  C 34/36  Cp 35/36  C-A [-16.7%, 0.0%]  Cp-A [-8.3%, 0.0%]  Cp-C [-8.3%, 16.7%]
+class complexity: A 0/12  C 5/12  Cp 4/12
+class unused_export: A 12/12  C 9/12  Cp 10/12
+class hotspot: A 0/12  C 2/12  Cp 0/12
+class recurring: A 11/12  C 12/12  Cp 12/12
+class logic: A 12/12  C 12/12  Cp 12/12
+class duplicate: A 12/12  C 12/12  Cp 11/12
+class contract: A 12/12  C 10/12  Cp 12/12
+per-defect C vs A (all): better 4, worse 3, same 14; sign test p=1.000
+per-defect C vs A (flagged): better 4, worse 2, same 6; sign test p=0.688
+per-defect C vs A (unflagged): better 0, worse 1, same 8; sign test p=1.000
+per-defect Cp vs A (all): better 4, worse 2, same 15; sign test p=0.688
+per-defect Cp vs A (flagged): better 4, worse 1, same 7; sign test p=0.375
+per-defect Cp vs A (unflagged): better 0, worse 1, same 8; sign test p=1.000
+per-defect Cp vs C (all): better 4, worse 4, same 13; sign test p=1.000
+per-defect Cp vs C (flagged): better 3, worse 3, same 6; sign test p=1.000
+per-defect Cp vs C (unflagged): better 1, worse 1, same 7; sign test p=1.000
+unadjudicated unmatched structural findings: 130
+  win-08/C/1#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice shows per-line tax calculated on undiscounted line amounts, but order.taxCents is calculated on the discounted subtotal, causing line taxes to not sum t
+  win-03/C/1#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders tax per line without accounting for discounts, but order calculates tax on discounted subtotal, creating inconsistent totals that do not reconci
+  win-07/A/4#0 logic_error [src/orders/service.ts,src/invoices/render.ts] Tax calculation diverges: order.taxCents computed on discounted subtotal as a whole, but invoice recalculates tax per line separately, causing rounding differen
+  win-07/A/4#1 duplicated_logic [src/customers/service.ts,src/notify/email.ts] Email validation duplicated: customer email validated during registration and guaranteed to be valid if customer exists, yet validated again defensively in orde
+  win-01/A/4#0 logic_error [src/http/routes.ts] orderConfirmation() throws an Error after the order is already placed and saved, causing a 500 response while the order persists in the database, leaving the cl
+  win-01/A/4#2 logic_error [src/util/dates.ts] HOLIDAYS is hardcoded for US-only dates, but businessDaysBetween is used to calculate payment terms for international customers, resulting in incorrect business
+  win-01/A/4#3 logic_error [src/shipping/rates.ts] estimateDelivery counts business days by skipping weekends but does not skip holidays, while businessDaysBetween does skip holidays, creating an inconsistency i
+  win-07/Cp/3#0 logic_error [src/orders/repo.ts,src/orders/service.ts] When an order is updated (e.g., cancelled), the byCustomer list retains the stale order object instead of the updated one, causing listByCustomer() to return or
+  win-07/Cp/3#1 logic_error [src/invoices/render.ts] Invoice renders per-line tax amounts calculated without the discount applied, but the order's total tax was calculated post-discount, creating a mismatch betwee
+  win-07/Cp/3#2 security [src/http/routes.ts] The orderHistory endpoint does not verify that the requesting user is authorized to view the customer's orders, allowing any caller to retrieve any customer's o
+  win-07/Cp/3#3 security [src/http/routes.ts] The invoice endpoint does not verify that the requesting user is authorized to view the order, allowing any caller to retrieve any order's invoice.
+  win-07/Cp/3#4 security [src/http/routes.ts] The cancelOrder endpoint does not verify that the requesting user is authorized to cancel the order, allowing any caller to cancel any order.
+  win-03/A/4#1 logic_error [src/invoices/render.ts] Per-line tax is calculated on undiscounted line amounts, but order tax is calculated on the discounted subtotal, creating an inconsistency.
+  win-03/A/4#4 duplicated_logic [src/catalog/products.ts,src/util/dates.ts] Milliseconds-per-day constant defined identically in two separate files, risking inconsistency if one is modified.
+  win-05/Cp/4#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice displays per-line tax calculated without discount applied, while order.taxCents is calculated after discount; summing per-line taxes will not equal the 
+  win-03/Cp/1#2 logic_error [src/invoices/render.ts] Per-line taxes are calculated on pre-discount line amounts but actual order tax is calculated post-discount, causing per-line taxes shown in invoice to not sum 
+  win-03/Cp/1#4 duplicated_logic [src/catalog/products.ts,src/util/dates.ts] The constant DAY_MS = 86_400_000 is defined in both files and should be centralized.
+  win-08/C/3#0 logic_error [src/invoices/render.ts] Invoice line items calculate tax on undiscounted amounts while order total tax is calculated on discounted subtotal, causing line-level taxes to not sum to the 
+  win-01/C/4#0 logic_error [src/orders/repo.ts] When an existing order is saved with updated fields (e.g., status changed to cancelled), only byId is updated; byCustomer still holds the original order object,
+  win-01/C/4#1 logic_error [src/util/dates.ts] The HOLIDAYS set is hardcoded with only 2026 dates, causing business day calculations to be incorrect for any other year.
+  win-01/C/4#2 security [src/http/routes.ts] The orderHistory endpoint retrieves orders for any customer ID without authorization checks, allowing unauthenticated access to any customer's order history.
+  win-08/Cp/1#0 logic_error [src/invoices/render.ts] Per-line tax is calculated independently on each line amount, but total tax (order.taxCents) is calculated on the subtotal after discount, causing the line taxe
+  win-08/Cp/1#1 logic_error [src/http/routes.ts] Return value of sendWithRetry is ignored, so HTTP 201 is returned even when mail delivery fails after all retry attempts.
+  win-08/Cp/1#2 logic_error [src/http/routes.ts] Missing validation that the customer exists before listing orders; non-existent customer IDs return empty order list with status 200 instead of 404, making it i
+  win-07/C/2#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line tax by calling taxFor(lineAmount, region), but order tax was calculated on (subtotal - discount); when a discount exists, per-line taxe
+  win-05/A/4#1 logic_error [src/invoices/render.ts] Invoice line-item tax is calculated on full line amounts without accounting for coupon discounts, causing per-line tax totals to mismatch the order's discounted
+  win-05/A/4#3 contract_violation [src/http/routes.ts,src/notify/email.ts] Order is placed and saved before email validation in `orderConfirmation` runs; if that validation fails, the order exists in the database but the HTTP response 
+  win-03/Cp/3#2 logic_error [src/invoices/render.ts] Tax is calculated per line without discount, but the stored `order.taxCents` was calculated on the total after coupon discount; the invoice totals will not matc
+  win-05/C/1#1 logic_error [src/invoices/render.ts] Per-line tax calculation does not account for the order's discount; line-item taxes computed independently will not sum to the order's total tax amount, creatin
+  win-08/Cp/3#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line tax calculated on undiscounted line amounts, while order.taxCents is calculated on the discounted subtotal, creating mathematical incon
+  win-04/C/4#3 logic_error [src/invoices/render.ts] Invoice line taxes are calculated on undiscounted line amounts while total tax is calculated on the discounted subtotal; per-line taxes will not sum to the invo
+  win-07/C/4#0 logic_error [src/orders/service.ts,src/invoices/render.ts] Tax is calculated on the discounted subtotal in place() but invoices recalculate per-line tax without the discount, causing the invoice tax sum to not match ord
+  win-07/C/4#1 logic_error [src/orders/repo.ts] Updating an existing order does not refresh the reference in byCustomer map, so listByCustomer returns stale order objects instead of the modified ones.
+  win-07/C/4#2 contract_violation [src/http/routes.ts] The orderHistory endpoint does not validate that the customer exists before returning results, inconsistent with other endpoints that return 404 for missing ent
+  win-07/C/4#3 contract_violation [src/notify/email.ts] Validates customer.email as valid despite Customer.email being guaranteed valid by type contract and registration flow, throwing a generic Error instead of a re
+  win-06/A/4#3 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice line tax uses Math.floor() on individual line amounts while order total tax uses roundCents() on discounted subtotal, causing invoice total to not match
+  win-08/A/1#0 logic_error [src/invoices/render.ts,src/orders/service.ts,src/orders/pricing.ts] Invoice displays per-line tax calculated on pre-discount amounts, but order.taxCents was calculated on the post-discount subtotal, causing invoice line taxes to
+  win-08/A/1#1 logic_error [src/http/routes.ts] The orderHistory endpoint does not validate that the customer exists, returning 200 with an empty items array for non-existent customers instead of 404, inconsi
+  win-08/Cp/2#0 logic_error [src/invoices/render.ts] Invoice calculates tax per line without accounting for discounts, causing per-line tax totals to mismatch the order's actual taxCents when a discount exists.
+  win-02/A/2#1 logic_error [src/invoices/render.ts] Per-line taxes shown in invoice are calculated on individual line amounts, but order summary shows total tax calculated on (subtotal - discount), causing figure
+  win-02/Cp/1#3 logic_error [src/orders/pricing.ts] WELCOME code handling checks startsWith('WELCOME') which suggests support for a family of codes, but only the literal 'WELCOME' exists in COUPONS; unknown WELCO
+  win-02/Cp/1#4 logic_error [src/invoices/render.ts] Invoice calculates tax per line without accounting for the order-level discount, so line taxes will not sum to the order's total tax.
+  win-01/C/1#0 logic_error [src/orders/service.ts,src/invoices/render.ts] Tax calculation is inconsistent: order.taxCents is calculated on the discounted subtotal, but invoice renders per-line taxes without discount consideration, cau
+  win-01/C/1#1 logic_error [src/util/dates.ts] Holidays are hardcoded only for 2026, making business day calculations incorrect for any other year.
+  win-01/Cp/1#0 logic_error [src/http/routes.ts] Missing customer existence validation; returns 200 with empty results for non-existent customer instead of 404.
+  win-05/C/3#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders tax per line without accounting for coupon discount, but order.taxCents is calculated on the post-discount subtotal; the displayed line taxes wi
+  win-05/C/2#2 logic_error [src/invoices/render.ts,src/orders/pricing.ts] Per-line tax calculation ignores discounts; the sum of line-item taxes will not equal the order's total tax field when a coupon is applied, creating an invoice 
+  win-01/A/1#0 logic_error [src/invoices/render.ts,src/orders/service.ts,src/orders/pricing.ts] Invoice shows per-line tax calculated on pre-discount amounts, but order.taxCents was calculated on the post-discount subtotal, so line taxes sum to a different
+  win-05/A/3#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates per-line tax on undiscounted amounts while order stores tax calculated after discount, causing sum of line taxes to not match order.taxCents 
+  win-08/A/2#0 logic_error [src/orders/service.ts,src/invoices/render.ts] Tax calculation differs between order storage (taxFor applied to subtotal-discount) and invoice display (taxFor applied per line), causing rounding mismatches w
+  win-08/A/2#1 logic_error [src/http/routes.ts,src/notify/email.ts] The order is persisted via deps.orders.place() before orderConfirmation() is called; if orderConfirmation() throws an exception, the order already exists in the
+  win-08/A/2#2 contract_violation [src/http/routes.ts] The endpoint silently returns empty results for non-existent customers instead of validating existence, inconsistent with other endpoints (like invoice) that re
+  win-01/C/3#1 contract_violation [src/http/routes.ts] Endpoint returns 200 with empty results for non-existent customers, inconsistent with invoice and createOrder endpoints that return 404/400 for missing entities
+  win-02/A/4#2 logic_error [src/invoices/render.ts] Tax is calculated per invoice line on undiscounted amounts, but order tax was calculated on discounted subtotal; sum of line taxes will not equal order total ta
+  win-03/A/3#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates tax on individual pre-discount line amounts, but order total tax is calculated on post-discount subtotal, resulting in mismatched tax totals.
+  win-03/A/3#3 duplicated_logic [src/catalog/products.ts,src/util/dates.ts] The constant DAY_MS = 86_400_000 is defined in two separate files instead of being shared from a single location.
+  win-01/Cp/2#0 logic_error [src/orders/repo.ts] Updating an existing order only modifies byId but not the byCustomer list, causing listByCustomer to return stale order objects with outdated status.
+  win-01/Cp/2#1 logic_error [src/invoices/render.ts] Invoice renders per-line tax calculated on full line amounts without accounting for order discounts, but the summary displays order.taxCents which is calculated
+  win-03/A/2#1 logic_error [src/invoices/render.ts] Per-line tax calculation does not account for the discount applied to the order, making line-item taxes inconsistent with the total tax shown in the summary.
+  win-04/C/2#3 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line taxes calculated on full line amounts, but service calculates total tax on post-discount amount, making the sum of line-item taxes inco
+  win-05/A/1#1 logic_error [src/customers/service.ts] The function preserves the case of all characters except the first; 'JOHN' remains 'JOHN' instead of becoming 'John', violating the intended capitalization cont
+  win-05/A/1#2 logic_error [src/invoices/render.ts,src/orders/service.ts] The invoice calculates tax per line item independently, but the order's taxCents is calculated on the subtotal minus discount; with a 10% discount, per-line tax
+  win-04/C/1#3 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice shows per-line taxes calculated on undiscounted line amounts, but order.taxCents is calculated on the discounted subtotal; when a discount is applied, t
+  win-07/A/3#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice shows per-line tax calculated without discount, but order total tax is calculated on discounted subtotal; for orders with discounts, per-line taxes won'
+  win-07/A/3#1 logic_error [src/http/routes.ts,src/notify/email.ts] Email validation in orderConfirmation throws after the order is placed; if validation fails, order is saved but API returns 500 error.
+  win-07/Cp/4#0 logic_error [src/invoices/render.ts,src/orders/pricing.ts,src/orders/service.ts] Invoice displays per-line tax calculated on gross line amounts, but order.taxCents is calculated on discounted subtotal, so invoice tax total exceeds actual tax
+  win-01/C/2#0 logic_error [src/invoices/render.ts] Per-line tax amounts don't match the order's summary tax: lines calculate tax on individual amounts before discount, but order.taxCents is calculated on (subtot
+  win-06/Cp/3#3 logic_error [src/invoices/render.ts] Invoice renders per-line tax without applying the order discount, so per-line tax amounts will not sum to the order's total tax (which was calculated on discoun
+  win-04/Cp/1#3 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line tax calculated on pre-discount amounts, but order total tax was calculated on post-discount subtotal; they will not match when a coupon
+  win-01/A/3#0 logic_error [src/http/routes.ts,src/notify/email.ts] If orderConfirmation throws an error validating the email, the order has already been created and saved but the client receives a 500 error response, leaving th
+  win-01/A/3#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice per-line tax is calculated on line amounts without discount, but order.taxCents is calculated on the post-discount subtotal, causing invoice line taxes 
+  win-01/A/3#2 logic_error [src/shipping/rates.ts] Region-specific surcharge values (1500 vs 4000 for oversize) are multiplied by region multiplier again, compounding regional adjustments: intl oversize surcharg
+  win-01/A/3#3 logic_error [src/http/routes.ts] The endpoint silently returns an empty order list for non-existent customer IDs instead of returning 404, inconsistent with REST conventions and the validation 
+  win-08/A/3#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line tax calculated on undiscounted line amounts, but order.taxCents was calculated on the subtotal after discount, creating an inconsistenc
+  win-08/A/3#1 logic_error [src/http/routes.ts] orderHistory endpoint does not verify customer existence before returning orders, inconsistent with other endpoints like invoice which check for resource existe
+  win-02/C/1#2 logic_error [src/invoices/render.ts] Invoice calculates and displays per-line tax before discount, but order's total tax was calculated after discount, creating an inconsistency where per-line taxe
+  win-08/A/4#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates line-level tax on undiscounted line amounts, but order total tax is calculated on the discounted subtotal, causing the line taxes to not matc
+  win-08/A/4#1 complexity_growth [src/customers/repo.ts] Email lookup iterates through all customers with O(n) complexity on every registration check for duplicates, when an O(1) index would scale better as customer c
+  win-01/Cp/4#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line tax without accounting for discounts, but order stores tax calculated on discounted subtotal, causing display mismatch.
+  win-01/Cp/4#1 logic_error [src/util/dates.ts] HOLIDAYS constant is hardcoded to 2026 dates only; function will not correctly exclude holidays after 2026.
+  win-07/Cp/1#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates tax per line on undiscounted amounts, but order total tax is calculated on the discounted subtotal, creating an accounting mismatch where per
+  win-07/Cp/1#1 logic_error [src/orders/repo.ts] When an existing order is updated (e.g., cancelled), save() updates byId but not byCustomer, causing listByCustomer and orderHistory to return stale order objec
+  win-07/Cp/2#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice line-item taxes are calculated independently without accounting for order-level discounts, producing per-line taxes that do not sum to the order's total
+  win-07/Cp/2#1 logic_error [src/orders/repo.ts,src/orders/service.ts] Updating an existing order (e.g., cancellation) only updates the byId map, not the byCustomer list, causing listByCustomer to return stale order objects with in
+  win-07/Cp/2#2 logic_error [src/http/routes.ts] If orderConfirmation throws an error after the order is already saved, the client receives a 500 error despite the order being successfully created and persiste
+  win-07/Cp/2#3 contract_violation [src/notify/email.ts] Throws generic Error instead of ValidationError, breaking the HTTP error handler contract which only recognizes ValidationError and NotFoundError for proper sta
+  win-02/C/2#2 logic_error [src/invoices/render.ts] Per-line tax is calculated on individual line amounts, but order total tax is calculated on the post-discount subtotal; these will not match, creating an incons
+  win-05/C/4#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice line items show tax calculated on the line amount before discount, but order.taxCents is calculated on subtotal after discount, creating an inconsistenc
+  win-02/Cp/4#2 logic_error [src/invoices/render.ts] Tax is calculated per line item without accounting for the order-level discount, so the sum of per-line taxes will not equal order.taxCents when a discount was 
+  win-04/A/2#0 security [src/invoices/render.ts] Customer display name is concatenated directly into HTML output without escaping, enabling HTML/script injection into invoices.
+  win-04/A/2#2 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line taxes on full line amounts, but order.taxCents is calculated on the discounted subtotal, causing the displayed tax to not match the ord
+  win-04/A/2#4 security [src/http/routes.ts] orderHistory endpoint exposes any customer's orders without verifying the requester is that customer; any caller can retrieve another's order history by ID.
+  win-04/A/2#5 security [src/http/routes.ts] cancelOrder endpoint permits any caller to cancel any order by ID without verifying ownership; the route carries no customer context for authorization.
+  win-04/A/3#3 logic_error [src/invoices/render.ts] Tax is calculated per line without discounts, but order.taxCents was calculated on the discounted subtotal, creating an accounting mismatch where line taxes don
+  win-07/C/3#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice line-by-line tax is calculated on full line amounts, but order total tax is calculated on the post-discount subtotal, creating a mismatch where line tax
+  win-07/C/3#1 contract_violation [src/customers/repo.ts] Method expects lower-cased email input per its docstring but does not enforce or validate this precondition, relying on the caller to comply.
+  win-08/C/2#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates tax per line on pre-discount amounts, but order calculates single tax on post-discount subtotal, causing mismatch whenever a coupon discount 
+  win-08/Cp/4#0 logic_error [src/invoices/render.ts] Per-line taxes are calculated on full line amounts without accounting for the order-level discount, causing invoice line taxes to sum to a different total than 
+  win-08/Cp/4#1 logic_error [src/http/routes.ts] The orderHistory endpoint does not validate that the customer exists before returning results, unlike other endpoints such as invoice() that check for existence
+  win-07/A/1#0 logic_error [src/invoices/render.ts,src/orders/pricing.ts] Invoice renders per-line tax calculated on full line amount, but order.taxCents is calculated on (subtotal - discount), causing the sum of rendered line taxes t
+  win-07/A/1#1 logic_error [src/http/routes.ts] The orderHistory endpoint returns 200 with empty items for a non-existent customer instead of validating the customer exists and returning 404, inconsistent wit
+  win-06/C/2#2 logic_error [src/invoices/render.ts] Per-line taxes shown in invoice do not account for the discount applied at order level; line-item tax sum will not match order.taxCents.
+  win-05/A/2#1 logic_error [src/invoices/render.ts] Per-line tax in the invoice is calculated on undiscounted line amounts, but order.taxCents was calculated on the subtotal after discount, causing line taxes to 
+  win-03/A/1#0 logic_error [src/invoices/render.ts] Per-line tax is calculated on line amounts before discount, but order.taxCents was calculated on the discounted subtotal; the sum of displayed line taxes will n
+  win-03/Cp/2#2 logic_error [src/invoices/render.ts] Per-line tax is calculated on pre-discount line amounts, but total tax in the summary is calculated on the post-discount subtotal, causing a mismatch when disco
+  win-03/C/2#2 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates tax per-line on the full line amount, but the order calculates tax on the discounted subtotal; the sum of per-line taxes will not equal the o
+  win-05/Cp/1#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders tax per line on full line amounts, but orders charge tax on (subtotalCents - discountCents); this causes the per-line taxes shown on the invoice
+  win-08/C/4#0 logic_error [src/invoices/render.ts] Invoice renders per-line tax without accounting for order-level discounts, causing the sum of line taxes to not match the order's actual taxCents when a discoun
+  win-02/A/3#3 logic_error [src/invoices/render.ts] Tax is calculated per invoice line on full undiscounted line amounts, but order.taxCents is tax on the discounted subtotal, making per-line taxes inconsistent w
+  win-02/A/3#4 logic_error [src/orders/repo.ts] When an order is updated (e.g. cancelled), the byCustomer list retains the old order object reference while byId is updated, so history() returns stale order ob
+  win-07/C/1#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice calculates per-line tax on pre-discount amounts, but the order was created with tax applied to the post-discount subtotal, causing line-item taxes to no
+  win-05/Cp/3#1 logic_error [src/invoices/render.ts] Invoice renders tax per line without accounting for the order-level discount, causing the sum of per-line taxes to mismatch order.taxCents which was calculated 
+  win-05/Cp/3#2 logic_error [src/customers/service.ts] The capitalize function only uppercases the first letter without lowercasing the rest, leaving all-caps input like 'SMITH' unchanged instead of converting to 'S
+  win-05/Cp/3#3 logic_error [src/http/routes.ts,src/notify/email.ts] An order is persisted to the repo before email validation in orderConfirmation, causing a 500 error response for a successfully created order if orderConfirmati
+  win-05/Cp/3#4 contract_violation [src/shipping/rates.ts] Function signature changed by inserting region parameter in the middle, breaking the contract for any existing callers not updated in this window.
+  win-01/A/2#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice displays per-line tax calculated on full line amounts, but order tax was calculated on the discounted subtotal, causing the sum of per-line taxes to not
+  win-01/A/2#1 logic_error [src/util/dates.ts] HOLIDAYS set is hardcoded to 2026 dates and will be incorrect for all business-day calculations in 2027 and beyond.
+  win-01/A/2#2 logic_error [src/http/routes.ts,src/notify/email.ts] orderConfirmation can throw after the order is already saved, creating a contract violation where the client receives an error response despite the order being 
+  win-01/A/2#3 security [src/http/routes.ts] orderHistory endpoint does not validate that the requesting user owns the customer ID, allowing any user to retrieve any other customer's order history.
+  win-02/C/3#4 logic_error [src/orders/pricing.ts] VIP coupon codes with non-integer or out-of-range year suffix (e.g., 'VIP-abc', 'VIP-2020') incorrectly receive 5% discount due to overly broad else clause.
+  win-04/A/4#1 security [src/invoices/render.ts] Customer display name is interpolated directly into invoice HTML without escaping, allowing HTML/JavaScript injection via names containing markup characters.
+  win-04/A/4#4 logic_error [src/invoices/render.ts] Invoice shows per-line taxes calculated on the full line amount, but the order total tax (order.taxCents) is calculated on the discounted subtotal; these calcul
+  win-05/Cp/2#1 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice line-by-line tax calculations omit coupon discounts, causing displayed line taxes to not sum to the actual order.taxCents charged when coupons are appli
+  win-07/A/2#0 logic_error [src/invoices/render.ts,src/orders/service.ts] Invoice renders per-line taxes calculated independently on each line amount, but the order's total tax was calculated on the discounted subtotal; the sum of per
+  win-07/A/2#1 logic_error [src/http/routes.ts] The orderHistory handler does not validate that the customer exists before returning their order history, returning 200 with an empty list for both non-existent
+  win-03/Cp/4#2 logic_error [src/invoices/render.ts] Per-line tax is calculated on the full line amount without accounting for discounts, while the order was charged tax on the subtotal after discount, causing inv
+  win-03/Cp/4#4 duplicated_logic [src/catalog/products.ts,src/util/dates.ts] The same constant (86_400_000, representing milliseconds in a day) is defined identically in two modules; additionally CANCEL_WINDOW_MS in src/orders/service.ts
+  win-01/Cp/3#0 logic_error [src/orders/service.ts,src/invoices/render.ts] Tax calculation inconsistency: order stores tax as (subtotal - discount) * rate, but invoice renders per-line taxes on full line amounts without discount, causi
+  win-01/Cp/3#1 logic_error [src/shipping/rates.ts] Regional shipping cost applies both region-specific surcharges (400-5400 cents) and a region-specific multiplier (1.6-2.4x) to the entire sum, appearing to doub
+  win-01/Cp/3#2 contract_violation [src/http/routes.ts,src/orders/service.ts] Order is persisted before confirmation email object creation; if orderConfirmation throws, the order exists in the database but a 500 error is returned to the c

@@ -1,0 +1,951 @@
+{
+  "mode": "window",
+  "categories": [
+    "flagged",
+    "unflagged"
+  ],
+  "classes": [
+    "complexity",
+    "unused_export",
+    "hotspot",
+    "recurring",
+    "logic",
+    "duplicate",
+    "contract"
+  ],
+  "variants": [
+    "A",
+    "C",
+    "Cp"
+  ],
+  "failed": 0,
+  "perVariant": {
+    "A": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 42,
+      "found": 39,
+      "fp": 68,
+      "fp_control": 11,
+      "noise": 15,
+      "companions": 16,
+      "matched_findings": 39,
+      "cost": 1.393492,
+      "out_tok": 21642,
+      "dur": 161635,
+      "byClass": {
+        "complexity": {
+          "seeded": 6,
+          "found": 5
+        },
+        "unused_export": {
+          "seeded": 6,
+          "found": 6
+        },
+        "hotspot": {
+          "seeded": 6,
+          "found": 4
+        },
+        "recurring": {
+          "seeded": 6,
+          "found": 6
+        },
+        "duplicate": {
+          "seeded": 6,
+          "found": 6
+        },
+        "contract": {
+          "seeded": 6,
+          "found": 6
+        },
+        "logic": {
+          "seeded": 6,
+          "found": 6
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 24,
+          "found": 21
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 18
+        }
+      },
+      "refuted": 1,
+      "refutedByKind": {
+        "complexity_growth": 1
+      }
+    },
+    "C": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 42,
+      "found": 42,
+      "fp": 73,
+      "fp_control": 14,
+      "noise": 24,
+      "companions": 10,
+      "matched_findings": 42,
+      "cost": 1.599012,
+      "out_tok": 23108,
+      "dur": 185039,
+      "byClass": {
+        "complexity": {
+          "seeded": 6,
+          "found": 6
+        },
+        "recurring": {
+          "seeded": 6,
+          "found": 6
+        },
+        "logic": {
+          "seeded": 6,
+          "found": 6
+        },
+        "duplicate": {
+          "seeded": 6,
+          "found": 6
+        },
+        "unused_export": {
+          "seeded": 6,
+          "found": 6
+        },
+        "hotspot": {
+          "seeded": 6,
+          "found": 6
+        },
+        "contract": {
+          "seeded": 6,
+          "found": 6
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 24,
+          "found": 24
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 18
+        }
+      },
+      "refuted": 4,
+      "refutedByKind": {
+        "complexity_growth": 3,
+        "recurring_issue": 1
+      }
+    },
+    "Cp": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 42,
+      "found": 41,
+      "fp": 72,
+      "fp_control": 19,
+      "noise": 27,
+      "companions": 10,
+      "matched_findings": 41,
+      "cost": 1.623808,
+      "out_tok": 23898,
+      "dur": 195431,
+      "byClass": {
+        "unused_export": {
+          "seeded": 6,
+          "found": 6
+        },
+        "hotspot": {
+          "seeded": 6,
+          "found": 5
+        },
+        "logic": {
+          "seeded": 6,
+          "found": 6
+        },
+        "recurring": {
+          "seeded": 6,
+          "found": 6
+        },
+        "contract": {
+          "seeded": 6,
+          "found": 6
+        },
+        "complexity": {
+          "seeded": 6,
+          "found": 6
+        },
+        "duplicate": {
+          "seeded": 6,
+          "found": 6
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 24,
+          "found": 23
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 18
+        }
+      },
+      "refuted": 2,
+      "refutedByKind": {
+        "recurring_issue": 2
+      }
+    }
+  },
+  "rates": {
+    "win-04:complexity": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-04:recurring": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-04:logic": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-04:duplicate": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-05:unused_export": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-05:hotspot": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-05:logic": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-03:hotspot": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-03:recurring": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-03:contract": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-03:unused_export": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-01:complexity": {
+      "A": 0.5,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-01:unused_export": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-01:hotspot": {
+      "A": 0,
+      "C": 1,
+      "Cp": 0.5
+    },
+    "win-06:contract": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-06:duplicate": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-06:logic": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-02:complexity": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-02:recurring": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-02:duplicate": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "win-02:contract": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    }
+  },
+  "defectRates": {
+    "win-04:complexity": {
+      "class": "complexity",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-04:recurring": {
+      "class": "recurring",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-04:logic": {
+      "class": "logic",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-04:duplicate": {
+      "class": "duplicate",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-05:unused_export": {
+      "class": "unused_export",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-05:hotspot": {
+      "class": "hotspot",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-05:logic": {
+      "class": "logic",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-03:hotspot": {
+      "class": "hotspot",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-03:recurring": {
+      "class": "recurring",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-03:contract": {
+      "class": "contract",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-03:unused_export": {
+      "class": "unused_export",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-01:complexity": {
+      "class": "complexity",
+      "category": "flagged",
+      "_A": {
+        "n": 2,
+        "hit": 1
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-01:unused_export": {
+      "class": "unused_export",
+      "category": "flagged",
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-01:hotspot": {
+      "class": "hotspot",
+      "category": "flagged",
+      "_A": {
+        "n": 2,
+        "hit": 0
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 1
+      }
+    },
+    "win-06:contract": {
+      "class": "contract",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-06:duplicate": {
+      "class": "duplicate",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-06:logic": {
+      "class": "logic",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-02:complexity": {
+      "class": "complexity",
+      "category": "flagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-02:recurring": {
+      "class": "recurring",
+      "category": "flagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-02:duplicate": {
+      "class": "duplicate",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "win-02:contract": {
+      "class": "contract",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    }
+  },
+  "boot": {
+    "recall_ci": {
+      "A": [
+        0.8095238095238095,
+        1
+      ],
+      "C": [
+        1,
+        1
+      ],
+      "Cp": [
+        0.9285714285714286,
+        1
+      ]
+    },
+    "diff_ci": {
+      "C-A": [
+        0,
+        0.19047619047619047
+      ],
+      "Cp-A": [
+        0,
+        0.11904761904761907
+      ],
+      "Cp-C": [
+        -0.0714285714285714,
+        0
+      ]
+    }
+  },
+  "byCategoryBoot": {
+    "flagged": {
+      "recall_ci": {
+        "A": [
+          0.6666666666666666,
+          1
+        ],
+        "C": [
+          1,
+          1
+        ],
+        "Cp": [
+          0.875,
+          1
+        ]
+      },
+      "diff_ci": {
+        "C-A": [
+          0,
+          0.33333333333333337
+        ],
+        "Cp-A": [
+          0,
+          0.20833333333333337
+        ],
+        "Cp-C": [
+          -0.125,
+          0
+        ]
+      }
+    },
+    "unflagged": {
+      "recall_ci": {
+        "A": [
+          1,
+          1
+        ],
+        "C": [
+          1,
+          1
+        ],
+        "Cp": [
+          1,
+          1
+        ]
+      },
+      "diff_ci": {
+        "C-A": [
+          0,
+          0
+        ],
+        "Cp-A": [
+          0,
+          0
+        ],
+        "Cp-C": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "unmatched": [
+    "win-04/C/2#3",
+    "win-04/C/2#6",
+    "win-04/C/2#7",
+    "win-04/C/2#8",
+    "win-04/C/2#10",
+    "win-05/C/2#1",
+    "win-05/C/2#2",
+    "win-05/C/2#3",
+    "win-05/C/2#5",
+    "win-05/C/2#7",
+    "win-05/C/2#9",
+    "win-05/C/1#1",
+    "win-05/C/1#2",
+    "win-05/C/1#3",
+    "win-05/C/1#6",
+    "win-05/C/1#7",
+    "win-05/C/1#10",
+    "win-08/A/2#0",
+    "win-08/A/2#1",
+    "win-08/A/2#4",
+    "win-05/Cp/2#1",
+    "win-05/Cp/2#2",
+    "win-05/Cp/2#3",
+    "win-05/Cp/2#4",
+    "win-05/Cp/2#5",
+    "win-07/Cp/1#0",
+    "win-07/Cp/1#1",
+    "win-07/Cp/1#2",
+    "win-03/C/1#1",
+    "win-03/C/1#2",
+    "win-03/C/1#3",
+    "win-03/C/1#6",
+    "win-03/C/1#9",
+    "win-03/C/1#10",
+    "win-03/C/1#11",
+    "win-01/A/2#0",
+    "win-01/A/2#1",
+    "win-01/A/2#2",
+    "win-07/C/2#0",
+    "win-07/C/2#1",
+    "win-07/C/2#2",
+    "win-07/C/1#0",
+    "win-07/C/1#1",
+    "win-07/C/1#2",
+    "win-03/C/2#1",
+    "win-03/C/2#2",
+    "win-03/C/2#3",
+    "win-03/C/2#4",
+    "win-03/C/2#5",
+    "win-03/C/2#7",
+    "win-03/C/2#10",
+    "win-03/C/2#13",
+    "win-03/Cp/1#1",
+    "win-03/Cp/1#6",
+    "win-01/C/2#1",
+    "win-01/C/2#2",
+    "win-01/C/2#3",
+    "win-01/C/2#4",
+    "win-01/C/2#5",
+    "win-01/C/2#6",
+    "win-01/C/2#7",
+    "win-01/C/2#9",
+    "win-01/C/2#12",
+    "win-08/Cp/2#0",
+    "win-08/Cp/2#1",
+    "win-08/Cp/2#2",
+    "win-04/Cp/2#2",
+    "win-04/Cp/2#5",
+    "win-04/Cp/2#6",
+    "win-04/Cp/2#7",
+    "win-04/Cp/2#10",
+    "win-01/C/1#1",
+    "win-01/C/1#2",
+    "win-01/C/1#5",
+    "win-06/Cp/1#5",
+    "win-06/Cp/1#6",
+    "win-02/Cp/1#1",
+    "win-02/Cp/1#4",
+    "win-02/Cp/1#8",
+    "win-02/Cp/1#9",
+    "win-02/Cp/1#11",
+    "win-01/Cp/1#1",
+    "win-01/Cp/1#2",
+    "win-01/Cp/1#3",
+    "win-01/Cp/1#4",
+    "win-01/Cp/1#5",
+    "win-08/C/1#0",
+    "win-08/C/1#1",
+    "win-08/C/1#2",
+    "win-02/A/2#5",
+    "win-02/A/2#8",
+    "win-02/A/2#9",
+    "win-06/C/1#5",
+    "win-06/A/1#5",
+    "win-06/A/1#6",
+    "win-03/A/2#1",
+    "win-03/A/2#3",
+    "win-03/A/2#7",
+    "win-03/A/2#8",
+    "win-03/A/2#10",
+    "win-03/A/2#12",
+    "win-02/Cp/2#1",
+    "win-02/Cp/2#4",
+    "win-02/Cp/2#7",
+    "win-02/Cp/2#8",
+    "win-02/Cp/2#9",
+    "win-04/C/1#2",
+    "win-04/C/1#5",
+    "win-04/C/1#6",
+    "win-07/A/2#0",
+    "win-07/A/2#1",
+    "win-07/A/2#2",
+    "win-07/Cp/2#0",
+    "win-07/Cp/2#1",
+    "win-07/Cp/2#2",
+    "win-07/A/1#0",
+    "win-07/A/1#1",
+    "win-02/C/2#3",
+    "win-02/C/2#5",
+    "win-02/C/2#8",
+    "win-02/C/2#9",
+    "win-06/A/2#5",
+    "win-06/A/2#6",
+    "win-06/C/2#2",
+    "win-06/C/2#4",
+    "win-06/C/2#6",
+    "win-08/Cp/1#0",
+    "win-08/Cp/1#1",
+    "win-08/Cp/1#2",
+    "win-08/Cp/1#3",
+    "win-08/Cp/1#4",
+    "win-08/Cp/1#5",
+    "win-08/Cp/1#6",
+    "win-08/Cp/1#7",
+    "win-08/Cp/1#8",
+    "win-08/Cp/1#10",
+    "win-03/A/1#2",
+    "win-03/A/1#3",
+    "win-03/A/1#5",
+    "win-03/A/1#6",
+    "win-03/A/1#7",
+    "win-03/A/1#9",
+    "win-03/A/1#13",
+    "win-08/A/1#0",
+    "win-08/A/1#1",
+    "win-08/A/1#2",
+    "win-04/A/2#3",
+    "win-04/A/2#5",
+    "win-05/A/1#1",
+    "win-05/A/1#2",
+    "win-05/A/1#3",
+    "win-05/A/1#4",
+    "win-05/A/1#6",
+    "win-05/A/1#7",
+    "win-05/A/1#8",
+    "win-05/A/1#10",
+    "win-05/A/2#1",
+    "win-05/A/2#2",
+    "win-05/A/2#3",
+    "win-05/A/2#5",
+    "win-05/A/2#7",
+    "win-05/A/2#8",
+    "win-05/A/2#10",
+    "win-05/A/2#11",
+    "win-01/A/1#0",
+    "win-01/A/1#1",
+    "win-01/A/1#2",
+    "win-01/A/1#3",
+    "win-01/A/1#4",
+    "win-01/A/1#6",
+    "win-01/A/1#7",
+    "win-01/A/1#8",
+    "win-02/A/1#1",
+    "win-02/A/1#4",
+    "win-02/A/1#6",
+    "win-04/A/1#3",
+    "win-04/A/1#4",
+    "win-04/A/1#7",
+    "win-04/A/1#8",
+    "win-04/A/1#11",
+    "win-08/C/2#0",
+    "win-08/C/2#1",
+    "win-08/C/2#2",
+    "win-08/C/2#3",
+    "win-08/C/2#4",
+    "win-02/C/1#1",
+    "win-02/C/1#4",
+    "win-02/C/1#7",
+    "win-02/C/1#8",
+    "win-04/Cp/1#2",
+    "win-04/Cp/1#4",
+    "win-04/Cp/1#6",
+    "win-04/Cp/1#7",
+    "win-04/Cp/1#8",
+    "win-04/Cp/1#10",
+    "win-04/Cp/1#12",
+    "win-06/Cp/2#4",
+    "win-06/Cp/2#5",
+    "win-06/Cp/2#7",
+    "win-03/Cp/2#1",
+    "win-03/Cp/2#3",
+    "win-03/Cp/2#4",
+    "win-03/Cp/2#5",
+    "win-03/Cp/2#10",
+    "win-01/Cp/2#1",
+    "win-01/Cp/2#2",
+    "win-01/Cp/2#4",
+    "win-01/Cp/2#5",
+    "win-05/Cp/1#1",
+    "win-05/Cp/1#2",
+    "win-05/Cp/1#3",
+    "win-05/Cp/1#7",
+    "win-05/Cp/1#8"
+  ]
+}

@@ -96,3 +96,46 @@ node scripts/experiments/report-ab/score.cjs --out scripts/experiments/report-ab
 full answer), the ground truth, the adjudication and both summaries. Regenerating the fixtures
 gives byte-identical reports, which the `report_sha256` values in `ground-truth.json` confirm.
 The batch cost $8.02 for sonnet and $7.26 for haiku (96 runs each).
+
+## Modes `window` and `arch` (pocock wave 3)
+
+Wave 3 of `.plans/pocock-practices-design.md` asks whether the deterministic pre-pass should be
+handed to the model, and in what form. Results: `.plans/pocock-eval-results.md`. The same
+isolation, run order, resume and statistics apply; `run.cjs --mode` picks the system prompt and
+the output directory, and `score.cjs` reads the mode from `ground-truth.json`.
+
+| Mode | Generator | Artifact | Pre-pass |
+|---|---|---|---|
+| `window` | `fixtures-window.cjs` → `out-window/` | one window of commits: the log with files per commit, two earlier window reviews, the cumulative diff, the source at the tip | `gsd-tools review window-prepass` run in the fixture repo |
+| `arch` | `fixtures-arch.cjs` → `out-arch/` | one zone (the whole small repo) in the surveyor prompt's header form, every source file | `gsd-tools arch metrics` run in the fixture repo |
+
+Variants, the code bytes identical in all three:
+
+| Variant | `window` | `arch` |
+|---|---|---|
+| **A** | no pre-pass | no metrics |
+| **C** | + `prepass.json` as is | + the `<signals>` block and the metrics rows as is |
+| **Cp** (C′) | + the `<window_prepass>` brief, produced by running the node snippet extracted from `gsd-core/workflows/code-review/steps/window-scope.md` at generation time | + the `<what_the_metrics_checked>` block, read verbatim from `agents/gsd-arch-surveyor.md` |
+
+Cp is the shipped form: both prompts already say which classes the pre-pass checked and that the
+rest is the model's to find. Each generator has seven (`window`) or six (`arch`) defect classes,
+each seeded three times across six fixtures, plus two clean controls. Half the classes are ones the
+pre-pass flags, half are ones it cannot see:
+
+| Mode | Flagged by the pre-pass | Not flagged |
+|---|---|---|
+| `window` | `complexity` (a function's complexity jumps in the window), `unused_export` (a new export nobody imports), `hotspot` (one file patched in 5+ window commits), `recurring` (a review-only finding raised in both earlier reviews, still in the code) | `logic` (a logic error introduced in the window), `duplicate` (one behaviour written twice, in two modules), `contract` (a caller breaks the callee's documented contract) |
+| `arch` | `cycle`, `pass_through`, `small_cluster` | `scattered` (one rule re-implemented in three modules), `leaky_seam`, `shallow_interface` (a module over the small bound whose interface is as wide as its implementation) |
+
+Both generators check themselves against the real CLI: the pre-pass must report exactly the seeded
+flagged defects, nothing on a control, and none of the unflagged ones. A finding hits a defect when
+its `kind` is accepted for the class (`WINDOW_ACCEPT` / `ARCH_ACCEPT` in `score.cjs`) and the paths it
+names cover `minFiles` of the defect's files. `score.cjs` also prints C′ against C.
+
+```bash
+node scripts/experiments/report-ab/fixtures-window.cjs
+node scripts/experiments/report-ab/fixtures-arch.cjs
+node scripts/experiments/report-ab/run.cjs --mode window --model haiku --reps 4 --concurrency 6
+node scripts/experiments/report-ab/run.cjs --mode arch   --model haiku --reps 4 --concurrency 6
+node scripts/experiments/report-ab/score.cjs --out scripts/experiments/report-ab/out-window --runs runs-haiku.jsonl
+```

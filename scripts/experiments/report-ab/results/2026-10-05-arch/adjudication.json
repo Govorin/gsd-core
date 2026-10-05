@@ -1,0 +1,13 @@
+{
+  "haiku": {
+    "arch-02/A/1#1": "arch-02:leaky_seam",
+    "arch-04/C/2#3": "arch-04:shallow_interface",
+    "arch-04/C/3#3": "arch-04:shallow_interface",
+    "arch-04/Cp/2#1": "arch-04:shallow_interface",
+    "arch-01/C/3#1": "arch-01:shallow_interface",
+    "arch-06/A/2#0": "arch-06:scattered"
+  },
+  "sonnet": {
+    "arch-03/C/2#2": "arch-03:leaky_seam"
+  }
+}

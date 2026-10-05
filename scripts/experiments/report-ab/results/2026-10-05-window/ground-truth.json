@@ -1,0 +1,514 @@
+{
+  "mode": "window",
+  "generated_by": "scripts/experiments/report-ab/fixtures-window.cjs",
+  "prepass_date": "2026-10-01",
+  "fixtures": {
+    "win-01": {
+      "control": false,
+      "base": "1c09597ee4a11ed2708831ac810b295cb0626854",
+      "tip": "2e9c9b7f35c9d1f7afb5e3e248429f0197838adf",
+      "commits": 15,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-01:complexity",
+          "class": "complexity",
+          "category": "flagged",
+          "variant": "cx-a",
+          "files": [
+            "src/shipping/rates.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "shippingCost",
+          "description": "shippingCost grew region, weight, oversize, small-order and weight-tier branches over two window commits; one function now holds every pricing rule"
+        },
+        {
+          "key": "win-01:unused_export",
+          "class": "unused_export",
+          "category": "flagged",
+          "variant": "ue-a",
+          "files": [
+            "src/invoices/render.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "legacyInvoiceNumber",
+          "description": "legacyInvoiceNumber is exported in the window and imported by nothing"
+        },
+        {
+          "key": "win-01:hotspot",
+          "class": "hotspot",
+          "category": "flagged",
+          "variant": "hs-a",
+          "files": [
+            "src/util/dates.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "businessDaysBetween",
+          "description": "util/dates.ts was patched by five fix commits of businessDaysBetween in one window: unstable logic with no test pinning it"
+        }
+      ]
+    },
+    "win-02": {
+      "control": false,
+      "base": "5524e2e51e78f79d8ebc9611882eaa29543908a5",
+      "tip": "2c79f0033dd1423a068c40ba2421a70641bd46a7",
+      "commits": 10,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-02:complexity",
+          "class": "complexity",
+          "category": "flagged",
+          "variant": "cx-b",
+          "files": [
+            "src/orders/pricing.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "applyDiscounts",
+          "description": "applyDiscounts grew nested VIP-year, bulk-tier and welcome branches plus a cap in one window commit"
+        },
+        {
+          "key": "win-02:recurring",
+          "class": "recurring",
+          "category": "flagged",
+          "variant": "rc-a",
+          "files": [
+            "src/http/routes.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "parseItems",
+          "description": "order quantities are still not validated in parseItems, raised as review-only in both earlier window reviews; the window touched the file again without fixing or guarding it"
+        },
+        {
+          "key": "win-02:duplicate",
+          "class": "duplicate",
+          "category": "unflagged",
+          "variant": "dp-a",
+          "files": [
+            "src/customers/service.ts",
+            "src/notify/email.ts"
+          ],
+          "minFiles": 2,
+          "symbol": "isValidEmail",
+          "description": "email validation is implemented twice in the window, with different patterns: isValidEmail in customers/service and looksLikeEmail in notify/email"
+        },
+        {
+          "key": "win-02:contract",
+          "class": "contract",
+          "category": "unflagged",
+          "variant": "ct-c",
+          "files": [
+            "src/orders/service.ts",
+            "src/shipping/rates.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "shippingCost",
+          "description": "OrderService.place passes the weight in kilograms to shippingCost, whose contract is grams: shipping is priced as if every parcel weighed under a kilogram"
+        }
+      ]
+    },
+    "win-03": {
+      "control": false,
+      "base": "ce336dc2c03dc3f1dae7e95e1e1b23cdd48a9af3",
+      "tip": "16b5c6aba4c1129f7c18aee342ad199c4a3b35eb",
+      "commits": 14,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-03:hotspot",
+          "class": "hotspot",
+          "category": "flagged",
+          "variant": "hs-b",
+          "files": [
+            "src/catalog/products.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "priceFor",
+          "description": "catalog/products.ts was patched by five fix commits of the sale-price computation in one window: unstable logic with no test pinning it"
+        },
+        {
+          "key": "win-03:recurring",
+          "class": "recurring",
+          "category": "flagged",
+          "variant": "rc-b",
+          "files": [
+            "src/orders/repo.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "listByCustomer",
+          "description": "listByCustomer still returns the internal array, raised as review-only in both earlier window reviews; the window touched the file again without fixing or guarding it"
+        },
+        {
+          "key": "win-03:contract",
+          "class": "contract",
+          "category": "unflagged",
+          "variant": "ct-a",
+          "files": [
+            "src/notify/email.ts",
+            "src/util/money.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "orderConfirmation",
+          "description": "orderConfirmation passes dollars (totalCents / 100) to formatMoney, whose contract is integer cents: the mail shows a total 100 times too small"
+        },
+        {
+          "key": "win-03:unused_export",
+          "class": "unused_export",
+          "category": "flagged",
+          "variant": "ue-b",
+          "files": [
+            "src/orders/service.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "ordersToCsv",
+          "description": "ordersToCsv is exported in the window and imported by nothing"
+        }
+      ]
+    },
+    "win-04": {
+      "control": false,
+      "base": "baae7cc16eb585d679a0e082bb7ceac72e28be31",
+      "tip": "bed5bbc29c9dea703e2333f82efad8d13baf885e",
+      "commits": 10,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-04:complexity",
+          "class": "complexity",
+          "category": "flagged",
+          "variant": "cx-c",
+          "files": [
+            "src/notify/email.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "sendWithRetry",
+          "description": "sendWithRetry grew a branch per transport result (rejected, throttled with backoff, soft bounce on/after the last attempt) over two window commits"
+        },
+        {
+          "key": "win-04:recurring",
+          "class": "recurring",
+          "category": "flagged",
+          "variant": "rc-c",
+          "files": [
+            "src/invoices/render.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "renderInvoice",
+          "description": "the customer name is still interpolated into invoice HTML unescaped, raised as review-only in both earlier window reviews; the window touched the file again without fixing or guarding it"
+        },
+        {
+          "key": "win-04:logic",
+          "class": "logic",
+          "category": "unflagged",
+          "variant": "lg-b",
+          "files": [
+            "src/shipping/rates.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "shippingCost",
+          "description": "free shipping changed from >= to > FREE_SHIPPING_MIN_CENTS, contrary to the comment: an order of exactly the minimum pays shipping"
+        },
+        {
+          "key": "win-04:duplicate",
+          "class": "duplicate",
+          "category": "unflagged",
+          "variant": "dp-c",
+          "files": [
+            "src/orders/service.ts",
+            "src/http/routes.ts"
+          ],
+          "minFiles": 2,
+          "symbol": "canCancel",
+          "description": "the cancellation rule is implemented twice in the window: canCancel in orders/service (24 h) and an inline check in the history route (48 h)"
+        }
+      ]
+    },
+    "win-05": {
+      "control": false,
+      "base": "cf3ea3b836991c4f0739dc22037ac99b9633bd15",
+      "tip": "8285a092960bb9b197f75199ebcba4de7046266a",
+      "commits": 14,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-05:unused_export",
+          "class": "unused_export",
+          "category": "flagged",
+          "variant": "ue-c",
+          "files": [
+            "src/config.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "featureEnabled",
+          "description": "featureEnabled (and its flag set) is exported in the window and used by nothing"
+        },
+        {
+          "key": "win-05:hotspot",
+          "class": "hotspot",
+          "category": "flagged",
+          "variant": "hs-c",
+          "files": [
+            "src/customers/service.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "displayName",
+          "description": "customers/service.ts was patched by five fix commits of displayName in one window: unstable logic with no test pinning it"
+        },
+        {
+          "key": "win-05:logic",
+          "class": "logic",
+          "category": "unflagged",
+          "variant": "lg-c",
+          "files": [
+            "src/catalog/products.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "onSale",
+          "description": "onSale compares now > saleEndsAt: the sale price applies after the sale ended and not while it runs"
+        }
+      ]
+    },
+    "win-06": {
+      "control": false,
+      "base": "c798dc265ae2c574fd4b7fb89dbeddd909be5e93",
+      "tip": "2b32e9beb44655bcac38be7eda312155bc5d5644",
+      "commits": 9,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": [
+        {
+          "key": "win-06:contract",
+          "class": "contract",
+          "category": "unflagged",
+          "variant": "ct-b",
+          "files": [
+            "src/customers/repo.ts",
+            "src/customers/service.ts",
+            "src/http/routes.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "findById",
+          "description": "CustomerRepo.findById now throws NotFoundError while its doc, CustomerService.find (Customer | null) and the routes still expect null: an unknown customer becomes a 404 or an uncaught error instead of a 400/409"
+        },
+        {
+          "key": "win-06:duplicate",
+          "class": "duplicate",
+          "category": "unflagged",
+          "variant": "dp-b",
+          "files": [
+            "src/orders/pricing.ts",
+            "src/invoices/render.ts"
+          ],
+          "minFiles": 2,
+          "symbol": "taxFor",
+          "description": "tax is computed twice in the window: taxFor in orders/pricing (eu 20%, rounded) and lineTax in invoices/render (eu 21%, floored)"
+        },
+        {
+          "key": "win-06:logic",
+          "class": "logic",
+          "category": "unflagged",
+          "variant": "lg-a",
+          "files": [
+            "src/orders/repo.ts"
+          ],
+          "minFiles": 1,
+          "symbol": "page",
+          "description": "page() is documented 1-based but starts at pageNumber * size, so page 1 skips the first page of orders"
+        }
+      ]
+    },
+    "win-07": {
+      "control": true,
+      "base": "c14979eaa86f35838ec7ef10273404eaa4fd7100",
+      "tip": "0f46b077a1f78da47a86df7b60f9a8c0e7ca0bd6",
+      "commits": 9,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": []
+    },
+    "win-08": {
+      "control": true,
+      "base": "fe6046d65a335b84a9e4b6406578e3494225131c",
+      "tip": "7dbdad0036e678d744d9f91c4ce8e7cfa94d4ed3",
+      "commits": 9,
+      "files": [
+        "src/catalog/products.ts",
+        "src/config.ts",
+        "src/customers/repo.ts",
+        "src/customers/service.ts",
+        "src/customers/types.ts",
+        "src/errors.ts",
+        "src/http/routes.ts",
+        "src/invoices/render.ts",
+        "src/main.ts",
+        "src/notify/email.ts",
+        "src/orders/pricing.ts",
+        "src/orders/repo.ts",
+        "src/orders/service.ts",
+        "src/orders/types.ts",
+        "src/shipping/rates.ts",
+        "src/util/dates.ts",
+        "src/util/ids.ts",
+        "src/util/money.ts"
+      ],
+      "defects": []
+    }
+  },
+  "report_sha256": {
+    "win-01/A": "79ed17add6105ff17db6d4ad595f9364730beebe846ad5d1f66458856819540a",
+    "win-01/C": "8a95cb04bf923a69e9c1ca5b871f416873782508bb91ee2252c1d48ed55128cc",
+    "win-01/Cp": "2d7b0d84873ad33549a63a41ae70d65d303924529ebc769f37115a882fbcdfee",
+    "win-02/A": "66d9f6a2fa5f0144057f5075bb642f791c26c357824a3d861c02054ea66a5807",
+    "win-02/C": "2d2c7d5c85b7875bfd815f3e5374b4f07752ede21132a9f3c2fdfec261599a8c",
+    "win-02/Cp": "1b78f1414d61b35633cd45274353298bfc6db3c4f4c07a8fe4ca2acec10441a2",
+    "win-03/A": "3518d15e6f2dab8aba628a39d3f87810f6cda5991a98a6f9787969e63bd88274",
+    "win-03/C": "04fff804ca696a823ebaf1ec4974a11d775597f85fc7dcf09149b194c8f9facd",
+    "win-03/Cp": "089a0a8f7183893d0a71e5c5d73ea98ac9036874aa5e8a1900e88a99d6e2240a",
+    "win-04/A": "2fe3c0e734e8bc22baf80db98b25c89eef01b198c849898fc2825262048e1b2e",
+    "win-04/C": "0c8bd5a14ef9ac656c49c76fd95fd5b99bd1ddb1a781a878fcb00e88956533ed",
+    "win-04/Cp": "2a0dc46f320a3a3d0201b0da5e5f3f2fa48ff2cbc9766a742bbf5fc156f468d6",
+    "win-05/A": "dd7b72cd3b589f89fa94e1ed332359f819e3a362c4cd8af6de7c791f79f0dbe2",
+    "win-05/C": "b0bf248dde570f8696faa2b71c143576dfe9813327c5907c66a2a2ffd95a59c4",
+    "win-05/Cp": "0e75ca8e4d291b5b08c0f07c7247b415d6a2db66d3f8fc67ec8e7fff5caccda0",
+    "win-06/A": "c3f958c6d3e9d3fb72aa90610ba8905c292ba9d09dd3cf77e48c2a83c20aed69",
+    "win-06/C": "35ea2e67e005296e26dee00d4b0b5c38f426b056794b0fbce947cbf9adf9aff0",
+    "win-06/Cp": "f7b2767decb8337e0e8e603de628a854fbf6e171985fb841ba9b4038147b452f",
+    "win-07/A": "3171be25153fceb1679655d6998249208b040bf31d1f15d9f605b991bfa5a569",
+    "win-07/C": "ab4c4468a80c85e32e1f692d82c801f362e90b39dff09150eea9f66686a6a6ec",
+    "win-07/Cp": "25486842c887d90ee71d1b21687c173314051b41520336314e27a33d02551dab",
+    "win-08/A": "a300fa4aee7786d9cac7063c389df806db7159b44ab37e586710656492640329",
+    "win-08/C": "23575795ccdf8bb41fe112809f27be0506b93f22cc66278c4309cb799cc3d528",
+    "win-08/Cp": "ad438b33bb18a9866ec74bc09e36ee7aaf92e0917bc3c617ac4ddfd4ee4e06b9"
+  }
+}
