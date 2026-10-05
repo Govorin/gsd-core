@@ -27,7 +27,7 @@ Flags:
 - `--max N` — maximum findings to fix (default: 5)
 - `--severity high|medium|all` — minimum severity to process (default: medium)
 - `--dry-run` — classify findings without fixing (shows classification table)
-- `--source <audit>` — which audit to run: `audit-uat` (default) or `window-review` (the open findings of a `/gsd-code-review --since` window)
+- `--source <audit>` — which audit to run: `audit-uat` (default) or `window-review` (the open findings of a `/gsd:code-review --since` window)
 - `--review <path>` — with `--source window-review`: the window's REVIEW.md (default: the newest window)
 </objective>
 

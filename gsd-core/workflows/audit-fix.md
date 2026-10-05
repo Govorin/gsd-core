@@ -5,7 +5,7 @@ Autonomous audit-to-fix pipeline. Runs an audit, parses findings, classifies eac
 auto-fixable vs manual-only, spawns executor agents for fixable issues, runs tests
 after each fix, and commits atomically with finding IDs for traceability. The findings
 come from the UAT/verification audit or from a window review's REVIEW.md
-(`/gsd-code-review --since`).
+(`/gsd:code-review --since`).
 </purpose>
 
 <available_agent_types>
