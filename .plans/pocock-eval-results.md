@@ -26,7 +26,7 @@
   yourself». Workflow `arch-survey.md` передаёт в промпт `<signals>` зоны и ссылку на строки
   метрик.
 
-Поэтому C′ — это вариант, который реально поставляется, и он измерен в поставляемом виде. Текст
+Поэтому C′ — это вариант, который поставлялся до патча (см. «Вариант D»), и он измерен в поставляемом виде. Текст
 для C′ генератор берёт из этих файлов во время генерации: для Z4 запускает node-сниппет шага 2,
 для Z5 вырезает блок дословно.
 
@@ -203,39 +203,63 @@ C′ говорит, что метрики shallow-интерфейсы не п�
   `PREPASS_BRIEF`. Правка промпта не нужна. Чтобы проверить якорение, нужны фикстуры с более
   трудными непомечаемыми дефектами (полумиграция, мёртвый остаток заменённого пути). Это следующий
   замер, если понадобится.
-- **Z5 (обзор): метрики только для выбора зон.** Помечаемые классы выдаются детерминированно, из
-  промпта сюрвейера убираются `<signals>` и строки модулей. Промпты я **не правил**. Точный патч:
+- **Z5 (обзор): метрики только для выбора зон — применено** (коммит `d8bd01fa2`, решение
+  team-lead):
+  - из промпта сюрвейера в `gsd-core/workflows/arch-survey.md` убраны `<signals>` и строки модулей;
+  - в `agents/gsd-arch-surveyor.md` блок `<what_the_metrics_checked>` заменён на
+    `<zone_and_metrics>`: метрики выбрали зону; циклы, pass-through и кластеры мелких модулей
+    отчёт выдаёт без сюрвейера, «не пиши карточки, которые только их повторяют»; ищи
+    shallow-интерфейсы, протечки швов, no-locality, нетестируемые интерфейсы, размазанные понятия;
+  - `fromMetrics` убран из примера карточки (парсер его по-прежнему терпит);
+  - `arch report` пишет в SURVEY секцию «Found by metrics» прямо из `metrics-<date>.json`
+    (`buildSurvey().foundByMetrics`, JSON отчёта — `foundByMetrics`). Тесты: два новых в
+    `tests/arch-survey.test.cjs`, проверки в `tests/arch-command-router.test.cjs`.
 
-  `gsd-core/workflows/arch-survey.md`, промпт сюрвейера (стр. 66–76):
-  ```diff
-   Seed: {zone.seed}
-   Files: {zone.files, one per line}
-  -<signals>
-  -{zone.signals as JSON}
-  -</signals>
-  -Per-module rows (loc, fanIn, testFanIn, fanOut, churn, complexity): .planning/architecture/metrics-{date}.json, `modules`
-   Direction from the user: {direction, or 'none'}
-  ```
-  `agents/gsd-arch-surveyor.md`: блок `<what_the_metrics_checked>` заменить целиком:
-  ```diff
-  -<what_the_metrics_checked>
-  -The prompt gives you the zone's files, a `<signals>` block computed by `gsd-tools arch metrics`, and the metrics file whose `modules` rows hold each module's numbers. Read them as a map of where to start, **not as the list of problems**.
-  -… (весь текущий блок) …
-  -</what_the_metrics_checked>
-  +<zone_choice>
-  +The zone was chosen from `gsd-tools arch metrics` (hot spots and their neighbours). Import cycles, pass-through modules and small-module clusters are found by those metrics and reported in the survey without you; do not write cards for them.
-  +Your cards are what metrics cannot see: shallow interfaces, leaks across seams, pure functions extracted for testability while the bugs live in their call sites (no locality), interfaces that make behaviour hard to test, and concepts scattered across modules. Read every file of the zone.
-  +</zone_choice>
-  ```
-  Из `<cards_file>` убрать поле `fromMetrics`. Синтез отчёта (`arch report` в `src/arch-survey.cts`)
-  должен добавлять детерминированные карточки из `metrics.cycles`, `passThrough` и
-  `smallClusters` зоны (вид, файлы, `fromMetrics: true`, сила `worth-exploring`), чтобы эти классы
-  не потерялись. Схема cards и тесты `arch cards` / `arch report` меняются вместе с этим. Правка
-  shipped-markdown требует фрагмента в `tests/emitted-drift-acks/`.
-- **До слияния патча перемерить вариант D** (патч выше) против A и C′ на haiku в режиме `arch`.
-  Это 8 × 2 × 4 = 64 запуска, около $6. Новая строка `<zone_choice>` — тоже текст про классы, и
-  без замера нельзя утверждать, что она не якорит. Я этот прогон не делал: он выводит за ориентир
-  бюджета $30.
+## Вариант D: замер патча
+
+**Дизайн.** D = A + блок `<zone_and_metrics>` дословно из пропатченного агента, без метрик в
+промпте. Отдельный батч на haiku: A и D вперемешку, 8 фикстур × 2 варианта × 4 повтора =
+64 запуска, $5.51. A перемерен в том же батче, потому что межбатчевый разброс велик: тот же A
+дал 19/36 непомечаемых в первом батче и 26/36 во втором. Поэтому D сравнивается только с A своего
+батча, а с C и C′ — через разность с A внутри каждого батча. Почти попадания разобраны по тому
+же правилу (4 вердикта, `haiku-d` в `adjudication.json`).
+
+| Срез (haiku) | A | D | D − A, 95% ДИ | Знак-тест D против A (лучше / хуже / так же) |
+|---|---|---|---|---|
+| всё | 62.5% | 59.7% | [−13.9, +8.3] | 4 / 6 / 8, p=0.75 |
+| помечаемые (модель) | 19/36 | 21/36 | [−8.3, +19.4] | 3 / 2 / 4 |
+| непомечаемые | 26/36 | 22/36 | [−25.0, +2.8] | 1 / 4 / 4, p=0.375 |
+| scattered | 11/12 | 11/12 | | |
+| leaky_seam | 5/12 | 5/12 | | |
+| shallow_interface | **10/12** | **6/12** | | |
+
+Сдвиг относительно A своего батча (haiku, непомечаемые):
+
+| Вариант | Δ непомечаемых | scattered + leaky_seam | shallow_interface | Помечаемые в отчёте |
+|---|---|---|---|---|
+| C | −6/36 | 14 → 4 из 24 | 5 → 9 | 36/36 через модель |
+| C′ (было) | −4/36 | 14 → 7 из 24 | 5 → 8 | 32/36 через модель |
+| D (стало) | −4/36 | **16 → 16 из 24** | **10 → 6** | 36/36 детерминированно |
+
+**Вывод по D.**
+1. D снимает главный эффект: scattered и leaky_seam находятся так же, как без метрик.
+2. Строка D сама якорит, но в другом месте: shallow_interface проседает 10 → 6 из 12. Вероятно,
+   «не пиши карточки про pass-through» гасит и карточки про модули, которые только переадресуют
+   вызовы, а это и есть посеянный shallow-интерфейс. Не значимо (3 дефекта), но направленно: 2 из
+   3 дефектов хуже, ни одного лучше.
+3. Чистый счёт всё равно в пользу D. Дефицит непомечаемых тот же, что у C′ (−4/36), а
+   помечаемые теперь даёт отчёт — 36/36 по построению вместо 32/36 через модель. Модель
+   по-прежнему иногда пишет карточки про циклы (5/12), несмотря на запрет; это безвредно.
+
+**Предлагаемая правка D (не применена, не замерена).** Сузить запрет до того, что действительно
+считается, и вернуть переадресующие модули сюрвейеру. В `<zone_and_metrics>` заменить вторую
+фразу второго абзаца:
+```diff
+-Do not write cards that only restate them.
++Do not write cards that only restate them; a module over that size whose interface only forwards to another is a shallow interface, and it is yours.
+```
+Замер D2 против A в одном батче на haiku — 64 запуска, около $5.5. Я его не запускал: это сверх
+одобренного бюджета.
 
 ## Ограничения
 
@@ -262,7 +286,8 @@ C′ говорит, что метрики shallow-интерфейсы не п�
 | sonnet window | 48 | $4.62 |
 | sonnet arch | 48 | $5.25 |
 | два smoke-запуска | 2 | $0.20 |
-| **всего** | 290 | **$27.31** |
+| haiku arch, батч D (A + D) | 64 | $5.51 |
+| **всего** | 354 | **$32.82** |
 
 ## Воспроизведение
 
@@ -275,6 +300,7 @@ node scripts/experiments/report-ab/run.cjs --mode window --model haiku  --reps 4
 node scripts/experiments/report-ab/run.cjs --mode arch   --model haiku  --reps 4 --concurrency 6
 node scripts/experiments/report-ab/run.cjs --mode window --model sonnet --reps 2 --concurrency 4
 node scripts/experiments/report-ab/run.cjs --mode arch   --model sonnet --reps 2 --concurrency 4
+node scripts/experiments/report-ab/run.cjs --mode arch   --model haiku  --variants A,D --reps 4 --concurrency 8 --runs runs-haiku-d.jsonl
 # пересчёт сохранённых батчей:
 node scripts/experiments/report-ab/score.cjs --out scripts/experiments/report-ab/results/2026-10-05-arch --runs runs-haiku.jsonl
 ```
