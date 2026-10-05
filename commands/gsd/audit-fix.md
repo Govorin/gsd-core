@@ -12,7 +12,7 @@ allowed-tools:
   - Glob
   - Agent
   - AskUserQuestion
-requires: [audit-uat]
+requires: [audit-uat, code-review]
 ---
 
 <arguments>$ARGUMENTS</arguments>
