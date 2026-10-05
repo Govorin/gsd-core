@@ -373,6 +373,7 @@
       "adr-parser.cjs",
       "agent-command-router.cjs",
       "agent-install-check.cjs",
+      "api-coverage-command-router.cjs",
       "api-coverage.cjs",
       "arch-command-router.cjs",
       "arch-metrics.cjs",

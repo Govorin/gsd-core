@@ -195,6 +195,7 @@ module.exports = {
   "tests/retired-artifact-cleanup.test.cjs",
   "tests/retro-artifacts.test.cjs",
   "tests/review-build-prompt-optional-sections.test.cjs",
+  "tests/review-command-router.test.cjs",
   "tests/review-lane-runner.test.cjs",
   "tests/review-lane-windows-spawn-resolution.test.cjs",
   "tests/review-parallel-lanes.test.cjs",

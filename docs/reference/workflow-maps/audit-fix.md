@@ -2,7 +2,7 @@
 
 # audit-fix
 
-Источник: `gsd-core/workflows/audit-fix.md`. Единицы: 6 шагов `<step>`. Спавнов: 1 (агенты: `gsd-executor`). Точки цикла: нет.
+Источник: `gsd-core/workflows/audit-fix.md`. Единицы: 7 шагов `<step>`. Спавнов: 1 (агенты: `gsd-executor`). Точки цикла: нет.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 2; не называют реальный шаг и не рисуются — **2**; названы по имени шага и нарисованы пунктиром `goto` — 0.
 
@@ -20,13 +20,15 @@ flowchart TB
   u_step_classify_findings["classify-findings"]
   u_step_present_classification["present-classification"]
   u_step_fix_loop["fix-loop"]
+  u_step_window_bookkeeping["window-bookkeeping"]
   u_step_report["report"]
   wf_root --> u_step_parse_arguments
   u_step_parse_arguments --> u_step_run_audit
   u_step_run_audit --> u_step_classify_findings
   u_step_classify_findings --> u_step_present_classification
   u_step_present_classification --> u_step_fix_loop
-  u_step_fix_loop --> u_step_report
+  u_step_fix_loop --> u_step_window_bookkeeping
+  u_step_window_bookkeeping --> u_step_report
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -69,7 +71,8 @@ flowchart LR
 | 3 | `classify-findings` | step |  |  |  |  |
 | 4 | `present-classification` | step |  |  |  |  |
 | 5 | `fix-loop` | step |  | `gsd-executor` |  |  |
-| 6 | `report` | step |  |  |  |  |
+| 6 | `window-bookkeeping` | step |  |  |  |  |
+| 7 | `report` | step |  |  |  |  |
 
 ## Дефекты
 

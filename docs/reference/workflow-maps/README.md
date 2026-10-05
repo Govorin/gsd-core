@@ -45,7 +45,7 @@
 | [ai-integration-phase](ai-integration-phase.md) | 12 разделов H2 | 0 | 0 |  | 0 / 1 | 0 |
 | [analyze-dependencies](analyze-dependencies.md) | 6 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
 | [arch-survey](arch-survey.md) | 8 шагов `<step>` | 2 | 2 |  | 0 / 1 | 0 |
-| [audit-fix](audit-fix.md) | 6 шагов `<step>` | 1 | 1 |  | 2 / 2 | 0 |
+| [audit-fix](audit-fix.md) | 7 шагов `<step>` | 1 | 1 |  | 2 / 2 | 0 |
 | [audit-milestone](audit-milestone.md) | 9 разделов H2 | 1 | 1 | `verify:post` | 0 / 0 | 0 |
 | [audit-uat](audit-uat.md) | 4 шага `<step>` | 0 | 0 |  | 0 / 1 | 0 |
 | [autonomous](autonomous.md) | 7 шагов `<step>`, 10 секций `gsd:section` | 0 | 0 | `execute:post`, `verify:post`, `ship:pre`, `verify:pre` | 18 / 34 | 0 |
