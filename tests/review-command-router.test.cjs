@@ -250,3 +250,86 @@ describe('review invocation', () => {
     assert.equal(reason(run(repo, ['invocation', '3'])), 'usage');
   });
 });
+
+// The steps below used to `require('./gsd-core/bin/lib/…')` from the shipped workflow, which
+// exists only in this repository; every call here runs in a fixture project with no gsd-core/.
+const { runNode } = require('./helpers/process-seam.cjs');
+const { TOOLS_PATH } = require('./helpers.cjs');
+
+const runWithStdin = (repo, args, input) => {
+  const r = runNode([TOOLS_PATH, 'review', ...args, '--json-errors'], { cwd: repo.dir, input });
+  return { exitCode: r.exitCode, output: r.stdout, error: r.stderr };
+};
+
+describe('review depth (resolve_depth)', () => {
+  const payload = (over) => JSON.stringify({ flagDepth: '', configDepth: '', overrides: [], files: ['src/a.js'], repoRoot: '', ...over });
+
+  test('[happy] the resolver result for the stdin payload: a matched rule wins over the config depth', () => {
+    const repo = makeRepo();
+    const r = runWithStdin(repo, ['depth'], payload({ configDepth: 'quick', overrides: [{ paths: ['src'], depth: 'deep' }], repoRoot: repo.dir }));
+    assert.equal(r.exitCode, 0, r.error);
+    const out = JSON.parse(r.output);
+    assert.deepEqual([out.ok, out.depth, out.source, out.matchedRule.path], [true, 'deep', 'rule', 'src']);
+  });
+
+  test('[unhappy] a misconfigured override is an ok:false result, exit 0 — the workflow halts on it', () => {
+    const repo = makeRepo();
+    const r = runWithStdin(repo, ['depth'], payload({ overrides: [{ paths: ['src'], depth: 'extreme' }] }));
+    assert.equal(r.exitCode, 0, r.error);
+    const out = JSON.parse(r.output);
+    assert.equal(out.ok, false);
+    assert.ok(out.errors.length > 0);
+  });
+
+  test('[hostile] stdin that is not a JSON object is usage', () => {
+    const repo = makeRepo();
+    assert.equal(reason(runWithStdin(repo, ['depth'], '{not json')), 'usage');
+    assert.equal(reason(runWithStdin(repo, ['depth'], '[1,2]')), 'usage');
+  });
+});
+
+describe('review fallow-binary / fallow-normalize (structural pre-pass)', () => {
+  test('[happy] the binary in the project\'s node_modules/.bin; --raw prints the bare path', () => {
+    const repo = makeRepo();
+    const bin = path.join(repo.dir, 'node_modules', '.bin', process.platform === 'win32' ? 'fallow.cmd' : 'fallow');
+    write(repo.dir, path.relative(repo.dir, bin), '#!/bin/sh\nexit 0\n');
+    fs.chmodSync(bin, 0o755);
+    const out = json(run(repo, ['fallow-binary']));
+    assert.equal(fs.realpathSync(out.binary), fs.realpathSync(bin));
+    assert.equal(fs.realpathSync(runGsdTools(['review', 'fallow-binary', '--raw'], repo.dir).output.trim()), fs.realpathSync(bin));
+  });
+
+  test('[happy] normalizes a fallow report into the reviewer contract; an invalid one into an empty report', () => {
+    const repo = makeRepo();
+    write(repo.dir, '.planning/phases/01-x/FALLOW.json', JSON.stringify({ verdict: 'issues', dead_code: { unused_files: [{ path: 'src/dead.js' }] } }));
+    const out = json(run(repo, ['fallow-normalize', '--report', '.planning/phases/01-x/FALLOW.json', '--out', '.planning/phases/01-x/FALLOW-normalized.json']));
+    const written = JSON.parse(fs.readFileSync(path.join(repo.dir, out.out), 'utf-8'));
+    assert.deepEqual(Object.keys(written).sort(), ['findings', 'summary']);
+    write(repo.dir, 'bad.json', '{nope');
+    const empty = json(run(repo, ['fallow-normalize', '--report', 'bad.json', '--out', 'norm.json']));
+    assert.equal(empty.summary.total, 0);
+  });
+
+  test('[hostile] a report or output path outside the project is usage', () => {
+    const repo = makeRepo();
+    assert.equal(reason(run(repo, ['fallow-normalize', '--report', '../FALLOW.json', '--out', 'n.json'])), 'usage');
+    assert.equal(reason(run(repo, ['fallow-normalize', '--report', 'FALLOW.json', '--out', path.join(os.tmpdir(), 'n.json')])), 'usage');
+    assert.equal(reason(run(repo, ['fallow-normalize', '--report', 'FALLOW.json'])), 'usage');
+  });
+});
+
+describe('review plan-coverage (/gsd-review write_reviews)', () => {
+  test('[boundary] ids bounded by a word character or hyphen do not count; an escaped dot does not match any character', () => {
+    const repo = makeRepo();
+    write(repo.dir, 'run/manifest.md', '## Plan Coverage Manifest\n\nTotal plans in this review: 3\n\n- 12.6-01\n- 04-07\n- 02\n');
+    write(repo.dir, 'run/review.md', 'Covers 12X6-01 and T-04-07, and plan 02 in full.\n');
+    const out = json(run(repo, ['plan-coverage', '--manifest', 'run/manifest.md', '--review', 'run/review.md']));
+    assert.deepEqual(out, { complete: false, missing_ids: ['12.6-01', '04-07'], total: 3 });
+  });
+
+  test('[unhappy] a missing flag is usage; an unreadable file is not a coverage verdict', () => {
+    const repo = makeRepo();
+    assert.equal(reason(run(repo, ['plan-coverage', '--manifest', 'm.md'])), 'usage');
+    assert.equal(reason(run(repo, ['plan-coverage', '--manifest', 'nope.md', '--review', 'nope.md'])), 'window_review_unresolvable');
+  });
+});

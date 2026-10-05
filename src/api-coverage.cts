@@ -58,6 +58,9 @@
  *     UNAVAILABLE (registry) = stdin read failed
  *     --json additionally prints the typed IR on stdout (unchanged for 0/1);
  *     NO_INPUT/UNAVAILABLE print {skipped:true, reason:"no_input"|"stdin_error"}
+ *   echo "$SCOPE" | gsd-tools api-coverage detect [--verbs a,b] [--nouns a,b]
+ *     the same verdict through the installed CLI (src/api-coverage-command-router.cts) — what
+ *     shipped workflows call; exits 0 and carries the outcome in the payload
  */
 
 import { stripFencedCode, scanInlineCodeSpans, extractFencedBlock } from './markdown-sectionizer.cjs';
@@ -940,9 +943,35 @@ export function renderCoverageMatrix(rows: readonly CoverageRow[]): string {
   return `| capability | decision | reason |\n|---|---|---|\n${body}`;
 }
 
+/**
+ * The `--verbs a,b` / `--nouns a,b` vocabulary overrides of a detector invocation; undefined when
+ * there are none. A non-empty, non-flag value is an override. An EMPTY value ("") restores the
+ * curated defaults (does NOT silently zero the vocabulary). Shared by this module's CLI and
+ * `gsd-tools api-coverage detect`.
+ */
+export function parseTermsOverride(argv: readonly string[]): Partial<ApiCoverageTermSet> | undefined {
+  const verbsIdx = argv.indexOf('--verbs');
+  const verbsVal = verbsIdx !== -1 ? argv[verbsIdx + 1] : undefined;
+  const nounsIdx = argv.indexOf('--nouns');
+  const nounsVal = nounsIdx !== -1 ? argv[nounsIdx + 1] : undefined;
+  const verbsOverride = typeof verbsVal === 'string' && verbsVal.length > 0 && !verbsVal.startsWith('-');
+  const nounsOverride = typeof nounsVal === 'string' && nounsVal.length > 0 && !nounsVal.startsWith('-');
+  if (!verbsOverride && !nounsOverride) return undefined;
+  const termsOverride: Partial<ApiCoverageTermSet> = {};
+  if (verbsOverride) {
+    termsOverride.verbs = verbsVal.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  }
+  if (nounsOverride) {
+    termsOverride.nouns = nounsVal.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+  }
+  return termsOverride;
+}
+
 // ── CLI entry point ──────────────────────────────────────────────────────────
 // Reads phase-scope text from STDIN (not argv) to avoid OS ARG_MAX limits.
-// Invoked by workflow bash as: echo "$SCOPE" | node .../api-coverage.cjs [--json]
+// Invoked as: echo "$SCOPE" | node .../api-coverage.cjs [--json]. Shipped workflows call
+// `gsd_run api-coverage detect` instead (src/api-coverage-command-router.cts): a
+// `node gsd-core/bin/lib/…` path resolves against the user's project, not the install.
 //
 // Exit codes (ADR-3889 Phase 3, #3907): 0 = integration detected, 1 = none
 // (real input, examined, no signal), NO_INPUT (registry — src/cli-exit.cts) =
@@ -964,24 +993,7 @@ if (require.main === module) {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const cliExit = require('./cli-exit.cjs') as { terminateNow: (outcome: string, payload: unknown) => never };
 
-  let termsOverride: Partial<ApiCoverageTermSet> | undefined;
-  const verbsIdx = argv.indexOf('--verbs');
-  const verbsVal = verbsIdx !== -1 ? argv[verbsIdx + 1] : undefined;
-  const nounsIdx = argv.indexOf('--nouns');
-  const nounsVal = nounsIdx !== -1 ? argv[nounsIdx + 1] : undefined;
-  // A non-empty, non-flag value is an override. An EMPTY value ("") restores
-  // the curated defaults (does NOT silently zero the vocabulary).
-  const verbsOverride = typeof verbsVal === 'string' && verbsVal.length > 0 && !verbsVal.startsWith('-');
-  const nounsOverride = typeof nounsVal === 'string' && nounsVal.length > 0 && !nounsVal.startsWith('-');
-  if (verbsOverride || nounsOverride) {
-    termsOverride = {};
-    if (verbsOverride) {
-      termsOverride.verbs = verbsVal.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
-    }
-    if (nounsOverride) {
-      termsOverride.nouns = nounsVal.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
-    }
-  }
+  const termsOverride = parseTermsOverride(argv);
 
   const chunks: string[] = [];
   process.stdin.setEncoding('utf-8');

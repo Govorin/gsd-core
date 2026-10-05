@@ -1115,3 +1115,50 @@ describe('api-coverage CLI — NO_INPUT / UNAVAILABLE (ADR-3889 Phase 3, #3907)'
     }
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────────
+// `gsd-tools api-coverage detect` — the ai-integration plan:pre probe through the
+// installed CLI. The fragment ran `node gsd-core/bin/lib/api-coverage.cjs`, a path
+// that exists only in this repository, so in a user's project the probe always
+// degraded to `probe_unavailable`. Runs in a temp project with no gsd-core/.
+// ──────────────────────────────────────────────────────────────────────────────
+describe('gsd-tools api-coverage detect — from a project without gsd-core/', () => {
+  const { runNode } = require('./helpers/process-seam.cjs');
+  const { TOOLS_PATH, createTempDir, cleanup } = require('./helpers.cjs');
+
+  function detect(t, stdin, extraArgs = []) {
+    const dir = createTempDir('gsd-api-coverage-detect-');
+    t.after(() => cleanup(dir));
+    const r = runNode([TOOLS_PATH, 'api-coverage', 'detect', ...extraArgs, '--json-errors'], { cwd: dir, input: stdin, timeoutMs: PROBE_TIMEOUT_MS });
+    return { exitCode: r.exitCode, body: r.stdout.trim() === '' ? null : JSON.parse(r.stdout) };
+  }
+
+  test('[happy] the same verdict as the module, as the payload, exit 0 for detected and not detected', (t) => {
+    const yes = detect(t, 'Integrate the Stripe API for payments');
+    assert.deepStrictEqual([yes.exitCode, yes.body.detected], [0, true]);
+    const no = detect(t, 'Refactor the login helper');
+    assert.deepStrictEqual([no.exitCode, no.body.detected, no.body.signals], [0, false, []]);
+  });
+
+  test('[boundary] empty and whitespace-only scope is skipped:no_input, never detected:false; a lone NUL is real input', (t) => {
+    for (const ws of ['', '   ', '\n\t\r\n']) {
+      const r = detect(t, ws);
+      assert.deepStrictEqual([r.exitCode, r.body], [0, { skipped: true, reason: 'no_input' }], `ws=${JSON.stringify(ws)}`);
+    }
+    assert.strictEqual(detect(t, '\0').body.detected, false);
+  });
+
+  test('[happy] --verbs/--nouns override the vocabulary; --json is accepted', (t) => {
+    const scope = 'Wire the ledger gizmo into checkout';
+    assert.strictEqual(detect(t, scope).body.detected, false);
+    assert.strictEqual(detect(t, scope, ['--verbs', 'wire', '--nouns', 'gizmo', '--json']).body.detected, true);
+  });
+
+  test('[unhappy] an unknown subcommand is refused with sdk_unknown_command', (t) => {
+    const dir = createTempDir('gsd-api-coverage-detect-');
+    t.after(() => cleanup(dir));
+    const r = runNode([TOOLS_PATH, 'api-coverage', 'scan', '--json-errors'], { cwd: dir, input: 'x', timeoutMs: PROBE_TIMEOUT_MS });
+    assert.notStrictEqual(r.exitCode, 0);
+    assert.strictEqual(JSON.parse(r.stderr.trim().split('\n').pop()).reason, 'sdk_unknown_command');
+  });
+});

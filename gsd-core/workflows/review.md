@@ -669,21 +669,9 @@ for SLUG in $(printf '%s' "$DISPATCH_SLUGS"); do
   grep -q "review skipped: prompt budget" "$REVIEW_FILE" 2>/dev/null && continue
   grep -q "failed or returned empty output" "$REVIEW_FILE" 2>/dev/null && continue
 
-  node -e '
-    const fs = require("fs");
-    const { escapeRegex } = require("./gsd-core/bin/lib/pattern.cjs");
-    const manifest = fs.readFileSync(process.argv[1], "utf8");
-    const review = fs.readFileSync(process.argv[2], "utf8");
-    const ids = manifest.split("\n")
-      .filter((l) => l.startsWith("- "))
-      .map((l) => l.slice(2).trim())
-      .filter(Boolean);
-    const missing = ids.filter((id) => {
-      const re = new RegExp("(?<![\\w-])" + escapeRegex(id) + "(?![\\w-])");
-      return !re.test(review);
-    });
-    process.stdout.write(JSON.stringify({ complete: missing.length === 0, missing_ids: missing, total: ids.length }));
-  ' "$MANIFEST" "$REVIEW_FILE" > "$RUN_DIR/.plan-coverage-$SLUG.json"
+  # An id counts only between non-word, non-hyphen boundaries: 12X6-01 never satisfies 12.6-01,
+  # T-04-07 never satisfies 04-07.
+  gsd_run review plan-coverage --manifest "$MANIFEST" --review "$REVIEW_FILE" > "$RUN_DIR/.plan-coverage-$SLUG.json"
 done
 ```
 

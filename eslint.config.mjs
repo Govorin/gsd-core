@@ -506,6 +506,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/arch-metrics.cjs',
       'gsd-core/bin/lib/arch-survey.cjs',
       'gsd-core/bin/lib/arch-command-router.cjs',
+      'gsd-core/bin/lib/api-coverage-command-router.cjs',
     ],
   },
 

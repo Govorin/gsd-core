@@ -130,26 +130,30 @@ describe('api-coverage fragment probe fallback is honest (#3909)', () => {
   afterEach(() => { if (tmpDir) { cleanup(tmpDir); tmpDir = null; } });
 
   // The fragment's snippet builds SCOPE from `${PHASE_DIR}/*-PLAN.md` plus a
-  // `gsd_run query roadmap.get-phase` call. Both are stubbed so the test
-  // controls exactly what reaches the detector.
-  function preludeFor(planBody) {
+  // `gsd_run query roadmap.get-phase` call, both stubbed so the test controls
+  // exactly what reaches the detector; `gsd_run api-coverage` runs the real CLI.
+  // The snippet runs in the temp project — no gsd-core/ there, as in a user's
+  // project, where the fragment's old `node gsd-core/bin/lib/…` never ran.
+  function preludeFor(planBody, launcher) {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-apifrag-'));
     if (planBody !== null) {
       fs.writeFileSync(path.join(tmpDir, '01-PLAN.md'), planBody, 'utf8');
     }
+    const detector = launcher === 'broken' ? 'return 127' : `node ${JSON.stringify(TOOLS_PATH)} "$@"`;
     return [
       `PHASE_DIR=${JSON.stringify(tmpDir)}`,
       'PHASE=01',
-      'gsd_run() { return 0; }',
+      `gsd_run() { case "$1" in api-coverage) ${detector} ;; *) return 0 ;; esac; }`,
     ].join('\n');
   }
 
-  function capture(planBody, { cwd = REPO_ROOT } = {}) {
+  function capture(planBody, { launcher = 'ok' } = {}) {
+    const prelude = preludeFor(planBody, launcher);
     return runSnippet({
       block: extractProbeBlock(API_FRAGMENT, 'API_COVERAGE_JSON'),
       varName: 'API_COVERAGE_JSON',
-      prelude: preludeFor(planBody),
-      cwd,
+      prelude,
+      cwd: tmpDir,
     });
   }
 
@@ -160,8 +164,8 @@ describe('api-coverage fragment probe fallback is honest (#3909)', () => {
     assert.strictEqual(j.skipped, undefined);
   });
 
-  test('a LEGITIMATE negative (probe exit 1) is captured as ONE valid object', () => {
-    // Regression: the detector exits 1 for a real negative, so `|| echo …`
+  test('a LEGITIMATE negative is captured as ONE valid object', () => {
+    // Regression: the module CLI exits 1 for a real negative, so `|| echo …`
     // fired on the success path and appended a second object.
     const j = parseSingleObject(
       capture('# Plan\nRefactor the internal state machine.'), 'legit negative');
@@ -180,22 +184,17 @@ describe('api-coverage fragment probe fallback is honest (#3909)', () => {
   });
 
   test('a probe that CANNOT LAUNCH reports skipped, never detected:false', () => {
-    // cwd without the module → node fails, stdout empty. The fragment must not
-    // manufacture a verdict from that.
-    const away = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-nomodule-'));
-    try {
-      const j = parseSingleObject(
-        capture('# Plan\nIntegrate the Stripe API.', { cwd: away }), 'probe unavailable');
-      assert.strictEqual(j.skipped, true, 'a probe that could not run must report skipped');
-      assert.strictEqual(j.reason, 'probe_unavailable');
-      assert.strictEqual(
-        j.detected,
-        undefined,
-        'asserting detected:false from a probe that never ran is the bug this closes',
-      );
-    } finally {
-      cleanup(away);
-    }
+    // The launcher fails, stdout is empty. The fragment must not manufacture a
+    // verdict from that.
+    const j = parseSingleObject(
+      capture('# Plan\nIntegrate the Stripe API.', { launcher: 'broken' }), 'probe unavailable');
+    assert.strictEqual(j.skipped, true, 'a probe that could not run must report skipped');
+    assert.strictEqual(j.reason, 'probe_unavailable');
+    assert.strictEqual(
+      j.detected,
+      undefined,
+      'asserting detected:false from a probe that never ran is the bug this closes',
+    );
   });
 });
 

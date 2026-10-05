@@ -358,6 +358,7 @@ const { routeDiscussCommand } = require('./lib/discuss-command-router.cjs');
 // ADR-5208: `review window-*` — the deterministic steps of a window review
 // (`/gsd-code-review --since`): pre-pass, compose, deferred, marker, paths.
 const { routeReviewCommand } = require('./lib/review-command-router.cjs');
+const { routeApiCoverageCommand } = require('./lib/api-coverage-command-router.cjs');
 // #3676 (Phase 4, epic #3344): quick-batch is a first-party, always-on
 // command family (like `/gsd:quick`) — wired directly into
 // HOST_COMMAND_ROUTERS, not the opt-in capability-registry/`activationKey`
@@ -4770,6 +4771,9 @@ const HOST_COMMAND_ROUTERS = {
     // The router imports its own deps and confines --file/--out to the project root.
     'discuss': routeDiscussCommand,
     'assumption-delta': routeAssumptionDelta,
+    // `api-coverage detect` (stdin scope): the ai-integration plan:pre probe, through the
+    // installed CLI rather than a project-relative `node gsd-core/bin/lib/api-coverage.cjs`.
+    'api-coverage': routeApiCoverageCommand,
     'requirements': routeRequirements,
     'gap-analysis': routeGapAnalysis,
     'milestone': routeMilestone,
