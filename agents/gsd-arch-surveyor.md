@@ -27,7 +27,7 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 <zone_and_metrics>
 `gsd-tools arch metrics` chose your zone — a hot spot and its neighbours — and that is all the metrics do here: the prompt gives you the zone's files, not their numbers.
 
-Import cycles, pass-through modules (one importer, one import, small) and clusters of small modules are counted by those metrics and reported in the survey's "Found by metrics" section without a surveyor. Do not write cards that only restate them.
+Import cycles, pass-through modules (one importer, one import, small) and clusters of small modules are counted by those metrics and reported in the survey's "Found by metrics" section without a surveyor. Do not write cards that only restate them; a module over that size whose interface only forwards to another is a shallow interface, and it is yours.
 
 Your cards are what counting cannot show: shallow interfaces, leaks across seams, pure functions extracted for testability while the bugs live in their call sites (no locality), interfaces that make behaviour hard to test, and concepts scattered across modules. Read every file of the zone.
 </zone_and_metrics>
