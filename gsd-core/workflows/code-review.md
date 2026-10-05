@@ -431,11 +431,7 @@ DEPTH_PAYLOAD=$(printf '%s\n' "${REVIEW_FILES[@]}" | FLAG_DEPTH="$DEPTH_OVERRIDE
   }));
 ")
 
-DEPTH_JSON=$(echo "$DEPTH_PAYLOAD" | node -e "
-  const { resolveCodeReviewDepth } = require('./gsd-core/bin/lib/code-review-depth.cjs');
-  const input = JSON.parse(require('fs').readFileSync('/dev/stdin', 'utf-8'));
-  process.stdout.write(JSON.stringify(resolveCodeReviewDepth(input)));
-")
+DEPTH_JSON=$(echo "$DEPTH_PAYLOAD" | gsd_run review depth)
 
 DEPTH_OK=$(echo "$DEPTH_JSON" | node -e "process.stdout.write(String(JSON.parse(require('fs').readFileSync('/dev/stdin','utf-8')).ok))")
 ```
@@ -731,12 +727,8 @@ if [ -n "$FALLOW_JSON_PATH" ] && [ -f "$FALLOW_JSON_PATH" ]; then
   # Normalize fallow's raw report into the compact {summary, findings[]} contract
   # the reviewer consumes (real fallow schema -> normalized findings).
   FALLOW_NORMALIZED_PATH="${PHASE_DIR}/FALLOW-normalized.json"
-  FALLOW_SRC="$FALLOW_JSON_PATH" FALLOW_OUT="$FALLOW_NORMALIZED_PATH" node -e "
-    const fs = require('fs');
-    const { normalizeFallowReportFile } = require('./gsd-core/bin/lib/fallow-runner.cjs');
-    const n = normalizeFallowReportFile(process.env.FALLOW_SRC);
-    fs.writeFileSync(process.env.FALLOW_OUT, JSON.stringify(n, null, 2));
-  " 2>/dev/null && FALLOW_EMBED_PATH="$FALLOW_NORMALIZED_PATH" || FALLOW_EMBED_PATH="$FALLOW_JSON_PATH"
+  gsd_run review fallow-normalize --report "$FALLOW_JSON_PATH" --out "$FALLOW_NORMALIZED_PATH" >/dev/null 2>&1 \
+    && FALLOW_EMBED_PATH="$FALLOW_NORMALIZED_PATH" || FALLOW_EMBED_PATH="$FALLOW_JSON_PATH"
   FALLOW_JSON_SIZE=$(wc -c < "$FALLOW_EMBED_PATH" | tr -d '[:space:]')
   if [ "$FALLOW_JSON_SIZE" -le "$MAX_FINDINGS_SIZE" ]; then
     # Escape any literal closing tag before embedding; the closing tag literal is escaped to prevent prompt-structure breakage if a fallow finding's file path or message contains the sequence.

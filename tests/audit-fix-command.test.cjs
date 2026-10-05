@@ -91,8 +91,8 @@ describe('AUDIT-FIX: command file', () => {
     const content = fs.readFileSync(cmdPath, 'utf-8');
     const frontmatter = content.split('---')[1] || '';
     assert.ok(
-      frontmatter.includes('--source <audit-uat>'),
-      'argument-hint must show --source <audit-uat> (the only currently supported value)'
+      frontmatter.includes('--source <audit-uat|window-review>'),
+      'argument-hint must show --source <audit-uat|window-review> (the supported values)'
     );
     assert.ok(
       !frontmatter.includes('--source <audit|verify>'),
@@ -424,5 +424,81 @@ describe('AUDIT-FIX: revert on test failure', () => {
       content.includes('git checkout -- {changed_files}'),
       'must use git checkout -- {changed_files} to clean partial changes on failure'
     );
+  });
+});
+
+// ─── window-review source — the shipped bash, run in a fixture project ──────
+
+describe('AUDIT-FIX: --source window-review reads, records and reconciles through gsd_run', { skip: process.platform === 'win32' }, () => {
+  const { runHook } = require('./helpers/process-seam.cjs');
+  const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
+  const { createTempGitProject, cleanup, TOOLS_PATH } = require('./helpers.cjs');
+  const { scanFencedBlocks } = require('../gsd-core/bin/lib/markdown-sectionizer.cjs');
+  const { composeWindowReview } = require('../gsd-core/bin/lib/window-review.cjs');
+
+  const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
+  const wf = fs.readFileSync(path.join(WORKFLOWS_DIR, 'audit-fix.md'), 'utf-8');
+  const lines = splitLines(wf);
+  const fences = scanFencedBlocks(lines)
+    .filter((b) => (b.infoString || '').trim() === 'bash')
+    .map((b) => lines.slice(b.openLineIdx + 1, b.closeLineIdx).join('\n'));
+  const fence = (needle) => {
+    const found = fences.find((f) => f.includes(needle));
+    assert.ok(found, `no bash fence in audit-fix.md carries ${needle}`);
+    return found;
+  };
+  const DIR = '.planning/reviews/2026-10-05-window';
+  const window = { since: 'abc', sinceKind: 'ref', until: 'HEAD', tip: 'f'.repeat(40), base: null, boundary: null, phases: {}, unattributed: [] };
+  const composed = composeWindowReview({
+    window,
+    files: ['src/b.js'],
+    reports: [{ label: 'correctness', lens: 'correctness', path: 'p', text: '### CR-01: Null deref\n\n**File:** `src/b.js:5`\n\n### WR-01: Off by one\n\n**File:** `src/b.js:8`\n' }],
+    refutation: null,
+    reviewedAt: 't',
+  }).text;
+
+  function project(t) {
+    const dir = createTempGitProject('gsd-audit-fix-window-');
+    t.after(() => cleanup(dir));
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ commit_docs: false }));
+    fs.mkdirSync(path.join(dir, DIR), { recursive: true });
+    fs.writeFileSync(path.join(dir, DIR, 'REVIEW.md'), composed);
+    return dir;
+  }
+  const bash = (dir, script) => runHook('-c', [`gsd_run() { node ${JSON.stringify(TOOLS_PATH)} "$@"; }\nREVIEW_ARG=""\n${script}`, 'bash'], { interpreter: 'bash', timeoutMs: PROBE_TIMEOUT_MS, cwd: dir });
+
+  test('[happy] the newest window is read; a fixed finding is recorded, the rest is deferred to WINDOWS.md once', (t) => {
+    const dir = project(t);
+    const script = [
+      fence('gsd_run review findings'),
+      'printf "%s|%s\\n" "$WINDOW_REVIEW" "$WINDOW_DIR"',
+      fence('review record-fixed').replace(/\{ID\}/g, 'CR-01'),
+      fence('review window-deferred'),
+    ].join('\n');
+    const r = bash(dir, script);
+    assert.equal(r.exitCode, 0, r.stderr);
+    assert.equal(r.stdout.trim().split('\n')[0], `${DIR}/REVIEW.md|${DIR}`);
+    const fixReport = fs.readFileSync(path.join(dir, DIR, 'REVIEW-FIX.md'), 'utf-8');
+    const { fixedFindingIds } = require('../gsd-core/bin/lib/window-review.cjs');
+    assert.deepEqual([...fixedFindingIds(fixReport)], ['CR-01']);
+    const ledger = fs.readFileSync(path.join(dir, '.planning', 'WINDOWS.md'), 'utf-8');
+    assert.ok(/window review correctness WR-01: Off by one \[wr:[0-9a-f]{10}\]/.test(ledger), 'the unfixed Warning is deferred');
+    assert.ok(!/CR-01: Null deref/.test(ledger), 'the fixed Critical is not deferred');
+    const again = bash(dir, fence('review window-deferred'));
+    assert.equal(again.exitCode, 0, again.stderr);
+    assert.equal(fs.readFileSync(path.join(dir, '.planning', 'WINDOWS.md'), 'utf-8'), ledger, 'a second pass records nothing twice');
+  });
+
+  test('[unhappy] no window review: the findings step exits non-zero before any fix', (t) => {
+    const dir = createTempGitProject('gsd-audit-fix-window-');
+    t.after(() => cleanup(dir));
+    const r = bash(dir, `${fence('gsd_run review findings')}\necho reached`);
+    assert.notEqual(r.exitCode, 0);
+    assert.ok(!r.stdout.includes('reached'));
+  });
+
+  test('[happy] the workflow names both sources and rejects --review without window-review', () => {
+    assert.ok(wf.includes('Supported sources: audit-uat, window-review'));
+    assert.ok(wf.includes('--review applies only to --source window-review'));
   });
 });

@@ -3,7 +3,9 @@
 <purpose>
 Autonomous audit-to-fix pipeline. Runs an audit, parses findings, classifies each as
 auto-fixable vs manual-only, spawns executor agents for fixable issues, runs tests
-after each fix, and commits atomically with finding IDs for traceability.
+after each fix, and commits atomically with finding IDs for traceability. The findings
+come from the UAT/verification audit or from a window review's REVIEW.md
+(`/gsd-code-review --since`).
 </purpose>
 
 <available_agent_types>
@@ -19,22 +21,32 @@ Extract flags from the user's invocation:
 - `--severity high|medium|all` — minimum severity to process (default: **medium**)
 - `--dry-run` — classify findings without fixing (shows classification table only)
 - `--source <audit>` — which audit to run (default: **audit-uat**)
+- `--review <path>` — `window-review` only: the window's REVIEW.md
+  (`.planning/reviews/<date>-window/REVIEW.md`; default: the newest window)
 
 Validate `--source` is a supported audit. Currently supported:
-- `audit-uat`
+- `audit-uat` — findings parsed from the phases' UAT and VERIFICATION files
+- `window-review` — the findings of a window review that no fix has reached
 
 If `--source` is not supported, stop with an error:
 ```
-Error: Unsupported audit source "{source}". Supported sources: audit-uat
+Error: Unsupported audit source "{source}". Supported sources: audit-uat, window-review
+```
+
+`--review` with any other source is an error:
+```
+Error: --review applies only to --source window-review
 ```
 </step>
 
 <step name="run-audit">
-Invoke the source audit command and capture output.
+Invoke the source audit and capture its findings. Resolve the launcher first, for every source:
+```bash
+_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+```
 
 For `audit-uat` source:
 ```bash
-_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 INIT=$(gsd_run query audit-uat 2>/dev/null || echo "{}")
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
@@ -48,6 +60,23 @@ Parse each finding into a structured record:
 - **description** — concise summary of the issue
 - **severity** — high, medium, or low
 - **file_refs** — specific file paths referenced in the finding
+
+For `window-review` source, the findings are read by the CLI — do not parse REVIEW.md yourself:
+```bash
+WINDOW_JSON=$(gsd_run review findings ${REVIEW_ARG:+--review "$REVIEW_ARG"}) || exit $?
+if [[ "$WINDOW_JSON" == @file:* ]]; then WINDOW_JSON=$(cat "${WINDOW_JSON#@file:}"); fi
+WINDOW_REVIEW=$(printf '%s' "$WINDOW_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).review)")
+WINDOW_DIR=$(printf '%s' "$WINDOW_JSON" | node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(0, 'utf-8')).dir)")
+```
+`REVIEW_ARG` is the `--review` value, if any. With no window review yet the command exits non-zero
+with the reason — stop and show it (the user runs `/gsd:code-review --since …` first). Each entry of
+`findings[]` is one record, taken as it stands:
+- **ID** — the finding's own `id` (`CR-01`, `WR-03`, `IN-02`) — it is what REVIEW-FIX.md and the
+  broken-window ledger key on, so do not renumber
+- **description** — `title`
+- **severity** — `level` (Critical → high, Warning → medium, Info → low)
+- **file_refs** — `file` and `line`
+`fixed[]` lists findings an earlier fix pass already fixed; they are not findings to fix again.
 </step>
 
 <step name="classify-findings">
@@ -72,6 +101,7 @@ Manual-only signals:
 - Requires user input or design decisions
 - Cross-cutting concerns affecting multiple subsystems
 - Performance or scalability issues without clear fix
+- A window-review finding without a `file` — the lens could not point at the code
 
 **When uncertain, always classify as manual-only.**
 </step>
@@ -157,6 +187,12 @@ git commit -m "fix({scope}): resolve {ID} — {description}"
 ```
 The commit message **must** include the finding ID (e.g., F-01) for traceability.
 
+For `window-review` source, record the fix in the window's REVIEW-FIX.md right after the commit,
+so the broken-window bookkeeping below knows it is fixed:
+```bash
+gsd_run review record-fixed --review "$WINDOW_REVIEW" --finding "{ID}" --commit "$(git rev-parse --short HEAD)" >/dev/null
+```
+
 **d. If tests fail** — revert changes, mark finding as `fix-failed`, and **stop the pipeline**:
 ```bash
 git checkout -- {changed_files} 2>/dev/null
@@ -165,6 +201,30 @@ Log the failure reason and stop processing — do not continue to the next findi
 A test failure indicates the codebase may be in an unexpected state, so the pipeline
 must halt to avoid cascading issues. Remaining auto-fixable findings will appear in the
 report as `not-attempted`.
+</step>
+
+<step name="window-bookkeeping">
+For `window-review` source only, and only when at least one finding was fixed — the same
+bookkeeping as the window-scope step of `code-review.md`. Surviving Critical/Warning findings that
+WINDOWS.md does not hold yet are recorded; entries of this window that the run fixed are closed.
+Best-effort: it never fails the run.
+```bash
+gsd_run review window-deferred --dir "$WINDOW_DIR" --raw | while IFS=$'\t' read -r W_ACTION W_A W_B W_C W_D; do
+  case "$W_ACTION" in
+    append)
+      W_ARGS=(--kind deviation --phase "$W_A" --description "$W_D")
+      if [ "$W_B" != "-" ]; then W_ARGS+=(--file "$W_B"); fi
+      if [ "$W_C" != "-" ]; then W_ARGS+=(--line "$W_C"); fi
+      gsd_run windows append "${W_ARGS[@]}" >/dev/null || true ;;
+    fixed)
+      gsd_run windows fixed "$W_A" >/dev/null || true ;;
+  esac
+done
+COMMIT_DOCS=$(gsd_run query config-get commit_docs --raw 2>/dev/null || echo "true")
+if [ "$COMMIT_DOCS" = "true" ]; then
+  gsd_run query commit "docs(review): audit-fix of window review ${WINDOW_DIR##*/}" --files "${WINDOW_DIR}/REVIEW-FIX.md"
+fi
+```
 </step>
 
 <step name="report">
@@ -196,6 +256,8 @@ Present the final summary:
 - Failed fixes are reverted cleanly (no partial changes left)
 - Pipeline stops after the first test failure (no cascading fixes)
 - Every commit message contains the finding ID
+- `window-review` source: findings are read through `gsd_run review findings`, every committed fix
+  is listed in the window's REVIEW-FIX.md, and the broken-window ledger is reconciled
 - Manual-only findings are surfaced for developer attention
 - --dry-run produces a useful standalone classification table
 </success_criteria>

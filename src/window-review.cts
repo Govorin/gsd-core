@@ -38,7 +38,9 @@
  * findings the refuter did not cover stay, marked `unverified`. `deferredWindowEntries` turns the
  * surviving Critical/Warning findings that a fix pass did not fix into broken-windows entries,
  * each carrying a stable fingerprint so a re-run does not record it twice. `windowMarkerFor`
- * builds the `--since last` marker — written only once REVIEW.md exists.
+ * builds the `--since last` marker — written only once REVIEW.md exists. `openWindowFindings` and
+ * `recordFixedFinding` serve `/gsd-audit-fix --source window-review`: the findings no fix reached,
+ * and a fix made there written back to REVIEW-FIX.md, so the broken-window bookkeeping sees it.
  *
  * Every git call goes through the `execGit` seam with a bounded timeout. Pure functions
  * (`planBatches`, `complexityRises`, `parseReviewFindings`, `recurringReviewOnly`,
@@ -938,6 +940,103 @@ export function fixedWindowEntryIds(
     .filter((e) => e.status === 'open' && fingerprints.has(/\[(wr:[0-9a-f]{10})\]$/.exec(e.description)?.[1] ?? ''))
     .map((e) => e.id)
     .sort((a, b) => a - b);
+}
+
+// ─── Window findings → /gsd-audit-fix ────────────────────────────────────────
+
+/** The `/gsd-audit-fix` severity of a review finding: Critical → high, Warning → medium, Info → low. */
+export const AUDIT_LEVEL = Object.freeze({ critical: 'high', warning: 'medium', info: 'low' } as const);
+
+export interface OpenWindowFinding {
+  id: string;
+  severity: ReviewFinding['severity'];
+  level: (typeof AUDIT_LEVEL)[ReviewFinding['severity']];
+  title: string;
+  file: string | null;
+  line: number | null;
+  reviewOnly: boolean;
+  /** The composed finding's stable id (`wr:…`); null for a finding the composer did not stamp. */
+  fingerprint: string | null;
+}
+
+/**
+ * The findings of a window REVIEW.md that no fix has reached, in document order: every finding but
+ * the ones REVIEW-FIX.md lists under `## Fixed Issues` (`fixed`, the ids left out).
+ */
+export function openWindowFindings(review: string, fixReport: string | null): { findings: OpenWindowFinding[]; fixed: string[] } {
+  const done = fixReport === null ? new Set<string>() : fixedFindingIds(fixReport);
+  const findings: OpenWindowFinding[] = [];
+  const fixed: string[] = [];
+  for (const f of parseReviewFindings(review)) {
+    if (done.has(f.id)) {
+      fixed.push(f.id);
+      continue;
+    }
+    findings.push({
+      id: f.id,
+      severity: f.severity,
+      level: AUDIT_LEVEL[f.severity],
+      title: f.title.replace(/\s+/g, ' ').trim(),
+      file: f.file,
+      line: f.line,
+      reviewOnly: f.reviewOnly,
+      fingerprint: COMPOSED_ORIGIN.exec(f.block)?.[3] ?? null,
+    });
+  }
+  return { findings, fixed };
+}
+
+const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
+
+/**
+ * `fixReport` (null: there is none yet) with finding `id` of `review` listed under
+ * `## Fixed Issues`, so a fix made outside `gsd-code-fixer` (`/gsd-audit-fix --source
+ * window-review`) reaches `fixedFindingIds` — and through it `review window-deferred`, which closes
+ * the finding's broken-window entry. `status:` is recomputed: `all_fixed` once every Critical and
+ * Warning finding is listed, `partial` before. Idempotent: a listed id leaves the report as it is.
+ * `{ ok: false }` when `review` has no finding `id`.
+ */
+export function recordFixedFinding(
+  review: string,
+  fixReport: string | null,
+  id: string,
+  commit: string | null,
+): { ok: true; text: string; changed: boolean } | { ok: false } {
+  const findings = parseReviewFindings(review);
+  const finding = findings.find((f) => f.id === id);
+  if (finding === undefined) return { ok: false };
+  const listed = fixReport === null ? new Set<string>() : fixedFindingIds(fixReport);
+  if (fixReport !== null && listed.has(id)) return { ok: true, text: fixReport, changed: false };
+  listed.add(id);
+  const status = findings.every((f) => f.severity === 'info' || listed.has(f.id)) ? 'all_fixed' : 'partial';
+  const entry = [
+    `### ${id}: ${finding.title.replace(/\s+/g, ' ').trim()}`,
+    '',
+    '**Fixed by:** /gsd-audit-fix',
+    ...(commit === null ? [] : [`**Commit:** \`${commit}\``]),
+    '',
+  ].join('\n');
+
+  if (fixReport === null) {
+    return { ok: true, changed: true, text: `---\nstatus: ${status}\n---\n\n# Review Fix Report\n\n## Fixed Issues\n\n${entry}` };
+  }
+  const lines = splitLines(fixReport);
+  const start = lines.findIndex((l) => /^## Fixed Issues\b/.test(l));
+  let body: string;
+  if (start === -1) {
+    body = `${fixReport.replace(/\n*$/, '')}\n\n## Fixed Issues\n\n${entry}`;
+  } else {
+    let end = start + 1;
+    while (end < lines.length && !/^## /.test(lines[end])) end++;
+    const section = lines.slice(0, end).join('\n').replace(/\n+$/, '');
+    const rest = lines.slice(end).join('\n');
+    body = `${section}\n\n${entry}${rest === '' ? '' : `\n${rest}`}`;
+  }
+  const fm = FRONTMATTER.exec(body);
+  const text = fm === null
+    ? `---\nstatus: ${status}\n---\n\n${body}`
+    : `---\n${/^status:.*$/m.test(fm[1]) ? fm[1].replace(/^status:.*$/m, `status: ${status}`) : `${fm[1]}\nstatus: ${status}`}\n---\n${body.slice(fm[0].length)}`;
+  return { ok: true, changed: true, text };
 }
 
 // ─── Files on disk ───────────────────────────────────────────────────────────

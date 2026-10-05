@@ -1792,19 +1792,21 @@ Autonomous audit-to-fix pipeline — runs an audit, classifies findings, fixes a
 
 | Flag | Description |
 |------|-------------|
-| `--source <audit>` | Which audit to run (default: `audit-uat`) |
+| `--source <audit>` | Which audit to run: `audit-uat` (default) or `window-review` — the open findings of a `/gsd-code-review --since` window |
+| `--review <path>` | With `--source window-review`: the window's `REVIEW.md` (default: the newest window under `.planning/reviews/`) |
 | `--severity high\|medium\|all` | Minimum severity to process (default: `medium`) |
 | `--max N` | Maximum findings to fix (default: 5) |
 | `--dry-run` | Classify findings without fixing (shows classification table) |
 
-**Prerequisites:** At least one phase has been executed with UAT or verification
-**Produces:** Fix commits with test verification; classification report
+**Prerequisites:** At least one phase has been executed with UAT or verification; for `window-review`, a window review (`/gsd-code-review --since …`)
+**Produces:** Fix commits with test verification; classification report; for `window-review`, each fix listed in the window's `REVIEW-FIX.md` and the broken-window ledger reconciled
 
 ```bash
 /gsd-audit-fix                              # Run audit-uat, fix medium+ issues (max 5)
 /gsd-audit-fix --severity high             # Only fix high-severity issues
 /gsd-audit-fix --dry-run                   # Preview classification without fixing
 /gsd-audit-fix --max 10 --severity all     # Fix up to 10 issues of any severity
+/gsd-audit-fix --source window-review       # Fix the newest window review's open findings
 ```
 
 ---

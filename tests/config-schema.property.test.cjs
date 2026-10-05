@@ -1076,12 +1076,14 @@ describe('feat-3210 / #1012: code-review workflow invokes fallow with the real C
     );
   });
 
-  test('normalizes fallow output via normalizeFallowReportFile before embedding', () => {
+  test('normalizes fallow output via gsd_run review fallow-normalize before embedding', () => {
     // Still in the host (spawn_reviewer step, unconditional) — not gated by
     // state:fallow-enabled, since the reviewer prompt assembly always runs.
+    // The verb wraps normalizeFallowReportFile; the workflow used to require the
+    // module from the project directory, which exists only in this repository.
     assert.ok(
-      workflowSrc.includes('normalizeFallowReportFile'),
-      'workflow must call normalizeFallowReportFile to normalize before embedding into reviewer prompt',
+      workflowSrc.includes('gsd_run review fallow-normalize'),
+      'workflow must normalize through gsd_run review fallow-normalize before embedding into reviewer prompt',
     );
   });
 

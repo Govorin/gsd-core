@@ -28,6 +28,34 @@
  *       with the registry's USAGE code and its `code-review: …` message. The workflow reads its
  *       arguments through this instead of requiring the module from the project directory, which
  *       only exists in this repository.
+ *   review findings [--review <path to a window REVIEW.md>]
+ *       The findings of a window review no fix reached (`openWindowFindings`), for
+ *       `/gsd-audit-fix --source window-review`. Without `--review`, the newest window under
+ *       `<planning>/reviews`. Each finding carries its `/gsd-audit-fix` level (high|medium|low).
+ *   review record-fixed --review <path to a window REVIEW.md> --finding <ID> [--commit <sha>]
+ *       List a finding fixed outside `gsd-code-fixer` under `## Fixed Issues` of the window's
+ *       REVIEW-FIX.md (`recordFixedFinding`), so `window-deferred` closes its broken-window entry.
+ *
+ *   review depth          (stdin: {flagDepth, configDepth, overrides, files, repoRoot} as JSON)
+ *       The path-scoped review depth of the phase-review step `resolve_depth`
+ *       (code-review-depth.cts), printed as the resolver returns it: `ok: false` with `errors` is a
+ *       result the workflow halts on, not a CLI failure. Files travel on stdin, never argv (the
+ *       Windows argv ceiling).
+ *   review fallow-binary
+ *       The fallow binary of the structural pre-pass: `node_modules/.bin` first, then PATH
+ *       (fallow-runner.cts). `binary: null` when there is none; `--raw` prints the path or nothing.
+ *   review fallow-normalize --report <FALLOW.json> --out <file>
+ *       Write fallow's raw report normalized to the `{summary, findings[]}` the reviewer reads. An
+ *       unreadable or invalid report normalizes to an empty one. Both paths stay in the project.
+ *   review plan-coverage --manifest <file> --review <file>
+ *       Which plan ids of a `/gsd-review` plans manifest (`- <id>` lines) one reviewer's output
+ *       names, as `{complete, missing_ids, total}`; an id preceded or followed by a word character
+ *       or a hyphen does not count. Read-only — both files live in the run's temp directory, so
+ *       neither is confined to the project.
+ *
+ *   These steps used to `require('./gsd-core/bin/lib/…')` from the workflow, which resolves
+ *   against the user's project and so worked only in this repository.
+ *
  *   review stage [--milestone vX.Y] [--date YYYY-MM-DD]
  *       The code-review capability's `milestone:pre` command step: resolve the milestone's window
  *       (`last`, else the previous `v*` tag), run the pre-pass over it (written like
@@ -64,11 +92,15 @@ import { CODE_REVIEW_LENSES, resolveCodeReviewInvocation } from './code-review-f
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
   computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
-  reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
+  openWindowFindings, recordFixedFinding, reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
   REVIEWS_DIR, WINDOW_FILES,
 } from './window-review.cjs';
 import type { GitRunner, WindowPrepass } from './window-review.cjs';
 import { formatGsdSlashFor } from './runtime-slash.cjs';
+import { resolveCodeReviewDepth } from './code-review-depth.cjs';
+import type { ResolveCodeReviewDepthInput } from './code-review-depth.cjs';
+import { normalizeFallowReportFile, resolveFallowBinary } from './fallow-runner.cjs';
+import { escapeRegex } from './pattern.cjs';
 
 const { output, getJsonErrorMode, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -77,7 +109,8 @@ const { loadConfig } = configLoaderMod;
 const { planningDir } = planningWorkspaceMod;
 
 export const REVIEW_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'invocation', 'stage', 'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
+  'depth', 'fallow-binary', 'fallow-normalize', 'findings', 'invocation', 'plan-coverage', 'record-fixed', 'stage',
+  'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
 ]);
 
 const USAGE = Object.freeze({
@@ -88,6 +121,12 @@ const USAGE = Object.freeze({
   'window-paths': 'Usage: gsd-tools review window-paths --review <window REVIEW.md>',
   stage: 'Usage: gsd-tools review stage [--milestone vX.Y] [--date YYYY-MM-DD]',
   invocation: 'Usage: gsd-tools review invocation -- <code-review arguments>',
+  findings: 'Usage: gsd-tools review findings [--review <window REVIEW.md>]',
+  'record-fixed': 'Usage: gsd-tools review record-fixed --review <window REVIEW.md> --finding <ID> [--commit <sha>]',
+  depth: 'Usage: gsd-tools review depth  (stdin: {"flagDepth","configDepth","overrides","files","repoRoot"} as JSON)',
+  'fallow-binary': 'Usage: gsd-tools review fallow-binary',
+  'fallow-normalize': 'Usage: gsd-tools review fallow-normalize --report <FALLOW.json> --out <file>',
+  'plan-coverage': 'Usage: gsd-tools review plan-coverage --manifest <file> --review <file>',
 });
 
 interface RouteReviewCommandOptions {
@@ -99,6 +138,8 @@ interface RouteReviewCommandOptions {
   _clock?: { now(): number };
   /** Test seam: the git runner of `stage` (window start lookup and pre-pass). */
   _execGit?: GitRunner;
+  /** Test seam: replaces the read of the process's standard input (`depth`). */
+  _readStdin?: () => string;
 }
 
 class UsageError extends Error {}
@@ -362,27 +403,129 @@ function handleMark(args: string[], cwd: string, raw: boolean, clock: { now(): n
   output({ marker: rel(cwd, marker.path), ...JSON.parse(marker.text) as Record<string, unknown> }, raw, `${rel(cwd, marker.path)}\n`);
 }
 
-function handlePaths(args: string[], cwd: string, raw: boolean): void {
-  const reviewArg = flagValue(args, 'review');
-  if (reviewArg === null) throw new UsageError(USAGE['window-paths']);
+/** A window REVIEW.md named by `--review`: `<planning>/reviews/<window>/REVIEW.md`, existing, absolute. */
+function windowReviewArg(reviewArg: string, cwd: string): string {
   const reviews = path.join(planningDir(cwd), REVIEWS_DIR);
   const abs = tryWithinRoot(path.resolve(cwd, reviewArg), reviews, PathAcceptance.AbsoluteInsideRoot);
   if (abs === null || path.basename(abs) !== WINDOW_FILES.review || path.dirname(abs) === path.resolve(reviews)) {
     throw new UsageError(`--review ${JSON.stringify(reviewArg)} is not a window ${WINDOW_FILES.review} under ${REVIEWS_DIR}/<window>/`);
   }
   if (!fs.existsSync(abs)) throw new Unresolvable(`${rel(cwd, abs)} does not exist — run /gsd-code-review --since first`);
+  return abs;
+}
+
+/** The newest window's REVIEW.md: window directories are date-named, so the last in name order. */
+function newestWindowReview(cwd: string): string {
+  const reviews = path.join(planningDir(cwd), REVIEWS_DIR);
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(reviews, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    names = [];
+  }
+  const newest = names.sort().reverse().find((n) => fs.existsSync(path.join(reviews, n, WINDOW_FILES.review)));
+  if (newest === undefined) throw new Unresolvable(`no window ${WINDOW_FILES.review} under ${REVIEWS_DIR}/ — run /gsd-code-review --since first`);
+  return path.join(reviews, newest, WINDOW_FILES.review);
+}
+
+function windowTarget(cwd: string, abs: string) {
   const dir = path.dirname(abs);
-  output({
+  return {
     review: rel(cwd, abs),
     fixReport: rel(cwd, path.join(dir, WINDOW_FILES.fixReport)),
     dir: rel(cwd, dir),
     label: path.basename(dir),
-  }, raw, `${rel(cwd, abs)}\n`);
+  };
+}
+
+function handlePaths(args: string[], cwd: string, raw: boolean): void {
+  const reviewArg = flagValue(args, 'review');
+  if (reviewArg === null) throw new UsageError(USAGE['window-paths']);
+  const abs = windowReviewArg(reviewArg, cwd);
+  output(windowTarget(cwd, abs), raw, `${rel(cwd, abs)}\n`);
+}
+
+function handleFindings(args: string[], cwd: string, raw: boolean): void {
+  const reviewArg = flagValue(args, 'review');
+  const abs = reviewArg === null ? newestWindowReview(cwd) : windowReviewArg(reviewArg, cwd);
+  const review = readOrNull(abs);
+  if (review === null) throw new Unresolvable(`${rel(cwd, abs)} cannot be read`);
+  const { findings, fixed } = openWindowFindings(review, readOrNull(path.join(path.dirname(abs), WINDOW_FILES.fixReport)));
+  const lines = findings.map((f) => [f.id, f.level, f.file ?? '-', f.line === null ? '-' : String(f.line), f.title].join('\t'));
+  output({ ...windowTarget(cwd, abs), findings, fixed }, raw, lines.length === 0 ? '' : `${lines.join('\n')}\n`);
+}
+
+function handleRecordFixed(args: string[], cwd: string, raw: boolean): void {
+  const reviewArg = flagValue(args, 'review');
+  const id = flagValue(args, 'finding');
+  if (reviewArg === null || id === null) throw new UsageError(USAGE['record-fixed']);
+  if (!/^(?:CR|WR|IN|BL)-\d+$/.test(id)) throw new UsageError(`--finding must be a finding id like WR-03, got ${id}`);
+  const commit = flagValue(args, 'commit');
+  if (commit !== null && !/^[0-9a-f]{4,64}$/.test(commit)) throw new UsageError(`--commit must be a commit sha, got ${commit}`);
+  const abs = windowReviewArg(reviewArg, cwd);
+  const review = readOrNull(abs);
+  if (review === null) throw new Unresolvable(`${rel(cwd, abs)} cannot be read`);
+  const fixFile = path.join(path.dirname(abs), WINDOW_FILES.fixReport);
+  const recorded = recordFixedFinding(review, readOrNull(fixFile), id, commit);
+  if (!recorded.ok) throw new UsageError(`${rel(cwd, abs)} has no finding ${id}`);
+  if (recorded.changed) writeTextAtomic(fixFile, recorded.text);
+  output({ fixReport: rel(cwd, fixFile), finding: id, changed: recorded.changed }, raw, `${rel(cwd, fixFile)}\n`);
+}
+
+function handleDepth(readStdin: () => string, raw: boolean): void {
+  let input: unknown;
+  try {
+    input = JSON.parse(readStdin());
+  } catch {
+    throw new UsageError(`${USAGE.depth} — stdin is not JSON`);
+  }
+  if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new UsageError(`${USAGE.depth} — stdin is not a JSON object`);
+  output(resolveCodeReviewDepth(input as ResolveCodeReviewDepthInput), raw);
+}
+
+function handleFallowBinary(cwd: string, raw: boolean): void {
+  const binary = resolveFallowBinary({ cwd });
+  output({ binary }, raw, binary ?? '');
+}
+
+/** A path argument confined to the project, absolute. */
+function projectPathArg(args: readonly string[], name: string, cwd: string, usage: string): string {
+  const raw = flagValue(args, name);
+  if (raw === null) throw new UsageError(usage);
+  const abs = tryWithinRoot(path.resolve(cwd, raw), cwd, PathAcceptance.AbsoluteInsideRoot);
+  if (abs === null) throw new UsageError(`--${name} ${JSON.stringify(raw)} is outside the project`);
+  return abs;
+}
+
+function handleFallowNormalize(args: string[], cwd: string, raw: boolean): void {
+  const report = projectPathArg(args, 'report', cwd, USAGE['fallow-normalize']);
+  const out = projectPathArg(args, 'out', cwd, USAGE['fallow-normalize']);
+  const normalized = normalizeFallowReportFile(report);
+  writeTextAtomic(out, JSON.stringify(normalized, null, 2));
+  output({ out: rel(cwd, out), summary: normalized.summary }, raw, `${rel(cwd, out)}\n`);
+}
+
+/** Which ids of a plans manifest (`- <id>` lines) `review` names, each bounded by neither a word character nor a hyphen. */
+export function planCoverage(manifest: string, review: string): { complete: boolean; missing_ids: string[]; total: number } {
+  const ids = manifest.split('\n').filter((l) => l.startsWith('- ')).map((l) => l.slice(2).trim()).filter(Boolean);
+  const missing = ids.filter((id) => !new RegExp(`(?<![\\w-])${escapeRegex(id)}(?![\\w-])`).test(review));
+  return { complete: missing.length === 0, missing_ids: missing, total: ids.length };
+}
+
+function handlePlanCoverage(args: string[], cwd: string, raw: boolean): void {
+  const manifestArg = flagValue(args, 'manifest');
+  const reviewArg = flagValue(args, 'review');
+  if (manifestArg === null || reviewArg === null) throw new UsageError(USAGE['plan-coverage']);
+  const manifest = readOrNull(path.resolve(cwd, manifestArg));
+  if (manifest === null) throw new Unresolvable(`--manifest ${JSON.stringify(manifestArg)} cannot be read`);
+  const review = readOrNull(path.resolve(cwd, reviewArg));
+  if (review === null) throw new Unresolvable(`--review ${JSON.stringify(reviewArg)} cannot be read`);
+  output(planCoverage(manifest, review), raw);
 }
 
 // ─── Dispatch ────────────────────────────────────────────────────────────────
 
-function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit }: RouteReviewCommandOptions): void {
+function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit, _readStdin }: RouteReviewCommandOptions): void {
   const guarded = (run: () => void) => (): void => {
     try {
       run();
@@ -397,7 +540,13 @@ function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit }: RouteRe
     args,
     subcommands: [...REVIEW_SUBCOMMANDS],
     handlers: {
+      depth: guarded(() => handleDepth(_readStdin ?? (() => fs.readFileSync(0, 'utf-8')), raw)),
+      'fallow-binary': guarded(() => handleFallowBinary(cwd, raw)),
+      'fallow-normalize': guarded(() => handleFallowNormalize(args, cwd, raw)),
+      findings: guarded(() => handleFindings(args, cwd, raw)),
       invocation: guarded(() => handleInvocation(args, raw)),
+      'plan-coverage': guarded(() => handlePlanCoverage(args, cwd, raw)),
+      'record-fixed': guarded(() => handleRecordFixed(args, cwd, raw)),
       stage: guarded(() => handleStage(args, cwd, raw, _clock, _execGit)),
       'window-prepass': guarded(() => handlePrepass(args, cwd, raw, _clock)),
       'window-compose': guarded(() => handleCompose(args, cwd, raw, _clock)),

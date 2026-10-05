@@ -2651,7 +2651,7 @@ completion.
 
 ### 98. Autonomous Audit-to-Fix
 
-**Command:** `/gsd-audit-fix [--source <audit>] [--severity high|medium|all] [--max N] [--dry-run]`
+**Command:** `/gsd-audit-fix [--source audit-uat|window-review] [--review <path>] [--severity high|medium|all] [--max N] [--dry-run]`
 
 **Purpose:** End-to-end pipeline that runs an audit, classifies findings as auto-fixable vs. manual-only, then autonomously fixes auto-fixable issues with test verification and atomic commits.
 
@@ -2661,6 +2661,7 @@ completion.
 - REQ-AUDITFIX-03: Each fix MUST be committed atomically
 - REQ-AUDITFIX-04: `--dry-run` MUST show classification table without applying any fixes
 - REQ-AUDITFIX-05: `--max N` MUST limit the number of fixes applied in one run (default: 5)
+- REQ-AUDITFIX-06: `--source window-review` MUST read the window's open findings through `gsd-tools review findings`, keep their own IDs, and list every committed fix in the window's `REVIEW-FIX.md` (`review record-fixed`) so the broken-window ledger closes its entries
 
 ---
 

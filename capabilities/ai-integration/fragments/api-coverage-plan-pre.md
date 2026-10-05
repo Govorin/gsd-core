@@ -22,18 +22,20 @@ scope (the concatenation of this phase's ROADMAP section + the PLAN body):
 
 ```bash
 SCOPE="$(cat "${PHASE_DIR}"/*-PLAN.md 2>/dev/null) $(gsd_run query roadmap.get-phase "${PHASE}" 2>/dev/null || true)"
-API_COVERAGE_JSON=$(printf '%s' "$SCOPE" | node gsd-core/bin/lib/api-coverage.cjs --json 2>/dev/null) || true
+API_COVERAGE_JSON=$(printf '%s' "$SCOPE" | gsd_run api-coverage detect 2>/dev/null) || true
 [ -n "$API_COVERAGE_JSON" ] || API_COVERAGE_JSON='{"skipped":true,"reason":"probe_unavailable"}'
 ```
 
-The `|| true` neutralizes the assignment's status without discarding the
-detector's own payload: the detector exits **1** for a real "no integration"
-verdict, so treating any non-zero exit as failure would throw away a correct
-answer. Emptiness — not exit status — is what proves the probe never ran, and
+`gsd_run api-coverage detect` carries the verdict in its payload and exits 0
+for every verdict; the `|| true` keeps a launcher failure from aborting the
+step. Emptiness — not exit status — is what proves the probe never ran, and
 the second line is the only place the fragment manufactures a payload of its
 own — one that records the *absence* of a verdict rather than asserting one.
+Never call the module by a `gsd-core/bin/lib/…` path: that path resolves
+against the project, not the GSD install, so outside the GSD repository the
+probe would never run.
 
-The detector's exit code and `--json` payload now distinguish a real negative
+The detector's payload distinguishes a real negative
 from an unexamined input (ADR-3889 Phase 3, #3907): empty/whitespace-only
 `$SCOPE` or a stdin read failure emit `{"skipped":true,"reason":"no_input"|
 "stdin_error"}` — no `detected` key at all. **Check for `skipped` before
@@ -131,7 +133,7 @@ The trigger vocabulary is a curated, additive-only set in
 for a project, override at the call site:
 
 ```bash
-printf '%s' "$SCOPE" | node gsd-core/bin/lib/api-coverage.cjs --json \
+printf '%s' "$SCOPE" | gsd_run api-coverage detect \
   --verbs integrate,wrap,connect,embed --nouns api,sdk,rest,grpc,webhook,plugin
 ```
 

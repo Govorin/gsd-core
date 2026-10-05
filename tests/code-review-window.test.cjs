@@ -100,6 +100,52 @@ describe('code-review.md — phase or window, decided by the invocation IR', { s
   });
 });
 
+describe('code-review.md — depth and the fallow embed reach the lib through gsd_run', { skip: !HAS_BASH }, () => {
+  const GSD_TOOLS = path.join(ROOT, 'gsd-core', 'bin', 'gsd-tools.cjs');
+  const depthStep = slice(WORKFLOW, 'CONFIG_DEPTH=$(gsd_run query config-get workflow.code_review_depth', 'DEPTH_OK=$(');
+  const embedStep = slice(WORKFLOW, 'FALLOW_NORMALIZED_PATH="${PHASE_DIR}/FALLOW-normalized.json"', '&& FALLOW_EMBED_PATH=');
+  // Both ran `require('./gsd-core/bin/lib/…')`, so outside this repository the depth resolver
+  // crashed (DEPTH_OK empty → the review halted) and the fallow report was embedded raw.
+  let elsewhere;
+  before(() => { elsewhere = createTempDir('gsd-cr-depth-'); });
+  after(() => cleanup(elsewhere));
+  /** `gsd_run` with `query config-get` answered from `config`, every other verb the real CLI. */
+  const launcher = (config) => [
+    'gsd_run() {',
+    '  if [ "$1" = query ] && [ "$2" = config-get ]; then',
+    `    case "$3" in workflow.code_review_depth) printf '%s' ${JSON.stringify(config.depth)} ;; workflow.code_review_depth_overrides) printf '%s' ${JSON.stringify(config.overrides)} ;; esac`,
+    '    return 0',
+    '  fi',
+    `  node ${JSON.stringify(GSD_TOOLS)} "$@"`,
+    '}',
+  ].join('\n');
+  const field = (name) => `printf '%s' "$DEPTH_JSON" | node -e 'process.stdout.write(String(JSON.parse(require("fs").readFileSync(0, "utf-8")).${name}))'`;
+  const runDepth = (config) =>
+    bash(`${launcher(config)}\nREVIEW_FILES=(src/auth/login.js src/b.js)\nDEPTH_OVERRIDE=""\n${depthStep}\nprintf '%s|%s' "$DEPTH_OK" "$(${field('depth')})"`, [], { cwd: elsewhere });
+
+  test('[happy] the config depth and a matching rule resolve from a project without gsd-core/', () => {
+    const r = runDepth({ depth: 'quick', overrides: '[]' });
+    assert.equal(r.exitCode, 0, r.stderr);
+    assert.equal(r.stdout, 'true|quick');
+    const rule = runDepth({ depth: 'quick', overrides: '[{"paths":["src/auth"],"depth":"deep"}]' });
+    assert.equal(rule.stdout, 'true|deep', rule.stderr);
+  });
+
+  test('[unhappy] a misconfigured override still reaches the workflow as DEPTH_OK=false, not an empty crash', () => {
+    const r = runDepth({ depth: '', overrides: '[{"paths":["src/**"],"depth":"deep"}]' });
+    assert.equal(r.stdout.split('|')[0], 'false', r.stderr);
+  });
+
+  test('[happy] the fallow report is embedded normalized, not raw', () => {
+    fs.mkdirSync(path.join(elsewhere, 'phase'), { recursive: true });
+    fs.writeFileSync(path.join(elsewhere, 'phase', 'FALLOW.json'), JSON.stringify({ verdict: 'issues' }));
+    const r = bash(`${launcher({ depth: '', overrides: '[]' })}\nPHASE_DIR=phase\nFALLOW_JSON_PATH=phase/FALLOW.json\n${embedStep}\nprintf '%s' "$FALLOW_EMBED_PATH"`, [], { cwd: elsewhere });
+    assert.equal(r.exitCode, 0, r.stderr);
+    assert.equal(r.stdout, 'phase/FALLOW-normalized.json');
+    assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(path.join(elsewhere, r.stdout), 'utf-8'))).sort(), ['findings', 'summary']);
+  });
+});
+
 describe('window-scope.md — the shipped step', () => {
   test('[happy] every bash fence parses', { skip: !HAS_BASH }, () => {
     const fences = bashFences(WINDOW_STEP);

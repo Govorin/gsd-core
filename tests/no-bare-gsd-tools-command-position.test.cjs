@@ -31,6 +31,10 @@
 // Source-text guard: the deployed contract IS the markdown text the runtime
 // loads. Scans FULL file text (the real hits lived in inline prose/table cells,
 // not fenced bash blocks).
+//
+// The second guard at the bottom holds the other way past `gsd_run`: a path into
+// gsd-core/bin relative to the current directory (`require('./gsd-core/…')`,
+// `node gsd-core/bin/lib/…`), which resolves against the user's project.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -244,4 +248,108 @@ test('every PROSE_ALLOWLIST entry still matches a real gsd-tools mention (no sta
       '`gsd-tools <verb> <arg>` mention). Remove or update them:\n' +
       stale.map((s) => `  ${s.file}:${s.line} — ${s.problem}${s.actual ? ` (actual: ${s.actual.slice(0, 80)})` : ''}`).join('\n')
   );
+});
+
+// ─── Project-relative paths into gsd-core/bin ───────────────────────────────
+//
+// The same contract from the other side: shipped markdown reaches GSD code through
+// `gsd_run`, never through a path that resolves against the CURRENT DIRECTORY. A
+// workflow runs in the user's project, where `./gsd-core/` does not exist — the
+// install lives in the runtime home — so `require('./gsd-core/bin/lib/x.cjs')` or
+// `node gsd-core/bin/lib/x.cjs` works only inside this repository and fails, or
+// silently degrades, everywhere else. /gsd-code-review died this way in every
+// other project (the invocation IR, the depth resolver, the fallow pre-pass), as
+// did the /gsd-review plan-coverage check, and the ai-integration plan:pre API
+// probe always reported `probe_unavailable`. Each now calls a gsd-tools verb.
+//
+// The scan set is wider than the bare-word guard's: commands/ and capabilities/
+// carry executable bash too, and nothing here conflicts with their per-block
+// preambles. A path built from a runtime home (`require(runtimeConfigDir + …)`,
+// `node <runtime-home>/gsd-core/…`) names the install and does not match.
+const LIB_PATH_SCAN_DIRS = [
+  'agents',
+  'commands',
+  'capabilities',
+  path.join('gsd-core', 'workflows'),
+  path.join('gsd-core', 'references'),
+  path.join('gsd-core', 'templates'),
+  'skills',
+];
+
+// `require('./gsd-core/bin/…')`, `require("gsd-core/bin/…")`, `require('../gsd-core/bin/…')`,
+// `node gsd-core/bin/…`, `node ./gsd-core/bin/…`, `$(pwd)/gsd-core/bin/…`, `$PWD/gsd-core/bin/…`,
+// and a `path.join(process.cwd(), 'gsd-core', …)`.
+const PROJECT_RELATIVE_LIB_RE = new RegExp([
+  String.raw`require\(\s*['"\x60](?:\.{1,2}\/)*gsd-core\/bin\/`,
+  String.raw`\bnode\s+['"]?(?:\.{1,2}\/)*gsd-core\/bin\/`,
+  String.raw`(?:\$\(pwd\)|\$\{?PWD\}?)\/gsd-core\/bin\/`,
+  String.raw`process\.cwd\(\)\s*,\s*['"\x60]gsd-core\b`,
+].join('|'));
+
+// Sites where the current directory IS the project that owns `gsd-core/bin/`. Keyed by
+// file and the matched text, so an edit that drops the match leaves a stale entry.
+const LIB_PATH_ALLOWLIST = [
+  { file: 'gsd-core/references/few-shot-examples/verifier.md', match: 'node gsd-core/bin/', reason: 'a verifier transcript checking a project whose own file is gsd-core/bin/validate-commit.js; the path is the verified project\'s, not the install' },
+];
+
+function findProjectRelativeLibPaths() {
+  const offenders = [];
+  for (const scanDir of LIB_PATH_SCAN_DIRS) {
+    for (const file of collectMdFiles(path.join(ROOT, scanDir))) {
+      const rel = path.relative(ROOT, file).split(path.sep).join('/');
+      const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+      for (let i = 0; i < lines.length; i += 1) {
+        const match = lines[i].match(PROJECT_RELATIVE_LIB_RE);
+        if (!match) continue;
+        if (LIB_PATH_ALLOWLIST.some((a) => a.file === rel && a.match === match[0])) continue;
+        offenders.push({ loc: `${rel}:${i + 1}`, match: match[0], text: lines[i].trim() });
+      }
+    }
+  }
+  return offenders;
+}
+
+test('the project-relative lib pattern matches each shape it names, and not a runtime-home path', () => {
+  const hits = [
+    "require('./gsd-core/bin/lib/fallow-runner.cjs')",
+    'require("./gsd-core/bin/lib/pattern.cjs")',
+    "require('gsd-core/bin/lib/x.cjs')",
+    "require('../gsd-core/bin/lib/x.cjs')",
+    'printf x | node gsd-core/bin/lib/api-coverage.cjs --json',
+    'node ./gsd-core/bin/gsd-tools.cjs state',
+    'node "$(pwd)/gsd-core/bin/gsd-tools.cjs"',
+    'GSD="$PWD/gsd-core/bin/gsd-tools.cjs"',
+    "path.join(process.cwd(), 'gsd-core', 'bin')",
+  ];
+  const misses = [
+    "require(runtimeConfigDir + '/gsd-core/bin/lib/capability-registry.cjs')",
+    'node <runtime-home>/gsd-core/bin/gsd-tools.cjs config-set graphify.enabled true',
+    'GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"',
+    'gsd_run review fallow-binary --raw',
+    'the trigger vocabulary lives in `gsd-core/bin/lib/api-coverage.cjs`',
+  ];
+  assert.deepEqual(hits.filter((s) => !PROJECT_RELATIVE_LIB_RE.test(s)), [], 'shapes the pattern must catch');
+  assert.deepEqual(misses.filter((s) => PROJECT_RELATIVE_LIB_RE.test(s)), [], 'install paths and prose the pattern must leave alone');
+});
+
+test('shipped markdown reaches gsd-core/bin through gsd_run, never a path relative to the project', () => {
+  const offenders = findProjectRelativeLibPaths();
+  assert.strictEqual(
+    offenders.length,
+    0,
+    'A path into gsd-core/bin relative to the current directory resolves against the user\'s ' +
+      'project, where no gsd-core/ exists — it works only inside this repository. Call a ' +
+      '`gsd_run <verb>` instead, adding the verb (src/*-command-router.cts) if there is none. ' +
+      `Found ${offenders.length} offender(s):\n` +
+      offenders.map((o) => `  ${o.loc} [${o.match}] ${o.text.slice(0, 160)}`).join('\n'),
+  );
+});
+
+test('every LIB_PATH_ALLOWLIST entry still matches its file (no stale allowlist entries)', () => {
+  const stale = LIB_PATH_ALLOWLIST.filter((entry) => {
+    let text;
+    try { text = fs.readFileSync(path.join(ROOT, entry.file), 'utf8'); } catch { return true; }
+    return !text.split(/\r?\n/).some((line) => (line.match(PROJECT_RELATIVE_LIB_RE) || [])[0] === entry.match);
+  });
+  assert.deepEqual(stale.map((s) => s.file), [], 'LIB_PATH_ALLOWLIST entries whose file no longer carries the match');
 });

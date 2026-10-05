@@ -2,11 +2,7 @@ When `FALLOW_ENABLED=true`:
 
 1) Resolve binary via `node_modules/.bin/fallow` first, then PATH.
 ```bash
-FALLOW_BIN=$(FALLOW_CWD="$(pwd)" node -e "
-const { resolveFallowBinary } = require('./gsd-core/bin/lib/fallow-runner.cjs');
-const resolved = resolveFallowBinary({ cwd: process.env.FALLOW_CWD });
-if (resolved) process.stdout.write(resolved);
-")
+FALLOW_BIN=$(gsd_run review fallow-binary --raw 2>/dev/null)
 ```
 
 2) If binary is missing, fail with actionable message:

@@ -32,12 +32,15 @@ const {
   lensReports,
   milestoneReviewAnswer,
   milestoneWindowSince,
+  openWindowFindings,
+  recordFixedFinding,
   reviewMatchesWindow,
   windowDirFor,
   windowMarkerFor,
   PREPASS_CLASS,
 } = require('../gsd-core/bin/lib/window-review.cjs');
 const { parseLastWindowMarker } = require('../gsd-core/bin/lib/gate-evaluation-scope.cjs');
+const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@test.io',
@@ -349,6 +352,58 @@ describe('deferredWindowEntries — surviving findings to WINDOWS.md, once', () 
     const a = findingFingerprint('standards', { id: 'WR-01', file: 'src/a.js', title: 'Magic  number!' });
     assert.equal(a, findingFingerprint('standards', { id: 'WR-07', file: 'src/a.js', title: 'magic number' }));
     assert.notEqual(a, findingFingerprint('spec', { id: 'WR-01', file: 'src/a.js', title: 'Magic number' }));
+  });
+});
+
+describe('openWindowFindings / recordFixedFinding — /gsd-audit-fix --source window-review', () => {
+  const window = { since: 'abc', sinceKind: 'ref', until: 'HEAD', tip: 'f'.repeat(40), base: null, boundary: null, phases: {}, unattributed: [] };
+  const report = '### CR-01: Null deref\n\n**File:** `src/b.js:5`\n\n### WR-01: Off   by one\n\n**File:** `src/b.js:8`\n\n### IN-01: Naming\n\n**File:** `src/b.js:1`\n';
+  const composed = composeWindowReview({
+    window, files: ['src/b.js'], reports: [{ label: 'correctness', lens: 'correctness', path: 'p', text: report }], refutation: null, reviewedAt: 't',
+  }).text;
+
+  test('[happy] every finding with its audit level and fingerprint; one REVIEW-FIX.md lists as fixed is left out', () => {
+    const all = openWindowFindings(composed, null);
+    assert.deepEqual(all.findings.map((f) => [f.id, f.level, f.file, f.line, f.title]), [
+      ['CR-01', 'high', 'src/b.js', 5, 'Null deref'],
+      ['WR-01', 'medium', 'src/b.js', 8, 'Off by one'],
+      ['IN-01', 'low', 'src/b.js', 1, 'Naming'],
+    ]);
+    assert.ok(all.findings.every((f) => /^wr:[0-9a-f]{10}$/.test(f.fingerprint)));
+    const later = openWindowFindings(composed, '## Fixed Issues\n\n### CR-01: Null deref\n\n## Skipped Issues\n\n### WR-01: Off by one\n');
+    assert.deepEqual([later.findings.map((f) => f.id), later.fixed], [['WR-01', 'IN-01'], ['CR-01']]);
+  });
+
+  test('[happy] a recorded fix reaches window-deferred: the finding is no longer deferred', () => {
+    const first = recordFixedFinding(composed, null, 'CR-01', 'abc1234');
+    assert.equal(first.ok && first.changed, true);
+    assert.deepEqual([...fixedFindingIds(first.text)], ['CR-01']);
+    assert.deepEqual(splitLines(first.text).slice(0, 3), ['---', 'status: partial', '---']);
+    assert.deepEqual(deferredWindowEntries(composed, first.text, new Set(), 'w').map((e) => e.file + ':' + e.line), ['src/b.js:8']);
+  });
+
+  test('[boundary] status turns all_fixed with the last Critical/Warning, Info aside; a listed id changes nothing', () => {
+    const one = recordFixedFinding(composed, null, 'CR-01', null);
+    const two = recordFixedFinding(composed, one.text, 'WR-01', null);
+    assert.deepEqual(splitLines(two.text).slice(0, 3), ['---', 'status: all_fixed', '---']);
+    assert.deepEqual([...fixedFindingIds(two.text)], ['CR-01', 'WR-01']);
+    const again = recordFixedFinding(composed, two.text, 'WR-01', 'abc1234');
+    assert.deepEqual([again.changed, again.text], [false, two.text]);
+  });
+
+  test('[boundary] a fixer report keeps its frontmatter, its other sections and its order', () => {
+    const fixer = '---\nphase: window\nstatus: none_fixed\n---\n\n# Fix\n\n## Fixed Issues\n\n### IN-01: Naming\n\n## Skipped Issues\n\n### WR-01: Off by one\n';
+    const out = recordFixedFinding(composed, fixer, 'CR-01', 'abc1234');
+    assert.deepEqual(splitLines(out.text).slice(0, 4), ['---', 'phase: window', 'status: partial', '---']);
+    assert.deepEqual([...fixedFindingIds(out.text)], ['IN-01', 'CR-01']);
+    assert.ok(out.text.indexOf('### CR-01') < out.text.indexOf('## Skipped Issues'), 'the entry lands inside ## Fixed Issues');
+    const noSection = recordFixedFinding(composed, '# Fix\n\n## Skipped Issues\n\n### WR-01: Off by one\n', 'CR-01', null);
+    assert.deepEqual([...fixedFindingIds(noSection.text)], ['CR-01']);
+    assert.deepEqual(splitLines(noSection.text).slice(0, 5), ['---', 'status: partial', '---', '', '# Fix']);
+  });
+
+  test('[unhappy] an id the review does not hold is refused', () => {
+    assert.deepEqual(recordFixedFinding(composed, null, 'WR-09', null), { ok: false });
   });
 });
 

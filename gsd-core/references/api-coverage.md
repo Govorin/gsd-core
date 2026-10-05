@@ -144,12 +144,15 @@ zero — the matrix is the durable subtraction record.
 ## Detector CLI
 
 ```bash
-echo "$PHASE_SCOPE" | node gsd-core/bin/lib/api-coverage.cjs --json
-# exit 0 = integration detected, 1 = none (real input, examined, no signal)
-# NO_INPUT = stdin was empty or whitespace-only (registry code — ADR-3889 Phase 3, #3907)
-# UNAVAILABLE = stdin read failed (registry code)
-# NO_INPUT/UNAVAILABLE emit {"skipped":true,"reason":"no_input"|"stdin_error"} — no `detected` key
+echo "$PHASE_SCOPE" | gsd_run api-coverage detect
+# {"detected":true|false,"signals":[…],"terms":{…}} — real input, examined
+# {"skipped":true,"reason":"no_input"}    — stdin was empty or whitespace-only (ADR-3889 Phase 3, #3907)
+# {"skipped":true,"reason":"stdin_error"} — stdin read failed
+# a skipped payload has no `detected` key; exit is 0 for all three
 ```
+
+Call it through `gsd_run`, never by the module's `gsd-core/bin/lib/` path: that path
+resolves against the project, so outside the GSD repository it does not exist.
 
 The detector is a pure function (`detectApiIntegration` → `{ detected, signals,
 terms }`) shared by the plan-time prompt and the seal-time gate, so the
