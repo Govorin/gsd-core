@@ -774,6 +774,25 @@ count was recomputed from the tree (21/20 → 23, retro analyst added). Integrat
   the one growth (complete-milestone.md) carries an `Emitted-Drift-Ack-Growth` trailer. Wave 3
   (evals on `report-ab`) remains.
 
+### Post-merge fixes after fix-cr-cwd and pk-eval (2026-10-05)
+
+The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
+(`pre-pkeval`) merges failed outside the reference set. Each cause, with its fix:
+
+- `runtime-launcher-parity (B)`: `39e10f843` made step 1 of
+  `code-review/steps/structural-pre-pass.md` call `gsd_run`, but the preamble stayed in
+  step 3's block. Moved to the first `gsd_run` block (`f583b6127`).
+  `sync-runtime-launcher.cjs` keeps an existing placement (#3146), so it could not fix this.
+- `slash-command namespace (#3443)`: `3afbaaca9` wrote `/gsd-code-review --since` in the
+  audit-fix command and workflow; now colon form (`7cddbf3ef`).
+- `#2517 model-omit guard`: arch-survey's inline rule matched only by accident (`model=`
+  read case-insensitively inside `REFUTER_MODEL=` within 200 chars of "Omit").
+  `83a9dc34e` put a paragraph between them. Now the marker block (`2769f328d`).
+- `emitted-attribution` against `merge-base(HEAD, upstream/next)`: the
+  `Emitted-Drift-Ack-Growth: arch-survey.md` trailer of `83a9dc34e` was stale from
+  birth. Growth keys on files that exist upstream, and arch-survey is fork-new. The
+  commit recording this entry withdraws it.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
