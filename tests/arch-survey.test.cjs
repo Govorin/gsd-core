@@ -17,7 +17,9 @@
  *     treated as a verdict;
  *   - the decision journal round-trips, replaces a block in place, and keeps blocks it cannot parse;
  *   - the report data: verdict, top recommendation, and diagrams drawn from the metrics only
- *     (every diagram parses with the mermaid subset parser).
+ *     (every diagram parses with the mermaid subset parser);
+ *   - cycles, pass-through modules and small clusters are reported from the metrics themselves,
+ *     whatever the surveyors carded (they are no longer in the surveyor prompt).
  *
  * Assertions read typed values (the candidate set, the journal entries, the `SurveyDoc` IR and
  * its flowchart specs) — never the rendered markdown.
@@ -289,6 +291,33 @@ describe('arch-survey: report data', () => {
     for (const spec of [...doc.zones.map((z) => z.diagram), ...doc.kept.map((k) => k.diagram)]) {
       assert.equal(parseMermaid(flowchart(spec)).ok, true);
     }
+  });
+
+  test('cycles, pass-through modules and small clusters are reported from the metrics, with or without cards', () => {
+    const metrics = {
+      ...metricsFixture(),
+      passThrough: [{ file: 'src/c.ts', importer: 'src/b.ts', target: 'src/d.ts', loc: 6 }],
+      smallClusters: [{ dir: 'src', modules: ['src/b.ts', 'src/c.ts', 'src/d.ts'] }],
+    };
+    const empty = collect([]);
+    const doc = as.buildSurvey({ metrics, set: empty, verification: [] });
+    assert.deepEqual(doc.foundByMetrics, {
+      cycles: [{ members: ['src/a.ts', 'src/b.ts'], runtime: true }],
+      passThrough: [{ file: 'src/c.ts', importer: 'src/b.ts', target: 'src/d.ts', loc: 6 }],
+      smallClusters: [{ dir: 'src', modules: ['src/b.ts', 'src/c.ts', 'src/d.ts'] }],
+    });
+    assert.deepEqual([doc.verdict, doc.kept.length], ['no-strong-candidates', 0]);
+
+    const set = collect([source('z1', { cards: [card({ strength: 'strong' })] })]);
+    const withCards = as.buildSurvey({ metrics, set, verification: as.verifyCandidates(set, null) });
+    assert.deepEqual(withCards.foundByMetrics, doc.foundByMetrics);
+  });
+
+  test('a metrics file without pass-through or cluster rows reports none of them', () => {
+    const set = collect([]);
+    const doc = as.buildSurvey({ metrics: metricsFixture(), set, verification: [] });
+    assert.deepEqual([doc.foundByMetrics.passThrough, doc.foundByMetrics.smallClusters], [[], []]);
+    assert.equal(doc.foundByMetrics.cycles.length, 1);
   });
 
   test('a verification list of the wrong length is refused', () => {

@@ -24,24 +24,17 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 **Read-only otherwise.** You do not edit code and you do not propose interfaces: the survey decides *what* to deepen; the interface is designed later, by the person who picks the candidate.
 </role>
 
-<what_the_metrics_checked>
-The prompt gives you the zone's files, a `<signals>` block computed by `gsd-tools arch metrics`, and the metrics file whose `modules` rows hold each module's numbers. Read them as a map of where to start, **not as the list of problems**.
+<zone_and_metrics>
+`gsd-tools arch metrics` chose your zone — a hot spot and its neighbours — and that is all the metrics do here: the prompt gives you the zone's files, not their numbers.
 
-The metrics checked exactly these classes, and nothing else:
-- size — lines per module, small-module clusters;
-- coupling — fan-in and fan-out, pass-through modules (one importer, one import, small);
-- import cycles;
-- co-change — files that change together, with or without an import between them;
-- churn × complexity — the hot spots.
+Import cycles, pass-through modules (one importer, one import, small) and clusters of small modules are counted by those metrics and reported in the survey's "Found by metrics" section without a surveyor. Do not write cards that only restate them.
 
-They did **not** check, and cannot: shallow interfaces, leaks across seams, pure functions extracted for testability while the bugs live in their call sites (no locality), interfaces that make behaviour hard to test, and concepts scattered across modules. **Look for those yourself**, across every file of the zone, including files no signal mentions. A zone whose only cards restate its signals has not been surveyed.
-
-Set `fromMetrics: true` on a card whose problem is one of the classes above and was flagged for this zone; `false` on a card you found yourself.
-</what_the_metrics_checked>
+Your cards are what counting cannot show: shallow interfaces, leaks across seams, pure functions extracted for testability while the bugs live in their call sites (no locality), interfaces that make behaviour hard to test, and concepts scattered across modules. Read every file of the zone.
+</zone_and_metrics>
 
 <method>
 1. **Orient.** Read the project's glossary or domain notes if the prompt names one (`CONTEXT.md`, `GLOSSARY.md`) and the ADRs in `docs/adr/` that touch the zone. An ADR records a decision you must not re-litigate casually; `.planning/codebase/CONCERNS.md`, when present, lists problems already known.
-2. **Walk the zone organically.** Start from the seed and the signals, then follow the code where understanding it is hard. Prefer the code-intelligence tools you have (a call graph, LSP references) over text search to answer "who calls this"; a grep hit in a comment is not a caller.
+2. **Walk the zone organically.** Start from the seed, then follow the code where understanding it is hard. Prefer the code-intelligence tools you have (a call graph, LSP references) over text search to answer "who calls this"; a grep hit in a comment is not a caller.
 3. **Apply the deletion test** to every module you suspect is shallow. Imagine deleting it: would its complexity **concentrate** — each caller re-implementing what it hides — or just **move**? Name the callers you checked. Only a concentrating deletion supports a Strong card.
 4. **Write a card per candidate**, in the codebase-design vocabulary, using the domain's own names for concepts ("the order intake module", not "OrderHandler").
 5. **ADR conflicts.** Surface a candidate that contradicts an ADR only when the friction is real enough to reopen it, and say which ADR and why in `adrConflict`. Do not list every refactor an ADR forbids.
@@ -65,8 +58,7 @@ Write exactly this JSON shape. `gsd-tools arch cards` validates it; a malformed 
       "tests": "Which tests would cross the new interface, and which would become waste.",
       "strength": "strong",
       "deletionTest": { "result": "concentrates", "evidence": "intake.ts is imported by 4 modules; each would re-implement the 6 validation rules (src/api/orders.ts:31, …)" },
-      "adrConflict": null,
-      "fromMetrics": false
+      "adrConflict": null
     }
   ]
 }
@@ -82,7 +74,7 @@ Write exactly this JSON shape. `gsd-tools arch cards` validates it; a malformed 
 <honest_results>
 **"Nothing strong here" is a full result.** If the zone's structure holds — its modules earn their interfaces — write `"verdict": "no-strong-candidates"` with whatever Worth-exploring or Speculative cards you have, or none. An empty card list is not a failure; a manufactured card is. The survey keeps a journal of rejected candidates precisely because padding the list costs the reader every time.
 
-**Do not restate signals as findings.** "`util.ts` has fan-in 40" is a measurement. A card says what that costs and what deepening would buy.
+**Do not restate measurements as findings.** "`util.ts` has fan-in 40" is a measurement. A card says what that costs and what deepening would buy.
 
 **One card per candidate.** Two problems over the same files are two cards only if they are different kinds of friction.
 </honest_results>

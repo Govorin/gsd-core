@@ -16,7 +16,7 @@
  *   - bad flags and paths outside the project are `usage`; a step run before its input exists is
  *     `arch_input_unavailable`;
  *   - the whole flow — metrics, cards, refutation, report, decide — and a rejection excluding the
- *     candidate from the next `cards` run;
+ *     candidate from the next `cards` run; `report` names the structures the metrics found;
  *   - `decide`: a rejection needs a reason; a re-decision replaces; an unknown id is refused; an
  *     ADR is suggested only for a rejection in a project with an ADR directory.
  */
@@ -247,6 +247,10 @@ describe('arch survey flow', () => {
     const refutation = fs.readFileSync(archDir(`survey-${DATE}`, 'refutation.md'), 'utf-8');
     const doc = as.buildSurvey({ metrics, set, verification: as.verifyCandidates(set, refutation) });
     assert.equal(fs.statSync(path.join(root, r.path)).size, Buffer.byteLength(as.renderSurvey(doc)));
+    // The a ⇄ b cycle is reported from the metrics whether or not a surveyor carded it.
+    assert.deepEqual(r.foundByMetrics.cycles, [['src/a.ts', 'src/b.ts']]);
+    assert.deepEqual(r.foundByMetrics.passThrough, metrics.passThrough.map((p) => p.file));
+    assert.deepEqual(r.foundByMetrics.smallClusters, metrics.smallClusters.map((c) => c.dir));
 
     const d = arch(['decide', '--id', c.candidates[1].id, '--disposition', 'rejected', '--reason', 'extension point']).value;
     assert.deepEqual([d.disposition, d.replaced, d.adrSuggested], ['rejected', null, false]);
@@ -280,6 +284,7 @@ describe('arch survey flow', () => {
     arch(['cards']);
     const r = arch(['report']).value;
     assert.deepEqual([r.refutation, r.candidates[0].verification], [null, 'unverified']);
+    assert.deepEqual(r.foundByMetrics.cycles, [['src/a.ts', 'src/b.ts']]);
     assert.equal(arch(['report', '--refutation', '../outside.md']).reason, ERROR_REASON.USAGE);
     assert.equal(arch(['report', '--refutation', 'missing.md']).reason, ERROR_REASON.ARCH_INPUT_UNAVAILABLE);
   });

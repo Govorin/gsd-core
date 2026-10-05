@@ -619,6 +619,25 @@ const REPORT_HOTSPOTS = 10;
 
 export type ZoneOutcome = 'candidates' | 'no-strong-candidates' | 'missing' | 'invalid';
 
+/**
+ * The structures `arch metrics` finds by counting, reported as found without a surveyor. The
+ * surveyor prompt leaves them out: handed to the model, the metrics pulled cards toward these
+ * classes and away from the ones counting cannot see (pocock wave 3 eval).
+ */
+export interface FoundByMetrics {
+  cycles: ArchMetrics['cycles'];
+  passThrough: ArchMetrics['passThrough'];
+  smallClusters: ArchMetrics['smallClusters'];
+}
+
+export function foundByMetrics(metrics: Pick<ArchMetrics, 'cycles' | 'passThrough' | 'smallClusters'>): FoundByMetrics {
+  return {
+    cycles: (metrics.cycles ?? []).map((c) => ({ members: [...c.members], runtime: c.runtime })),
+    passThrough: (metrics.passThrough ?? []).map((p) => ({ ...p })),
+    smallClusters: (metrics.smallClusters ?? []).map((c) => ({ dir: c.dir, modules: [...c.modules] })),
+  };
+}
+
 /** The survey report as data — `renderSurvey` only formats it. */
 export interface SurveyDoc {
   date: string;
@@ -637,6 +656,7 @@ export interface SurveyDoc {
   comparison: Comparison | null;
   hotspots: ArchMetrics['hotspots'];
   zones: Array<{ id: string; seed: string; label: string; files: string[]; score: number; outcome: ZoneOutcome; diagram: FlowchartSpec }>;
+  foundByMetrics: FoundByMetrics;
   kept: Array<{ candidate: Candidate; verification: Verification; diagram: FlowchartSpec }>;
   top: string | null;
   rejected: Array<{ id: string; title: string; reason: 'refuted' | 'missing-files'; detail: string }>;
@@ -680,6 +700,7 @@ export function buildSurvey(input: {
       id: z.id, seed: z.seed, label: z.label, files: [...z.files], score: z.score,
       outcome: outcomeOf(z.id), diagram: structureSpec(metrics, z.files),
     })),
+    foundByMetrics: foundByMetrics(metrics),
     kept: kept.map((p) => ({
       ...p,
       diagram: structureSpec(metrics, p.candidate.files, neighbours(metrics, p.candidate.files, CANDIDATE_CONTEXT_CAP)),
@@ -755,6 +776,14 @@ export function renderSurvey(doc: SurveyDoc): string {
   for (const z of doc.zones) out.push(`| ${z.id} | \`${cell(z.seed)}\` | ${z.files.length} | ${z.score} | ${outcomeLabel(z.outcome)} |`);
   out.push('');
   for (const z of doc.zones) out.push(`### ${z.id} — \`${z.label}\``, '', fence(flowchart(z.diagram)), '');
+
+  const found = doc.foundByMetrics;
+  out.push('## Found by metrics', '', 'Counted by `gsd-tools arch metrics`, not by a surveyor: each is a structure that exists, not a verdict on it.', '');
+  for (const c of found.cycles) out.push(`- Import cycle${c.runtime ? '' : ' (type-only)'}: ${code(c.members)}`);
+  for (const p of found.passThrough) out.push(`- Pass-through module: \`${p.file}\` (${p.loc} lines) — its only importer \`${p.importer}\`, its only import \`${p.target}\``);
+  for (const c of found.smallClusters) out.push(`- Small-module cluster in \`${c.dir}\`: ${code(c.modules)}`);
+  if (found.cycles.length + found.passThrough.length + found.smallClusters.length === 0) out.push('None: no import cycle, pass-through module or small-module cluster in scope.');
+  out.push('');
 
   out.push('## Candidates', '');
   if (doc.kept.length === 0) out.push('No candidate survived. The zones above were surveyed and nothing earned a card.', '');
