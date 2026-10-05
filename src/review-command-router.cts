@@ -28,6 +28,14 @@
  *       with the registry's USAGE code and its `code-review: …` message. The workflow reads its
  *       arguments through this instead of requiring the module from the project directory, which
  *       only exists in this repository.
+ *   review findings [--review <path to a window REVIEW.md>]
+ *       The findings of a window review no fix reached (`openWindowFindings`), for
+ *       `/gsd-audit-fix --source window-review`. Without `--review`, the newest window under
+ *       `<planning>/reviews`. Each finding carries its `/gsd-audit-fix` level (high|medium|low).
+ *   review record-fixed --review <path to a window REVIEW.md> --finding <ID> [--commit <sha>]
+ *       List a finding fixed outside `gsd-code-fixer` under `## Fixed Issues` of the window's
+ *       REVIEW-FIX.md (`recordFixedFinding`), so `window-deferred` closes its broken-window entry.
+ *
  *   review depth          (stdin: {flagDepth, configDepth, overrides, files, repoRoot} as JSON)
  *       The path-scoped review depth of the phase-review step `resolve_depth`
  *       (code-review-depth.cts), printed as the resolver returns it: `ok: false` with `errors` is a
@@ -84,7 +92,7 @@ import { CODE_REVIEW_LENSES, resolveCodeReviewInvocation } from './code-review-f
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
   computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
-  reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
+  openWindowFindings, recordFixedFinding, reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
   REVIEWS_DIR, WINDOW_FILES,
 } from './window-review.cjs';
 import type { GitRunner, WindowPrepass } from './window-review.cjs';
@@ -101,7 +109,7 @@ const { loadConfig } = configLoaderMod;
 const { planningDir } = planningWorkspaceMod;
 
 export const REVIEW_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'depth', 'fallow-binary', 'fallow-normalize', 'invocation', 'plan-coverage', 'stage',
+  'depth', 'fallow-binary', 'fallow-normalize', 'findings', 'invocation', 'plan-coverage', 'record-fixed', 'stage',
   'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
 ]);
 
@@ -113,6 +121,8 @@ const USAGE = Object.freeze({
   'window-paths': 'Usage: gsd-tools review window-paths --review <window REVIEW.md>',
   stage: 'Usage: gsd-tools review stage [--milestone vX.Y] [--date YYYY-MM-DD]',
   invocation: 'Usage: gsd-tools review invocation -- <code-review arguments>',
+  findings: 'Usage: gsd-tools review findings [--review <window REVIEW.md>]',
+  'record-fixed': 'Usage: gsd-tools review record-fixed --review <window REVIEW.md> --finding <ID> [--commit <sha>]',
   depth: 'Usage: gsd-tools review depth  (stdin: {"flagDepth","configDepth","overrides","files","repoRoot"} as JSON)',
   'fallow-binary': 'Usage: gsd-tools review fallow-binary',
   'fallow-normalize': 'Usage: gsd-tools review fallow-normalize --report <FALLOW.json> --out <file>',
@@ -404,6 +414,20 @@ function windowReviewArg(reviewArg: string, cwd: string): string {
   return abs;
 }
 
+/** The newest window's REVIEW.md: window directories are date-named, so the last in name order. */
+function newestWindowReview(cwd: string): string {
+  const reviews = path.join(planningDir(cwd), REVIEWS_DIR);
+  let names: string[] = [];
+  try {
+    names = fs.readdirSync(reviews, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  } catch {
+    names = [];
+  }
+  const newest = names.sort().reverse().find((n) => fs.existsSync(path.join(reviews, n, WINDOW_FILES.review)));
+  if (newest === undefined) throw new Unresolvable(`no window ${WINDOW_FILES.review} under ${REVIEWS_DIR}/ — run /gsd-code-review --since first`);
+  return path.join(reviews, newest, WINDOW_FILES.review);
+}
+
 function windowTarget(cwd: string, abs: string) {
   const dir = path.dirname(abs);
   return {
@@ -419,6 +443,33 @@ function handlePaths(args: string[], cwd: string, raw: boolean): void {
   if (reviewArg === null) throw new UsageError(USAGE['window-paths']);
   const abs = windowReviewArg(reviewArg, cwd);
   output(windowTarget(cwd, abs), raw, `${rel(cwd, abs)}\n`);
+}
+
+function handleFindings(args: string[], cwd: string, raw: boolean): void {
+  const reviewArg = flagValue(args, 'review');
+  const abs = reviewArg === null ? newestWindowReview(cwd) : windowReviewArg(reviewArg, cwd);
+  const review = readOrNull(abs);
+  if (review === null) throw new Unresolvable(`${rel(cwd, abs)} cannot be read`);
+  const { findings, fixed } = openWindowFindings(review, readOrNull(path.join(path.dirname(abs), WINDOW_FILES.fixReport)));
+  const lines = findings.map((f) => [f.id, f.level, f.file ?? '-', f.line === null ? '-' : String(f.line), f.title].join('\t'));
+  output({ ...windowTarget(cwd, abs), findings, fixed }, raw, lines.length === 0 ? '' : `${lines.join('\n')}\n`);
+}
+
+function handleRecordFixed(args: string[], cwd: string, raw: boolean): void {
+  const reviewArg = flagValue(args, 'review');
+  const id = flagValue(args, 'finding');
+  if (reviewArg === null || id === null) throw new UsageError(USAGE['record-fixed']);
+  if (!/^(?:CR|WR|IN|BL)-\d+$/.test(id)) throw new UsageError(`--finding must be a finding id like WR-03, got ${id}`);
+  const commit = flagValue(args, 'commit');
+  if (commit !== null && !/^[0-9a-f]{4,64}$/.test(commit)) throw new UsageError(`--commit must be a commit sha, got ${commit}`);
+  const abs = windowReviewArg(reviewArg, cwd);
+  const review = readOrNull(abs);
+  if (review === null) throw new Unresolvable(`${rel(cwd, abs)} cannot be read`);
+  const fixFile = path.join(path.dirname(abs), WINDOW_FILES.fixReport);
+  const recorded = recordFixedFinding(review, readOrNull(fixFile), id, commit);
+  if (!recorded.ok) throw new UsageError(`${rel(cwd, abs)} has no finding ${id}`);
+  if (recorded.changed) writeTextAtomic(fixFile, recorded.text);
+  output({ fixReport: rel(cwd, fixFile), finding: id, changed: recorded.changed }, raw, `${rel(cwd, fixFile)}\n`);
 }
 
 function handleDepth(readStdin: () => string, raw: boolean): void {
@@ -492,8 +543,10 @@ function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit, _readStdi
       depth: guarded(() => handleDepth(_readStdin ?? (() => fs.readFileSync(0, 'utf-8')), raw)),
       'fallow-binary': guarded(() => handleFallowBinary(cwd, raw)),
       'fallow-normalize': guarded(() => handleFallowNormalize(args, cwd, raw)),
+      findings: guarded(() => handleFindings(args, cwd, raw)),
       invocation: guarded(() => handleInvocation(args, raw)),
       'plan-coverage': guarded(() => handlePlanCoverage(args, cwd, raw)),
+      'record-fixed': guarded(() => handleRecordFixed(args, cwd, raw)),
       stage: guarded(() => handleStage(args, cwd, raw, _clock, _execGit)),
       'window-prepass': guarded(() => handlePrepass(args, cwd, raw, _clock)),
       'window-compose': guarded(() => handleCompose(args, cwd, raw, _clock)),

@@ -255,6 +255,7 @@ describe('review invocation', () => {
 // exists only in this repository; every call here runs in a fixture project with no gsd-core/.
 const { runNode } = require('./helpers/process-seam.cjs');
 const { TOOLS_PATH } = require('./helpers.cjs');
+const { composeWindowReview } = require('../gsd-core/bin/lib/window-review.cjs');
 
 const runWithStdin = (repo, args, input) => {
   const r = runNode([TOOLS_PATH, 'review', ...args, '--json-errors'], { cwd: repo.dir, input });
@@ -331,5 +332,46 @@ describe('review plan-coverage (/gsd-review write_reviews)', () => {
     const repo = makeRepo();
     assert.equal(reason(run(repo, ['plan-coverage', '--manifest', 'm.md'])), 'usage');
     assert.equal(reason(run(repo, ['plan-coverage', '--manifest', 'nope.md', '--review', 'nope.md'])), 'window_review_unresolvable');
+  });
+});
+
+describe('review findings / record-fixed (/gsd-audit-fix --source window-review)', () => {
+  const window = { since: 'abc', sinceKind: 'ref', until: 'HEAD', tip: 'f'.repeat(40), base: null, boundary: null, phases: {}, unattributed: [] };
+  const composed = composeWindowReview({
+    window,
+    files: ['src/b.js'],
+    reports: [{ label: 'correctness', lens: 'correctness', path: 'p', text: '### CR-01: Null deref\n\n**File:** `src/b.js:5`\n\n### WR-01: Off by one\n\n**File:** `src/b.js:8`\n' }],
+    refutation: null,
+    reviewedAt: 't',
+  }).text;
+
+  test('[happy] the newest window by default; a recorded fix leaves the open set and closes nothing else', () => {
+    const repo = makeRepo();
+    write(repo.dir, '.planning/reviews/2026-09-28-window/REVIEW.md', '### CR-01: Old\n\n**File:** `src/a.js:1`\n');
+    write(repo.dir, `${DIR}/REVIEW.md`, composed);
+    const before = json(run(repo, ['findings']));
+    assert.equal(before.review, `${DIR}/REVIEW.md`);
+    assert.deepEqual(before.findings.map((f) => [f.id, f.level]), [['CR-01', 'high'], ['WR-01', 'medium']]);
+    const rec = json(run(repo, ['record-fixed', '--review', `${DIR}/REVIEW.md`, '--finding', 'CR-01', '--commit', 'abc1234']));
+    assert.deepEqual([rec.fixReport, rec.changed], [`${DIR}/REVIEW-FIX.md`, true]);
+    const after = json(run(repo, ['findings', '--review', `${DIR}/REVIEW.md`]));
+    assert.deepEqual([after.findings.map((f) => f.id), after.fixed], [['WR-01'], ['CR-01']]);
+    assert.equal(json(run(repo, ['record-fixed', '--review', `${DIR}/REVIEW.md`, '--finding', 'CR-01'])).changed, false);
+  });
+
+  test('[unhappy] no window review yet is unresolvable; a finding the review lacks or a bad id/sha is usage', () => {
+    const repo = makeRepo();
+    assert.equal(reason(run(repo, ['findings'])), 'window_review_unresolvable');
+    write(repo.dir, `${DIR}/REVIEW.md`, composed);
+    assert.equal(reason(run(repo, ['record-fixed', '--review', `${DIR}/REVIEW.md`, '--finding', 'WR-09'])), 'usage');
+    assert.equal(reason(run(repo, ['record-fixed', '--review', `${DIR}/REVIEW.md`, '--finding', 'F-01'])), 'usage');
+    assert.equal(reason(run(repo, ['record-fixed', '--review', `${DIR}/REVIEW.md`, '--finding', 'CR-01', '--commit', 'HEAD;rm'])), 'usage');
+  });
+
+  test('[hostile] a --review outside <planning>/reviews/<window>/ is usage', () => {
+    const repo = makeRepo();
+    write(repo.dir, 'REVIEW.md', composed);
+    assert.equal(reason(run(repo, ['findings', '--review', 'REVIEW.md'])), 'usage');
+    assert.equal(reason(run(repo, ['record-fixed', '--review', '../REVIEW.md', '--finding', 'CR-01'])), 'usage');
   });
 });
