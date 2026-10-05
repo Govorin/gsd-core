@@ -251,6 +251,9 @@ describe('arch survey flow', () => {
     assert.deepEqual(r.foundByMetrics.cycles, [['src/a.ts', 'src/b.ts']]);
     assert.deepEqual(r.foundByMetrics.passThrough, metrics.passThrough.map((p) => p.file));
     assert.deepEqual(r.foundByMetrics.smallClusters, metrics.smallClusters.map((c) => c.dir));
+    // The surveyor's cycle card has the cycle's kind and files: glued to the finding, listed once.
+    assert.deepEqual(r.foundByMetrics.carded, [c.candidates[0].id]);
+    assert.equal(set.candidates[0].fromMetrics, true);
 
     const d = arch(['decide', '--id', c.candidates[1].id, '--disposition', 'rejected', '--reason', 'extension point']).value;
     assert.deepEqual([d.disposition, d.replaced, d.adrSuggested], ['rejected', null, false]);

@@ -19,7 +19,8 @@
  *   - the report data: verdict, top recommendation, and diagrams drawn from the metrics only
  *     (every diagram parses with the mermaid subset parser);
  *   - cycles, pass-through modules and small clusters are reported from the metrics themselves,
- *     whatever the surveyors carded (they are no longer in the surveyor prompt).
+ *     whatever the surveyors carded (they are no longer in the surveyor prompt); a card with the
+ *     same kind and file set as one of them is glued to it, never listed twice.
  *
  * Assertions read typed values (the candidate set, the journal entries, the `SurveyDoc` IR and
  * its flowchart specs) — never the rendered markdown.
@@ -302,15 +303,35 @@ describe('arch-survey: report data', () => {
     const empty = collect([]);
     const doc = as.buildSurvey({ metrics, set: empty, verification: [] });
     assert.deepEqual(doc.foundByMetrics, {
-      cycles: [{ members: ['src/a.ts', 'src/b.ts'], runtime: true }],
-      passThrough: [{ file: 'src/c.ts', importer: 'src/b.ts', target: 'src/d.ts', loc: 6 }],
-      smallClusters: [{ dir: 'src', modules: ['src/b.ts', 'src/c.ts', 'src/d.ts'] }],
+      cycles: [{ members: ['src/a.ts', 'src/b.ts'], runtime: true, id: as.candidateId('cycle', ['src/a.ts', 'src/b.ts']), carded: null }],
+      passThrough: [{ file: 'src/c.ts', importer: 'src/b.ts', target: 'src/d.ts', loc: 6, id: as.candidateId('pass-through', ['src/c.ts']), carded: null }],
+      smallClusters: [{ dir: 'src', modules: ['src/b.ts', 'src/c.ts', 'src/d.ts'], id: as.candidateId('shallow-module', ['src/b.ts', 'src/c.ts', 'src/d.ts']), carded: null }],
     });
     assert.deepEqual([doc.verdict, doc.kept.length], ['no-strong-candidates', 0]);
 
     const set = collect([source('z1', { cards: [card({ strength: 'strong' })] })]);
     const withCards = as.buildSurvey({ metrics, set, verification: as.verifyCandidates(set, null) });
     assert.deepEqual(withCards.foundByMetrics, doc.foundByMetrics);
+  });
+
+  test('a card with the kind and files of a structure the metrics found is glued to it, once', () => {
+    const metrics = { ...metricsFixture(), passThrough: [{ file: 'src/c.ts', importer: 'src/b.ts', target: 'src/d.ts', loc: 6 }], smallClusters: [] };
+    const sources = [source('z1', { cards: [
+      card({ title: 'Same cycle', kind: 'cycle', files: ['src/b.ts', 'src/a.ts'] }),
+      card({ title: 'Wider cycle', kind: 'cycle', files: ['src/a.ts', 'src/b.ts', 'src/c.ts'] }),
+      card({ title: 'Other kind, same files', kind: 'leaky-seam', files: ['src/c.ts'] }),
+      card({ title: 'Claims metrics', fromMetrics: true }),
+    ] })];
+    const set = as.collectCandidates({ root, date: DATE, zones: ZONES, sources, decisions: [], metrics });
+    assert.deepEqual(set.candidates.map((c) => [c.title, c.fromMetrics]), [
+      ['Same cycle', true], ['Wider cycle', false], ['Other kind, same files', false], ['Claims metrics', false],
+    ]);
+    const doc = as.buildSurvey({ metrics, set, verification: as.verifyCandidates(set, null) });
+    assert.equal(doc.foundByMetrics.cycles[0].carded, set.candidates[0].id);
+    assert.equal(doc.foundByMetrics.passThrough[0].carded, null);
+
+    const refuted = as.buildSurvey({ metrics, set, verification: [{ verdict: 'refuted', evidence: 'no' }, ...as.verifyCandidates(set, null).slice(1)] });
+    assert.equal(refuted.foundByMetrics.cycles[0].carded, null, 'a refuted card is not kept, so the finding stands alone');
   });
 
   test('a metrics file without pass-through or cluster rows reports none of them', () => {

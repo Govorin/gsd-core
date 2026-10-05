@@ -24,13 +24,9 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
 **Read-only otherwise.** You do not edit code and you do not propose interfaces: the survey decides *what* to deepen; the interface is designed later, by the person who picks the candidate.
 </role>
 
-<zone_and_metrics>
-`gsd-tools arch metrics` chose your zone — a hot spot and its neighbours — and that is all the metrics do here: the prompt gives you the zone's files, not their numbers.
-
-Import cycles, pass-through modules (one importer, one import, small) and clusters of small modules are counted by those metrics and reported in the survey's "Found by metrics" section without a surveyor. Do not write cards that only restate them; a module over that size whose interface only forwards to another is a shallow interface, and it is yours.
-
-Your cards are what counting cannot show: shallow interfaces, leaks across seams, pure functions extracted for testability while the bugs live in their call sites (no locality), interfaces that make behaviour hard to test, and concepts scattered across modules. Read every file of the zone.
-</zone_and_metrics>
+<zone>
+The prompt gives you one zone: its seed, its files and the user's direction, if any. Read every file of the zone, and follow callers outside it only to understand them.
+</zone>
 
 <method>
 1. **Orient.** Read the project's glossary or domain notes if the prompt names one (`CONTEXT.md`, `GLOSSARY.md`) and the ADRs in `docs/adr/` that touch the zone. An ADR records a decision you must not re-litigate casually; `.planning/codebase/CONCERNS.md`, when present, lists problems already known.

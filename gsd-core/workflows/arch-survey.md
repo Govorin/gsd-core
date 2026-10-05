@@ -91,7 +91,7 @@ Merge the cards with fixed rules — no agent synthesises them:
 CARDS=$(gsd_run arch cards --date "$DATE")
 ```
 
-The result lists `candidates` (numbered, ordered by strength), `failedCheck` (cards naming files that do not exist), `excludedByDecision` (rejected before, same files and kind), `invalid` (malformed cards) and `refuterInputPath`.
+A card with the kind and files of a structure the metrics found is glued to it (`fromMetrics`) and reported once. The result lists `candidates` (numbered, ordered by strength), `failedCheck` (cards naming files that do not exist), `excludedByDecision` (rejected before, same files and kind), `invalid` (malformed cards) and `refuterInputPath`.
 
 No candidates → skip `refute` and go to `report`.
 </step>
