@@ -1,0 +1,866 @@
+{
+  "mode": "arch",
+  "categories": [
+    "flagged",
+    "unflagged"
+  ],
+  "classes": [
+    "cycle",
+    "pass_through",
+    "small_cluster",
+    "scattered",
+    "leaky_seam",
+    "shallow_interface"
+  ],
+  "variants": [
+    "A",
+    "C",
+    "Cp"
+  ],
+  "failed": 0,
+  "perVariant": {
+    "A": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 36,
+      "found": 34,
+      "fp": 64,
+      "fp_control": 21,
+      "noise": 2,
+      "companions": 0,
+      "matched_findings": 34,
+      "cost": 1.551208,
+      "out_tok": 27634,
+      "dur": 212131,
+      "byClass": {
+        "cycle": {
+          "seeded": 6,
+          "found": 6
+        },
+        "scattered": {
+          "seeded": 6,
+          "found": 6
+        },
+        "shallow_interface": {
+          "seeded": 6,
+          "found": 4
+        },
+        "pass_through": {
+          "seeded": 6,
+          "found": 6
+        },
+        "leaky_seam": {
+          "seeded": 6,
+          "found": 6
+        },
+        "small_cluster": {
+          "seeded": 6,
+          "found": 6
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 18,
+          "found": 18
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 16
+        }
+      }
+    },
+    "C": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 36,
+      "found": 34,
+      "fp": 65,
+      "fp_control": 23,
+      "noise": 3,
+      "companions": 0,
+      "matched_findings": 34,
+      "cost": 1.832648,
+      "out_tok": 21918,
+      "dur": 176395,
+      "byClass": {
+        "cycle": {
+          "seeded": 6,
+          "found": 6
+        },
+        "small_cluster": {
+          "seeded": 6,
+          "found": 6
+        },
+        "leaky_seam": {
+          "seeded": 6,
+          "found": 6
+        },
+        "pass_through": {
+          "seeded": 6,
+          "found": 6
+        },
+        "scattered": {
+          "seeded": 6,
+          "found": 6
+        },
+        "shallow_interface": {
+          "seeded": 6,
+          "found": 4
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 18,
+          "found": 18
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 16
+        }
+      }
+    },
+    "Cp": {
+      "runs": 16,
+      "control_runs": 4,
+      "seeded": 36,
+      "found": 34,
+      "fp": 88,
+      "fp_control": 30,
+      "noise": 2,
+      "companions": 2,
+      "matched_findings": 34,
+      "cost": 1.870396,
+      "out_tok": 23164,
+      "dur": 175014,
+      "byClass": {
+        "cycle": {
+          "seeded": 6,
+          "found": 6
+        },
+        "small_cluster": {
+          "seeded": 6,
+          "found": 6
+        },
+        "leaky_seam": {
+          "seeded": 6,
+          "found": 6
+        },
+        "pass_through": {
+          "seeded": 6,
+          "found": 6
+        },
+        "scattered": {
+          "seeded": 6,
+          "found": 6
+        },
+        "shallow_interface": {
+          "seeded": 6,
+          "found": 4
+        }
+      },
+      "byCategory": {
+        "flagged": {
+          "seeded": 18,
+          "found": 18
+        },
+        "unflagged": {
+          "seeded": 18,
+          "found": 16
+        }
+      }
+    }
+  },
+  "rates": {
+    "arch-05:cycle": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-05:small_cluster": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-05:leaky_seam": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-04:pass_through": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-04:scattered": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-04:shallow_interface": {
+      "A": 0,
+      "C": 0,
+      "Cp": 0
+    },
+    "arch-03:cycle": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-03:leaky_seam": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-03:small_cluster": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-01:cycle": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-01:scattered": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-01:shallow_interface": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-06:pass_through": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-06:scattered": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-06:shallow_interface": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-02:pass_through": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-02:leaky_seam": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    },
+    "arch-02:small_cluster": {
+      "A": 1,
+      "C": 1,
+      "Cp": 1
+    }
+  },
+  "defectRates": {
+    "arch-05:cycle": {
+      "class": "cycle",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-05:small_cluster": {
+      "class": "small_cluster",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-05:leaky_seam": {
+      "class": "leaky_seam",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-04:pass_through": {
+      "class": "pass_through",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-04:scattered": {
+      "class": "scattered",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-04:shallow_interface": {
+      "class": "shallow_interface",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 0
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 0
+      },
+      "_A": {
+        "n": 2,
+        "hit": 0
+      }
+    },
+    "arch-03:cycle": {
+      "class": "cycle",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-03:leaky_seam": {
+      "class": "leaky_seam",
+      "category": "unflagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-03:small_cluster": {
+      "class": "small_cluster",
+      "category": "flagged",
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-01:cycle": {
+      "class": "cycle",
+      "category": "flagged",
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-01:scattered": {
+      "class": "scattered",
+      "category": "unflagged",
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-01:shallow_interface": {
+      "class": "shallow_interface",
+      "category": "unflagged",
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-06:pass_through": {
+      "class": "pass_through",
+      "category": "flagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-06:scattered": {
+      "class": "scattered",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-06:shallow_interface": {
+      "class": "shallow_interface",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-02:pass_through": {
+      "class": "pass_through",
+      "category": "flagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-02:leaky_seam": {
+      "class": "leaky_seam",
+      "category": "unflagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    },
+    "arch-02:small_cluster": {
+      "class": "small_cluster",
+      "category": "flagged",
+      "_Cp": {
+        "n": 2,
+        "hit": 2
+      },
+      "_A": {
+        "n": 2,
+        "hit": 2
+      },
+      "_C": {
+        "n": 2,
+        "hit": 2
+      }
+    }
+  },
+  "boot": {
+    "recall_ci": {
+      "A": [
+        0.8333333333333334,
+        1
+      ],
+      "C": [
+        0.8333333333333334,
+        1
+      ],
+      "Cp": [
+        0.8333333333333334,
+        1
+      ]
+    },
+    "diff_ci": {
+      "C-A": [
+        0,
+        0
+      ],
+      "Cp-A": [
+        0,
+        0
+      ],
+      "Cp-C": [
+        0,
+        0
+      ]
+    }
+  },
+  "byCategoryBoot": {
+    "flagged": {
+      "recall_ci": {
+        "A": [
+          1,
+          1
+        ],
+        "C": [
+          1,
+          1
+        ],
+        "Cp": [
+          1,
+          1
+        ]
+      },
+      "diff_ci": {
+        "C-A": [
+          0,
+          0
+        ],
+        "Cp-A": [
+          0,
+          0
+        ],
+        "Cp-C": [
+          0,
+          0
+        ]
+      }
+    },
+    "unflagged": {
+      "recall_ci": {
+        "A": [
+          0.6666666666666666,
+          1
+        ],
+        "C": [
+          0.6666666666666666,
+          1
+        ],
+        "Cp": [
+          0.6666666666666666,
+          1
+        ]
+      },
+      "diff_ci": {
+        "C-A": [
+          0,
+          0
+        ],
+        "Cp-A": [
+          0,
+          0
+        ],
+        "Cp-C": [
+          0,
+          0
+        ]
+      }
+    }
+  },
+  "unmatched": [
+    "arch-05/C/1#2",
+    "arch-05/C/1#4",
+    "arch-05/C/1#5",
+    "arch-05/C/1#6",
+    "arch-05/C/2#3",
+    "arch-05/C/2#4",
+    "arch-05/C/2#5",
+    "arch-05/C/2#6",
+    "arch-04/C/2#1",
+    "arch-04/C/2#3",
+    "arch-04/C/2#4",
+    "arch-08/A/2#0",
+    "arch-08/A/2#1",
+    "arch-08/A/2#2",
+    "arch-08/A/2#3",
+    "arch-08/A/2#4",
+    "arch-05/Cp/2#2",
+    "arch-05/Cp/2#5",
+    "arch-05/Cp/2#6",
+    "arch-05/Cp/2#7",
+    "arch-05/Cp/2#8",
+    "arch-03/C/1#2",
+    "arch-03/C/1#4",
+    "arch-01/A/2#2",
+    "arch-01/A/2#4",
+    "arch-07/C/1#0",
+    "arch-07/C/1#1",
+    "arch-07/C/1#2",
+    "arch-07/C/1#3",
+    "arch-07/C/1#4",
+    "arch-07/C/1#5",
+    "arch-03/C/2#1",
+    "arch-03/C/2#4",
+    "arch-07/C/2#0",
+    "arch-07/C/2#1",
+    "arch-07/C/2#2",
+    "arch-07/C/2#3",
+    "arch-07/C/2#4",
+    "arch-07/C/2#5",
+    "arch-07/Cp/1#0",
+    "arch-07/Cp/1#1",
+    "arch-07/Cp/1#2",
+    "arch-07/Cp/1#3",
+    "arch-07/Cp/1#4",
+    "arch-07/Cp/1#5",
+    "arch-07/Cp/1#6",
+    "arch-03/Cp/1#1",
+    "arch-03/Cp/1#4",
+    "arch-03/Cp/1#5",
+    "arch-03/Cp/1#6",
+    "arch-01/C/2#2",
+    "arch-01/C/2#3",
+    "arch-01/C/2#5",
+    "arch-01/C/2#6",
+    "arch-01/C/2#7",
+    "arch-08/Cp/2#0",
+    "arch-08/Cp/2#1",
+    "arch-08/Cp/2#2",
+    "arch-08/Cp/2#3",
+    "arch-08/Cp/2#4",
+    "arch-08/Cp/2#5",
+    "arch-08/Cp/2#6",
+    "arch-08/Cp/2#7",
+    "arch-04/Cp/2#2",
+    "arch-04/Cp/2#3",
+    "arch-04/Cp/2#4",
+    "arch-04/Cp/2#5",
+    "arch-01/C/1#2",
+    "arch-01/C/1#4",
+    "arch-01/C/1#5",
+    "arch-01/C/1#6",
+    "arch-01/C/1#7",
+    "arch-01/Cp/1#2",
+    "arch-01/Cp/1#4",
+    "arch-01/Cp/1#5",
+    "arch-01/Cp/1#6",
+    "arch-01/Cp/1#7",
+    "arch-01/Cp/1#8",
+    "arch-06/Cp/1#0",
+    "arch-06/Cp/1#3",
+    "arch-06/Cp/1#6",
+    "arch-06/Cp/1#7",
+    "arch-06/Cp/1#8",
+    "arch-06/Cp/1#9",
+    "arch-02/Cp/1#3",
+    "arch-02/Cp/1#4",
+    "arch-02/Cp/1#5",
+    "arch-02/Cp/1#6",
+    "arch-02/Cp/1#7",
+    "arch-02/A/2#3",
+    "arch-02/A/2#4",
+    "arch-02/A/2#5",
+    "arch-08/C/1#0",
+    "arch-08/C/1#1",
+    "arch-08/C/1#2",
+    "arch-08/C/1#3",
+    "arch-08/C/1#4",
+    "arch-04/C/1#2",
+    "arch-04/C/1#3",
+    "arch-04/C/1#4",
+    "arch-04/C/1#5",
+    "arch-06/C/1#3",
+    "arch-06/C/1#4",
+    "arch-06/C/1#5",
+    "arch-03/A/2#1",
+    "arch-03/A/2#2",
+    "arch-03/A/2#5",
+    "arch-03/A/2#6",
+    "arch-03/A/2#7",
+    "arch-02/Cp/2#3",
+    "arch-02/Cp/2#4",
+    "arch-02/Cp/2#5",
+    "arch-02/Cp/2#6",
+    "arch-02/Cp/2#7",
+    "arch-06/A/1#0",
+    "arch-06/A/1#3",
+    "arch-06/A/1#5",
+    "arch-07/A/2#0",
+    "arch-07/A/2#1",
+    "arch-07/A/2#2",
+    "arch-07/A/2#3",
+    "arch-07/A/2#4",
+    "arch-07/A/2#5",
+    "arch-07/A/1#0",
+    "arch-07/A/1#1",
+    "arch-07/A/1#2",
+    "arch-07/A/1#3",
+    "arch-02/C/2#3",
+    "arch-02/C/2#4",
+    "arch-02/C/2#5",
+    "arch-02/C/2#6",
+    "arch-02/C/2#7",
+    "arch-07/Cp/2#0",
+    "arch-07/Cp/2#1",
+    "arch-07/Cp/2#2",
+    "arch-07/Cp/2#3",
+    "arch-07/Cp/2#4",
+    "arch-07/Cp/2#5",
+    "arch-07/Cp/2#6",
+    "arch-08/Cp/1#0",
+    "arch-08/Cp/1#1",
+    "arch-08/Cp/1#2",
+    "arch-08/Cp/1#3",
+    "arch-08/Cp/1#4",
+    "arch-08/Cp/1#5",
+    "arch-08/Cp/1#6",
+    "arch-08/Cp/1#7",
+    "arch-06/A/2#1",
+    "arch-06/A/2#4",
+    "arch-06/A/2#5",
+    "arch-06/A/2#6",
+    "arch-06/C/2#1",
+    "arch-06/C/2#4",
+    "arch-06/C/2#5",
+    "arch-03/A/1#1",
+    "arch-03/A/1#4",
+    "arch-03/A/1#5",
+    "arch-05/A/1#2",
+    "arch-05/A/1#4",
+    "arch-05/A/1#5",
+    "arch-05/A/1#6",
+    "arch-05/A/2#3",
+    "arch-05/A/2#4",
+    "arch-05/A/2#5",
+    "arch-05/A/2#6",
+    "arch-05/A/2#7",
+    "arch-08/A/1#0",
+    "arch-08/A/1#1",
+    "arch-08/A/1#2",
+    "arch-08/A/1#3",
+    "arch-08/A/1#4",
+    "arch-08/A/1#5",
+    "arch-04/A/2#1",
+    "arch-04/A/2#2",
+    "arch-04/A/2#4",
+    "arch-02/A/1#3",
+    "arch-02/A/1#4",
+    "arch-02/A/1#5",
+    "arch-02/A/1#6",
+    "arch-01/A/1#2",
+    "arch-01/A/1#3",
+    "arch-01/A/1#4",
+    "arch-02/C/1#3",
+    "arch-02/C/1#4",
+    "arch-04/A/1#1",
+    "arch-04/A/1#3",
+    "arch-04/A/1#4",
+    "arch-04/A/1#5",
+    "arch-08/C/2#0",
+    "arch-08/C/2#1",
+    "arch-08/C/2#2",
+    "arch-08/C/2#3",
+    "arch-08/C/2#4",
+    "arch-08/C/2#5",
+    "arch-04/Cp/1#2",
+    "arch-04/Cp/1#3",
+    "arch-04/Cp/1#4",
+    "arch-04/Cp/1#5",
+    "arch-04/Cp/1#6",
+    "arch-01/Cp/2#2",
+    "arch-01/Cp/2#3",
+    "arch-01/Cp/2#5",
+    "arch-01/Cp/2#6",
+    "arch-06/Cp/2#3",
+    "arch-06/Cp/2#4",
+    "arch-06/Cp/2#6",
+    "arch-06/Cp/2#7",
+    "arch-06/Cp/2#8",
+    "arch-05/Cp/1#2",
+    "arch-05/Cp/1#4",
+    "arch-05/Cp/1#5",
+    "arch-05/Cp/1#6",
+    "arch-05/Cp/1#7",
+    "arch-03/Cp/2#2",
+    "arch-03/Cp/2#3",
+    "arch-03/Cp/2#5",
+    "arch-03/Cp/2#6"
+  ]
+}

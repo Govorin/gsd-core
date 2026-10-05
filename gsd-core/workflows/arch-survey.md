@@ -36,7 +36,7 @@ _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-pars
 METRICS=$(gsd_run arch metrics ${PATHS:+--paths "$PATHS"} ${SINCE:+--since "$SINCE"} ${TOP:+--top "$TOP"} --compare-last)
 ```
 
-If the output starts with `@file:`, read the JSON from that path. Keep from it: `date`, `status`, `reasons`, `hotspotBasis`, `zones` (each with `id`, `seed`, `label`, `files`, `signals`), `comparison`. Set `DATE` to its `date`; every later step passes `--date "$DATE"`, so a survey that runs past midnight stays one survey.
+If the output starts with `@file:`, read the JSON from that path. Keep from it: `date`, `status`, `reasons`, `hotspotBasis`, `zones` (each with `id`, `seed`, `label`, `files`), `comparison`. Set `DATE` to its `date`; every later step passes `--date "$DATE"`, so a survey that runs past midnight stays one survey.
 
 - `zones` empty → there is nothing to survey (no modules in scope). Say so, show `graph.modules`, and stop.
 - `status: degraded` → show `reasons` in one line and continue: a degraded input is named, not hidden (`hotspot-basis:complexity` means the window had no readable history, so zones come from complexity alone).
@@ -53,6 +53,8 @@ REFUTER_MODEL=$(gsd_run query resolve-model gsd-finding-refuter --raw)
 AGENT_SKILLS_SURVEYOR=$(gsd_run query agent-skills gsd-arch-surveyor ${GSD_WS:+--ws=${GSD_WS##* }})
 ```
 
+The metrics choose the zones and stay out of the surveyor prompt: handed to the model, they pull its cards toward the classes they count and away from the ones they cannot see. Cycles, pass-through modules and small-module clusters reach the report from the metrics themselves (`arch report`, "Found by metrics").
+
 Omit the `model` parameter when a resolved value is `inherit` or empty (#2517). Spawn **one `gsd-arch-surveyor` per zone, all in one message, `run_in_background=true`**. Each runs in a fresh context; the orchestrator never reads the zones' code itself.
 
 Print: "Spawning {N} architecture surveyors, one per zone (each runs in a subagent — no output until they return)."
@@ -67,10 +69,6 @@ Agent(
 Survey date: {date}
 Seed: {zone.seed}
 Files: {zone.files, one per line}
-<signals>
-{zone.signals as JSON}
-</signals>
-Per-module rows (loc, fanIn, testFanIn, fanOut, churn, complexity): .planning/architecture/metrics-{date}.json, `modules`
 Direction from the user: {direction, or 'none'}
 Write your cards to: .planning/architecture/survey-{date}/cards-{zone.id}.json
 
@@ -93,7 +91,7 @@ Merge the cards with fixed rules — no agent synthesises them:
 CARDS=$(gsd_run arch cards --date "$DATE")
 ```
 
-The result lists `candidates` (numbered, ordered by strength), `failedCheck` (cards naming files that do not exist), `excludedByDecision` (rejected before, same files and kind), `invalid` (malformed cards) and `refuterInputPath`.
+A card with the kind and files of a structure the metrics found is glued to it (`fromMetrics`) and reported once. The result lists `candidates` (numbered, ordered by strength), `failedCheck` (cards naming files that do not exist), `excludedByDecision` (rejected before, same files and kind), `invalid` (malformed cards) and `refuterInputPath`.
 
 No candidates → skip `refute` and go to `report`.
 </step>
@@ -123,9 +121,9 @@ Write the refuter's reply **verbatim** to `.planning/architecture/survey-{date}/
 REPORT=$(gsd_run arch report --date "$DATE")
 ```
 
-This writes `.planning/architecture/SURVEY-{date}.md` — hot spots, zones with diagrams drawn from the metrics, the surviving cards, the top recommendation, and everything rejected on the way, with the reason. Diagrams come from data; never draw or edit them.
+This writes `.planning/architecture/SURVEY-{date}.md` — hot spots, zones with diagrams drawn from the metrics, the cycles, pass-through modules and small-module clusters the metrics found (`foundByMetrics`), the surviving cards, the top recommendation, and everything rejected on the way, with the reason. Diagrams come from data; never draw or edit them.
 
-Show the user: the verdict, then one line per candidate — `n. [Strength] title — verification (zone)` — and the report path. If `comparison` has a baseline, add one line: what grew since that survey.
+Show the user: the verdict, then one line per candidate — `n. [Strength] title — verification (zone)` — one line with the counts in `foundByMetrics` (cycles, pass-through modules, small-module clusters), and the report path. If `comparison` has a baseline, add one line: what grew since that survey.
 
 `verdict: no-strong-candidates` with no surviving candidate → say plainly that the surveyed zones hold, point at the report, commit (below) and stop. That is a result, not a failure.
 </step>

@@ -26,6 +26,9 @@
  * reproducible. "neutral" is for a restatement or a consequence of a seeded defect the matcher
  * could not tie to it, and for a finding that retracts itself ("…is fine").
  *
+ * The rules above are the 4.9 mode (`plan`). The pocock wave 3 modes `window` and `arch` — read
+ * from ground-truth.json's `mode` — match on file paths instead of plan ids (see MODE below).
+ *
  * Usage: node scripts/experiments/report-ab/score.cjs [--out <dir>] [--runs runs-sonnet.jsonl] [--json <file>]
  */
 
@@ -58,7 +61,99 @@ function covers(defect, finding) {
   return defect.class === 'cycle' ? hit >= 2 : hit === defect.plans.length;
 }
 
-function scoreRun(run, defects, adjudication) {
+// ─── Modes window and arch (pocock wave 3) ───────────────────────────────────
+//
+// A defect names files instead of plan ids. A finding covers it when the paths it names — in
+// `files` or in its description — hit at least `minFiles` of the defect's files. A named path hits
+// a file when it equals it or is a `/`-suffix of it; a bare file name counts only when no other
+// file of the fixture has that name (`service.ts` is ambiguous, `pricing.ts` may not be).
+
+// window: the recurrence itself is the flagged defect, so the underlying bug reported as a plain
+// bug counts only when the finding ties it to the earlier reviews.
+const RECURRENCE_WORDS = /earlier|previous|prior|again|still|recurr|repeat|already (?:flagged|raised|reported|noted)|unresolved|review-only|review only/i;
+
+const WINDOW_ACCEPT = Object.freeze({
+  complexity: new Set(['complexity_growth']),
+  unused_export: new Set(['unused_export']),
+  hotspot: new Set(['churn_hotspot']),
+  recurring: (f) => f.kind === 'recurring_issue'
+    || (['security', 'logic_error', 'contract_violation', 'missing_test', 'other'].includes(f.kind) && RECURRENCE_WORDS.test(String(f.description || ''))),
+  logic: new Set(['logic_error', 'contract_violation', 'security']),
+  // Both copies must be named (minFiles 2); their divergence reported as a bug is the same defect.
+  duplicate: new Set(['duplicated_logic', 'logic_error', 'contract_violation']),
+  contract: new Set(['contract_violation', 'logic_error']),
+});
+
+const ARCH_ACCEPT = Object.freeze({
+  cycle: new Set(['cycle']),
+  pass_through: new Set(['pass-through', 'shallow-module']),
+  small_cluster: new Set(['shallow-module', 'scattered-concept', 'pass-through', 'smeared-change', 'no-locality']),
+  scattered: new Set(['scattered-concept', 'smeared-change', 'no-locality']),
+  leaky_seam: new Set(['leaky-seam', 'untestable-interface']),
+  shallow_interface: new Set(['shallow-module', 'pass-through']),
+});
+
+const PATH_IN_TEXT = /[\w./-]+\.[cm]?[jt]sx?\b/g;
+
+function namedPaths(finding) {
+  const raw = (Array.isArray(finding.files) ? finding.files : []).map(String);
+  for (const m of String(finding.description || '').match(PATH_IN_TEXT) || []) raw.push(m);
+  return [...new Set(raw.map((p) => p.trim().replace(/^\.\//, '').replace(/:\d+(?::\d+)?$/, '')).filter(Boolean))];
+}
+
+function pathHits(named, file, allFiles) {
+  if (named === file || file.endsWith(`/${named}`)) {
+    if (named.includes('/')) return true;
+    return allFiles.filter((f) => f === named || f.endsWith(`/${named}`)).length === 1;
+  }
+  return false;
+}
+
+function coversFiles(defect, finding, allFiles) {
+  const named = namedPaths(finding);
+  const hit = defect.files.filter((file) => named.some((n) => pathHits(n, file, allFiles))).length;
+  return hit >= defect.minFiles;
+}
+
+/** Best fit: the defect whose symbol the finding names, then the larger share of its files covered. */
+function rankFit(defect, finding, allFiles) {
+  const named = namedPaths(finding);
+  const share = defect.files.filter((file) => named.some((n) => pathHits(n, file, allFiles))).length / defect.files.length;
+  const text = `${finding.symbol || ''} ${finding.description || ''}`;
+  return (defect.symbol && text.includes(defect.symbol) ? 1 : 0) + share;
+}
+
+function accepts(accept, cls, finding) {
+  const rule = accept[cls];
+  return typeof rule === 'function' ? rule(finding) : rule.has(finding.kind);
+}
+
+/** Per mode: which kinds are structural claims, which classes accept which kinds, and how a finding covers a defect. */
+const MODE = Object.freeze({
+  plan: { structural: STRUCTURAL, accept: ACCEPT, covers: (d, f) => covers(d, f), categories: ['flagged', 'visible', 'text'] },
+  window: {
+    structural: new Set(['logic_error', 'complexity_growth', 'duplicated_logic', 'unused_export', 'contract_violation', 'churn_hotspot', 'recurring_issue', 'security']),
+    accept: WINDOW_ACCEPT,
+    covers: coversFiles,
+    rank: rankFit,
+    categories: ['flagged', 'unflagged'],
+    // The generator proved the pre-pass reports nothing beyond the seeded flagged defects, so an
+    // unmatched claim of a class the pre-pass measures is false by construction. Unmatched claims
+    // of the other kinds are mostly real latent bugs of the fixture code, shared by all variants.
+    refutable: new Set(['complexity_growth', 'unused_export', 'churn_hotspot', 'recurring_issue']),
+  },
+  arch: {
+    structural: new Set(['shallow-module', 'pass-through', 'scattered-concept', 'no-locality', 'leaky-seam', 'untestable-interface', 'cycle', 'smeared-change']),
+    accept: ARCH_ACCEPT,
+    covers: coversFiles,
+    rank: rankFit,
+    categories: ['flagged', 'unflagged'],
+    // Only `cycle`: a forwarding module over the small bound is a fair pass-through card.
+    refutable: new Set(['cycle']),
+  },
+});
+
+function scoreRun(run, defects, adjudication, mode = MODE.plan, allFiles = []) {
   const found = new Map();
   const fps = [];
   let noise = 0;
@@ -79,12 +174,16 @@ function scoreRun(run, defects, adjudication) {
       if (!found.has(verdict)) found.set(verdict, key);
       return;
     }
-    const matches = (x) => ACCEPT[x.class].has(f.kind) && covers(x, f);
-    const d = defects.find((x) => !found.has(x.key) && matches(x));
+    const matches = (x) => accepts(mode.accept, x.class, f) && mode.covers(x, f, allFiles);
+    const open = defects.filter((x) => !found.has(x.key) && matches(x));
+    // window/arch: a finding naming many files may cover several defects; it goes to the best fit.
+    const d = mode.rank && open.length > 1
+      ? open.reduce((best, x) => (mode.rank(x, f, allFiles) > mode.rank(best, f, allFiles) ? x : best))
+      : open[0];
     if (d) found.set(d.key, key);
     else if (defects.some(matches)) duplicates += 1;
-    else if (defects.some((x) => x.companion && ACCEPT[x.companion.class].has(f.kind) && covers(x.companion, f))) companions += 1;
-    else if (STRUCTURAL.has(f.kind)) fps.push({ key, finding: f, adjudicated: false });
+    else if (defects.some((x) => x.companion && accepts(mode.accept, x.companion.class, f) && mode.covers(x.companion, f, allFiles))) companions += 1;
+    else if (mode.structural.has(f.kind)) fps.push({ key, finding: f, adjudicated: false });
     else noise += 1;
   });
   return { found: new Set(found.keys()), fps, noise, companions: companions + duplicates };
@@ -115,14 +214,15 @@ function bootstrap(rates, variants, iters = 10000, seed = 7) {
   const rnd = mulberry32(seed);
   const keys = Object.keys(rates);
   const draws = Object.fromEntries(variants.map((v) => [v, []]));
-  const diffs = {};
-  for (const v of variants.slice(1)) diffs[`${v}-${variants[0]}`] = [];
+  const pairs = variants.slice(1).map((v) => [v, variants[0]]);
+  if (variants.includes('C') && variants.includes('Cp')) pairs.push(['Cp', 'C']);
+  const diffs = Object.fromEntries(pairs.map(([v, b]) => [`${v}-${b}`, []]));
   for (let it = 0; it < iters; it++) {
     const sample = Array.from({ length: keys.length }, () => keys[Math.floor(rnd() * keys.length)]);
     const mean = (v) => sample.reduce((s, k) => s + rates[k][v], 0) / sample.length;
     const m = Object.fromEntries(variants.map((v) => [v, mean(v)]));
     for (const v of variants) draws[v].push(m[v]);
-    for (const v of variants.slice(1)) diffs[`${v}-${variants[0]}`].push(m[v] - m[variants[0]]);
+    for (const [v, b] of pairs) diffs[`${v}-${b}`].push(m[v] - m[b]);
   }
   const ci = (arr) => {
     const s = [...arr].sort((a, b) => a - b);
@@ -138,6 +238,7 @@ function bootstrap(rates, variants, iters = 10000, seed = 7) {
 
 function score(outDir, runsFile) {
   const truth = JSON.parse(fs.readFileSync(path.join(outDir, 'ground-truth.json'), 'utf8'));
+  const mode = MODE[truth.mode || 'plan'];
   const adjPath = path.join(outDir, 'adjudication.json');
   const model = path.basename(runsFile).replace(/^runs-|\.jsonl$/g, '');
   const adjudication = (fs.existsSync(adjPath) ? JSON.parse(fs.readFileSync(adjPath, 'utf8')) : {})[model] || {};
@@ -161,7 +262,7 @@ function score(outDir, runsFile) {
   for (const r of byKey.values()) {
     const fx = truth.fixtures[r.fixture];
     const pv = perVariant[r.variant];
-    const s = scoreRun(r, fx.defects, adjudication);
+    const s = scoreRun(r, fx.defects, adjudication, mode, fx.files || []);
     pv.runs += 1;
     if (fx.control) pv.control_runs += 1;
     pv.seeded += fx.defects.length;
@@ -169,6 +270,14 @@ function score(outDir, runsFile) {
     pv.matched_findings += s.found.size;
     pv.fp += s.fps.length;
     if (fx.control) pv.fp_control += s.fps.length;
+    if (mode.refutable) {
+      for (const fp of s.fps) {
+        if (!mode.refutable.has(fp.finding.kind)) continue;
+        pv.refuted = (pv.refuted || 0) + 1;
+        pv.refutedByKind = pv.refutedByKind || {};
+        pv.refutedByKind[fp.finding.kind] = (pv.refutedByKind[fp.finding.kind] || 0) + 1;
+      }
+    }
     pv.noise += s.noise;
     pv.companions += s.companions;
     pv.cost += r.cost_usd || 0;
@@ -195,13 +304,13 @@ function score(outDir, runsFile) {
   const boot = Object.keys(rates).length > 0 && variants.length > 1 ? bootstrap(rates, variants) : null;
   const byCategoryBoot = {};
   if (boot) {
-    for (const cat of ['flagged', 'visible', 'text']) {
+    for (const cat of mode.categories) {
       const sub = Object.fromEntries(Object.entries(rates).filter(([k]) => defectRates[k].category === cat));
       if (Object.keys(sub).length > 0) byCategoryBoot[cat] = bootstrap(sub, variants);
     }
   }
 
-  return { variants, failed, perVariant, rates, defectRates, boot, byCategoryBoot, unmatched };
+  return { mode: truth.mode || 'plan', categories: mode.categories, classes: Object.keys(mode.accept), variants, failed, perVariant, rates, defectRates, boot, byCategoryBoot, unmatched };
 }
 
 /** Exact two-sided sign test over the non-tied defects. */
@@ -247,8 +356,15 @@ function print(res) {
         (p.cost / p.runs).toFixed(4), Math.round(p.out_tok / p.runs), (p.dur / p.runs / 1000).toFixed(1)].join(' | '),
     );
   }
+  if (res.mode !== 'plan') {
+    lines.push('(window/arch: "FP" = structural findings matching no seeded defect — mostly real latent issues of the fixture code; "refuted" = those of a kind the pre-pass measures, false by construction)');
+    for (const v of res.variants) {
+      const p = res.perVariant[v];
+      lines.push(`${v}: unseeded findings/run ${(p.fp / p.runs).toFixed(2)}; refuted ${p.refuted || 0} ${JSON.stringify(p.refutedByKind || {})}`);
+    }
+  }
   if (res.boot) for (const [k, ci] of Object.entries(res.boot.diff_ci)) lines.push(`diff ${k}: 95% CI ${ciStr(ci)}`);
-  for (const cat of ['flagged', 'visible', 'text']) {
+  for (const cat of res.categories) {
     const row = res.variants.map((v) => {
       const c = res.perVariant[v].byCategory[cat];
       return c ? `${v} ${c.found}/${c.seeded}` : `${v} -`;
@@ -256,8 +372,7 @@ function print(res) {
     const b = res.byCategoryBoot[cat];
     lines.push(`category ${cat}: ${row.join('  ')}${b ? '  ' + Object.entries(b.diff_ci).map(([k, ci]) => `${k} ${ciStr(ci)}`).join('  ') : ''}`);
   }
-  const classes = Object.keys(ACCEPT);
-  for (const cls of classes) {
+  for (const cls of res.classes) {
     const row = res.variants.map((v) => {
       const c = res.perVariant[v].byClass[cls];
       return c ? `${v} ${c.found}/${c.seeded}` : `${v} -`;
@@ -265,14 +380,17 @@ function print(res) {
     lines.push(`class ${cls}: ${row.join('  ')}`);
   }
   const base = res.variants[0];
-  for (const v of res.variants.slice(1)) {
-    for (const cat of [null, 'flagged', 'visible', 'text']) {
+  const pairs = res.variants.slice(1).map((v) => [v, base]);
+  // window/arch: C′ against C isolates the "checked only these classes" line.
+  if (res.variants.includes('C') && res.variants.includes('Cp')) pairs.push(['Cp', 'C']);
+  for (const [v, base] of pairs) {
+    for (const cat of [null, ...res.categories]) {
       const s = signs(res, v, base, cat);
       lines.push(`per-defect ${v} vs ${base} (${cat || 'all'}): better ${s.up}, worse ${s.down}, same ${s.tie}; sign test p=${s.p.toFixed(3)}`);
     }
   }
   lines.push(`unadjudicated unmatched structural findings: ${res.unmatched.length}`);
-  for (const u of res.unmatched) lines.push(`  ${u.key} ${u.finding.kind} [${u.finding.plans}] ${String(u.finding.description).slice(0, 160)}`);
+  for (const u of res.unmatched) lines.push(`  ${u.key} ${u.finding.kind} [${u.finding.plans || u.finding.files}] ${String(u.finding.description).slice(0, 160)}`);
   return lines.join('\n');
 }
 
@@ -292,4 +410,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { score, scoreRun, ACCEPT };
+module.exports = { score, scoreRun, ACCEPT, WINDOW_ACCEPT, ARCH_ACCEPT, MODE };

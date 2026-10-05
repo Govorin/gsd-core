@@ -17,9 +17,14 @@
  * a few at a time, and appended to <out>/runs-<model>.jsonl as they finish. A rerun skips the
  * (fixture, variant, rep) keys already recorded, so an interrupted batch resumes.
  *
+ * `--mode` picks the artifact and the system prompt: `plan` (4.9, the default: phase plans,
+ * variants A,B,C, ./out), `window` (pocock wave 3: a window of commits, variants A,C,Cp,
+ * ./out-window) or `arch` (pocock wave 3: one zone for the architecture surveyor, variants
+ * A,C,Cp,D,D2, ./out-arch).
+ *
  * Usage:
- *   node scripts/experiments/report-ab/run.cjs [--out <dir>] [--reps 3] [--concurrency 4]
- *        [--fixtures f1,f2] [--variants A,B,C] [--model sonnet] [--runs <file>]
+ *   node scripts/experiments/report-ab/run.cjs [--mode plan|window|arch] [--out <dir>] [--reps 3]
+ *        [--concurrency 4] [--fixtures f1,f2] [--variants A,B,C] [--model sonnet] [--runs <file>]
  */
 
 const fs = require('node:fs');
@@ -41,7 +46,42 @@ const SYSTEM_PROMPT = [
   'plans lists EVERY plan id involved in the problem (e.g. "03-04"); files may be empty.',
 ].join('\n');
 
-const USER_PREFIX = 'Review this artifact.\n\n';
+// Mode `window` (pocock wave 3): the reviewer reads one window of commits — the log, the earlier
+// window reviews, the cumulative diff and the source at the tip — with or without the pre-pass.
+// The kinds name every seeded class, padded with distractors, in no telling order.
+const WINDOW_SYSTEM_PROMPT = [
+  'You review the work that landed on a TypeScript service during one window of commits: the cumulative change across the window, not one commit at a time.',
+  'Find every problem the window introduced or left in place: defects in behaviour, and the cumulative degradation that reviewing one change at a time misses.',
+  'Report only problems the artifact itself supports; do not invent any. If there are none, return an empty list.',
+  '',
+  'Answer with ONLY a JSON object, no prose and no code fence:',
+  '{"findings":[{"kind":"<kind>","files":["<path>",...],"symbol":"<function or export name, or empty>","description":"<one sentence>"}]}',
+  '',
+  'kind is exactly one of: logic_error, complexity_growth, duplicated_logic, unused_export, contract_violation,',
+  'churn_hotspot, recurring_issue, security, naming, missing_test, style, other.',
+  'files lists EVERY file involved in the problem, as repository paths (e.g. "src/orders/service.ts").',
+].join('\n');
+
+// Mode `arch`: the surveyor's role from agents/gsd-arch-surveyor.md, condensed, with its card
+// vocabulary as the closed kind list. The metrics (and the "checked only" block) are variant data.
+const ARCH_SYSTEM_PROMPT = [
+  'You survey one zone of a TypeScript codebase and note where its structure makes change expensive: where understanding one concept means bouncing between many small modules, where a module\'s interface is nearly as complex as its implementation, where a seam leaks.',
+  'Turn what you find into candidates for deepening — refactors that put more behaviour behind a smaller interface. One candidate per problem; two problems over the same files are two candidates only if they are different kinds of friction.',
+  'Report only problems the artifact itself supports. "Nothing strong here" is a full result: return an empty list rather than manufacture a candidate.',
+  '',
+  'Answer with ONLY a JSON object, no prose and no code fence:',
+  '{"findings":[{"kind":"<kind>","files":["<path>",...],"strength":"strong|worth-exploring|speculative","description":"<one sentence: the friction and what deepening would buy>"}]}',
+  '',
+  'kind is exactly one of: shallow-module, pass-through, scattered-concept, no-locality, leaky-seam, untestable-interface, cycle, smeared-change, other.',
+  'files lists EVERY module involved, as repository paths (e.g. "src/orders/service.ts").',
+].join('\n');
+
+const MODES = Object.freeze({
+  plan: { systemPrompt: SYSTEM_PROMPT, userPrefix: 'Review this artifact.\n\n', out: 'out', variants: 'A,B,C' },
+  window: { systemPrompt: WINDOW_SYSTEM_PROMPT, userPrefix: 'Review this artifact.\n\n', out: 'out-window', variants: 'A,C,Cp' },
+  arch: { systemPrompt: ARCH_SYSTEM_PROMPT, userPrefix: 'Survey this zone.\n\n', out: 'out-arch', variants: 'A,C,Cp,D,D2' },
+});
+
 const RUN_TIMEOUT_MS = 300_000;
 
 function args(argv) {
@@ -49,12 +89,18 @@ function args(argv) {
     const i = argv.indexOf(flag);
     return i > -1 ? argv[i + 1] : dflt;
   };
+  const modeName = get('--mode', 'plan');
+  const mode = MODES[modeName];
+  if (!mode) throw new Error(`--mode must be one of ${Object.keys(MODES).join(', ')}, got ${modeName}`);
   return {
-    out: path.resolve(get('--out', path.join(__dirname, 'out'))),
+    mode: modeName,
+    systemPrompt: mode.systemPrompt,
+    userPrefix: mode.userPrefix,
+    out: path.resolve(get('--out', path.join(__dirname, mode.out))),
     reps: Number(get('--reps', '3')),
     concurrency: Number(get('--concurrency', '4')),
     fixtures: get('--fixtures', null),
-    variants: get('--variants', 'A,B,C').split(','),
+    variants: get('--variants', mode.variants).split(','),
     model: get('--model', 'sonnet'),
     seed: Number(get('--seed', '49')),
     runs: get('--runs', null),
@@ -95,7 +141,7 @@ function runOne(job, opts) {
     '--tools', '',
     '--strict-mcp-config',
     '--setting-sources', '',
-    '--system-prompt', SYSTEM_PROMPT,
+    '--system-prompt', opts.systemPrompt,
     '--no-session-persistence',
     '--output-format', 'json',
     '--max-budget-usd', '1',
@@ -138,7 +184,7 @@ function runOne(job, opts) {
         stderr: stderr.slice(0, 2000),
       });
     });
-    child.stdin.end(USER_PREFIX + job.report);
+    child.stdin.end(opts.userPrefix + job.report);
   });
 }
 
@@ -195,4 +241,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { SYSTEM_PROMPT, parseFindings };
+module.exports = { SYSTEM_PROMPT, WINDOW_SYSTEM_PROMPT, ARCH_SYSTEM_PROMPT, MODES, parseFindings };

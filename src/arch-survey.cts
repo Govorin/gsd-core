@@ -91,7 +91,11 @@ export interface Card {
   strength: Strength;
   deletionTest: { result: DeletionResult; evidence: string };
   adrConflict: string | null;
-  /** True when the card's class was one the metrics highlighted for this zone. */
+  /**
+   * True when the card has the kind and the file set of a structure `arch metrics` found (see
+   * `foundByMetrics`): one candidate, glued to that finding, never listed twice. Set by
+   * `collectCandidates`, not by the surveyor.
+   */
   fromMetrics: boolean;
 }
 
@@ -230,7 +234,7 @@ function validateCard(raw: unknown): { card: Card | null; problems: string[] } {
       strength: c['strength'] as Strength,
       deletionTest,
       adrConflict: nonEmptyString(c['adrConflict']) ? oneLine(c['adrConflict']) : null,
-      fromMetrics: c['fromMetrics'] === true,
+      fromMetrics: false,
     },
     problems: [],
   };
@@ -283,7 +287,10 @@ export function collectCandidates(input: {
   zones: readonly Zone[];
   sources: readonly CardSource[];
   decisions: readonly DecisionEntry[];
+  /** The metrics of the survey: a card with the signature of a structure they found is glued to it. */
+  metrics?: Pick<ArchMetrics, 'cycles' | 'passThrough' | 'smallClusters'>;
 }): CandidateSet {
+  const counted = input.metrics === undefined ? new Set<string>() : metricsFindingIds(input.metrics);
   const zoneOrder = new Map(input.zones.map((z, i) => [z.id, i]));
   const decisionById = new Map(input.decisions.map((d) => [d.id, d]));
   const invalid: InvalidCard[] = [];
@@ -354,6 +361,7 @@ export function collectCandidates(input: {
         id,
         zone: src.zone,
         alsoFrom: [],
+        fromMetrics: counted.has(id),
         demoted,
         priorDecision: prior?.disposition ?? null,
         order: [zoneOrder.get(src.zone) as number, index],
@@ -619,6 +627,44 @@ const REPORT_HOTSPOTS = 10;
 
 export type ZoneOutcome = 'candidates' | 'no-strong-candidates' | 'missing' | 'invalid';
 
+/**
+ * The structures `arch metrics` finds by counting, reported as found without a surveyor. The
+ * surveyor prompt leaves them out: handed to the model, the metrics pulled cards toward these
+ * classes and away from the ones counting cannot see (pocock wave 3 eval).
+ */
+interface Glue {
+  /** The candidate id a card about this structure has: a cycle over its members, a pass-through over its module, a cluster as a shallow module over its modules. */
+  id: string;
+  /** The id of the kept card glued to it, or null when no surveyor carded it. */
+  carded: string | null;
+}
+
+export interface FoundByMetrics {
+  cycles: Array<ArchMetrics['cycles'][number] & Glue>;
+  passThrough: Array<ArchMetrics['passThrough'][number] & Glue>;
+  smallClusters: Array<ArchMetrics['smallClusters'][number] & Glue>;
+}
+
+type CountedStructures = Pick<ArchMetrics, 'cycles' | 'passThrough' | 'smallClusters'>;
+
+export function foundByMetrics(metrics: CountedStructures, cardedIds: ReadonlySet<string> = new Set()): FoundByMetrics {
+  const glue = (kind: ProblemKind, files: readonly string[]): Glue => {
+    const id = candidateId(kind, files);
+    return { id, carded: cardedIds.has(id) ? id : null };
+  };
+  return {
+    cycles: (metrics.cycles ?? []).map((c) => ({ members: [...c.members], runtime: c.runtime, ...glue('cycle', c.members) })),
+    passThrough: (metrics.passThrough ?? []).map((p) => ({ ...p, ...glue('pass-through', [p.file]) })),
+    smallClusters: (metrics.smallClusters ?? []).map((c) => ({ dir: c.dir, modules: [...c.modules], ...glue('shallow-module', c.modules) })),
+  };
+}
+
+/** The candidate ids of every structure the metrics found — what a duplicate card would be. */
+export function metricsFindingIds(metrics: CountedStructures): Set<string> {
+  const f = foundByMetrics(metrics);
+  return new Set([...f.cycles, ...f.passThrough, ...f.smallClusters].map((x) => x.id));
+}
+
 /** The survey report as data — `renderSurvey` only formats it. */
 export interface SurveyDoc {
   date: string;
@@ -637,6 +683,7 @@ export interface SurveyDoc {
   comparison: Comparison | null;
   hotspots: ArchMetrics['hotspots'];
   zones: Array<{ id: string; seed: string; label: string; files: string[]; score: number; outcome: ZoneOutcome; diagram: FlowchartSpec }>;
+  foundByMetrics: FoundByMetrics;
   kept: Array<{ candidate: Candidate; verification: Verification; diagram: FlowchartSpec }>;
   top: string | null;
   rejected: Array<{ id: string; title: string; reason: 'refuted' | 'missing-files'; detail: string }>;
@@ -680,6 +727,7 @@ export function buildSurvey(input: {
       id: z.id, seed: z.seed, label: z.label, files: [...z.files], score: z.score,
       outcome: outcomeOf(z.id), diagram: structureSpec(metrics, z.files),
     })),
+    foundByMetrics: foundByMetrics(metrics, new Set(kept.map((p) => p.candidate.id))),
     kept: kept.map((p) => ({
       ...p,
       diagram: structureSpec(metrics, p.candidate.files, neighbours(metrics, p.candidate.files, CANDIDATE_CONTEXT_CAP)),
@@ -756,6 +804,15 @@ export function renderSurvey(doc: SurveyDoc): string {
   out.push('');
   for (const z of doc.zones) out.push(`### ${z.id} — \`${z.label}\``, '', fence(flowchart(z.diagram)), '');
 
+  const found = doc.foundByMetrics;
+  out.push('## Found by metrics', '', 'Counted by `gsd-tools arch metrics`, not by a surveyor: each is a structure that exists, not a verdict on it.', '');
+  const carded = (g: Glue): string => (g.carded === null ? '' : ` — carded below as \`${g.carded}\``);
+  for (const c of found.cycles) out.push(`- Import cycle${c.runtime ? '' : ' (type-only)'}: ${code(c.members)}${carded(c)}`);
+  for (const p of found.passThrough) out.push(`- Pass-through module: \`${p.file}\` (${p.loc} lines) — its only importer \`${p.importer}\`, its only import \`${p.target}\`${carded(p)}`);
+  for (const c of found.smallClusters) out.push(`- Small-module cluster in \`${c.dir}\`: ${code(c.modules)}${carded(c)}`);
+  if (found.cycles.length + found.passThrough.length + found.smallClusters.length === 0) out.push('None: no import cycle, pass-through module or small-module cluster in scope.');
+  out.push('');
+
   out.push('## Candidates', '');
   if (doc.kept.length === 0) out.push('No candidate survived. The zones above were surveyed and nothing earned a card.', '');
   for (const { candidate: c, verification: v, diagram } of doc.kept) {
@@ -775,6 +832,7 @@ export function renderSurvey(doc: SurveyDoc): string {
       ...(c.tests !== '' ? [`**Tests.** ${c.tests}`, ''] : []),
       `**Deletion test:** ${c.deletionTest.result}${c.deletionTest.evidence !== '' ? ` — ${c.deletionTest.evidence}` : ''}`,
       '',
+      ...(c.fromMetrics ? ['_The metrics found this structure too (same kind, same files): one candidate, listed once._', ''] : []),
       ...(c.demoted !== null ? ['_Proposed as Strong without a deletion test that concentrates complexity — shown as Worth exploring._', ''] : []),
       ...(c.adrConflict !== null ? [`> **ADR conflict:** ${c.adrConflict}`, ''] : []),
       ...(c.priorDecision !== null ? [`_Already decided: ${c.priorDecision}._`, ''] : []),

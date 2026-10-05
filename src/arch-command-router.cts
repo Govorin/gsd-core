@@ -326,6 +326,7 @@ function handleCards(args: string[], ctx: Ctx, out: (v: unknown, rawText: string
     zones: metrics.zones,
     sources: archSurvey.readCardSources(dir),
     decisions,
+    metrics,
   });
   const candidatesFile = path.join(dir, 'candidates.json');
   const refuterFile = path.join(dir, 'refuter-input.md');
@@ -370,6 +371,13 @@ function handleReport(args: string[], ctx: Ctx, out: (v: unknown, rawText: strin
     candidates: set.candidates.map((c, i) => ({
       n: i + 1, id: c.id, title: c.title, strength: c.strength, kind: c.kind, zone: c.zone, verification: verification[i].verdict,
     })),
+    foundByMetrics: {
+      cycles: doc.foundByMetrics.cycles.map((c) => c.members),
+      passThrough: doc.foundByMetrics.passThrough.map((p) => p.file),
+      smallClusters: doc.foundByMetrics.smallClusters.map((c) => c.dir),
+      carded: [...doc.foundByMetrics.cycles, ...doc.foundByMetrics.passThrough, ...doc.foundByMetrics.smallClusters]
+        .flatMap((g) => (g.carded === null ? [] : [g.carded])),
+    },
     adrDirectory: fs.existsSync(path.join(ctx.cwd, ADR_DIRECTORY)),
   };
   out(result, `arch report ${metrics.date}: ${doc.verdict}, top=${doc.top ?? 'none'} → ${result.path}\n`);

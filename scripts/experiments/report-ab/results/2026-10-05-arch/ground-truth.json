@@ -1,0 +1,528 @@
+{
+  "mode": "arch",
+  "generated_by": "scripts/experiments/report-ab/fixtures-arch.cjs",
+  "metrics_date": "2026-10-01",
+  "since": "2026-08-01",
+  "fixtures": {
+    "arch-01": {
+      "control": false,
+      "domain": "shop",
+      "head": "7f7a3fdc5442c0bfdec932a214f2288f330afe3a",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/customer/profile.ts",
+        "src/customer/service.ts",
+        "src/db/connection.ts",
+        "src/db/customer-store.ts",
+        "src/db/order-store.ts",
+        "src/http/customer-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/order-handlers.ts",
+        "src/http/router.ts",
+        "src/invoice/builder.ts",
+        "src/invoice/renderer.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/order/pricing.ts",
+        "src/order/service.ts",
+        "src/order/validation.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-01:cycle",
+          "class": "cycle",
+          "category": "flagged",
+          "variant": "cycle-a",
+          "files": [
+            "src/order/service.ts",
+            "src/customer/service.ts"
+          ],
+          "minFiles": 2,
+          "description": "order service imports the customer service (isActiveCustomer) and the customer service imports the order service (isOpen): a runtime import cycle"
+        },
+        {
+          "key": "arch-01:scattered",
+          "class": "scattered",
+          "category": "unflagged",
+          "variant": "scattered-b",
+          "files": [
+            "src/jobs/reminders.ts",
+            "src/invoice/renderer.ts",
+            "src/customer/profile.ts"
+          ],
+          "minFiles": 2,
+          "description": "the payment deadline (issue/change date + payment term, off the weekend) is computed three times with different rules: reminders (calendar days, Sunday→Monday), renderer (business days), profile (calendar days, UTC weekend skip)"
+        },
+        {
+          "key": "arch-01:shallow_interface",
+          "class": "shallow_interface",
+          "category": "unflagged",
+          "variant": "shallow-a",
+          "files": [
+            "src/config/settings.ts"
+          ],
+          "minFiles": 1,
+          "description": "Config exposes one getter per setting (plus setters): its interface is as wide as its implementation and hides nothing"
+        }
+      ]
+    },
+    "arch-02": {
+      "control": false,
+      "domain": "library",
+      "head": "24c406b21d8fa1dd8991128a1a7f59b7fdc8b184",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/db/connection.ts",
+        "src/db/loan-store.ts",
+        "src/db/member-store.ts",
+        "src/http/loan-handlers.ts",
+        "src/http/member-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/router.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/loan/gateway.ts",
+        "src/loan/pricing.ts",
+        "src/loan/service.ts",
+        "src/loan/validation.ts",
+        "src/member/profile.ts",
+        "src/member/service.ts",
+        "src/notice/builder.ts",
+        "src/notice/numbering/format.ts",
+        "src/notice/numbering/pad.ts",
+        "src/notice/numbering/prefix.ts",
+        "src/notice/numbering/sequence.ts",
+        "src/notice/renderer.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-02:pass_through",
+          "class": "pass_through",
+          "category": "flagged",
+          "variant": "pass-a",
+          "files": [
+            "src/loan/gateway.ts"
+          ],
+          "minFiles": 1,
+          "description": "LoanGateway forwards find/list/save one-to-one to LoanStore; its only importer is the loan service"
+        },
+        {
+          "key": "arch-02:leaky_seam",
+          "class": "leaky_seam",
+          "category": "unflagged",
+          "variant": "leaky-b",
+          "files": [
+            "src/db/member-store.ts"
+          ],
+          "minFiles": 1,
+          "description": "MemberStore returns raw QueryResult rows and updates by column name; callers check rowCount and read full_name/email columns"
+        },
+        {
+          "key": "arch-02:small_cluster",
+          "class": "small_cluster",
+          "category": "flagged",
+          "variant": "cluster-b",
+          "files": [
+            "src/notice/numbering/prefix.ts",
+            "src/notice/numbering/sequence.ts",
+            "src/notice/numbering/pad.ts",
+            "src/notice/numbering/format.ts"
+          ],
+          "minFiles": 2,
+          "description": "notice numbering (prefix, running sequence, padding, formatting) is cut into four tiny modules under notice/numbering"
+        }
+      ]
+    },
+    "arch-03": {
+      "control": false,
+      "domain": "clinic",
+      "head": "5935d51c4db82828a0fb3fc44df77ccab41d30a5",
+      "files": [
+        "src/appointment/pricing.ts",
+        "src/appointment/service.ts",
+        "src/appointment/validation.ts",
+        "src/audit/log.ts",
+        "src/bill/builder.ts",
+        "src/bill/renderer.ts",
+        "src/config/settings.ts",
+        "src/db/appointment-store.ts",
+        "src/db/connection.ts",
+        "src/db/patient-store.ts",
+        "src/http/appointment-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/patient-handlers.ts",
+        "src/http/router.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/patient/contact/display.ts",
+        "src/patient/contact/email.ts",
+        "src/patient/contact/normalize.ts",
+        "src/patient/contact/phone.ts",
+        "src/patient/profile.ts",
+        "src/patient/service.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-03:cycle",
+          "class": "cycle",
+          "category": "flagged",
+          "variant": "cycle-b",
+          "files": [
+            "src/bill/builder.ts",
+            "src/appointment/pricing.ts"
+          ],
+          "minFiles": 2,
+          "description": "the bill builder imports appointment pricing and pricing imports describeLine back from the builder: a runtime import cycle"
+        },
+        {
+          "key": "arch-03:leaky_seam",
+          "class": "leaky_seam",
+          "category": "unflagged",
+          "variant": "leaky-c",
+          "files": [
+            "src/notify/mailer.ts"
+          ],
+          "minFiles": 1,
+          "description": "the mailer exposes the SMTP transaction (raw RFC 5322 message, reply codes); the reminder job builds headers and interprets 4xx/550 codes itself"
+        },
+        {
+          "key": "arch-03:small_cluster",
+          "class": "small_cluster",
+          "category": "flagged",
+          "variant": "cluster-c",
+          "files": [
+            "src/patient/contact/email.ts",
+            "src/patient/contact/phone.ts",
+            "src/patient/contact/normalize.ts",
+            "src/patient/contact/display.ts"
+          ],
+          "minFiles": 2,
+          "description": "patient contact normalisation (email, phone, whitespace, display line) is cut into four tiny modules under patient/contact"
+        }
+      ]
+    },
+    "arch-04": {
+      "control": false,
+      "domain": "fleet",
+      "head": "fa55e58ee4ce9fea46fb32697fd9e520615b0f58",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/db/connection.ts",
+        "src/db/driver-store.ts",
+        "src/db/trip-store.ts",
+        "src/driver/profile.ts",
+        "src/driver/service.ts",
+        "src/http/driver-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/router.ts",
+        "src/http/trip-handlers.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/manifest/builder.ts",
+        "src/manifest/renderer.ts",
+        "src/notify/dispatch.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts",
+        "src/trip/pricing.ts",
+        "src/trip/service.ts",
+        "src/trip/validation.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-04:pass_through",
+          "class": "pass_through",
+          "category": "flagged",
+          "variant": "pass-b",
+          "files": [
+            "src/notify/dispatch.ts"
+          ],
+          "minFiles": 1,
+          "description": "notify/dispatch only forwards to mailer.sendTemplate with a fixed template kind; its only importer is the reminder job"
+        },
+        {
+          "key": "arch-04:scattered",
+          "class": "scattered",
+          "category": "unflagged",
+          "variant": "scattered-c",
+          "files": [
+            "src/driver/service.ts",
+            "src/http/driver-handlers.ts",
+            "src/jobs/scheduler.ts"
+          ],
+          "minFiles": 2,
+          "description": "whether a driver is still active is decided three ways: the service (expiry + grace days), the handlers (expiry + one day), the scheduler (expiry before start of day)"
+        },
+        {
+          "key": "arch-04:shallow_interface",
+          "class": "shallow_interface",
+          "category": "unflagged",
+          "variant": "shallow-b",
+          "files": [
+            "src/audit/log.ts"
+          ],
+          "minFiles": 1,
+          "description": "AuditLog has one one-line method per audited event, each forwarding to write(): the interface grows with every event and hides nothing"
+        }
+      ]
+    },
+    "arch-05": {
+      "control": false,
+      "domain": "library",
+      "head": "e381c1ec96aa41f3dc1ab79ea09bea94b9924d7c",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/db/connection.ts",
+        "src/db/loan-store.ts",
+        "src/db/member-store.ts",
+        "src/http/loan-handlers.ts",
+        "src/http/member-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/router.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/loan/pricing.ts",
+        "src/loan/service.ts",
+        "src/loan/status/can-transition.ts",
+        "src/loan/status/is-terminal.ts",
+        "src/loan/status/label.ts",
+        "src/loan/status/states.ts",
+        "src/loan/validation.ts",
+        "src/member/profile.ts",
+        "src/member/service.ts",
+        "src/notice/builder.ts",
+        "src/notice/renderer.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-05:cycle",
+          "class": "cycle",
+          "category": "flagged",
+          "variant": "cycle-c",
+          "files": [
+            "src/notify/mailer.ts",
+            "src/jobs/reminders.ts",
+            "src/audit/log.ts"
+          ],
+          "minFiles": 2,
+          "description": "reminders → mailer (sendTemplate) → audit log (record) → reminders (scheduleFollowUp): a three-module runtime cycle"
+        },
+        {
+          "key": "arch-05:small_cluster",
+          "class": "small_cluster",
+          "category": "flagged",
+          "variant": "cluster-a",
+          "files": [
+            "src/loan/status/states.ts",
+            "src/loan/status/is-terminal.ts",
+            "src/loan/status/can-transition.ts",
+            "src/loan/status/label.ts"
+          ],
+          "minFiles": 2,
+          "description": "the loan status lifecycle (states, terminal check, allowed transitions, labels) is cut into four tiny modules under loan/status"
+        },
+        {
+          "key": "arch-05:leaky_seam",
+          "class": "leaky_seam",
+          "category": "unflagged",
+          "variant": "leaky-a",
+          "files": [
+            "src/db/loan-store.ts"
+          ],
+          "minFiles": 1,
+          "description": "LoanStore hands out driver rows (snake_case columns, items_json) and takes SQL WHERE fragments; the service and the reminder job build SQL and re-map rows themselves"
+        }
+      ]
+    },
+    "arch-06": {
+      "control": false,
+      "domain": "clinic",
+      "head": "a000d1aff215e119557a50412679b97915b57991",
+      "files": [
+        "src/appointment/pricing.ts",
+        "src/appointment/service.ts",
+        "src/appointment/validation.ts",
+        "src/audit/log.ts",
+        "src/bill/builder.ts",
+        "src/bill/export.ts",
+        "src/bill/renderer.ts",
+        "src/config/settings.ts",
+        "src/db/appointment-store.ts",
+        "src/db/connection.ts",
+        "src/db/patient-store.ts",
+        "src/http/appointment-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/patient-handlers.ts",
+        "src/http/router.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/patient/profile.ts",
+        "src/patient/service.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": [
+        {
+          "key": "arch-06:pass_through",
+          "class": "pass_through",
+          "category": "flagged",
+          "variant": "pass-c",
+          "files": [
+            "src/bill/export.ts"
+          ],
+          "minFiles": 1,
+          "description": "bill/export only picks renderText or renderHtml from the renderer; its only importer is the appointment handlers"
+        },
+        {
+          "key": "arch-06:scattered",
+          "class": "scattered",
+          "category": "unflagged",
+          "variant": "scattered-a",
+          "files": [
+            "src/appointment/pricing.ts",
+            "src/bill/builder.ts",
+            "src/http/appointment-handlers.ts"
+          ],
+          "minFiles": 2,
+          "description": "rounding money to cents is implemented three times, differently: Math.round in pricing, Math.round with EPSILON in the builder, Math.trunc in the handlers"
+        },
+        {
+          "key": "arch-06:shallow_interface",
+          "class": "shallow_interface",
+          "category": "unflagged",
+          "variant": "shallow-c",
+          "files": [
+            "src/patient/profile.ts"
+          ],
+          "minFiles": 1,
+          "description": "PatientProfile is a getter/setter per field over the entity: an interface as complex as its implementation"
+        }
+      ]
+    },
+    "arch-07": {
+      "control": true,
+      "domain": "fleet",
+      "head": "8a09f47c05fe56c0809741b20b2bb4de06b5ec2d",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/db/connection.ts",
+        "src/db/driver-store.ts",
+        "src/db/trip-store.ts",
+        "src/driver/profile.ts",
+        "src/driver/service.ts",
+        "src/http/driver-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/router.ts",
+        "src/http/trip-handlers.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/manifest/builder.ts",
+        "src/manifest/renderer.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts",
+        "src/trip/pricing.ts",
+        "src/trip/service.ts",
+        "src/trip/validation.ts"
+      ],
+      "defects": []
+    },
+    "arch-08": {
+      "control": true,
+      "domain": "shop",
+      "head": "2f796a9de56e8369bf0ee6150ff7584ef063c0ac",
+      "files": [
+        "src/audit/log.ts",
+        "src/config/settings.ts",
+        "src/customer/profile.ts",
+        "src/customer/service.ts",
+        "src/db/connection.ts",
+        "src/db/customer-store.ts",
+        "src/db/order-store.ts",
+        "src/http/customer-handlers.ts",
+        "src/http/middleware.ts",
+        "src/http/order-handlers.ts",
+        "src/http/router.ts",
+        "src/invoice/builder.ts",
+        "src/invoice/renderer.ts",
+        "src/jobs/reminders.ts",
+        "src/jobs/scheduler.ts",
+        "src/notify/mailer.ts",
+        "src/notify/templates.ts",
+        "src/order/pricing.ts",
+        "src/order/service.ts",
+        "src/order/validation.ts",
+        "src/shared/errors.ts",
+        "src/shared/types.ts"
+      ],
+      "defects": []
+    }
+  },
+  "report_sha256": {
+    "arch-01/A": "35c6acff35f2c8cefb1b0d1b72c1aef58233d50baaafa4a5a7c3123abc31936a",
+    "arch-01/C": "6412caede1a44b80b4b83b5e038e99482942283a3bbbed64c7fb31c2cecc1545",
+    "arch-01/Cp": "58fbd9050a33bdf9d8bd1d94eb6b798d4f961203271791065f1d4ccabfd7f9ed",
+    "arch-01/D": "0ff28bc99df510ed9eaf27afe4b459f4c1d01b728e7a8ccb7c0bd93dec67cd43",
+    "arch-01/D2": "dae365575d27f6091de1df141efd465187b7581f4e0cbfa30a612cbf094b7893",
+    "arch-02/A": "4a14e2d1e14c0504f4998c160f78974d4223b9b3c103f110992bfc2e38e272c1",
+    "arch-02/C": "857a443bf1254304aa7908b19acb7a3698492f9506f9b9ec51672613bfe24042",
+    "arch-02/Cp": "d9ee24d573085bc49828eab5ffa24bb85ba2cce462036a633294ab79557edf90",
+    "arch-02/D": "c747d58a79556992c53545b9f6c6b2e667283ac8f012b704007c34426118b12e",
+    "arch-02/D2": "fdee3249c615748cc28a09b34510ac5eca00f449e8de93dac4b9cba3a2776f94",
+    "arch-03/A": "7f930d65269214aaeb2a8edb8150a7ae365d1014509cff3265e1fdd52afece0d",
+    "arch-03/C": "a781de58316d49062ed68d3e49a4d82eeff282a3d7e7d445b7f6215472828de5",
+    "arch-03/Cp": "eb4c64c85cdc996f03acb56f71223c52946ce5938f92271ddadbc815b9c7e60d",
+    "arch-03/D": "ce75ba5823118484961a4a4ea8a6d02c155282020db7c5f069b3ae69563f80f1",
+    "arch-03/D2": "a1c4b2ba7b33cc29e791dcd2e7a00758e53cc7c4cb9ab64a4583b7d2195e0dcb",
+    "arch-04/A": "07bb5451bb47eb9d7c4ca9b6b00b73462df8be796c651a40a1967c937823ee26",
+    "arch-04/C": "a2318f93e61ace54f955f03b49aa47f27299bffec1654b281c1d89f7be61cf3d",
+    "arch-04/Cp": "df744ade59df80c3d0296cc0bf7b81d54c58cabc34f20059fb35ed3f8f446849",
+    "arch-04/D": "4f7e38e9144c36bf1a64cb1d602425c7335de0ec6d343de5ad77047fd4946326",
+    "arch-04/D2": "6b11f4019c00b25de486d6fb079b9273833a5ea6233d51591615a71b410ea4f4",
+    "arch-05/A": "8780244ba7870049685855c000f53bfda36ca3c99ba58212b9935322d95cae62",
+    "arch-05/C": "caa0c065d72fcfed813bfb31e903f7cfaf17390ac7af90201a3dd4c511d85bf6",
+    "arch-05/Cp": "08f749ef075249d5bcf0cfa67b26c72fb63d7837fd862860a68c7511719cbfcb",
+    "arch-05/D": "ed1c6c1149c53a1672a5cb55ae321077a8990ea7a57f1f8464cf3baf6d329617",
+    "arch-05/D2": "b1ea133ad817103b4d83b5b86b4087dc7b4b4153be227b435a05cce9465d0f2a",
+    "arch-06/A": "68a0e2476c307f7bf63850e333b84e234459c5eee3a91523dd145fcd30da7ed5",
+    "arch-06/C": "4f4c1f1ba1449ee99608f801f27d92602069e11b055ebe290ad0e7fb88c27f2b",
+    "arch-06/Cp": "38ed80cdc7f2d89a993924ee00905301e3ba12cf8e6ecdde4d435862398df43d",
+    "arch-06/D": "88892c701815a2b5b0099159a671ffbab2a31858a1b72e98917e1bb0a1d8aa2d",
+    "arch-06/D2": "7f625291c3defdba03374b11496001da63d9d32955b21adf187c83bedb93fa28",
+    "arch-07/A": "b7913e6997eaeee8853532d0c98aaa8407b0c432bcd45f62b63689de98e6e044",
+    "arch-07/C": "aa604d3f2adb4c0eda3dcd6c46e5f1924dd2be99e8d324b99bccf4c1f7b6f16c",
+    "arch-07/Cp": "ac831ae9625028cc3ece6c3a836300cfb6fb61c75229b520c13cf617f79a923b",
+    "arch-07/D": "e2f9f3f444db1b9bd1ba88540802f1521dc48c796c31f0eebd7888e4929f99b0",
+    "arch-07/D2": "cf0f7c6dd589b1ef0522b44d46085f4cdb9d9bac525ddd583f952eed9aa937e7",
+    "arch-08/A": "424b9c61e728d574731b14597b0061056453b79f99da2574b4dc18d1a7cc7f32",
+    "arch-08/C": "165db6cfac0945db6ccc0d8c6c36617d89e115aa961a9245cd980274d399e3e0",
+    "arch-08/Cp": "cc9135cd384dca6522e6ab8744dafb417457cb6487da79324e629c6058808fb5",
+    "arch-08/D": "e5dd506ffbad581b34a268d25bc5de7df202a4ca6c4dc46f18238a2fc929f7fc",
+    "arch-08/D2": "c19a4863dfec0f881a02a4ee25819d8d3999d0edf9fd3dfa7b3c529521b0434c"
+  }
+}
