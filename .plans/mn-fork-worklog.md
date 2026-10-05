@@ -794,7 +794,8 @@ The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
   birth. Growth keys on files that exist upstream, and arch-survey is fork-new. The
   commit recording this entry withdraws it.
 - `lint-fix-has-regression-tests`, `lint-example-parser-parity`, `lint-no-adhoc-regex-escape`
-  were listed as failing too, but each exits 0 on `62cfcf0bf` and after. No change.
+  were listed as failing too: an artifact of the step loop (`tr '\x01'` mangled the
+  script names). Each exits 0 on `62cfcf0bf` and after. No change.
 - **Checks:** emitted-attribution vs `merge-base(HEAD, upstream/next)` 140/140,
   `regen:derived` (no drift) + `lint:generated-sync`, `lint`, the 50 `lint:ci` steps one by
   one (only `removed-but-needed` fails), `test:mermaid-real` 150/150. Full `npm test`: 45 551
