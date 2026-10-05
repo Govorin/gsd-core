@@ -986,8 +986,6 @@ export function openWindowFindings(review: string, fixReport: string | null): { 
   return { findings, fixed };
 }
 
-const FRONTMATTER = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
-
 /**
  * `fixReport` (null: there is none yet) with finding `id` of `review` listed under
  * `## Fixed Issues`, so a fix made outside `gsd-code-fixer` (`/gsd-audit-fix --source
@@ -1032,10 +1030,18 @@ export function recordFixedFinding(
     const rest = lines.slice(end).join('\n');
     body = `${section}\n\n${entry}${rest === '' ? '' : `\n${rest}`}`;
   }
-  const fm = FRONTMATTER.exec(body);
-  const text = fm === null
-    ? `---\nstatus: ${status}\n---\n\n${body}`
-    : `---\n${/^status:.*$/m.test(fm[1]) ? fm[1].replace(/^status:.*$/m, `status: ${status}`) : `${fm[1]}\nstatus: ${status}`}\n---\n${body.slice(fm[0].length)}`;
+  // The fence is located by its one owner (frontmatter.cts → locateFrontmatterFence), so the fix
+  // report's writer agrees with every reader on BOM, CRLF and an empty block.
+  const block = frontmatterMod.frontmatterBlock(body);
+  const region = block === null ? null : frontmatterMod.frontmatterRegion(body);
+  let text: string;
+  if (block === null || region === null) {
+    text = `---\nstatus: ${status}\n---\n\n${body}`;
+  } else {
+    const inner = region.region;
+    const nextInner = /^status:.*$/m.test(inner) ? inner.replace(/^status:.*$/m, `status: ${status}`) : `${inner}\nstatus: ${status}`;
+    text = `${block.bom}---\n${nextInner}\n---${block.rest}`;
+  }
   return { ok: true, changed: true, text };
 }
 

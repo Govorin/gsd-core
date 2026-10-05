@@ -402,6 +402,15 @@ describe('openWindowFindings / recordFixedFinding — /gsd-audit-fix --source wi
     assert.deepEqual(splitLines(noSection.text).slice(0, 5), ['---', 'status: partial', '---', '', '# Fix']);
   });
 
+  test('[boundary] a BOM and CRLF fixer report keeps its BOM and its fence where every reader finds it', () => {
+    const fixer = '﻿---\r\nphase: window\r\nstatus: none_fixed\r\n---\r\n\r\n# Fix\r\n\r\n## Fixed Issues\r\n';
+    const out = recordFixedFinding(composed, fixer, 'CR-01', null);
+    assert.equal(out.text.startsWith('﻿---'), true, 'the BOM stays at byte 0');
+    assert.deepEqual([...fixedFindingIds(out.text)], ['CR-01']);
+    assert.equal(/^status: partial\r?$/m.test(out.text), true);
+    assert.equal(/^status: none_fixed/m.test(out.text), false, 'the old status is replaced, not duplicated');
+  });
+
   test('[unhappy] an id the review does not hold is refused', () => {
     assert.deepEqual(recordFixedFinding(composed, null, 'WR-09', null), { ok: false });
   });
