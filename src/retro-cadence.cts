@@ -41,7 +41,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { retroDir, writeTextAtomic, isRetroStem } from './retro-artifacts.cjs';
+import { retroDir, writeTextAtomic, isRetroStem, withJournalLock, journalLockPath, defaultJournalLock } from './retro-artifacts.cjs';
+import type { JournalLock } from './retro-artifacts.cjs';
 import { DISK_STATUS } from './phase-status.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 import planningWorkspaceModule = require('./planning-workspace.cjs');
@@ -294,6 +295,7 @@ export type RetroDueReason =
   | 'retro-auto-off'
   | 'no-roadmap'
   | 'milestone-shipped'
+  | 'journal-invalid'
   | 'milestone-start'
   | 'cadence-reached'
   | 'not-due';
@@ -313,12 +315,15 @@ export interface RetroDue {
   cadencePhases: number;
   atMilestoneStart: boolean;
   phases: { total: number; executed: number; started: number };
-  /** Phases of this milestone executed since the baseline. */
-  phasesSinceRetro: number;
-  phasesSinceRetroIds: string[];
-  /** What the count runs from: the last retro held in this milestone, or the milestone's start. */
-  baseline: 'retro' | 'milestone';
-  /** The last retro journaled for this planning directory, any milestone. */
+  /** Phases of this milestone executed since the baseline; null when the journal cannot be read. */
+  phasesSinceRetro: number | null;
+  phasesSinceRetroIds: string[] | null;
+  /**
+   * What the count runs from: the last retro held in this milestone, the
+   * milestone's start, or `unknown` when the journal cannot be read.
+   */
+  baseline: 'retro' | 'milestone' | 'unknown';
+  /** The last retro journaled for this planning directory, any milestone; null also when the journal cannot be read. */
   lastRetro: { stem: string; at: string; milestone: string | null } | null;
   /** The newest retro report on disk (`latestRetroStem`), journaled or not. */
   latestReport: string | null;
@@ -332,6 +337,12 @@ export interface RetroDue {
  * config in, the answer out. `active`/`mode` only switch `due` off — the
  * counts are reported either way, so a dashboard can show where the schedule
  * stands even while it is silenced.
+ *
+ * A journal that could not be read whole (`journalProblems` non-empty: not
+ * JSON, the wrong shape, or a malformed entry) fails closed: nothing is
+ * counted from it, so no trigger fires, the counts and the last retro are
+ * null, and the reason is `journal-invalid` — never "no retro yet", which
+ * would propose a retro on every stage while a held one could not clear it.
  */
 export function computeRetroDue(input: {
   facts: MilestoneFacts;
@@ -339,11 +350,15 @@ export function computeRetroDue(input: {
   config: CadenceConfig;
   active: boolean;
   mode: 'suggest' | 'auto' | 'off';
+  /** Why the runs journal could not be read whole; empty when it could. */
+  journalProblems?: readonly string[];
   latestReport?: string | null;
   journal?: string;
   problems?: string[];
 }): RetroDue {
   const { facts, config } = input;
+  const journalProblems = [...(input.journalProblems ?? [])];
+  const countable = journalProblems.length === 0;
   const inScope = input.runs.filter(r => r.planningDir === facts.planningDir).sort((a, b) => a.at.localeCompare(b.at));
   const last = inScope.length > 0 ? inScope[inScope.length - 1] : null;
   const inMilestone = inScope.filter(r => r.milestone === facts.milestone);
@@ -356,18 +371,20 @@ export function computeRetroDue(input: {
 
   const triggers: ScheduleTrigger[] = [];
   const open = facts.roadmap && !facts.shipped;
-  if (open && config.atMilestoneStart && facts.phases.length > 0 && started === 0 && lastInMilestone === null) {
+  if (countable && open && config.atMilestoneStart && facts.phases.length > 0 && started === 0 && lastInMilestone === null) {
     triggers.push(RETRO_TRIGGER.MILESTONE_START);
   }
-  if (open && config.cadencePhases > 0 && since.length >= config.cadencePhases) {
+  if (countable && open && config.cadencePhases > 0 && since.length >= config.cadencePhases) {
     triggers.push(RETRO_TRIGGER.CADENCE);
   }
+  const scheduled = config.cadencePhases > 0 || config.atMilestoneStart;
 
   let reason: RetroDueReason;
   if (!input.active) reason = 'capability-disabled';
   else if (input.mode === 'off') reason = 'retro-auto-off';
   else if (!facts.roadmap) reason = 'no-roadmap';
   else if (facts.shipped) reason = 'milestone-shipped';
+  else if (!countable && scheduled) reason = 'journal-invalid';
   else if (triggers.length > 0) reason = triggers[0] === RETRO_TRIGGER.MILESTONE_START ? 'milestone-start' : 'cadence-reached';
   else reason = 'not-due';
   const due = reason === 'milestone-start' || reason === 'cadence-reached';
@@ -384,13 +401,13 @@ export function computeRetroDue(input: {
     cadencePhases: config.cadencePhases,
     atMilestoneStart: config.atMilestoneStart,
     phases: { total: facts.phases.length, executed: executed.length, started },
-    phasesSinceRetro: since.length,
-    phasesSinceRetroIds: since,
-    baseline: lastInMilestone ? 'retro' : 'milestone',
-    lastRetro: last ? { stem: last.stem, at: last.at, milestone: last.milestone } : null,
+    phasesSinceRetro: countable ? since.length : null,
+    phasesSinceRetroIds: countable ? since : null,
+    baseline: !countable ? 'unknown' : lastInMilestone ? 'retro' : 'milestone',
+    lastRetro: countable && last ? { stem: last.stem, at: last.at, milestone: last.milestone } : null,
     latestReport: input.latestReport ?? null,
     journal: input.journal ?? '.planning/retro/RUNS.json',
-    problems: [...facts.problems, ...(input.problems ?? [])],
+    problems: [...facts.problems, ...journalProblems, ...(input.problems ?? [])],
   };
 }
 
@@ -406,19 +423,26 @@ export function runFor(stem: string, now: Date, facts: MilestoneFacts): RetroRun
 }
 
 /**
- * Journal a held retro. An unreadable or invalid journal — or one with a
- * malformed entry — is left as it is: rewriting it would erase the history
- * the schedule counts from. The reason is returned instead.
+ * Journal a held retro. The read-append-write runs under the journal's lock:
+ * the journal sits under the planning root and every workstream writes it, so
+ * two `retro prepare` at once would otherwise lose a run. An unreadable or
+ * invalid journal — or one with a malformed entry — is left as it is:
+ * rewriting it would erase the history the schedule counts from. A lock that
+ * cannot be had writes nothing. Either way the reason is returned.
  */
-export function recordRun(projectRoot: string, run: RetroRun): { recorded: boolean; problems: string[] } {
-  const read = readRunsJournal(projectRoot);
-  if (read.status === 'invalid' || read.problems.length > 0) {
-    return { recorded: false, problems: [...read.problems, `${posixRel(projectRoot, runsJournalPath(projectRoot))} left unchanged; fix it so the cadence can count from this retro`] };
-  }
-  const edit = appendRun(read.journal, run);
-  if (!edit.ok) return { recorded: false, problems: [...read.problems, edit.reason] };
-  writeTextAtomic(runsJournalPath(projectRoot), formatRunsJournal(edit.journal));
-  return { recorded: true, problems: read.problems };
+export function recordRun(projectRoot: string, run: RetroRun, lock: JournalLock = defaultJournalLock): { recorded: boolean; problems: string[] } {
+  const file = runsJournalPath(projectRoot);
+  const locked = withJournalLock(journalLockPath(projectRoot, file), () => {
+    const read = readRunsJournal(projectRoot);
+    if (read.status === 'invalid' || read.problems.length > 0) {
+      return { recorded: false, problems: [...read.problems, `${posixRel(projectRoot, file)} left unchanged; fix it so the cadence can count from this retro`] };
+    }
+    const edit = appendRun(read.journal, run);
+    if (!edit.ok) return { recorded: false, problems: [edit.reason] };
+    writeTextAtomic(file, formatRunsJournal(edit.journal));
+    return { recorded: true, problems: [] };
+  }, lock);
+  return locked.ok ? locked.value : { recorded: false, problems: [locked.reason] };
 }
 
 export function runsJournalRelPath(projectRoot: string): string {

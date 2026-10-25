@@ -19,7 +19,7 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 <step name="parse_arguments">
 Read the `<arguments>` block:
 
-- `--session <id>` / `--last` (default: newest session) and `--since <12h|7d|2w|YYYY-MM-DD>` — passed to `retro prepare` unchanged: set `SELECTION_ARGS` to them, one array element per word (`SELECTION_ARGS=(--session abc --since 7d)`, or `SELECTION_ARGS=()` when none).
+- `--session <id>` / `--last` (default: newest session), `--since <12h|7d|2w|YYYY-MM-DD|ISO instant>` (an ISO instant carries its offset, `2026-10-20T10:00:00.000Z` — the form a scheduled retro passes) and `--ws <name>` (the workstream whose schedule this retro restarts) — passed to `retro prepare` unchanged: set `SELECTION_ARGS` to them, one array element per word (`SELECTION_ARGS=(--session abc --since 7d --ws auth)`, or `SELECTION_ARGS=()` when none).
 - `--apply <cand-id>` (optionally `--retro <stem>`) — go to `apply_candidate` and stop there.
 - `--checks` — go to `show_checks` and stop there.
 

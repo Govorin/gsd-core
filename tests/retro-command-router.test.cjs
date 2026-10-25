@@ -615,6 +615,53 @@ describe('retro stage: the schedule triggers', () => {
     assert.deepEqual(r.json.next, { skill: 'retro', args: '--session sess-smooth' });
   });
 
+  test('a corrupt journal pauses the schedule: a warning, no retro, problems at the top level', () => {
+    for (let n = 1; n <= 3; n++) executePhase(n);
+    fs.mkdirSync(path.join(project, '.planning', 'retro'), { recursive: true });
+    fs.writeFileSync(path.join(project, '.planning', 'retro', 'RUNS.json'), '{ nope');
+    for (const mode of ['suggest', 'auto']) {
+      writeConfig(project, { retro: { auto: mode } });
+      const r = retro(['stage', '--phase', '3', '--sessions-dir', sessions], project);
+      assert.equal(r.success, true, r.error);
+      assert.deepEqual([r.json.decision, r.json.reason, r.json.trigger, r.json.command, r.json.next], ['suggest', 'journal-invalid', null, null, null], mode);
+      assert.match(r.json.message, /RUNS\.json/);
+      assert.ok(r.json.problems.some((p) => p.includes('RUNS.json')), 'the journal problem is in the problems a host reads');
+    }
+    const due = retro(['due'], project).json;
+    assert.deepEqual([due.due, due.reason, due.phasesSinceRetro, due.lastRetro], [false, 'journal-invalid', null, null]);
+    assert.ok(due.problems.some((p) => p.includes('RUNS.json')));
+    // A retro held now cannot be journaled either, and says so.
+    const prep = retro(['prepare', '--sessions-dir', sessions], project);
+    assert.equal(prep.json.run.recorded, false);
+  });
+
+  test('ship:post asks friction only: the schedule is not repeated after execute:post', () => {
+    holdRetro();
+    for (let n = 1; n <= 3; n++) executePhase(n);
+    assert.equal(retro(['stage', '--phase', '3', '--sessions-dir', sessions], project).json.reason, 'cadence-reached');
+    const ship = retro(['stage', 'signals', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.equal(ship.success, true, ship.error);
+    assert.deepEqual([ship.json.decision, ship.json.reason, ship.json.schedule, ship.json.triggers], ['skip', 'below-threshold', null, []]);
+  });
+
+  test('an unknown stage scope is a usage error', () => {
+    const r = retro(['stage', 'cadence', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.success, r.reason], [false, 'usage']);
+  });
+
+  test('the stage hands /gsd-retro arguments its prepare accepts, ISO --since included', () => {
+    const first = holdRetro();
+    for (let n = 1; n <= 3; n++) executePhase(n);
+    const stage = retro(['stage', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.match(stage.json.next.args, /--since \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z/);
+    const prep = retro(['prepare', ...stage.json.next.args.split(' '), '--sessions-dir', sessions], project);
+    assert.equal(prep.success, true, prep.error);
+    assert.equal(prep.json.run.recorded, true);
+    assert.equal(readRuns().runs.length, 2);
+    assert.ok(readRuns().runs[1].at > first.at);
+    assert.equal(retro(['stage', '--phase', '3', '--sessions-dir', sessions], project).json.decision, 'skip');
+  });
+
   test('friction wins over the schedule and keeps its answer unchanged', () => {
     writeSession(sessions, project, 'sess-e2e', strugglingRecords(), new Date(Date.now() + 60000));
     const r = retro(['stage', '--milestone', 'v1.2', '--sessions-dir', sessions], project);
@@ -628,8 +675,8 @@ describe('retro stage: the schedule triggers', () => {
 describe('decideRetro with a schedule', () => {
   const report = (score) => ({ score, threshold: 8, session: 's1', status: 'ok' });
   const schedule = (over = {}) => ({
-    due: true, trigger: 'cadence', triggers: ['cadence'], milestone: 'v1.2', phasesSinceRetro: 3, cadencePhases: 3,
-    lastRetro: { stem: 'RETRO-2026-10-20', at: '2026-10-20T10:00:00.000Z', milestone: 'v1.2' }, ...over,
+    due: true, trigger: 'cadence', triggers: ['cadence'], reason: 'cadence-reached', milestone: 'v1.2', phasesSinceRetro: 3, cadencePhases: 3,
+    lastRetro: { stem: 'RETRO-2026-10-20', at: '2026-10-20T10:00:00.000Z', milestone: 'v1.2' }, journal: '.planning/retro/RUNS.json', problems: [], ...over,
   });
 
   test('a due schedule below the threshold proposes, naming the trigger', () => {
@@ -651,6 +698,25 @@ describe('decideRetro with a schedule', () => {
   test('off and inactive skip whatever the schedule says', () => {
     assert.equal(router.decideRetro({ active: true, mode: 'off', report: null, schedule: schedule() }).reason, 'retro-auto-off');
     assert.equal(router.decideRetro({ active: false, mode: 'auto', report: null, schedule: schedule() }).reason, 'capability-disabled');
+  });
+  test('under a workstream every proposed command names it, friction and schedule alike', () => {
+    const sched = router.decideRetro({ active: true, mode: 'auto', report: report(2), schedule: schedule(), workstream: 'auth' });
+    assert.equal(sched.next.args, '--session s1 --ws auth --since 2026-10-20T10:00:00.000Z');
+    const friction = router.decideRetro({ active: true, mode: 'auto', report: report(9), schedule: schedule(), workstream: 'auth' });
+    assert.equal(friction.next.args, '--session s1 --ws auth');
+  });
+
+  test('journal-invalid prints a warning and dispatches nothing, whatever the mode', () => {
+    const broken = schedule({ due: false, trigger: null, triggers: [], reason: 'journal-invalid', phasesSinceRetro: null, lastRetro: null, problems: ['RUNS.json is not JSON'] });
+    for (const mode of ['suggest', 'auto']) {
+      const d = router.decideRetro({ active: true, mode, report: report(2), schedule: broken, problems: ['a config problem'] });
+      assert.deepEqual([d.decision, d.reason, d.trigger, d.command, d.next], ['suggest', 'journal-invalid', null, null, null]);
+      assert.deepEqual(d.problems, ['a config problem', 'RUNS.json is not JSON']);
+      assert.match(d.message, /RUNS\.json is not JSON/);
+    }
+    // Friction still proposes its retro; the journal problem rides along.
+    const f = router.decideRetro({ active: true, mode: 'suggest', report: report(9), schedule: broken });
+    assert.deepEqual([f.reason, f.problems], ['threshold-reached', ['RUNS.json is not JSON']]);
   });
 });
 

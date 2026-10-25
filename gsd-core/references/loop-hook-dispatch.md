@@ -59,7 +59,9 @@ Dispatch the referenced unit. Exactly one of `ref.skill`, `ref.agent`, or `ref.c
 
   At the milestone points (`milestone:pre`, `milestone:post`, `roadmap:post`) there is no
   phase: append `--milestone "<version>"` (the milestone being closed, or at `roadmap:post`
-  the one being opened, e.g. `v1.2`) instead of `--phase`.
+  the one being opened, e.g. `v1.2`) instead of `--phase`. A host that was given a workstream
+  as an argument (`--ws <name>`) appends `--ws="<name>"` to the command too, or it reads the
+  root planning directory instead of the workstream's.
 
   Make this Bash call with `timeout: 600000` (the ten-minute maximum), never the default. A
   command step may run long by design — `verify mutation` runs the test suite once per mutant

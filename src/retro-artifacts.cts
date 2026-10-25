@@ -162,6 +162,67 @@ export function writeBundle(projectRoot: string, paths: RetroPaths, bundle: unkn
   writeTextAtomic(path.join(projectRoot, paths.bundle), `${JSON.stringify(bundle, null, 2)}\n`);
 }
 
+// ─── Journal lock ─────────────────────────────────────────────────────────────
+
+/**
+ * The cross-process lock a journal's read-compute-write cycle runs under.
+ * The journals sit under the planning root and every workstream writes them,
+ * so two writers can race. A seam so tests drive contention without real
+ * processes; production uses the shared primitive (capability-lock).
+ */
+export interface JournalLock {
+  acquire(lockPath: string): unknown;
+  release(handle: unknown): void;
+}
+
+interface CapabilityLockModule {
+  acquireLock(lockPath: string, opts?: { maxAttempts?: number; waitForFresh?: boolean }): unknown;
+  releaseLock(handle: unknown): void;
+}
+
+let _lockMod: CapabilityLockModule | null = null;
+/** Lazy: capability-lock probes the process start time at load, which readers must not pay. */
+function capabilityLock(): CapabilityLockModule {
+  if (_lockMod === null) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    _lockMod = require('./capability-lock.cjs') as CapabilityLockModule;
+  }
+  return _lockMod;
+}
+
+/**
+ * Budget as for the broken-windows ledger: racing writers serialize (the
+ * critical section is sub-millisecond), a holder that never releases is
+ * refused after a bounded wait.
+ */
+const JOURNAL_LOCK_MAX_ATTEMPTS = 50;
+
+export const defaultJournalLock: JournalLock = Object.freeze({
+  acquire: (lockPath: string) => capabilityLock().acquireLock(lockPath, { maxAttempts: JOURNAL_LOCK_MAX_ATTEMPTS, waitForFresh: true }),
+  release: (handle: unknown) => capabilityLock().releaseLock(handle),
+});
+
+/** `.planning/retro/.<NAME>.lock` for the journal `<NAME>.json`. */
+export function journalLockPath(projectRoot: string, journalFile: string): string {
+  return path.join(retroDir(projectRoot), `.${path.basename(journalFile, '.json')}.lock`);
+}
+
+/**
+ * Run `fn` (one journal read-compute-write) holding the journal's lock. A
+ * lock that cannot be had is an answer, never an unlocked write.
+ */
+export function withJournalLock<T>(lockPath: string, fn: () => T, lock: JournalLock = defaultJournalLock): { ok: true; value: T } | { ok: false; reason: string } {
+  const handle = lock.acquire(lockPath);
+  if (handle === null || handle === undefined) {
+    return { ok: false, reason: `another writer holds ${path.basename(lockPath)}; nothing was written — re-run once it finishes` };
+  }
+  try {
+    return { ok: true, value: fn() };
+  } finally {
+    lock.release(handle);
+  }
+}
+
 // ─── Accepted-checks journal ──────────────────────────────────────────────────
 
 export const CHECK_KINDS = Object.freeze(['lint-rule', 'hook', 'gate', 'verify-gate', 'script', 'test'] as const);

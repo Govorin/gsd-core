@@ -105,7 +105,7 @@ const { routeHubCommandFamily } = cjsCommandRouterAdapter;
 const { isCapabilityActive } = capabilityStateMod;
 const { resolveConfigKey } = capabilityActivationMod;
 const { loadConfig } = configLoaderMod;
-const { readScopedConfigValue } = planningWorkspaceMod;
+const { readScopedConfigValue, resolveEnvWorkstream } = planningWorkspaceMod;
 
 const CAPABILITY_ID = 'retro';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -174,19 +174,21 @@ function readRetroConfig(cwd: string): RetroConfig {
 /**
  * The schedule's answer for the active planning directory: milestone facts,
  * the runs journal and the newest report on disk. Reads planning files only,
- * never a transcript.
+ * never a transcript. A journal that cannot be read whole is handed over as
+ * such, so the schedule fails closed instead of reading it as "no retro yet".
  */
 function scheduleFor(cwd: string, cfg: RetroConfig): RetroDue {
   const runs = readRunsJournal(cwd);
   return computeRetroDue({
     facts: readMilestoneFacts(cwd),
     runs: runs.journal.runs,
+    journalProblems: runs.problems,
     config: cfg.cadence,
     active: cfg.active,
     mode: cfg.mode,
     latestReport: latestRetroStem(cwd),
     journal: runsJournalRelPath(cwd),
-    problems: [...cfg.problems, ...runs.problems],
+    problems: cfg.problems,
   });
 }
 
@@ -205,7 +207,7 @@ type RetroDecisionKind = 'skip' | 'suggest' | 'auto';
 
 interface RetroDecision {
   decision: RetroDecisionKind;
-  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached' | 'milestone-start' | 'cadence-reached';
+  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached' | 'milestone-start' | 'cadence-reached' | 'journal-invalid';
   /** What made the retro worth proposing: friction, or one of the schedules; null on skip. */
   trigger: RetroTrigger | null;
   /** Every trigger that fired (the threshold and the schedule), whatever the mode. */
@@ -215,11 +217,11 @@ interface RetroDecision {
   threshold: number | null;
   session: string | null;
   status: RetroSignalReport['status'] | null;
-  /** What to run when the answer is not skip. */
+  /** What to run when a retro is proposed; null otherwise. */
   command: string | null;
   /** The one line a suggest prints; null otherwise. */
   message: string | null;
-  /** What the host dispatches on `auto` (loop-hook-dispatch.md stage answer); null on skip. */
+  /** What the host dispatches on `auto` (loop-hook-dispatch.md stage answer); null when no retro is proposed. */
   next: { skill: 'retro'; args: string } | null;
   /** The schedule's answer (`retro due`); null when it was not consulted. */
   schedule: RetroDue | null;
@@ -241,6 +243,14 @@ function scheduleMessage(schedule: RetroDue, command: string): string {
  * schedule makes a retro due (`milestone-start`, `cadence`). Friction wins
  * when both fire: its command names the session it scored, unchanged.
  * `auto` licenses spawning the analyst, never applying its candidates.
+ *
+ * A schedule that cannot count (`journal-invalid`) proposes nothing in any
+ * mode, but it is not silent either: the answer is a `suggest` whose message
+ * names the broken journal, with no command and no `next`, so a host prints
+ * the line and dispatches nothing.
+ *
+ * Under a workstream every proposed command carries `--ws <name>`, so the
+ * retro it starts reads and journals the same planning directory.
  */
 function decideRetro(input: {
   active: boolean;
@@ -251,6 +261,8 @@ function decideRetro(input: {
   problems?: string[];
   /** The retro command in the runtime's own slash form (default `/gsd-retro`). */
   slash?: string;
+  /** The active workstream, if any (`GSD_WORKSTREAM`, set from --ws, the env or the pointer). */
+  workstream?: string | null;
 }): RetroDecision {
   const r = input.report;
   const schedule = input.schedule ?? null;
@@ -259,6 +271,7 @@ function decideRetro(input: {
     ...(signalsFired ? [RETRO_TRIGGER.SIGNALS] : []),
     ...(schedule ? schedule.triggers : []),
   ];
+  const problems = [...new Set([...(input.problems ?? []), ...(schedule ? schedule.problems : [])])];
   const answer = (
     decision: RetroDecisionKind,
     reason: RetroDecision['reason'],
@@ -280,24 +293,32 @@ function decideRetro(input: {
     message,
     next,
     schedule,
-    problems: [...(input.problems ?? [])],
+    problems,
   });
   const skip = (reason: RetroDecision['reason']): RetroDecision => answer('skip', reason, null, null, null, null);
   if (!input.active) return skip('capability-disabled');
   if (input.mode === 'off') return skip('retro-auto-off');
   const slash = input.slash ?? '/gsd-retro';
-  const sessionArgs = r && r.session ? [`--session ${r.session}`] : [];
+  const scopeArgs = [
+    ...(r && r.session ? [`--session ${r.session}`] : []),
+    ...(input.workstream ? [`--ws ${input.workstream}`] : []),
+  ];
   if (r && signalsFired) {
-    const args = sessionArgs.join(' ');
+    const args = scopeArgs.join(' ');
     const command = args === '' ? slash : `${slash} ${args}`;
     const message = input.mode === 'suggest' ? `This session struggled (friction ${r.score} >= ${r.threshold}): run ${command}` : null;
     return answer(input.mode, 'threshold-reached', RETRO_TRIGGER.SIGNALS, command, message, { skill: 'retro', args });
+  }
+  if (schedule && schedule.reason === 'journal-invalid') {
+    const why = schedule.problems.find(p => p.includes('RUNS.json')) ?? 'it cannot be read';
+    const message = `Retro schedule paused: ${schedule.journal} cannot be counted (${why}). Fix or remove it; until then no retro is due by schedule.`;
+    return answer('suggest', 'journal-invalid', null, null, message, null);
   }
   if (schedule && schedule.due && schedule.trigger !== null) {
     // A scheduled retro looks back to the last one: git and planning
     // evidence from then on, not only from this session's start.
     const sinceArgs = schedule.lastRetro ? [`--since ${schedule.lastRetro.at}`] : [];
-    const args = [...sessionArgs, ...sinceArgs].join(' ');
+    const args = [...scopeArgs, ...sinceArgs].join(' ');
     const command = args === '' ? slash : `${slash} ${args}`;
     const reason = schedule.trigger === RETRO_TRIGGER.MILESTONE_START ? 'milestone-start' : 'cadence-reached';
     const message = input.mode === 'suggest' ? scheduleMessage(schedule, command) : null;
@@ -362,7 +383,7 @@ interface Selection {
   sessionsDir: string | null;
 }
 
-const SELECTION_USAGE = 'Usage: gsd-tools retro <signals|prepare> [--session <id>|--last] [--since <12h|7d|2w|YYYY-MM-DD>] [--sessions-dir <dir>]';
+const SELECTION_USAGE = 'Usage: gsd-tools retro <signals|prepare> [--session <id>|--last] [--since <12h|7d|2w|YYYY-MM-DD|ISO instant>] [--sessions-dir <dir>]';
 
 function parseSelection(args: readonly string[], now: Date): Selection | Invalid {
   const session = flagValue(args, '--session', SELECTION_USAGE);
@@ -528,7 +549,24 @@ interface Env {
   now: Date;
 }
 
+const STAGE_USAGE = 'Usage: gsd-tools retro stage [signals] [--phase N|--milestone <v>] [--session <id>|--last] [--sessions-dir <dir>]';
+
+/**
+ * `retro stage` consults friction and the schedule; `retro stage signals`
+ * friction only. ship:post uses the second: no phase executes between a
+ * phase's execute:post and its ship:post, so a schedule answer there could
+ * only repeat the one execute:post gave (ADR-5209 §9).
+ */
+function stageScope(args: readonly string[]): 'all' | 'signals' | Invalid {
+  const word = args[2];
+  if (word === undefined || word.startsWith('--')) return 'all';
+  if (word === 'signals') return 'signals';
+  return makeInvalidArgs('scope', `unknown stage scope ${formatDiagnosticToken(word)}. ${STAGE_USAGE}`, ERROR_REASON.USAGE);
+}
+
 function handleSignals(env: Env, stage = false): Invalid | undefined {
+  const scope = stage ? stageScope(env.args) : 'all';
+  if (isInvalid(scope)) return scope;
   const sel = parseSelection(env.args, env.now);
   if (isInvalid(sel)) return sel;
   const decide = stage || env.args.includes('--decide');
@@ -542,10 +580,11 @@ function handleSignals(env: Env, stage = false): Invalid | undefined {
   if (isInvalid(pick)) return pick;
   // The schedule reads planning files only, so it is settled before the
   // transcript read starts.
-  const schedule = decide ? scheduleFor(env.cwd, cfg) : null;
+  const schedule = decide && scope === 'all' ? scheduleFor(env.cwd, cfg) : null;
+  const workstream = resolveEnvWorkstream();
   gatherSignals(env.cwd, sel, pick, cfg, env.now)
     .then(({ report }) => {
-      output(decide ? decideRetro({ active: true, mode: cfg.mode, report, schedule, problems: cfg.problems, slash: retroSlash(env.cwd) }) : report, env.raw);
+      output(decide ? decideRetro({ active: true, mode: cfg.mode, report, schedule, problems: cfg.problems, slash: retroSlash(env.cwd), workstream }) : report, env.raw);
     })
     .catch(reportRejection);
   return undefined;

@@ -334,10 +334,10 @@ AGENT_SKILLS_RESEARCHER=$(gsd_run query agent-skills gsd-project-researcher ${GS
 AGENT_SKILLS_SYNTHESIZER=$(gsd_run query agent-skills gsd-research-synthesizer ${GSD_WS_ARG:+--ws=${GSD_WS_ARG##* }})
 AGENT_SKILLS_ROADMAPPER=$(gsd_run query agent-skills gsd-roadmapper ${GSD_WS_ARG:+--ws=${GSD_WS_ARG##* }})
 ```
-<!-- #4456: .planning/.gsd-ws-arg is NOT cleaned up here — Steps 9 and 10
+<!-- #4456: .planning/.gsd-ws-arg is NOT cleaned up here — Steps 9, 10 and 10.6
 below still need to re-read it (each is its own shell) to resolve
 REQUIREMENTS.md/ROADMAP.md/STATE.md correctly under a workstream. It is
-removed in Step 10, its true last consumer. -->
+removed in Step 10.6 (the roadmap hooks), its true last consumer. -->
 
 Extract from init JSON: `researcher_model`, `synthesizer_model`, `roadmapper_model`, `commit_docs`, `research_enabled`, `current_milestone`, `project_exists`, `roadmap_exists`, `latest_completed_milestone`, `phase_dir_count`, `phase_archive_path`, `agents_installed`, `missing_agents`, `project_path`, `roadmap_path`, `requirements_path`, `config_path`, `research_dir`, `milestones_path`, `phases_dir`, `archive_dir`.
 
@@ -649,9 +649,8 @@ ROADMAP_PATH=$(_gsd_field "$INIT_ROADMAP" roadmap_path)
 STATE_PATH=$(_gsd_field "$INIT_ROADMAP" state_path)
 REQUIREMENTS_PATH=$(_gsd_field "$INIT_ROADMAP" requirements_path)
 gsd_run query commit "docs: create milestone v[X.Y] roadmap ([N] phases)" --files "$ROADMAP_PATH" "$STATE_PATH" "$REQUIREMENTS_PATH"
-# #4456: true last consumer of the persisted --ws in this workflow — the
-# round-trip file is no longer needed after this commit.
-rm -f .planning/.gsd-ws-arg 2>/dev/null || true
+# #4456: .planning/.gsd-ws-arg is NOT removed here — Step 10.6's roadmap
+# hooks still need the workstream; Step 10.6 is its true last consumer.
 ```
 
 ## 10.5. Link Pending Todos to Roadmap Phases
@@ -709,10 +708,15 @@ Print a summary:
 The roadmap is approved and committed and no phase has run: the milestone's opening, where capabilities look at the environment before the phases that would pay for it (retro's schedule stage runs here).
 
 ```bash
-ROADMAP_POST_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:post --raw)
+GSD_WS_ARG=$(cat .planning/.gsd-ws-arg 2>/dev/null || true)
+ROADMAP_POST_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:post --raw ${GSD_WS_ARG:+--ws=${GSD_WS_ARG##* }})
+echo "GSD_WS_NAME=${GSD_WS_ARG##* }"
+# #4456: true last consumer of the persisted --ws in this workflow — the
+# round-trip file is no longer needed after the roadmap hooks resolve.
+rm -f .planning/.gsd-ws-arg 2>/dev/null || true
 ```
 
-Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.command` here runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Advisory: a step never undoes the roadmap.
+Keep the printed `GSD_WS_NAME` (empty when no workstream is active). Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.command` here runs with `--milestone "v[X.Y]"` instead of `--phase`, plus `--ws="${GSD_WS_NAME}"` when `GSD_WS_NAME` is non-empty, so the command reads the workstream's roadmap, not the root's. Its stage answer (`decision`, `message`, `next`) is honoured as that file says. Advisory: a step never undoes the roadmap.
 
 ## 11. Done
 

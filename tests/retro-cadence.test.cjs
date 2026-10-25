@@ -167,6 +167,39 @@ describe('what the schedule cannot be due on', () => {
   });
 });
 
+// ─── a journal that cannot be read fails closed ──────────────────────────────
+
+describe('journal-invalid: nothing is counted from a journal that cannot be read whole', () => {
+  const broken = ['RUNS.json is not JSON: Unexpected token'];
+
+  test('with phases due by count, the schedule pauses instead of reading "no retro yet"', () => {
+    const d = due({ facts: facts({ executed: 3 }), journalProblems: broken });
+    assert.deepEqual([d.due, d.trigger, d.triggers, d.reason], [false, null, [], 'journal-invalid']);
+    assert.deepEqual([d.phasesSinceRetro, d.phasesSinceRetroIds, d.baseline, d.lastRetro], [null, null, 'unknown', null]);
+    assert.ok(d.problems.includes(broken[0]), 'the journal problem is reported');
+  });
+
+  test('at a milestone start too: "no retro in this milestone" cannot be known', () => {
+    const d = due({ facts: facts({ executed: 0 }), journalProblems: broken });
+    assert.deepEqual([d.due, d.reason], [false, 'journal-invalid']);
+  });
+
+  test('one malformed entry is enough: the well-formed runs are not taken as the whole history', () => {
+    const d = due({ facts: facts({ executed: 4 }), runs: [runAt('2026-10-20T10:00:00.000Z', { executedPhases: ['1'] })], journalProblems: ['runs[1]: stem must be …'] });
+    assert.deepEqual([d.due, d.reason, d.phasesSinceRetro], [false, 'journal-invalid', null]);
+  });
+
+  test('with both schedules switched off the journal does not matter', () => {
+    const d = due({ facts: facts({ executed: 3 }), journalProblems: broken, config: { cadencePhases: 0, atMilestoneStart: false } });
+    assert.equal(d.reason, 'not-due');
+  });
+
+  test('the switches that silence the schedule still come first', () => {
+    assert.equal(due({ facts: facts({ executed: 3 }), journalProblems: broken, mode: 'off' }).reason, 'retro-auto-off');
+    assert.equal(due({ facts: facts({ executed: 3 }), journalProblems: broken, active: false }).reason, 'capability-disabled');
+  });
+});
+
 // ─── config ───────────────────────────────────────────────────────────────────
 
 describe('resolveCadenceConfig', () => {
@@ -240,6 +273,56 @@ describe('RUNS.json', () => {
   test('a run that is not well-formed is refused', () => {
     assert.equal(rc.appendRun({ version: 1, runs: [] }, { ...run, at: '2026-10-20' }).ok, false);
     assert.equal(rc.appendRun({ version: 1, runs: [] }, { ...run, stem: 'RETRO-x' }).ok, false);
+  });
+});
+
+describe('recordRun holds the journal lock', () => {
+  /** A lock seam that records what was asked of it; `onAcquire` runs while "held". */
+  function fakeLock({ grant = true, onAcquire = () => {} } = {}) {
+    const calls = [];
+    return {
+      calls,
+      acquire(lockPath) {
+        calls.push(['acquire', path.relative(project, lockPath).split(path.sep).join('/')]);
+        if (!grant) return null;
+        onAcquire();
+        return { token: 'held' };
+      },
+      release(handle) { calls.push(['release', handle.token]); },
+    };
+  }
+  const mine = runAt('2026-10-21T10:00:00.000Z', { stem: 'RETRO-2026-10-21' });
+  const theirs = runAt('2026-10-21T09:59:00.000Z', { stem: 'RETRO-2026-10-21', planningDir: '.planning/workstreams/other' });
+
+  test('the read happens under the lock, so a writer that finished first is kept', () => {
+    // The other workstream's prepare held the lock and wrote while this one waited.
+    const lock = fakeLock({ onAcquire: () => rc.recordRun(project, theirs, fakeLock()) });
+    assert.deepEqual(rc.recordRun(project, mine, lock), { recorded: true, problems: [] });
+    assert.deepEqual(rc.readRunsJournal(project).journal.runs.map((r) => r.planningDir), ['.planning/workstreams/other', '.planning']);
+    assert.deepEqual(lock.calls, [['acquire', '.planning/retro/.RUNS.lock'], ['release', 'held']]);
+  });
+
+  test('a lock that cannot be had writes nothing and says so', () => {
+    const lock = fakeLock({ grant: false });
+    const rec = rc.recordRun(project, mine, lock);
+    assert.equal(rec.recorded, false);
+    assert.match(rec.problems[0], /\.RUNS\.lock/);
+    assert.equal(fs.existsSync(rc.runsJournalPath(project)), false);
+    assert.deepEqual(lock.calls.map((c) => c[0]), ['acquire']);
+  });
+
+  test('the lock is released when the journal is refused too', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ nope');
+    const lock = fakeLock();
+    assert.equal(rc.recordRun(project, mine, lock).recorded, false);
+    assert.deepEqual(lock.calls.map((c) => c[0]), ['acquire', 'release']);
+  });
+
+  test('the default lock is the shared primitive and leaves no lockfile behind', () => {
+    assert.equal(rc.recordRun(project, mine).recorded, true);
+    assert.equal(fs.existsSync(path.join(project, '.planning', 'retro', '.RUNS.lock')), false);
   });
 });
 
