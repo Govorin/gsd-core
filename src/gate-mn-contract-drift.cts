@@ -34,12 +34,26 @@
  * or a DESIGN.md that exists but cannot be read, is "could not check".
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { readDirEntriesEvidence, readDirEvidence, readTextEvidence } from './gate-evidence.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { escapeRegex } from './pattern.cjs';
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 export interface DeclaredSignature {
   name: string;
@@ -145,18 +159,20 @@ export function extractDeclaredSignatures(designMd: string): DeclaredSignature[]
 
 const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', '.next', '.nx', 'tmp']);
 
-function collectSourceFiles(root: string): string[] {
+/**
+ * The `.ts`/`.tsx` sources under `root`, and the paths that could not be read on the way. An
+ * unreadable directory or file does not fail the scan — most contracts are found elsewhere — but it is
+ * recorded, because a signature that is "missing" may live in it (see `computeContractDrift`).
+ */
+function collectSourceFiles(root: string, unreadable: string[]): string[] {
   const out: string[] = [];
   const stack = [root];
   while (stack.length > 0) {
     const dir = stack.pop() as string;
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
-    } catch {
-      continue; // an unreadable directory is no reason to fail the whole scan
-    }
-    for (const e of entries) {
+    const listing = readDirEntriesEvidence(dir);
+    if (listing.kind === 'unreadable') unreadable.push(`${path.relative(root, dir) || '.'} (${listing.reason})`);
+    if (listing.kind !== 'found') continue;
+    for (const e of listing.value) {
       if (e.name.startsWith('.')) continue;
       const full = path.join(dir, e.name);
       if (e.isDirectory()) {
@@ -173,18 +189,25 @@ function collectSourceFiles(root: string): string[] {
 /**
  * The first actual signature of `name` in the sources. A contract names symbols that cross a plan
  * boundary — exported and unique in their layer; with a duplicate the first wins, and a false
- * "match" stays impossible because the whole signature must agree.
+ * "match" stays impossible because the whole signature must agree. A file that cannot be read is
+ * recorded in `unreadable` and skipped.
  */
-function findActualSignature(name: string, files: readonly string[]): { signature: string; file: string } | null {
+function findActualSignature(
+  name: string,
+  files: readonly string[],
+  root: string,
+  unreadable: string[],
+): { signature: string; file: string } | null {
   const mention = new RegExp(`(?:^|[^\\w$])${escapeRegex(name)}\\s*\\(`, 'm');
   const declaration = new RegExp(`^(?:export\\s+)?(?:async\\s+)?(?:function\\s+)?${escapeRegex(name)}\\s*(\\([\\s\\S]*)$`);
   for (const file of files) {
-    let text: string;
-    try {
-      text = fs.readFileSync(file, 'utf8');
-    } catch {
-      continue;
+    const source = readTextEvidence(file);
+    if (source.kind === 'unreadable') {
+      const entry = `${path.relative(root, file)} (${source.reason})`;
+      if (!unreadable.includes(entry)) unreadable.push(entry);
     }
+    if (source.kind !== 'found') continue;
+    const text = source.value;
     if (!mention.test(text)) continue;
     for (const rawLine of text.split('\n')) {
       const m = declaration.exec(rawLine.trim());
@@ -196,30 +219,30 @@ function findActualSignature(name: string, files: readonly string[]): { signatur
 }
 
 /** The phase's design file: `DESIGN.md` or the phase-numbered `NN-DESIGN.md` the architect writes. */
-function findDesignFile(phaseDir: string): string | null {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(phaseDir);
-  } catch {
-    return null;
-  }
-  return entries.find((f) => f === 'DESIGN.md' || f.endsWith('-DESIGN.md')) ?? null;
+function findDesignFile(phaseDir: string): { file: string | null } | { unreadable: string } {
+  const listing = readDirEvidence(phaseDir);
+  if (listing.kind === 'unreadable') return { unreadable: listing.reason };
+  if (listing.kind === 'none') return { file: null };
+  return { file: listing.value.find((f) => f === 'DESIGN.md' || f.endsWith('-DESIGN.md')) ?? null };
 }
 
 /** The gate's body against a resolved phase directory; `root` holds the sources. */
 export function computeContractDrift(phaseDir: string, root: string): GateResult {
-  const designFile = findDesignFile(phaseDir);
+  const located = findDesignFile(phaseDir);
+  if ('unreadable' in located) {
+    return mnUnreadable(`mn-contract-drift: cannot list ${phaseDir}: ${located.unreadable}`, { phaseDir, readError: located.unreadable });
+  }
+  const designFile = located.file;
   if (designFile === null) return mnPass('mn-contract-drift: no DESIGN.md — nothing to check', { phaseDir, skipped: 'no-design' });
 
-  let design: string;
-  try {
-    design = fs.readFileSync(path.join(phaseDir, designFile), 'utf8');
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-      return mnPass('mn-contract-drift: no DESIGN.md — nothing to check', { phaseDir, skipped: 'no-design' });
-    }
-    return mnUnresolvable(`mn-contract-drift: cannot read ${designFile}: ${(err as Error).message}`, { phaseDir, designFile });
+  const designText = readTextEvidence(path.join(phaseDir, designFile));
+  if (designText.kind === 'none') {
+    return mnPass('mn-contract-drift: no DESIGN.md — nothing to check', { phaseDir, skipped: 'no-design' });
   }
+  if (designText.kind === 'unreadable') {
+    return mnUnreadable(`mn-contract-drift: cannot read ${designFile}: ${designText.reason}`, { phaseDir, designFile });
+  }
+  const design = designText.value;
 
   if (/^contracts_superseded:\s*true\s*$/m.test(design)) {
     return mnPass('mn-contract-drift: contracts_superseded — the code is the contract now', { phaseDir, designFile, skipped: 'superseded' });
@@ -230,9 +253,10 @@ export function computeContractDrift(phaseDir: string, root: string): GateResult
     return mnPass('mn-contract-drift: no declared signatures — nothing to check', { phaseDir, designFile, skipped: 'no-contracts' });
   }
 
-  const files = collectSourceFiles(root);
+  const unreadable: string[] = [];
+  const files = collectSourceFiles(root, unreadable);
   if (files.length === 0) {
-    return mnUnresolvable(`mn-contract-drift: no .ts/.tsx sources under ${root} — cannot verify ${declared.length} declared signature(s)`, {
+    return mnUnreadable(`mn-contract-drift: no .ts/.tsx sources under ${root} — cannot verify ${declared.length} declared signature(s)`, {
       phaseDir,
       designFile,
       declared: declared.length,
@@ -243,13 +267,22 @@ export function computeContractDrift(phaseDir: string, root: string): GateResult
   const missing: Array<{ name: string; declared: string }> = [];
   let matched = 0;
   for (const d of declared) {
-    const actual = findActualSignature(d.name, files);
+    const actual = findActualSignature(d.name, files, root, unreadable);
     if (actual === null) missing.push({ name: d.name, declared: d.signature });
     else if (actual.signature === d.signature) matched++;
     else drift.push({ name: d.name, declared: d.signature, actual: actual.signature, file: path.relative(root, actual.file).split(path.sep).join('/') });
   }
 
-  const details = { phaseDir, designFile, declared: declared.length, matched, drift, missing };
+  const details = { phaseDir, designFile, declared: declared.length, matched, drift, missing, unreadable };
+  // A drifted signature was read and disagrees: a finding whatever else could not be read. A missing
+  // one may live in a path that could not be read, so with any such path it is "could not check".
+  if (drift.length === 0 && missing.length > 0 && unreadable.length > 0) {
+    return mnUnreadable(
+      `mn-contract-drift: ${missing.length} declared signature(s) not found (${missing.map((m) => m.name).join(', ')}) and ` +
+        `${unreadable.length} source path(s) could not be read — they may be declared there: ${unreadable.join('; ')}`,
+      details,
+    );
+  }
   if (drift.length === 0 && missing.length === 0) {
     return mnPass(`mn-contract-drift: OK — ${matched} declared signature(s) match the code`, details);
   }

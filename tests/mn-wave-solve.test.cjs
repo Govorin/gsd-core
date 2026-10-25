@@ -24,7 +24,8 @@ const assert = require('node:assert/strict');
 
 const { cleanup } = require('./helpers.cjs');
 const { createMnProject, makePhase, writeFiles, writeWorkflowConfig, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
-const { evaluateMnWaveSolve, analyzeWaveSolve } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
+const { analyzeWaveSolve } = require('../gsd-core/bin/lib/gate-mn-waves.cjs');
+const { evaluateMnWaveSolve } = require('../gsd-core/bin/lib/gate-mn-wave-solve.cjs');
 
 const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 

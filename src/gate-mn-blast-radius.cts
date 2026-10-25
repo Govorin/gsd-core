@@ -66,8 +66,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execGit as execGitSeam } from './shell-command-projection.cjs';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { readTextEvidence } from './gate-evidence.cjs';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import planningScopeMod = require('./planning-scope.cjs');
+const { SCOPE } = planningScopeMod;
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { resolveEvaluationScope, SCOPE_EXCLUSION_PATHSPECS } from './gate-evaluation-scope.cjs';
 import type { EvaluationScope, GitRunner } from './gate-evaluation-scope.cjs';
@@ -79,6 +84,19 @@ import planScanMod = require('./plan-scan.cjs');
 const { scanPhasePlans } = planScanMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-locator.cjs is an export= CommonJS module
 import phaseLocatorMod = require('./phase-locator.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { listMilestonePhaseDirs } = phaseLocatorMod;
 
 /** The git seam — the resolver's own runner type, so its exit-code reading (1 = "no") holds. */
@@ -169,14 +187,14 @@ function projectAttribution(repoRoot: string, projectDir: string, phaseDir: stri
   const own = path.basename(phaseDir);
   for (const name of siblings) {
     const dir = path.join(phasesDir, name);
+    // A plan that cannot be read would shrink the territory and the declarations silently, so the
+    // attribution would be wrong rather than incomplete: it is "could not check" (withMnPhase turns
+    // the throw into the unreadable verdict). A plan that vanished after the scan declares nothing.
     for (const planFile of scanPhasePlans(dir).allPlanFiles) {
-      let text: string;
-      try {
-        text = fs.readFileSync(path.join(dir, planFile), 'utf8');
-      } catch {
-        continue;
-      }
-      for (const entry of declaredFilesOf(text)) {
+      const plan = readTextEvidence(path.join(dir, planFile));
+      if (plan.kind === 'unreadable') throw new Error(`could not read ${name}/${planFile} (${plan.reason})`);
+      if (plan.kind === 'none') continue;
+      for (const entry of declaredFilesOf(plan.value)) {
         const norm = normalizeDeclared(entry);
         territory.add(declaredDirOf(norm));
         if (name !== own && !norm.includes('*')) declaredElsewhere.add(norm);
@@ -207,7 +225,7 @@ function scopeNumstat(scope: EvaluationScope, git: (args: string[]) => string): 
 export function computeBlastRadius(projectDir: string, phaseDir: string, options: BlastRadiusOptions, runGit: RunGit = execGitSeam): GateResult {
   const top = runGit(['rev-parse', '--show-toplevel'], { cwd: projectDir });
   if (top.exitCode !== 0 || top.timedOut) {
-    return mnUnresolvable('mn-blast-radius: not a git repository — blast radius is undefined without history', { phaseDir });
+    return mnUnreadable('mn-blast-radius: not a git repository — blast radius is undefined without history', { phaseDir });
   }
   const repoRoot = top.stdout.trim();
   const git = (args: string[]): string => {
@@ -220,10 +238,17 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
   const realPhaseDir = fs.realpathSync(phaseDir);
   const phaseRel = path.relative(fs.realpathSync(repoRoot), realPhaseDir).split(path.sep).join('/');
 
+  // Only a complete scan is a plan set: a truncated one would under-declare and blame the phase.
   const scan = scanPhasePlans(phaseDir);
+  if (scan.scope !== SCOPE.COMPLETE) {
+    return mnUnreadable(`mn-blast-radius: the plans of ${phaseRel} could not all be read (plan scan ${scan.scope})`, {
+      phaseDir,
+      readError: `plan scan ${scan.scope}`,
+    });
+  }
   const planFiles = [...scan.allPlanFiles].sort();
   if (planFiles.length === 0) {
-    return mnUnresolvable(`mn-blast-radius: no PLAN.md in ${phaseRel} — the phase declared nothing to compare against`, { phaseDir, plans: 0 });
+    return mnUnreadable(`mn-blast-radius: no PLAN.md in ${phaseRel} — the phase declared nothing to compare against`, { phaseDir, plans: 0 });
   }
 
   const declared = new Map<string, string[]>();
@@ -236,7 +261,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     }
   }
   if (declared.size === 0) {
-    return mnUnresolvable(
+    return mnUnreadable(
       `mn-blast-radius: ${planFiles.length} PLAN.md file(s) in ${phaseRel}, none carrying files_modified — ` +
         'refusing to report "no drift" against an empty declaration',
       { phaseDir, plans: planFiles.length, declared: 0 },
@@ -252,7 +277,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
   const neverCommitted =
     scope.status === 'unresolvable' && options.base === undefined && (scope.reason ?? '').endsWith(NO_PHASE_START_ANCHOR);
   if (scope.status === 'unresolvable' && !neverCommitted) {
-    return mnUnresolvable(`mn-blast-radius: the phase's commits could not be resolved (${scope.reason ?? 'unknown'})`, {
+    return mnUnreadable(`mn-blast-radius: the phase's commits could not be resolved (${scope.reason ?? 'unknown'})`, {
       phaseDir,
       scopeStatus: scope.status,
       scopeReason: scope.reason,
@@ -300,7 +325,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
       if (dirty.exitCode === 0) foldNumstat(dirty.stdout, changed);
     }
   } catch (err) {
-    if (err instanceof GitFailure) return mnUnresolvable(`mn-blast-radius: ${err.message}`, { phaseDir });
+    if (err instanceof GitFailure) return mnUnreadable(`mn-blast-radius: ${err.message}`, { phaseDir });
     throw err;
   }
 

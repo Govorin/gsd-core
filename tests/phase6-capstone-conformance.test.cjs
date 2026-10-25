@@ -441,6 +441,14 @@ describe('ADR-857 phase 6 — capabilities must not bake install paths into the 
     // unexpected 69 (a gate that stopped being able to look) fails, and so does the pinned one answering 0
     // with a different status (the pin would then be stale).
     const MAY_EXIT_69 = new Set(['ui.safety-gate']);
+    // Fork (mn): every mn gate and architecture.diagrams judges a phase (or, for mn-clean-state and
+    // mn-assertion-ratchet, a git tree or a recorded baseline) that an empty temp directory does not
+    // have, so each could not look here: exit 69 with `status: 'unresolvable'` (gate-mn-support.cts).
+    // Derived from the mn dispatch table, so a new mn gate is covered without editing this list.
+    const FORK_COULD_NOT_LOOK = new Set([
+      ...require('../gsd-core/bin/lib/gate-mn-dispatch.cjs').listMnCheckVerbs(),
+      'architecture.diagrams',
+    ]);
     const GATE_VERB_STATUSES = new Set([0, 69]);
     const probe = (query, arg) => {
       const r = spawnSync(
@@ -468,6 +476,10 @@ describe('ADR-857 phase 6 — capabilities must not bake install paths into the 
           `check ${query}: command failed or returned non-JSON output (exit ${seen.status}). ` +
           `Stdout: ${seen.stdout.slice(0, 200)} Stderr: ${seen.stderr.slice(0, 200)}`,
         );
+      } else if (FORK_COULD_NOT_LOOK.has(query)) {
+        if (!(seen.status === 69 && seen.parsed.status === 'unresolvable' && seen.parsed.block === true)) {
+          failures.push(`check ${query}: a fork gate with nothing to look at must exit 69 with a blocking 'unresolvable' payload, got exit ${seen.status} / ${JSON.stringify(seen.parsed.status)}`);
+        }
       } else if (seen.status === 69 && !MAY_EXIT_69.has(query)) {
         failures.push(`check ${query}: exited 69 (could not look) in an empty directory, but only ${[...MAY_EXIT_69].join(', ')} may`);
       } else if (MAY_EXIT_69.has(query) && !(seen.status === 69 && seen.parsed.scopeStatus === 'unresolvable')) {

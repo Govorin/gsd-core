@@ -17,8 +17,8 @@ const path = require('node:path');
 
 const { cleanup } = require('./helpers.cjs');
 const { createMnProject, makePhase, runMnCheck, runMnCheckFailure } = require('./helpers/mn-gate-fixture.cjs');
-const { isMnCheckVerb, evaluateMnCheck, listMnCheckVerbs } = require('../gsd-core/bin/lib/gate-mn-dispatch.cjs');
-const { resolveMnPhase, mnPass, mnFinding, mnUnresolvable, withMnPhase, MN_GATE_STATUS } = require('../gsd-core/bin/lib/gate-mn-support.cjs');
+const { isMnCheckVerb, dispatchMnCheck, listMnCheckVerbs } = require('../gsd-core/bin/lib/gate-mn-dispatch.cjs');
+const { resolveMnPhase, mnPayload, withMnPhase, MN_GATE_STATUS } = require('../gsd-core/bin/lib/gate-mn-support.cjs');
 
 const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 
@@ -49,20 +49,30 @@ describe('mn gate dispatch table', () => {
       assert.equal(isMnCheckVerb(key), false, key);
     }
     assert.equal(isMnCheckVerb(undefined), false);
-    assert.throws(() => evaluateMnCheck('mn-no-such-gate', { projectDir: '/', args: [] }), /not an mn gate/);
+    assert.throws(() => dispatchMnCheck('mn-no-such-gate', { projectDir: '/', args: [] }), /not an mn gate/);
   });
 });
 
 describe('mn gate verdict builders', () => {
-  test('pass, finding and unresolvable carry block, status and message', () => {
+  test('the payload carries block, status and message; block follows the status', () => {
     assert.deepEqual(
-      [mnPass('a'), mnFinding('b'), mnUnresolvable('c')].map((v) => [v.outcome, v.block, v.payload.block, v.payload.status, v.payload.message]),
+      [MN_GATE_STATUS.PASS, MN_GATE_STATUS.FINDING, MN_GATE_STATUS.UNRESOLVABLE].map((s) => mnPayload(s, 'm', { x: 1 })),
       [
-        ['pass', false, false, MN_GATE_STATUS.PASS, 'a'],
-        ['block', true, true, MN_GATE_STATUS.FINDING, 'b'],
-        ['block', true, true, MN_GATE_STATUS.UNRESOLVABLE, 'c'],
+        { block: false, status: MN_GATE_STATUS.PASS, message: 'm', x: 1 },
+        { block: true, status: MN_GATE_STATUS.FINDING, message: 'm', x: 1 },
+        { block: true, status: MN_GATE_STATUS.UNRESOLVABLE, message: 'm', x: 1 },
       ],
     );
+  });
+
+  test('could-not-check is outcome unreadable, blocking, in every phase-scoped mn gate (#5170)', (t) => {
+    // Driven through the real gates: a phase that is not there is could-not-check in every one of them.
+    const projectDir = createMnProject('gsd-mn-outcomes-');
+    t.after(() => cleanup(projectDir));
+    for (const verb of listMnCheckVerbs('phase')) {
+      const v = dispatchMnCheck(verb, { projectDir, args: ['77'] });
+      assert.deepEqual([v.outcome, v.block, v.payload.status], ['unreadable', true, MN_GATE_STATUS.UNRESOLVABLE], verb);
+    }
   });
 
   test('a gate body that throws is unresolvable, never a pass or a finding', () => {
@@ -72,6 +82,7 @@ describe('mn gate verdict builders', () => {
       throw new Error('boom');
     });
     cleanup(projectDir);
+    assert.equal(v.outcome, 'unreadable');
     assert.equal(v.block, true);
     assert.equal(v.payload.status, MN_GATE_STATUS.UNRESOLVABLE);
   });

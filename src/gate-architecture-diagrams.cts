@@ -21,9 +21,9 @@
  * Argv after the verb: `<phase-dir> [phase-req-ids]` (the plan:post named-query convention).
  */
 
-import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { gateVerdict, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
+import { gateUnreadable, gateVerdict, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
+import { readDirEvidence } from './gate-evidence.cjs';
 import type { GateResult } from './gate-verdict.cjs';
 import { resolveContainedPath } from './gate-phase-context.cjs';
 import { runDiagramsCheck } from './diagrams-check.cjs';
@@ -53,22 +53,23 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
   const phaseDir = resolveContainedPath(phaseArg, projectDir);
   if (isGateUsageFailure(phaseDir)) return phaseDir;
 
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(phaseDir).filter((f) => DESIGN_FILE.test(f)).sort();
-  } catch (err) {
-    // A phase directory that does not exist (or is not a directory) is not "a phase without a
-    // design": the gate could not look, and a gate that could not look must not pass — the same
-    // reading the mn-* gates give an unresolvable phase (review L4).
-    return gateVerdict('block', true, {
+  // A phase directory that does not exist (or is not a directory) is not "a phase without a design":
+  // the gate could not look, and a gate that could not look must not pass — the same reading the mn-*
+  // gates give an unresolvable phase (review L4). Since #5170 that is outcome `unreadable` (exit 69,
+  // routed by `onError: halt`), still blocking.
+  const listing = readDirEvidence(phaseDir);
+  if (listing.kind !== 'found') {
+    const why = listing.kind === 'none' ? 'ENOENT' : listing.reason;
+    return gateUnreadable(true, {
       block: true,
       passed: false,
       status: 'unresolvable',
       files: [],
       findings: [],
-      message: `could not read the phase directory ${path.relative(projectDir, phaseDir) || phaseDir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).message}`,
+      message: `could not read the phase directory ${path.relative(projectDir, phaseDir) || phaseDir}: ${why}`,
     });
   }
+  const entries = listing.value.filter((f) => DESIGN_FILE.test(f)).sort();
   if (entries.length === 0) {
     return gateVerdict('skip', false, {
       block: false,
@@ -101,7 +102,7 @@ export function evaluateArchitectureDiagrams(input: ArchitectureDiagramsInput): 
     for (const f of result.findings) findings.push({ file: rel, ...f });
   }
   if (unresolvable.length > 0) {
-    return gateVerdict('block', true, {
+    return gateUnreadable(true, {
       block: true,
       passed: false,
       status: 'unresolvable',

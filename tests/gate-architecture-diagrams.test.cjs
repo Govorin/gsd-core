@@ -16,6 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { runGsdTools, createTempGitProject, cleanup } = require('./helpers.cjs');
+const { exitCodeFor } = require('../hooks/lib/exit-code-registry.js');
 
 const MANIFEST = path.join(__dirname, '..', 'capabilities', 'architecture', 'capability.json');
 
@@ -96,10 +97,16 @@ describe('check architecture.diagrams', () => {
 
   // Review L4: a phase directory that is not there is not "a phase without a design".
   test('a phase directory that does not exist, or is a file: unresolvable block, never a skip', () => {
-    const missing = gate('.planning/phases/99-missing');
+    // Could not look is outcome unreadable since #5170: exit 69 (UNAVAILABLE) with the same payload.
+    const couldNotLook = (arg) => {
+      const r = runGsdTools(['check', 'architecture.diagrams', arg], root);
+      assert.equal(r.exitCode, exitCodeFor('UNAVAILABLE'), r.error);
+      return JSON.parse(r.output);
+    };
+    const missing = couldNotLook('.planning/phases/99-missing');
     assert.deepEqual([missing.block, missing.passed, missing.status], [true, false, 'unresolvable']);
     fs.writeFileSync(path.join(root, '.planning', 'not-a-dir'), 'x');
-    assert.equal(gate('.planning/not-a-dir').status, 'unresolvable');
+    assert.equal(couldNotLook('.planning/not-a-dir').status, 'unresolvable');
   });
 
   test('an empty phase directory is still a skip (boundary of the case above)', () => {

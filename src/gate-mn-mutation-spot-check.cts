@@ -18,9 +18,10 @@
  *                                            The step restores it on its next run.
  */
 
-import fs from 'node:fs';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { readTextEvidence } from './gate-evidence.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { MUTATION_RECORD_KEY, MUTATION_STATUS, digestCandidates, mutationCandidates } from './verify-mutation.cjs';
 import { readRestoreJournal } from './mutation-restore-journal.cjs';
@@ -29,6 +30,19 @@ import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- verify-gates.cjs is an export= CommonJS module
 import verifyGates = require('./verify-gates.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { verificationPathFor } = verifyGates;
 
 const RUN_STEP = 'run `gsd_run verify mutation --phase <N>` (the verify:pre step) first';
@@ -48,29 +62,29 @@ export function evaluateMnMutationSpotCheck(input: MnGateInput): GateResult {
   return withMnPhase('mn-mutation-spot-check', input, ({ phaseDir }) => {
     const journal = readRestoreJournal(input.projectDir);
     if (journal.kind === 'unreadable') {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-mutation-spot-check: the restore journal ${journal.journalPath} is unreadable (${journal.why}) — a mutant may be on disk; inspect it before judging`,
         { journalPath: journal.journalPath, mutantOnDisk: true },
       );
     }
     if (journal.kind === 'held' && journal.pending !== null) {
       const { pending } = journal;
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-mutation-spot-check: ${pending.file} still carries a mutant (${pending.label}, line ${pending.line}) — a run (pid ${journal.pid}) ` +
           `is in progress or was killed mid-mutant, so the tree is not the code under review; ${RUN_STEP} (it restores the file first)`,
         { journalPath: journal.journalPath, mutantOnDisk: true, mutantFile: pending.file },
       );
     }
     const verificationPath = verificationPathFor(phaseDir);
-    let text: string;
-    try {
-      text = fs.readFileSync(verificationPath, 'utf8');
-    } catch {
-      return mnUnresolvable(`mn-mutation-spot-check: no ${verificationPath} — ${RUN_STEP}`, { verificationPath, recorded: false });
+    const recordFile = readTextEvidence(verificationPath);
+    if (recordFile.kind === 'none') return mnUnreadable(`mn-mutation-spot-check: no ${verificationPath} — ${RUN_STEP}`, { verificationPath, recorded: false });
+    if (recordFile.kind === 'unreadable') {
+      return mnUnreadable(`mn-mutation-spot-check: could not read ${verificationPath} (${recordFile.reason})`, { verificationPath, recorded: false, readError: recordFile.reason });
     }
+    const text = recordFile.value;
     const raw = (extractFrontmatter(text) as Record<string, unknown>)[MUTATION_RECORD_KEY];
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      return mnUnresolvable(`mn-mutation-spot-check: ${verificationPath} carries no mutation: record — ${RUN_STEP}`, {
+      return mnUnreadable(`mn-mutation-spot-check: ${verificationPath} carries no mutation: record — ${RUN_STEP}`, {
         verificationPath,
         recorded: false,
       });
@@ -85,7 +99,7 @@ export function evaluateMnMutationSpotCheck(input: MnGateInput): GateResult {
 
     const digest = digestCandidates(input.projectDir, mutationCandidates(input.projectDir, phaseDir));
     if (record['digest'] !== digest) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-mutation-spot-check: the mutation record (${stringField(record, 'ran_at')}) was taken on different code — ` +
           `the phase's declared files changed since; ${RUN_STEP}`,
         { ...details, stale: true },
@@ -111,13 +125,13 @@ export function evaluateMnMutationSpotCheck(input: MnGateInput): GateResult {
             details,
           );
         }
-        return mnUnresolvable(`mn-mutation-spot-check: the time budget ran out before any mutant completed — ${stringField(record, 'reason')}`, details);
+        return mnUnreadable(`mn-mutation-spot-check: the time budget ran out before any mutant completed — ${stringField(record, 'reason')}`, details);
       case MUTATION_STATUS.NO_COMMAND:
       case MUTATION_STATUS.UNRUNNABLE:
       case MUTATION_STATUS.RED_BASELINE:
-        return mnUnresolvable(`mn-mutation-spot-check: the step could not check (${status}) — ${stringField(record, 'reason')}`, details);
+        return mnUnreadable(`mn-mutation-spot-check: the step could not check (${status}) — ${stringField(record, 'reason')}`, details);
       default:
-        return mnUnresolvable(`mn-mutation-spot-check: the record's status "${status}" is not one this gate knows — ${RUN_STEP}`, details);
+        return mnUnreadable(`mn-mutation-spot-check: the record's status "${status}" is not one this gate knows — ${RUN_STEP}`, details);
     }
   });
 }

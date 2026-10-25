@@ -36,11 +36,25 @@
  */
 
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- uat.cjs is an export= CommonJS module
 import uatMod = require('./uat.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { collectAuditUat } = uatMod;
 
 /** How many open items the message names before summarising the rest. */
@@ -60,7 +74,7 @@ export function evaluateMnUatOpen(input: MnGateInput): GateResult {
   return withMnPhase('mn-uat-open', { projectDir: input.projectDir, args }, ({ phaseDir }) => {
     const report = collectAuditUat(input.projectDir);
     if (report === null) {
-      return mnUnresolvable('mn-uat-open: the project has no phases directory — audit-uat has nothing to read', { phaseDir });
+      return mnUnreadable('mn-uat-open: the project has no phases directory — audit-uat has nothing to read', { phaseDir });
     }
     const phaseName = path.basename(phaseDir);
     const scoped = allPhases ? report.results : report.results.filter((entry) => entry.phase_dir === phaseName);

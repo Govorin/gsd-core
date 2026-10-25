@@ -56,8 +56,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { MAX_LISTED } from './gate-mn-waves.cjs';
 import { isMigrationPath } from './gate-mn-migration-safety.cjs';
@@ -74,6 +75,19 @@ import planScanMod = require('./plan-scan.cjs');
 const { scanPhasePlans } = planScanMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
 import planningScope = require('./planning-scope.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { SCOPE } = planningScope;
 
 const VERB = 'mn-failure-paths';
@@ -294,7 +308,7 @@ export function analyzeFailurePaths(phaseDir: string): FailurePathAnalysis | { u
 export function evaluateMnFailurePaths(input: MnGateInput): GateResult {
   return withMnPhase(VERB, input, ({ phaseDir }) => {
     const analysis = analyzeFailurePaths(phaseDir);
-    if ('unreadable' in analysis) return mnUnresolvable(`${VERB}: ${analysis.unreadable}`, { phaseDir });
+    if ('unreadable' in analysis) return mnUnreadable(`${VERB}: ${analysis.unreadable}`, { phaseDir });
 
     const counts = {
       blocker: analysis.findings.filter((f) => f.severity === 'blocker').length,

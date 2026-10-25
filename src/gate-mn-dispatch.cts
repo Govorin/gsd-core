@@ -3,7 +3,7 @@
  * entry the check router calls (.plans/mn-verify-gate-to-cli.md §3.1, decision 5).
  *
  * The upstream check router has no extension point, so it carries exactly one registration line:
- * `isMnCheckVerb(verb)` → `evaluateMnCheck(verb, input)` → its own `emitGateResult`. Every mn verb
+ * `isMnCheckVerb(verb)` → `dispatchMnCheck(verb, input)` → its own `emitGateResult`. Every mn verb
  * lives here and in its `gate-mn-*` module, so a sync with upstream meets one line in
  * `check-command-router.cts` instead of a growing `switch`.
  *
@@ -18,13 +18,15 @@
 
 import type { GateResult } from './gate-verdict.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
-import { evaluateMnPlanStatus, evaluateMnOrphanPlans } from './gate-mn-plan-status.cjs';
+import { evaluateMnPlanStatus } from './gate-mn-plan-status.cjs';
+import { evaluateMnOrphanPlans } from './gate-mn-orphan-plans.cjs';
 import { evaluateMnUatOpen } from './gate-mn-uat-open.cjs';
 import { evaluateMnBlastRadius } from './gate-mn-blast-radius.cjs';
 import { evaluateMnContractDrift } from './gate-mn-contract-drift.cjs';
 import { evaluateMnMigrationSafety } from './gate-mn-migration-safety.cjs';
 import { evaluateMnCleanState } from './gate-mn-clean-state.cjs';
-import { evaluateMnWaveCollision, evaluateMnWaveSolve } from './gate-mn-waves.cjs';
+import { evaluateMnWaveCollision } from './gate-mn-waves.cjs';
+import { evaluateMnWaveSolve } from './gate-mn-wave-solve.cjs';
 import { evaluateMnAssertionRatchet } from './gate-mn-assertion-ratchet.cjs';
 import { evaluateMnMutationSpotCheck } from './gate-mn-mutation-spot-check.cjs';
 import { evaluateMnBaseline } from './gate-mn-baseline.cjs';
@@ -68,7 +70,7 @@ export function isMnCheckVerb(verb: unknown): verb is string {
 }
 
 /** Evaluate the mn gate `verb` (which `isMnCheckVerb` accepted) on the argv after the verb. */
-export function evaluateMnCheck(verb: string, input: MnGateInput): GateResult {
+export function dispatchMnCheck(verb: string, input: MnGateInput): GateResult {
   const entry = Object.prototype.hasOwnProperty.call(MN_CHECK_VERBS, verb) ? MN_CHECK_VERBS[verb] : undefined;
   if (entry === undefined) throw new Error(`not an mn gate: ${verb}`);
   return entry.evaluate(input);

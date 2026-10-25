@@ -21,7 +21,7 @@ const assert = require('node:assert/strict');
 
 const { cleanup } = require('./helpers.cjs');
 const { createMnProject, makePhase } = require('./helpers/mn-gate-fixture.cjs');
-const { evaluateMnOrphanPlans } = require('../gsd-core/bin/lib/gate-mn-plan-status.cjs');
+const { evaluateMnOrphanPlans } = require('../gsd-core/bin/lib/gate-mn-orphan-plans.cjs');
 const { PLAN_STATUSES } = require('../gsd-core/bin/lib/plan-status.cjs');
 
 const SUMMARY = '---\nphase: 01\n---\n\n# summary\n';

@@ -21,6 +21,7 @@ const path = require('node:path');
 const { cleanup, createTempDir } = require('./helpers.cjs');
 const { runTools } = require('./helpers/gsd-tools-cli.cjs');
 const realRegistry = require('../gsd-core/bin/lib/capability-registry.cjs');
+const { exitCodeFor } = require('../hooks/lib/exit-code-registry.js');
 
 const REFERENCE = path.join(__dirname, '..', 'gsd-core', 'references', 'loop-hook-dispatch.md');
 
@@ -77,6 +78,15 @@ function failureReason(result) {
   return undefined;
 }
 
+/** The `block` of a gate payload printed on stdout, or undefined when stdout is not one. */
+function deliveredBlock(result) {
+  try {
+    return JSON.parse(String(result.stdout).trim()).block;
+  } catch {
+    return undefined;
+  }
+}
+
 const tmpDirs = [];
 after(() => { for (const d of tmpDirs) { try { cleanup(d); } catch { /* best-effort */ } } });
 
@@ -101,6 +111,9 @@ describe('gate query validation accepts the registry and rejects the injection s
     for (const query of registryQueries()) {
       const r = runTools(['check', normalize(query), '--json-errors'], cwd);
       if (r.exitCode === 0) continue; // a gate that ran and answered
+      // A gate that ran and could not look (#5170): exit UNAVAILABLE with the gate's JSON on stdout —
+      // a delivered answer the dispatcher routes by onError, not a routing failure.
+      if (r.exitCode === exitCodeFor('UNAVAILABLE') && typeof deliveredBlock(r) === 'boolean') continue;
       // A failure of a KNOWN check is a typed usage failure (a missing phase argument, for one); only an
       // id the router does not know carries the unknown-command reason.
       const reason = failureReason(r);

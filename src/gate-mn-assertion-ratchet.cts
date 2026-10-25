@@ -20,13 +20,27 @@
  */
 
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnProject } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnProject } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { countAssertions, readAssertionBaseline, DEFAULT_ROOTS } from './mn-assertion-count.cjs';
 import { projectRoots } from './project-root.cjs';
 import type { GitRunner } from './project-root.cjs';
 import type { AssertionCounts } from './mn-assertion-count.cjs';
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** How a baseline is recorded — named in every verdict that needs one. */
 export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline';
@@ -60,7 +74,7 @@ export function evaluateMnAssertionRatchet(input: MnGateInput, deps: MnAssertion
     const repoRoot = projectRoots(input.projectDir, deps.git).content;
     const read = readAssertionBaseline(repoRoot);
     if (!read.ok) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-assertion-ratchet: ${read.message} — nothing to compare against. Record one with \`${ASSERTION_BASELINE_COMMAND}\`.`,
         { baselineFile: read.path, baselineProblem: read.reason },
       );
@@ -70,7 +84,7 @@ export function evaluateMnAssertionRatchet(input: MnGateInput, deps: MnAssertion
     const roots = DEFAULT_ROOTS.map((root) => path.join(repoRoot, root));
     const current = countAssertions(roots);
     if (current.files === 0) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-assertion-ratchet: no spec files found under [${roots.join(', ')}] (repository root ${repoRoot}) — ` +
           'a walk that finds nothing measured nothing.',
         { baselineFile, repoRoot, roots },

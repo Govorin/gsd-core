@@ -45,6 +45,7 @@ import { gateVerdict, gateUnreadable, gateUsageFailure, isGateUsageFailure, GATE
 import type { GateResult } from './gate-verdict.cjs';
 import { resolveContainedPath, resolvePhaseDir } from './gate-phase-context.cjs';
 import { escapeEre } from './pattern.cjs';
+import { safeJsonParse } from './security.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planScanMod = require('./plan-scan.cjs');
 const { scanPhasePlans } = planScanMod;
@@ -259,12 +260,9 @@ const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 /** The marker, or null when the text is not a well-formed version-1 marker. */
 export function parseLastWindowMarker(text: string): LastWindowMarker | null {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    return null;
-  }
+  const parsed = safeJsonParse(text, { label: 'LAST-WINDOW.json' });
+  if (!parsed.ok) return null;
+  const data = parsed.value;
   if (typeof data !== 'object' || data === null) return null;
   const record = data as Record<string, unknown>;
   const { version, tip, since, until, reviewedAt, review } = record;

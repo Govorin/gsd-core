@@ -26,13 +26,27 @@
  * the reader would be sent to clean a tree that was never examined.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { execGit } from './shell-command-projection.cjs';
 import type { SpawnResultOutput } from './shell-command-projection.cjs';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnProject } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { statEvidence } from './gate-evidence.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnProject } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** The git seam — injected so tests can drive a failing git without breaking the host's. */
 export interface CleanStateDeps {
@@ -98,7 +112,7 @@ export function evaluateMnCleanState(input: MnGateInput, deps: CleanStateDeps = 
     try {
       git(deps, ['rev-parse', '--show-toplevel'], cwd);
     } catch (err) {
-      return mnUnresolvable(`mn-clean-state: cannot look — not a git repository or git unavailable (${(err as Error).message})`);
+      return mnUnreadable(`mn-clean-state: cannot look — not a git repository or git unavailable (${(err as Error).message})`);
     }
 
     const operations: string[] = [];
@@ -107,13 +121,16 @@ export function evaluateMnCleanState(input: MnGateInput, deps: CleanStateDeps = 
       for (const [name, label] of OPERATIONS) {
         // `--git-path` prints a path relative to the cwd it ran in, so it is resolved from there.
         const marker = git(deps, ['rev-parse', '--git-path', name], cwd).trim();
-        if (fs.existsSync(path.resolve(cwd, marker)) && !operations.includes(label)) operations.push(label);
+        // A marker that cannot be examined is not "no operation in progress".
+        const seen = statEvidence(path.resolve(cwd, marker));
+        if (seen.kind === 'unreadable') return mnUnreadable(`mn-clean-state: cannot look — ${marker} could not be examined (${seen.reason})`);
+        if (seen.kind === 'found' && !operations.includes(label)) operations.push(label);
       }
       dirty = parsePorcelainV2(git(deps, ['status', '--porcelain=v2', '-z', '--untracked-files=all'], cwd)).filter(
         (p) => !p.startsWith('.planning/'),
       );
     } catch (err) {
-      if (err instanceof GitFailure) return mnUnresolvable(`mn-clean-state: cannot look — ${err.message}`);
+      if (err instanceof GitFailure) return mnUnreadable(`mn-clean-state: cannot look — ${err.message}`);
       throw err;
     }
 

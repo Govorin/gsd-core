@@ -24,9 +24,14 @@
  *   finding       `block: true`,  `status: 'finding'` — the gate looked and found a defect
  *   unresolvable  `block: true`,  `status: 'unresolvable'` — the gate could not look (no phase, an
  *                 unreadable file, a tool that would not run). The fail-closed half of the old
- *                 scripts' exit 2: "did not check" never reads as "checked and clean". It stays
- *                 distinguishable in the payload, and the exit code stays 0 (ADR-3889: 2 belongs to
- *                 the hook protocol; ADR-5057 §4: the exit code is a function of the verdict).
+ *                 scripts' exit 2: "did not check" never reads as "checked and clean". Since the 1.18
+ *                 sync it is upstream's typed outcome `unreadable` (#5170, ADR-5057 §4): the verb
+ *                 exits 69 (UNAVAILABLE) with this payload, and the dispatcher routes it by the gate's
+ *                 `onError` — `halt` for every mn gate — never by its `block`.
+ *
+ * Each gate module builds its own three verdicts with `gateVerdict` / `gateUnreadable` over
+ * `mnPayload`, so its failing arms are visible in its own file to the positive-control lint (#5204);
+ * this module owns only the payload shape.
  *
  * A wrong invocation (no phase argument at all, a path escaping the project) is neither: it is a
  * `GateUsageFailure`, which the router turns into `error()` and the gate's `onError` routes.
@@ -34,11 +39,11 @@
  * Every payload carries `block` and `message` — the gate-dispatch contract the workflows read.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
-import { gateVerdict, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
+import { gateUnreadable, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
 import type { GateResult, GateUsageFailure, GateVerdict } from './gate-verdict.cjs';
 import { partitionPredicateArgs } from './gate-args.cjs';
+import { statEvidence } from './gate-evidence.cjs';
 import { resolveContainedPath, resolvePhaseDir } from './gate-phase-context.cjs';
 
 /** The `status` an mn gate payload carries — names the verdict, separately from `block`. */
@@ -47,6 +52,7 @@ export const MN_GATE_STATUS = Object.freeze({
   FINDING: 'finding',
   UNRESOLVABLE: 'unresolvable',
 } as const);
+export type MnGateStatus = (typeof MN_GATE_STATUS)[keyof typeof MN_GATE_STATUS];
 
 /** The input every mn gate module receives from the router: the argv AFTER the verb. */
 export interface MnGateInput {
@@ -65,27 +71,32 @@ export interface MnPhaseUnresolved {
   unresolved: string;
 }
 
-/** The checked half of the verdict: the gate looked and the phase is clean. */
-export function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
-  return gateVerdict('pass', false, { block: false, status: MN_GATE_STATUS.PASS, message, ...details });
+/** The payload of an mn verdict: `block` follows the status, and `message` is always present. */
+export function mnPayload(status: MnGateStatus, message: string, details: Record<string, unknown> = {}): Record<string, unknown> {
+  return { block: status !== MN_GATE_STATUS.PASS, status, message, ...details };
 }
 
-/** The gate looked and found a defect. */
-export function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
-  return gateVerdict('block', true, { block: true, status: MN_GATE_STATUS.FINDING, message, ...details });
+/** The gate could not look — this module's own arm (an unresolved phase, a crashed body). */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
 
-/** The gate could not look. Blocks (fail-closed), and says so in `status` and `message`. */
-export function mnUnresolvable(message: string, details: Record<string, unknown> = {}): GateVerdict {
-  return gateVerdict('block', true, { block: true, status: MN_GATE_STATUS.UNRESOLVABLE, message, ...details });
+/**
+ * Whether a candidate phase directory is one: a directory, absent (or not a directory), or a path
+ * that could not be examined (EACCES on a parent) — the last is never collapsed into "not found".
+ */
+function directoryState(candidate: string): 'directory' | 'absent' | { unreadable: string } {
+  const stat = statEvidence(candidate);
+  if (stat.kind === 'unreadable') return { unreadable: stat.reason };
+  return stat.kind === 'found' && stat.value.isDirectory() ? 'directory' : 'absent';
 }
 
-function isDirectory(candidate: string): boolean {
-  try {
-    return fs.statSync(candidate).isDirectory();
-  } catch {
-    return false;
-  }
+/** The `unresolved` reason for a candidate that is not an examinable directory, or null when it is one. */
+function notADirectory(candidate: string, what: string): string | null {
+  const state = directoryState(candidate);
+  if (state === 'directory') return null;
+  if (state === 'absent') return `${what} not found`;
+  return `${what} could not be examined: ${state.unreadable}`;
 }
 
 function looksLikePath(value: string): boolean {
@@ -95,7 +106,8 @@ function looksLikePath(value: string): boolean {
 function fromDirectory(projectDir: string, dirArg: string): MnPhase | GateUsageFailure | MnPhaseUnresolved {
   const contained = resolveContainedPath(dirArg, projectDir);
   if (isGateUsageFailure(contained)) return contained;
-  if (!isDirectory(contained)) return { unresolved: `phase directory not found: ${dirArg}` };
+  const problem = notADirectory(contained, 'phase directory');
+  if (problem !== null) return { unresolved: `${problem}: ${dirArg}` };
   return { phaseDir: contained, phaseArg: dirArg };
 }
 
@@ -105,7 +117,9 @@ function fromToken(projectDir: string, token: string): MnPhase | MnPhaseUnresolv
   if (located.kind === 'unreadable') {
     return { unresolved: `could not read the phase directory for phase ${token}: ${located.reason}` };
   }
-  if (located.kind === 'none' || !isDirectory(located.value)) return { unresolved: `phase not found: ${token}` };
+  if (located.kind === 'none') return { unresolved: `phase not found: ${token}` };
+  const problem = notADirectory(located.value, 'phase');
+  if (problem !== null) return { unresolved: `${problem}: ${token}` };
   return { phaseDir: located.value, phaseArg: token };
 }
 
@@ -156,12 +170,12 @@ export function withMnPhase(
   if (isGateUsageFailure(phase)) return phase;
   // `phaseResolved: false` names this cause in the payload: a reader (and the per-verb argument
   // matrix test) can tell "no such phase" from "the phase was found but could not be checked".
-  if ('unresolved' in phase) return mnUnresolvable(`${verb}: ${phase.unresolved}`, { phaseResolved: false });
+  if ('unresolved' in phase) return mnUnreadable(`${verb}: ${phase.unresolved}`, { phaseResolved: false });
   try {
     return body(phase);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return mnUnresolvable(`${verb}: could not check — ${reason}`, { phaseDir: phase.phaseDir });
+    return mnUnreadable(`${verb}: could not check — ${reason}`, { phaseDir: phase.phaseDir });
   }
 }
 
@@ -171,6 +185,6 @@ export function withMnProject(verb: string, body: () => GateResult): GateResult 
     return body();
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    return mnUnresolvable(`${verb}: could not check — ${reason}`);
+    return mnUnreadable(`${verb}: could not check — ${reason}`);
   }
 }

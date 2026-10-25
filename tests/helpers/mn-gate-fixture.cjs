@@ -17,6 +17,9 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 
 const { createTempProject, runGsdTools } = require('../helpers.cjs');
+const { exitCodeFor } = require('../../hooks/lib/exit-code-registry.js');
+
+const UNAVAILABLE_EXIT = exitCodeFor('UNAVAILABLE');
 
 /** A temp GSD project (`.planning/` present, no git). Pair with `cleanup()` in `afterEach`. */
 function createMnProject(prefix = 'gsd-mn-gate-') {
@@ -58,14 +61,17 @@ function writeWorkflowConfig(projectDir, workflow) {
 
 /**
  * Run `gsd-tools check <verb> <args...> --raw` in `projectDir` and return the parsed payload.
- * A gate verdict always exits 0; a non-zero exit fails the assertion with stderr attached.
+ * A delivered verdict (pass or finding) exits 0. "Could not check" (`status: 'unresolvable'`) is
+ * outcome `unreadable` since #5170 and exits 69 (UNAVAILABLE) with the same payload — the dispatcher
+ * routes it by `onError`. Any other exit, or a 69 without that status, fails the assertion.
  */
 function runMnCheck(projectDir, verb, args = []) {
   const r = runGsdTools(['check', verb, ...args, '--raw'], projectDir);
-  assert.equal(r.success, true, `check ${verb} must exit 0 with a verdict: ${r.error}`);
+  assert.ok(r.exitCode === 0 || r.exitCode === UNAVAILABLE_EXIT, `check ${verb} must deliver a verdict: exit ${r.exitCode}: ${r.error}`);
   const payload = JSON.parse(r.output);
   assert.equal(typeof payload.block, 'boolean', 'the payload must carry block');
   assert.equal(typeof payload.message, 'string', 'the payload must carry message');
+  assert.equal(r.exitCode === UNAVAILABLE_EXIT, payload.status === 'unresolvable', `check ${verb}: exit ${r.exitCode} with status ${payload.status} — only could-not-check exits ${UNAVAILABLE_EXIT}`);
   return payload;
 }
 

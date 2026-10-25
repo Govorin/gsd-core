@@ -36,16 +36,30 @@
  * an empty file list from a base that does not exist is indistinguishable from a clean phase.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { execGit } from './shell-command-projection.cjs';
 import type { SpawnResultOutput } from './shell-command-projection.cjs';
-import { gateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
-import type { GateResult } from './gate-verdict.cjs';
+import { gateUnreadable, gateUsageFailure, gateVerdict, GATE_FAILURE_CODE } from './gate-verdict.cjs';
+import { readDirEvidence, readTextEvidence, statEvidence } from './gate-evidence.cjs';
+import { safeJsonParse } from './security.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
 import { readWorkflowConfigValue } from './gate-config.cjs';
 import { escapeRegex } from './pattern.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** The git seam — injected so tests can drive failures without a broken git on the host. */
 export interface MigrationSafetyDeps {
@@ -234,26 +248,30 @@ function collapse(local: LocalFinding[]): Array<LocalFinding & { count: number }
 function checkJournal(repoRoot: string, migDir: string, findings: MigrationFinding[], notes: string[]): void {
   const jp = path.join(migDir, 'meta', '_journal.json');
   const relDir = path.relative(repoRoot, migDir).split(path.sep).join('/');
-  if (!fs.existsSync(jp)) {
+  // An absent journal means the directory is not drizzle-kit's; one that cannot be read or parsed is
+  // a high finding, never "not managed" (the gate fails closed through its finding).
+  const journalText = readTextEvidence(jp);
+  if (journalText.kind === 'none') {
     notes.push(`no meta/_journal.json in ${relDir} — the directory is not managed by drizzle-kit`);
     return;
   }
-  let journal: unknown;
-  try {
-    journal = JSON.parse(fs.readFileSync(jp, 'utf8'));
-  } catch (e) {
-    findings.push({ sev: 'high', kind: 'journal-unreadable', file: `${relDir}/meta/_journal.json`, detail: String((e as Error).message).slice(0, 120) });
+  const parsed = journalText.kind === 'found' ? safeJsonParse(journalText.value, { label: '_journal.json' }) : null;
+  if (parsed === null || !parsed.ok) {
+    const detail = journalText.kind === 'unreadable' ? journalText.reason : (parsed?.error ?? 'unparseable');
+    findings.push({ sev: 'high', kind: 'journal-unreadable', file: `${relDir}/meta/_journal.json`, detail: detail.slice(0, 120) });
     return;
   }
+  const journal = parsed.value;
   const rawEntries = (journal as { entries?: unknown } | null)?.entries;
   const entries: unknown[] = Array.isArray(rawEntries) ? rawEntries : [];
   const tags = new Set(entries.map((e) => (e as { tag?: unknown } | null)?.tag).filter((t): t is string => typeof t === 'string'));
-  let disk: string[];
-  try {
-    disk = fs.readdirSync(migDir).filter((f) => f.endsWith('.sql')).sort();
-  } catch {
+  const listing = readDirEvidence(migDir);
+  if (listing.kind !== 'found') {
+    const detail = listing.kind === 'unreadable' ? listing.reason : 'ENOENT';
+    findings.push({ sev: 'high', kind: 'journal-unreadable', file: relDir, detail: `the migrations directory could not be listed (${detail})` });
     return;
   }
+  const disk = listing.value.filter((f) => f.endsWith('.sql')).sort();
 
   const orphans = disk.filter((f) => !tags.has(f.replace(/\.sql$/, '')));
   const missing = [...tags].filter((t) => !disk.includes(`${t}.sql`));
@@ -267,12 +285,10 @@ function checkJournal(repoRoot: string, migDir: string, findings: MigrationFindi
   const dupPrefix = [...byPrefix.entries()].filter(([, v]) => v.length > 1);
 
   if (orphans.length > 0) {
+    // A file that cannot be read cannot declare itself manual: it stays undeclared.
     const undeclared = orphans.filter((f) => {
-      try {
-        return !DECLARATIONS.manual.test(fs.readFileSync(path.join(migDir, f), 'utf8'));
-      } catch {
-        return true;
-      }
+      const sql = readTextEvidence(path.join(migDir, f));
+      return sql.kind !== 'found' || !DECLARATIONS.manual.test(sql.value);
     });
     if (undeclared.length > 0) {
       findings.push({
@@ -303,20 +319,16 @@ function checkJournal(repoRoot: string, migDir: string, findings: MigrationFindi
  * wide match: the gate's aim is to make someone think, not to impose a wording.
  */
 function phaseDiscussesMigration(phaseDir: string): boolean {
-  let files: string[];
-  try {
-    files = fs.readdirSync(phaseDir).filter((f) => f.endsWith('.md'));
-  } catch {
-    return false;
-  }
+  // Fail closed: an artifact that cannot be read justifies nothing.
+  const listing = readDirEvidence(phaseDir);
+  if (listing.kind !== 'found') return false;
   const re = /(backfill|бэкфилл|обратим|необратим|rollback|откат миграц|reverse migration|down-миграц)/i;
-  return files.some((f) => {
-    try {
-      return re.test(fs.readFileSync(path.join(phaseDir, f), 'utf8'));
-    } catch {
-      return false;
-    }
-  });
+  return listing.value
+    .filter((f) => f.endsWith('.md'))
+    .some((f) => {
+      const text = readTextEvidence(path.join(phaseDir, f));
+      return text.kind === 'found' && re.test(text.value);
+    });
 }
 
 function gitOk(deps: MigrationSafetyDeps, args: string[], cwd: string): string | null {
@@ -387,18 +399,18 @@ export function evaluateMnMigrationSafety(input: MnGateInput, deps: MigrationSaf
 
     const top = gitOk(deps, ['rev-parse', '--show-toplevel'], cwd);
     if (top === null) {
-      return mnUnresolvable('mn-migration-safety: git is unavailable or this is not a repository — there is no way to find the phase\'s migrations', { phaseDir, strict });
+      return mnUnreadable('mn-migration-safety: git is unavailable or this is not a repository — there is no way to find the phase\'s migrations', { phaseDir, strict });
     }
     const repoRoot = top.trim();
     const base = resolveBase(deps, cwd, parsed.base, notes);
     if (base === null) {
-      return mnUnresolvable(
+      return mnUnreadable(
         'mn-migration-safety: no comparison base — an empty change list from a base that does not exist is indistinguishable from a clean phase',
         { phaseDir, strict, notes },
       );
     }
     const diff = gitOk(deps, ['diff', '--name-only', '-z', '--diff-filter=ACMR', base, '--'], cwd);
-    if (diff === null) return mnUnresolvable(`mn-migration-safety: git diff against ${base} did not run`, { phaseDir, strict, base });
+    if (diff === null) return mnUnreadable(`mn-migration-safety: git diff against ${base} did not run`, { phaseDir, strict, base });
     const changed = new Set(splitNul(diff));
     const untracked = gitOk(deps, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z'], cwd);
     if (untracked !== null) for (const f of splitNul(untracked)) changed.add(f);
@@ -413,14 +425,16 @@ export function evaluateMnMigrationSafety(input: MnGateInput, deps: MigrationSaf
     const findings: MigrationFinding[] = [];
     for (const rel of files) {
       const abs = path.join(repoRoot, rel);
-      let raw: string;
-      try {
-        if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) continue;
-        raw = fs.readFileSync(abs, 'utf8');
-      } catch (e) {
-        findings.push({ sev: 'warn', kind: 'unreadable', file: rel, detail: String((e as Error).message).slice(0, 100) });
+      // A deleted path (or a directory) has no SQL to judge; one that cannot be read is a finding.
+      const stat = statEvidence(abs);
+      if (stat.kind === 'none' || (stat.kind === 'found' && !stat.value.isFile())) continue;
+      const sql = stat.kind === 'found' ? readTextEvidence(abs) : stat;
+      if (sql.kind !== 'found') {
+        const detail = sql.kind === 'unreadable' ? sql.reason : 'ENOENT';
+        findings.push({ sev: 'warn', kind: 'unreadable', file: rel, detail: detail.slice(0, 100) });
         continue;
       }
+      const raw = sql.value;
       const a = analyzeSql(raw);
       if (a.statementCount === 0) {
         findings.push({ sev: 'warn', kind: 'empty-migration', file: rel, detail: 'no statement left once comments are stripped' });

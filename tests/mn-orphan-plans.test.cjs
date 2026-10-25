@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 
 const { cleanup } = require('./helpers.cjs');
 const { createMnProject, makePhase, runMnCheck } = require('./helpers/mn-gate-fixture.cjs');
-const { evaluateMnOrphanPlans } = require('../gsd-core/bin/lib/gate-mn-plan-status.cjs');
+const { evaluateMnOrphanPlans } = require('../gsd-core/bin/lib/gate-mn-orphan-plans.cjs');
 
 const CAPABILITY = require('../capabilities/mn-verify-gate/capability.json');
 

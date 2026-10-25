@@ -17,9 +17,10 @@
  * named in the message either way.
  */
 
-import fs from 'node:fs';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnPhaseCliArg, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { readTextEvidence } from './gate-evidence.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, mnPhaseCliArg, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { BASELINE_RECORD_KEY, baselineDigest, baselinePathFor } from './verify-baseline.cjs';
 import type { GitRunner } from './verify-baseline.cjs';
@@ -27,6 +28,19 @@ import type { GitRunner } from './verify-baseline.cjs';
 import verifyGates = require('./verify-gates.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { extractFrontmatter } = frontmatterMod;
 
 const { readChecks, recordedChecks, recordedList, judgeRecordedChecks, describeCheck } = verifyGates;
@@ -44,13 +58,13 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
   return withMnPhase('mn-baseline', input, ({ phaseDir, phaseArg }) => {
     const config = readChecks(input.projectDir);
     if (!config.ok) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-baseline: workflow.verify_gates is set but cannot be run (${config.problems.join('; ')}) — repair it before measuring a baseline`,
         { phaseDir, problems: config.problems },
       );
     }
     if (config.checks.length === 0) {
-      return mnUnresolvable(
+      return mnUnreadable(
         'mn-baseline: workflow.verify_gates names no checks, so there is no baseline to measure — name the project\'s checks ' +
           `(gsd_run query config-set workflow.verify_gates '{"tests":"npm test"}') or turn workflow.verify_gates_baseline off`,
         { phaseDir, recorded: false },
@@ -58,15 +72,15 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
     }
 
     const baselinePath = baselinePathFor(phaseDir);
-    let text: string;
-    try {
-      text = fs.readFileSync(baselinePath, 'utf8');
-    } catch {
-      return mnUnresolvable(`mn-baseline: no ${baselinePath} — ${recordStep(phaseArg)}`, { baselinePath, recorded: false });
+    const recordFile = readTextEvidence(baselinePath);
+    if (recordFile.kind === 'none') return mnUnreadable(`mn-baseline: no ${baselinePath} — ${recordStep(phaseArg)}`, { baselinePath, recorded: false });
+    if (recordFile.kind === 'unreadable') {
+      return mnUnreadable(`mn-baseline: could not read ${baselinePath} (${recordFile.reason})`, { baselinePath, recorded: false, readError: recordFile.reason });
     }
+    const text = recordFile.value;
     const raw = (extractFrontmatter(text) as Record<string, unknown>)[BASELINE_RECORD_KEY];
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      return mnUnresolvable(`mn-baseline: ${baselinePath} carries no baseline: record — ${recordStep(phaseArg)}`, {
+      return mnUnreadable(`mn-baseline: ${baselinePath} carries no baseline: record — ${recordStep(phaseArg)}`, {
         baselinePath,
         recorded: false,
       });
@@ -75,7 +89,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
     const ranAt = typeof record['ran_at'] === 'string' ? record['ran_at'] : 'undated';
 
     if (record['digest'] !== baselineDigest(input.projectDir, config.checks, git)) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-baseline: the baseline (${ranAt}) was measured on other code or with other checks — ` +
           `the tree outside .planning/ or workflow.verify_gates changed since; ${recordStep(phaseArg)}`,
         { baselinePath, recorded: true, stale: true, ranAt },
@@ -101,7 +115,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
     };
 
     if (checks.length === 0) {
-      return mnUnresolvable(`mn-baseline: ${baselinePath} records no checks — ${recordStep(phaseArg)}`, details);
+      return mnUnreadable(`mn-baseline: ${baselinePath} records no checks — ${recordStep(phaseArg)}`, details);
     }
     const alsoUnmeasured = unmeasured.length > 0 ? ` Not measured either: ${unmeasured.map(describeCheck).join('; ')}.` : '';
     if (red.length > 0) {
@@ -113,7 +127,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
       );
     }
     if (unmeasured.length > 0) {
-      return mnUnresolvable(
+      return mnUnreadable(
         `mn-baseline: the base is unmeasured — ${unmeasured.map(describeCheck).join('; ')}. A check that cannot run is a ` +
           'stale roster, not a red one: repair workflow.verify_gates (or raise the budget of a check that timed out), or ' +
           `accept it knowingly: ${acceptHint(phaseArg)}.`,

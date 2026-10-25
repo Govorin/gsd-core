@@ -1,6 +1,8 @@
 /**
  * `gsd_run check mn-wave-collision` and `gsd_run check mn-wave-solve` — the wave gates of
- * mn-verify-gate (replace scripts/wave-collision.mjs, wave-normalize.mjs and wave-solve.mjs).
+ * mn-verify-gate (replace scripts/wave-collision.mjs, wave-normalize.mjs and wave-solve.mjs). This
+ * module is mn-wave-collision and both analyses; the mn-wave-solve verb is its own gate module
+ * (`gate-mn-wave-solve.cts`: one gate module, one gate — #5204).
  *
  * ── The one parallelism rule ─────────────────────────────────────────────
  *
@@ -49,8 +51,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { evidenceFound, evidenceFromError } from './gate-evidence.cjs';
+import type { Evidence } from './gate-evidence.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 import { readWorkflowConfigValue } from './gate-config.cjs';
 import { normalizePlanFiles } from './files-modified-normalize.cjs';
@@ -72,6 +77,19 @@ import coreUtils = require('./core-utils.cjs');
 const { extractCanonicalPlanId } = coreUtils;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- file-overlap-partitioner.cjs is an export= CommonJS module
 import overlapMod = require('./file-overlap-partitioner.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { partitionByFileOverlap } = overlapMod;
 
 /** Most items any list in a payload carries; the true count rides beside it. */
@@ -145,7 +163,7 @@ function readPhasePlans(phaseDir: string): WavePlan[] | { unreadable: string } {
 }
 
 /** Expand mode is on by config (`workflow.wave_normalize`) or by hand (`--expand`). */
-function readMode(projectDir: string, args: readonly string[]): WaveMode {
+export function readMode(projectDir: string, args: readonly string[]): WaveMode {
   if (args.includes('--expand')) return 'expand';
   const resolved = readWorkflowConfigValue(projectDir, 'workflow.wave_normalize');
   const value = resolved.found ? resolved.value : undefined;
@@ -156,14 +174,23 @@ function readMode(projectDir: string, args: readonly string[]): WaveMode {
  * The live tree under `root`, read without following symlinks (T-03-01): a symlinked directory
  * is neither walked nor counted, so a link pointing outside contributes nothing.
  */
+/** `lstat` as evidence: a symlink is reported as itself, never followed (T-03-01). */
+function lstatEvidence(target: string): Evidence<fs.Stats> {
+  try {
+    return evidenceFound(fs.lstatSync(target));
+  } catch (err) {
+    return evidenceFromError<fs.Stats>(err, target);
+  }
+}
+
 function treeProbe(root: string): FsProbe {
   const abs = (p: string): string => (p === '' ? root : path.join(root, p));
+  // Absent is `null`; a path that cannot be examined (EACCES on a parent) is not absent — it throws,
+  // and withMnPhase turns that into the unreadable verdict rather than a smaller tree.
   const lstat = (p: string): fs.Stats | null => {
-    try {
-      return fs.lstatSync(abs(p));
-    } catch {
-      return null;
-    }
+    const seen = lstatEvidence(abs(p));
+    if (seen.kind === 'unreadable') throw new Error(`could not examine ${p || '.'} (${seen.reason})`);
+    return seen.kind === 'found' ? seen.value : null;
   };
   return {
     exists: (p) => lstat(p) !== null,
@@ -282,7 +309,7 @@ export function evaluateMnWaveCollision(input: MnGateInput): GateResult {
   const args = input.args.filter((a) => a !== '--expand');
   return withMnPhase('mn-wave-collision', { projectDir: input.projectDir, args }, ({ phaseDir }) => {
     const analysis = analyzeWaveCollision(input.projectDir, phaseDir, mode);
-    if ('unreadable' in analysis) return mnUnresolvable(`mn-wave-collision: ${analysis.unreadable}`, { phaseDir, mode });
+    if ('unreadable' in analysis) return mnUnreadable(`mn-wave-collision: ${analysis.unreadable}`, { phaseDir, mode });
     const counts = {
       collisions: analysis.collisions.length,
       declaredNothing: analysis.declaredNothing.length,
@@ -429,53 +456,4 @@ export function analyzeWaveSolve(
     undeclared: solved.filter((s) => s.declared === null).length,
     unresolvedDependencies: unresolved.map((u) => ({ plan: byId.get(u.plan)?.plan ?? u.plan, token: u.token })),
   };
-}
-
-/** `gsd_run check mn-wave-solve <phase> [--expand]` */
-export function evaluateMnWaveSolve(input: MnGateInput): GateResult {
-  const mode = readMode(input.projectDir, input.args);
-  const args = input.args.filter((a) => a !== '--expand');
-  return withMnPhase('mn-wave-solve', { projectDir: input.projectDir, args }, ({ phaseDir }) => {
-    const analysis = analyzeWaveSolve(input.projectDir, phaseDir, mode);
-    if ('unreadable' in analysis) return mnUnresolvable(`mn-wave-solve: ${analysis.unreadable}`, { phaseDir, mode });
-    if ('cycle' in analysis) {
-      return mnUnresolvable(
-        `mn-wave-solve: dependency cycle among ${analysis.cycle.join(', ')} — a cyclic graph has no wave assignment, and inventing one would be worse than none`,
-        { phaseDir, mode, cycle: analysis.cycle },
-      );
-    }
-    const details = {
-      phaseDir,
-      mode,
-      base: analysis.base,
-      waves: analysis.waves,
-      matched: analysis.matched,
-      undeclared: analysis.undeclared,
-      counts: { plans: analysis.plans.length, violations: analysis.violations.length, conservative: analysis.conservative.length },
-      plans: analysis.plans.slice(0, MAX_LISTED),
-      violations: analysis.violations.slice(0, MAX_LISTED).map((v) =>
-        v.kind === 'shares-file-in-wave' ? { ...v, shared: v.shared.slice(0, MAX_SHARED_LISTED), sharedCount: v.shared.length } : v,
-      ),
-      conservative: analysis.conservative.slice(0, MAX_LISTED),
-      unresolvedDependencies: analysis.unresolvedDependencies.slice(0, MAX_LISTED),
-    };
-    if (analysis.violations.length === 0) {
-      return mnPass(
-        analysis.plans.length === 0
-          ? 'mn-wave-solve: no plans here — nothing to solve'
-          : `mn-wave-solve: OK — ${analysis.matched} plan(s) match the computed assignment` +
-              (analysis.conservative.length > 0 ? `, ${analysis.conservative.length} scheduled later than necessary (safe, only slower)` : '') +
-              (analysis.undeclared > 0 ? `, ${analysis.undeclared} declare no wave` : '') +
-              `, ${analysis.waves} wave(s) computed`,
-        details,
-      );
-    }
-    return mnFinding(
-      `mn-wave-solve: ${analysis.violations.length} declared wave(s) break the invariant (` +
-        analysis.violations.slice(0, 5).map((v) => (v.kind === 'before-dependency' ? `${v.plan} runs no later than its dependency ${v.dependency}` : `${v.plan} shares wave ${v.wave} and a file with ${v.with}`)).join('; ') +
-        ') — a plan scheduled before its dependency runs against work that does not exist yet; one sharing a wave with a plan ' +
-        'touching the same file races it in a separate worktree. Renumber the waves (see plans[].computed), or fix depends_on.',
-      details,
-    );
-  });
 }

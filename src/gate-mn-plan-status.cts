@@ -1,6 +1,8 @@
 /**
  * `gsd_run check mn-plan-status` and `gsd_run check mn-orphan-plans` — the two readers of a plan's
  * `status` that gate a phase (mn-verify-gate; replaces scripts/plan-status.mjs and orphan-plans.mjs).
+ * This module is mn-plan-status and the plan reading both share; mn-orphan-plans is its own gate
+ * module (`gate-mn-orphan-plans.cts`: one gate module, one gate — #5204).
  *
  * Both read the vocabulary from `src/plan-status.cts`, the plan and summary files from
  * `src/plan-scan.cts`, and pair a plan with its SUMMARY through `findUnsummarizedPlans`
@@ -35,8 +37,9 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import type { GateResult } from './gate-verdict.cjs';
-import { mnFinding, mnPass, mnUnresolvable, withMnPhase } from './gate-mn-support.cjs';
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateResult, GateVerdict } from './gate-verdict.cjs';
+import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-status.cjs is an export= CommonJS module
 import planStatus = require('./plan-status.cjs');
@@ -52,6 +55,19 @@ import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-scope.cjs is an export= CommonJS module
 import planningScope = require('./planning-scope.cjs');
+
+// This gate's verdicts, built here so its failing arms are visible in its own file to the
+// positive-control lint (#5204); gate-mn-support owns the payload shape.
+function mnPass(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('pass', false, mnPayload(MN_GATE_STATUS.PASS, message, details));
+}
+function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
+}
+/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
+function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { SCOPE } = planningScope;
 
 /**
@@ -64,14 +80,14 @@ const BLOCKED_REASON_FIELD = 'blocked_reason';
 const SUPERSEDED_BY_FIELD = 'superseded_by';
 
 /** A plan file that cannot be read: the gate could not look at it. */
-class PlanUnreadableError extends Error {}
+export class PlanUnreadableError extends Error {}
 
 /**
  * A plan's frontmatter, or `null` when the file is not a regular non-empty file (a directory, a
  * device behind a symlink — #2378/#2383 — or an empty file: nothing to interpret, not a defect).
  * The `isFile()` check happens BEFORE any open.
  */
-function readPlanFrontmatter(file: string): Record<string, unknown> | null {
+export function readPlanFrontmatter(file: string): Record<string, unknown> | null {
   let text: string;
   try {
     const st = fs.statSync(file);
@@ -104,13 +120,13 @@ function scalar(fm: Record<string, unknown>, key: string): string | undefined {
   return undefined;
 }
 
-interface PhasePlans {
+export interface PhasePlans {
   plans: string[];
   unsummarized: Set<string>;
 }
 
 /** The phase's plans (root and nested, sorted) and which of them have no SUMMARY. */
-function listPhasePlans(phaseDir: string): PhasePlans | { unreadable: string } {
+export function listPhasePlans(phaseDir: string): PhasePlans | { unreadable: string } {
   const scan = scanPhasePlans(phaseDir);
   if (scan.scope !== SCOPE.COMPLETE) {
     return { unreadable: `could not list every plan in ${phaseDir} (scope: ${scan.scope})` };
@@ -172,7 +188,7 @@ function describeFinding(kind: string, fm: Record<string, unknown>): string {
 export function evaluateMnPlanStatus(input: MnGateInput): GateResult {
   return withMnPhase('mn-plan-status', input, ({ phaseDir }) => {
     const listed = listPhasePlans(phaseDir);
-    if ('unreadable' in listed) return mnUnresolvable(`mn-plan-status: ${listed.unreadable}`, { phaseDir });
+    if ('unreadable' in listed) return mnUnreadable(`mn-plan-status: ${listed.unreadable}`, { phaseDir });
     const counts = { plans: listed.plans.length, done: 0, superseded: 0, blocked: 0, noStatus: 0 };
     if (listed.plans.length === 0) {
       return mnPass('mn-plan-status: no plans in this phase — nothing to interpret', { phaseDir, ...counts, findings: [] });
@@ -184,7 +200,7 @@ export function evaluateMnPlanStatus(input: MnGateInput): GateResult {
       try {
         fm = readPlanFrontmatter(path.join(phaseDir, plan));
       } catch (err) {
-        if (err instanceof PlanUnreadableError) return mnUnresolvable(`mn-plan-status: ${err.message}`, { phaseDir });
+        if (err instanceof PlanUnreadableError) return mnUnreadable(`mn-plan-status: ${err.message}`, { phaseDir });
         throw err;
       }
       if (fm === null) continue;
@@ -209,64 +225,6 @@ export function evaluateMnPlanStatus(input: MnGateInput): GateResult {
         `correct the status to one of ${PLAN_STATUSES.join(', ')}, or finish the plan and write its SUMMARY: ` +
         findings.map((f) => `${f.plan} (${f.kind})`).join(', '),
       { phaseDir, ...counts, findings },
-    );
-  });
-}
-
-/**
- * `gsd_run check mn-orphan-plans <phase> [--strict]`
- *
- * `--strict` (by hand only — the gate dispatch passes no flags) also blocks unknown-state plans:
- * the opt-in for a project that has finished backfilling statuses and wants it to stay that way.
- */
-export function evaluateMnOrphanPlans(input: MnGateInput): GateResult {
-  const strict = input.args.includes('--strict');
-  // A bare boolean flag is removed before the phase is parsed: `--strict 3` must not read `3` as its value.
-  const args = input.args.filter((a) => a !== '--strict');
-  return withMnPhase('mn-orphan-plans', { projectDir: input.projectDir, args }, ({ phaseDir }) => {
-    const listed = listPhasePlans(phaseDir);
-    if ('unreadable' in listed) return mnUnresolvable(`mn-orphan-plans: ${listed.unreadable}`, { phaseDir });
-
-    const orphaned: string[] = [];
-    const unknownState: string[] = [];
-    let done = 0;
-    let superseded = 0;
-    for (const plan of listed.plans) {
-      let fm: Record<string, unknown> | null;
-      try {
-        fm = readPlanFrontmatter(path.join(phaseDir, plan));
-      } catch (err) {
-        if (err instanceof PlanUnreadableError) return mnUnresolvable(`mn-orphan-plans: ${err.message}`, { phaseDir });
-        throw err;
-      }
-      const status = fm === null ? null : normalizePlanStatus(fm['status']);
-      if (status === 'superseded') superseded++;
-      else if (!listed.unsummarized.has(plan)) done++;
-      else if (status === 'in_progress') orphaned.push(plan);
-      else unknownState.push(plan);
-    }
-
-    const details = { phaseDir, strict, orphaned, unknownState, done, superseded };
-    if (strict && unknownState.length > 0) {
-      return mnFinding(
-        `mn-orphan-plans: ${orphaned.length} orphaned, ${unknownState.length} unknown-state under --strict ` +
-          `(${[...orphaned, ...unknownState].join(', ')}) — give each plan a status or a SUMMARY`,
-        details,
-      );
-    }
-    if (orphaned.length === 0) {
-      return mnPass(
-        listed.plans.length === 0
-          ? 'mn-orphan-plans: no plans in this phase — nothing to check'
-          : `mn-orphan-plans: OK — ${done} done, ${superseded} superseded, ${unknownState.length} unknown-state`,
-        details,
-      );
-    }
-    return mnFinding(
-      `mn-orphan-plans: ${orphaned.length} plan(s) began and left no record (${orphaned.join(', ')}) — ` +
-        'a plan that began and left no record is re-run from scratch on the next pass, on top of whatever it ' +
-        'already changed. Write its SUMMARY, or set status: superseded if it was replaced.',
-      details,
     );
   });
 }

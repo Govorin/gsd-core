@@ -44,7 +44,7 @@ import { evaluateSchemaDriftGate } from './gate-schema-drift.cjs';
 import { evaluateCodebaseDriftGate } from './gate-codebase-drift.cjs';
 import { evaluateContextDriftGate } from './gate-context-drift.cjs';
 import { evaluateProhibitionEnforcementGate } from './gate-prohibition-enforcement.cjs';
-import { isMnCheckVerb, evaluateMnCheck } from './gate-mn-dispatch.cjs';
+import { isMnCheckVerb, dispatchMnCheck } from './gate-mn-dispatch.cjs';
 
 type ErrorReason = (typeof ERROR_REASON)[keyof typeof ERROR_REASON];
 
@@ -161,7 +161,7 @@ function routeCheckCommand({ args, cwd, raw, env = process.env }: RouteCheckComm
   const rawSubcommand = args[1];
   const subcommand = typeof rawSubcommand === 'string' ? rawSubcommand.replace(/\./g, '-') : rawSubcommand;
   // mn-verify-gate's gates (`check mn-*`): one registration line, the verbs live in gate-mn-dispatch.cts.
-  if (isMnCheckVerb(subcommand)) return emitGateResult(evaluateMnCheck(subcommand, { projectDir: cwd, args: args.slice(2) }), raw);
+  if (isMnCheckVerb(subcommand)) return emitGateResult(dispatchMnCheck(subcommand, { projectDir: cwd, args: args.slice(2) }), raw);
   switch (subcommand) {
     case 'auto-mode':
       cmdAutoMode(cwd, raw);
