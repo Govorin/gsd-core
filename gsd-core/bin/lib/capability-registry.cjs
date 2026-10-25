@@ -3224,7 +3224,7 @@ const capabilities = {
       "workflow.pin_invariants": {
         "type": "boolean",
         "default": true,
-        "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
+        "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block between the gsd:pinned open and close comment markers, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
       },
       "workflow.pin_invariants_budget": {
         "type": "number",
@@ -7322,7 +7322,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": true,
-    "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block delimited by <!-- gsd:pinned --> … <!-- /gsd:pinned -->, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
+    "description": "Re-state the running plan's prohibitions and must-haves, plus any open blocker and the CLAUDE.md block between the gsd:pinned open and close comment markers, after a compaction rewrites them out of context. Measured effect of the omission: rule-violation rates go 0%→30-59% across models after compaction, and verbatim re-injection returns them to 0% (arXiv 2606.22528). Claude Code re-injects the project-root CLAUDE.md but neither path-scoped rules nor anything under .planning/. Implemented by hooks/gsd-pin-invariants.js on SessionStart: Claude Code re-fires it with source \"compact\" after a compaction, and the pin answers as hookSpecificOutput.additionalContext. PostCompact cannot add context, so the pin is not registered there."
   },
   "workflow.pin_invariants_budget": {
     "owner": "mn-verify-gate",
