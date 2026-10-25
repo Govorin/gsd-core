@@ -88,6 +88,7 @@ module.exports = {
   "tests/cursor-hooks.test.cjs",
   "tests/cursor-subagent-isolation.test.cjs",
   "tests/debug-session-management.test.cjs",
+  "tests/decisions.test.cjs",
   "tests/defaults-json-fallback.test.cjs",
   "tests/diagnose-windows-spawn-watcher.test.cjs",
   "tests/diagrams-check.test.cjs",
