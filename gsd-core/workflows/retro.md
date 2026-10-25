@@ -19,7 +19,7 @@ Valid GSD subagent types (use exact names — do not fall back to 'general-purpo
 <step name="parse_arguments">
 Read the `<arguments>` block:
 
-- `--session <id>` / `--last` (default: newest session) and `--since <12h|7d|2w|YYYY-MM-DD>` — passed to `retro prepare` unchanged: set `SELECTION_ARGS` to them, one array element per word (`SELECTION_ARGS=(--session abc --since 7d)`, or `SELECTION_ARGS=()` when none).
+- `--session <id>` / `--last` (default: newest session), `--since <12h|7d|2w|YYYY-MM-DD|ISO instant>` (an ISO instant carries its offset, `2026-10-20T10:00:00.000Z` — the form a scheduled retro passes) and `--ws <name>` (the workstream whose schedule this retro restarts) — passed to `retro prepare` unchanged: set `SELECTION_ARGS` to them, one array element per word (`SELECTION_ARGS=(--session abc --since 7d --ws auth)`, or `SELECTION_ARGS=()` when none).
 - `--apply <cand-id>` (optionally `--retro <stem>`) — go to `apply_candidate` and stop there.
 - `--checks` — go to `show_checks` and stop there.
 
@@ -39,6 +39,8 @@ PREP=$(gsd_run retro prepare "${SELECTION_ARGS[@]}")
 - `signals`, `inventoryFindings` and `removalCandidates` all `0` → print "Nothing to retro: no friction signals, no missing or unwired checks, no stale checks." and stop. A model pass with no evidence can only invent advice.
 - `status: "degraded"` → keep going, and tell the user which sources were not read (the bundle's `report.reasons`). On a runtime other than Claude Code the retro works from git, `.planning` and the inventory only.
 - `suggest: false` with signals present → say the friction score is below `retro.signal_threshold` and continue: the user asked for this retro explicitly.
+
+`prepare` also journals this retro in `.planning/retro/RUNS.json` (`run` in `PREP`): the schedule (`retro.cadence_phases`, every 2 executed phases by default, `0` off; `retro.at_milestone_start`) counts from it whatever the analyst finds, so "Nothing to retro" still restarts the count. `run.recorded: false` → show `run.problems` and continue.
 
 Keep `stem`, `bundle`, `report`, `candidates`, `patches` from `PREP`.
 </step>

@@ -2,7 +2,7 @@
 
 # new-project
 
-Источник: `gsd-core/workflows/new-project.md`. Единицы: 13 разделов H2, 3 секции `gsd:section`. Спавнов: 15 (агенты: `gsd-research-synthesizer`, `gsd-roadmapper`, `gsd-project-researcher`). Точки цикла: нет.
+Источник: `gsd-core/workflows/new-project.md`. Единицы: 13 разделов H2, 3 секции `gsd:section`. Спавнов: 15 (агенты: `gsd-research-synthesizer`, `gsd-roadmapper`, `gsd-project-researcher`). Точки цикла: `roadmap:post`.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 10; не называют реальный шаг и не рисуются — **5**; названы по имени шага и нарисованы пунктиром `goto` — 5.
 
@@ -93,6 +93,10 @@ flowchart LR
     a_gsd_roadmapper[["gsd-roadmapper"]]:::agent
     a_gsd_project_researcher[["gsd-project-researcher"]]:::agent
   end
+  subgraph g_points["Точки цикла и капабилити"]
+    p_roadmap_post{{"roadmap#58;post"}}:::point
+    c_roadmap_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
+  end
   wf_root(["new-project.md (вне шагов)"]):::root
   u_heading_2b__Prior_Spike_Sketch_Detection["2b. Prior Spike/Sketch Detection"]
   u_heading_6__Research_Decision["6. Research Decision"]
@@ -102,6 +106,8 @@ flowchart LR
   wf_root -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_2b__Prior_Spike_Sketch_Detection -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_6__Research_Decision -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
+  p_roadmap_post -.-> c_roadmap_post_retro_command_retro_stage
+  u_heading_8__Create_Roadmap --> p_roadmap_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -133,7 +139,7 @@ flowchart LR
 | 12 | `6. Research Decision` | H2 |  | `gsd-research-synthesizer`, `gsd-project-researcher` |  | `new-project/detail/elaboration.md` |
 | 13 | `7. Define Requirements` | H2 |  |  |  |  |
 | 14 | `7.5. Project Structure Mode` | H2 |  |  |  |  |
-| 15 | `8. Create Roadmap` | H2 |  | `gsd-roadmapper` |  |  |
+| 15 | `8. Create Roadmap` | H2 |  | `gsd-roadmapper` | `roadmap:post` |  |
 | 16 | `9. Done` | H2 |  |  |  |  |
 
 ## Дефекты

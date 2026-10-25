@@ -611,9 +611,9 @@ describe('verify:pre — real registry carries the api-coverage gate (#1562); sy
 
 describe('ship:post — the retro stage is its only default hook; resilience to registry edge-cases', () => {
   // ship:post left the empty set when the retro capability registered its lifecycle stage there
-  // (`retro stage`, when: retro.enabled — default true, ADR-5209). The mempalace curator stays
+  // (`retro stage signals`, friction only, when: retro.enabled — default true, ADR-5209 §9). The mempalace curator stays
   // off by default (mempalace.enabled false); no other capability reaches this point.
-  const RETRO_STAGE = { capId: 'retro', kind: 'step', ref: { command: 'retro stage' } };
+  const RETRO_STAGE = { capId: 'retro', kind: 'step', ref: { command: 'retro stage signals' } };
   const shape = (h) => ({ capId: h.capId, kind: h.kind, ref: h.ref });
 
   it('[happy] ship:post E2E subprocess returns typed envelope: point=\'ship:post\', the retro stage only, no extra keys', () => {

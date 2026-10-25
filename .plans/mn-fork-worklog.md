@@ -801,6 +801,74 @@ The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
   one (only `removed-but-needed` fails), `test:mermaid-real` 150/150. Full `npm test`: 45 551
   tests, 4 failures, exactly the reference set.
 
+### Retro on a schedule (2026-10-25)
+
+Branch `feat/retro-cadence` from `3c4a32d3d`. The owner asked for retros once a milestone is
+planned and every two or three phases, not only when a session's friction crosses
+`retro.signal_threshold`. ADR-5209 §9 (amends §6; §5 "never applied" unchanged), ADR-857
+amendment 2026-10-25.
+
+- **Triggers.** `retro stage` names `trigger` (`signals` | `milestone-start` | `cadence`) and
+  `triggers`. `milestone-start`: ROADMAP phases, none started (`executed`/`complete`/`partial`),
+  not shipped, no retro journaled in this milestone (`retro.at_milestone_start`, default true).
+  `cadence`: ≥ `retro.cadence_phases` (default 2 by the owner's decision of 2026-10-25, first written as 3; 0 off) phases of the milestone *executed*
+  since the last retro in it. Executed, not complete: `execute:post` runs before the verifier,
+  so the phase that just ran would otherwise count one stage late. Friction wins and keeps its
+  answer byte-for-byte. A scheduled command adds `--since <last run>`.
+- **Journal, not inference.** `retro prepare` appends to `.planning/retro/RUNS.json` (stem, ISO
+  instant, planning dir, milestone, executed phase numbers). RETRO stems are date-only, mtimes
+  reset on clone, and "Nothing to retro" writes no report. An invalid or partly malformed
+  journal is never rewritten. Pre-§9 retros have no run, so the first count runs from the
+  milestone start.
+- **`gsd-tools retro due`** — read-only JSON for `gsd-deck`; one shape whatever the config
+  (`due`, `trigger`, `triggers`, `reason`, counts, `lastRetro`, `latestReport`, `journal`).
+- **Loop point `roadmap:post`** — step `roadmap` hosted by `new-milestone.md`, `new-project.md`
+  as an auxiliary host (first milestone). Not `new-milestone:post`: `CALL_SITE_RE` in
+  `gen-loop-host-contract.cjs` is `[a-z:]+`, and `milestone` already names the boundary. First
+  in pipeline order; 14 → 15 points across the generator, registry schema, validator, resolver
+  fallback, capability matrix and tests. The retro step there has `when: retro.at_milestone_start`.
+- **Emitted attribution depends on the base.** Against `merge-base(HEAD, upstream/next)` 140/140:
+  `new-milestone.md` already carried a fork growth trailer, so `8faf94d7e` withdraws it and
+  re-declares one reason covering both; `retro.md` is fork-new, so no growth trailer. Against
+  local `next` the same trailers fail (the withdrawal has no earlier ack in range, and
+  `retro.md` growth is unacknowledged). No set of trailers satisfies both bases. The fork's
+  standard (this file) is the upstream merge-base. `tests/emitted-drift-acks/` no longer exists
+  (ADR-3942 §6); the project CLAUDE.md still names it.
+- **Checks:** `build:lib`, `regen:derived` + `lint:generated-sync` clean, eslint on every
+  changed source/test file. Unit suite (`test:affected` widened to it): 44 543 tests, 5
+  failures. Four are the reference set (differential attribution and removed-but-needed vs the
+  stale `origin/next`, compact-content partition guard, quick-batch byte-identical). The fifth,
+  the compact-content benchmark, was this branch's `new-project.md` growth; the baseline was
+  refreshed (`c8dd14702`). Integration 59/59, security 384/384. New tests:
+  `tests/retro-cadence.test.cjs` (38), 18 more in `tests/retro-command-router.test.cjs`.
+- **Not done:** no `roadmap:pre`; no runtime check that a host honoured the stage's `next`
+  (same as every stage).
+- **Review fixes** (independent review, merge after fixes; new commits on the branch):
+  - `--ws` was lost at `roadmap:post`: step 10 deleted `.planning/.gsd-ws-arg` before step
+    10.6 ran, so the stage read the root roadmap and the retro it proposed journaled
+    `.planning`. The file now lives until 10.6, which passes `--ws` to `render-hooks` and to the
+    `ref.command`; every command the stage proposes carries `--ws <name>`; `/gsd-retro` passes
+    it to `prepare`. `new-project` takes no workstream. Integration test
+    `tests/retro-cadence-workstream.integration.test.cjs` (`--ws` and `GSD_WORKSTREAM`).
+  - A `RUNS.json` that cannot be read whole read as "no retro yet": a suggestion on every stage
+    that the held retro could not clear. Now `journal-invalid` (fail closed: no trigger, counts
+    and `lastRetro` null, `baseline: unknown`; the stage answers `suggest` with a warning, no
+    command, no `next`; journal problems in the top-level `problems`).
+  - `RUNS.json` and, boy scout, `CHECKS.json` are edited under `.planning/retro/.<NAME>.lock`
+    (shared `capability-lock`, injectable `JournalLock` seam; tests drive contention, no real race).
+  - `ship:post` runs `retro stage signals` (friction only): no phase executes between a phase's
+    `execute:post` and its `ship:post`. The reminder at the next phase's `execute:post` while a
+    retro stays due is intentional (ADR-5209 §9).
+  - `--since <ISO instant>` is in the usage, the argument-hint and `retro.md`; a test runs the
+    stage's `next.args` through `prepare`.
+  - The project CLAUDE.md is untracked (`6e68e19b3`, `.gitignore`), so its stale
+    `tests/emitted-drift-acks/` paragraph cannot be fixed by a commit; see the note below.
+  - Owner decision: `retro.cadence_phases` defaults to 2 (`2ee90daa4`).
+  - **Checks after the fixes:** `build:lib`, `regen:derived` + `lint:generated-sync` clean, eslint
+    on every touched source/test file, the retro + loop test files 1283/1283,
+    `GSD_EMITTED_BASE=upstream/next` emitted attribution 140/140. Unit suite (`test:affected`):
+    44 593 tests, 4 failures, exactly the reference set. Integration 62/62, security 391/391.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
@@ -971,6 +1039,15 @@ ahead, 0 behind, no conflicts.
 hundreds of commits, so a count against it reports a gap that does not exist
 (762 vs the real 3). `git fetch upstream && git rev-list --left-right --count
 upstream/next...HEAD`.
+
+**Emitted attribution: run it against `upstream/next`.** A bare `node --test
+tests/emitted-attribution.test.cjs` tries `origin/next` first (then `next`). `origin/next` is
+the stale fork on GitHub: the trailer read over its merge-base range overflows the git buffer
+(`outcome=buffer_overflow`), and local `next` is the wrong base for the fork's trailers. Run
+`git fetch upstream && GSD_EMITTED_BASE=upstream/next node --test tests/emitted-attribution.test.cjs`.
+Acknowledgments are commit trailers (`Emitted-Drift-Ack-Growth` / `-Hash`, ADR-3942). The
+`tests/emitted-drift-acks/` directory is gone (ADR-3942 §6), whatever the untracked project
+CLAUDE.md still says.
 
 **Tests need `npm ci`, not just a build.** The earlier `MODULE_NOT_FOUND` on
 `gsd-core/bin/lib/*.cjs` was `@types/node` missing, so `tsc` emitted nothing and

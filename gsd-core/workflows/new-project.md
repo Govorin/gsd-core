@@ -1117,6 +1117,14 @@ This ensures new projects get the default GSD workflow-enforcement guidance and 
 gsd_run query commit "docs: create roadmap ([N] phases)" --files .planning/ROADMAP.md .planning/STATE.md .planning/REQUIREMENTS.md "$INSTRUCTION_FILE"
 ```
 
+**Roadmap hooks** — the first milestone is planned and no phase has run (retro's schedule stage runs here):
+
+```bash
+ROADMAP_POST_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:post --raw)
+```
+
+Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none), with `--milestone "<version>"` (the milestone the roadmap opens) instead of `--phase` for a `ref.command`; honour its stage answer as that file says. Advisory: a step never undoes the roadmap.
+
 ## 9. Done
 
 Present completion summary:

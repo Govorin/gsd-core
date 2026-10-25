@@ -609,6 +609,7 @@
       "resolution.cjs",
       "retired-artifact-cleanup.cjs",
       "retro-artifacts.cjs",
+      "retro-cadence.cjs",
       "retro-command-router.cjs",
       "retro-inventory.cjs",
       "retro-signals.cjs",

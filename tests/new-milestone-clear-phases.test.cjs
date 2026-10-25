@@ -1006,10 +1006,43 @@ describe('new-milestone.md: workstream-aware PROJECT.md guard (#2308)', () => {
         );
       });
 
-      test('removes .planning/.gsd-ws-arg after this commit (the true last consumer, not step 7)', () => {
+      test('keeps .planning/.gsd-ws-arg after this commit: step 10.6 still needs the workstream', () => {
         runStep10('--ws search', rootPaths, wsPaths);
+        assert.ok(fs.existsSync(path.join(tmpDir, '.planning', '.gsd-ws-arg')),
+          '.gsd-ws-arg must survive step 10 — the roadmap hooks in step 10.6 run after it');
+      });
+    });
+
+    describe('step 10.6: roadmap hooks resolve under the workstream, then clean up .gsd-ws-arg', () => {
+      const step106Fence = extractFenceContaining(
+        content, '## 10.6. Roadmap Hooks', '## 11. Done', 'loop render-hooks roadmap:post',
+      );
+
+      function runStep106(gsdWsArg) {
+        fs.writeFileSync(path.join(tmpDir, '.planning', '.gsd-ws-arg'), gsdWsArg);
+        // The call is captured by $(…), so the stub reports on stderr.
+        const stub = 'gsd_run() { printf "gsd_run_call:%s\\n" "$*" >&2; echo "{}"; }\n';
+        const r = runHookSeam('-c', [stub + step106Fence], { interpreter: 'bash', cwd: tmpDir, env: runtimeDirEnv });
+        throwIfFailed(r, 'bash <step10.6 fence>');
+        return r;
+      }
+
+      test('ws mode: render-hooks gets --ws, and the workstream is printed for the ref.command', () => {
+        const r = runStep106('--ws search');
+        assert.match(r.stderr, /gsd_run_call:loop render-hooks roadmap:post --raw --ws=search\s*$/m, `got: ${r.stderr}`);
+        assert.match(r.stdout, /^GSD_WS_NAME=search$/m);
+      });
+
+      test('flat mode: no --ws, an empty workstream', () => {
+        const r = runStep106('');
+        assert.match(r.stderr, /gsd_run_call:loop render-hooks roadmap:post --raw\s*$/m, `got: ${r.stderr}`);
+        assert.match(r.stdout, /^GSD_WS_NAME=$/m);
+      });
+
+      test('removes .planning/.gsd-ws-arg (the true last consumer)', () => {
+        runStep106('--ws search');
         assert.ok(!fs.existsSync(path.join(tmpDir, '.planning', '.gsd-ws-arg')),
-          '.gsd-ws-arg should be cleaned up here, since steps 9 and 10 still need it after step 7');
+          '.gsd-ws-arg should be cleaned up once the roadmap hooks resolved');
       });
     });
 

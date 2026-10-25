@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-77 registered hook(s) at 13 of 14 points.
+78 registered hook(s) at 14 of 15 points.
 
 ## Overview
 
@@ -20,6 +20,11 @@ contribution into the named agent role. A red dashed node is a defect (see the l
 
 ```mermaid
 flowchart LR
+  subgraph n_step_roadmap["roadmap"]
+    n_core_roadmap("roadmap#58; orchestrator → ROADMAP.md, REQUIREMENTS.md"):::core
+    n_point_roadmap_post(["roadmap#58;post"]):::point
+    n_hook_roadmap_post_step_retro_0["retro#58; command#58;retro stage"]:::step
+  end
   subgraph n_step_discuss["discuss"]
     n_point_discuss_pre(["discuss#58;pre"]):::point
     n_core_discuss("discuss#58; orchestrator → CONTEXT.md"):::core
@@ -120,7 +125,7 @@ flowchart LR
     n_hook_ship_pre_gate_mn_verify_gate_7{"mn-verify-gate#58; check mn-clean-state"}:::crit
     n_hook_ship_pre_gate_security_8{"security#58; check ?"}:::crit
     n_hook_ship_post_step_mempalace_0["mempalace#58; agent#58;gsd-mempalace-curator"]:::step
-    n_hook_ship_post_step_retro_1["retro#58; command#58;retro stage"]:::step
+    n_hook_ship_post_step_retro_1["retro#58; command#58;retro stage signals"]:::step
   end
   subgraph n_step_milestone["milestone"]
     n_point_milestone_pre(["milestone#58;pre"]):::point
@@ -129,8 +134,11 @@ flowchart LR
     n_hook_milestone_pre_step_code_review_0["code-review#58; command#58;review stage"]:::step
     n_hook_milestone_post_step_architecture_0["architecture#58; command#58;arch stage"]:::step
   end
+  n_core_roadmap --> n_point_roadmap_post
+  n_point_roadmap_post --> n_hook_roadmap_post_step_retro_0
   n_point_discuss_pre --> n_core_discuss
   n_core_discuss --> n_point_discuss_post
+  n_point_roadmap_post ==> n_point_discuss_pre
   n_hook_discuss_pre_contribution_mempalace_0 -.->|"orchestrator"| n_point_discuss_pre
   n_point_discuss_post --> n_hook_discuss_post_step_mempalace_0
   n_point_plan_pre --> n_core_plan
@@ -456,6 +464,7 @@ flowchart TB
 
 | Point | Capability | Kind | What | `when` | `onError` | Blocking |
 |---|---|---|---|---|---|---|
+| `roadmap:post` | retro | step | `command:retro stage` | `retro.at_milestone_start` | `skip` |  |
 | `discuss:pre` | mempalace | contribution | `orchestrator · fragments/recall-discuss.md` | `mempalace.enabled` | `skip` |  |
 | `discuss:post` | mempalace | step | `skill:mempalace-capture` | `mempalace.enabled` | `skip` |  |
 | `plan:pre` | ai-integration | step | `skill:ai-integration-phase` | `workflow.ai_integration_phase` | `skip` |  |
@@ -530,7 +539,7 @@ flowchart TB
 | `ship:pre` | mn-verify-gate | gate | `mn-clean-state` | `workflow.clean_state_enforce` | `halt` | yes |
 | `ship:pre` | security | gate |  | `workflow.security_enforcement` | `halt` | yes |
 | `ship:post` | mempalace | step | `agent:gsd-mempalace-curator` | `mempalace.enabled` | `skip` |  |
-| `ship:post` | retro | step | `command:retro stage` | `retro.enabled` | `skip` |  |
+| `ship:post` | retro | step | `command:retro stage signals` | `retro.enabled` | `skip` |  |
 | `milestone:pre` | code-review | step | `command:review stage` | `workflow.code_review` | `skip` |  |
 | `milestone:post` | architecture | step | `command:arch stage` | `architecture.metrics_at_milestone` | `skip` |  |
 
@@ -538,6 +547,8 @@ flowchart TB
 
 | Point | Workflow | Kinds dispatched |
 |---|---|---|
+| `roadmap:post` | `gsd-core/workflows/new-milestone.md` | step |
+| `roadmap:post` | `gsd-core/workflows/new-project.md` | step |
 | `discuss:pre` | `gsd-core/workflows/discuss-phase.md` | step, gate, contribution |
 | `discuss:post` | `gsd-core/workflows/discuss-phase.md` | step, gate, contribution |
 | `plan:pre` | `gsd-core/workflows/plan-phase.md` | step, gate, contribution |

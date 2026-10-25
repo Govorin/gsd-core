@@ -1,7 +1,7 @@
 ---
 name: gsd-retro
 description: "Session retro — propose environment changes (checks, reviewer rules, settings) from friction signals"
-argument-hint: "[--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD] [--apply <cand-id> [--retro <stem>]] [--checks]"
+argument-hint: "[--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD|<ISO instant>] [--ws <name>] [--apply <cand-id> [--retro <stem>]] [--checks]"
 allowed-tools:
   - Read
   - Bash

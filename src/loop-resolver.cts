@@ -74,6 +74,7 @@ const CANONICAL_POINTS: ReadonlyArray<string> = (() => {
     }
   } catch { /* fall through to hardcoded fallback */ }
   return [
+    'roadmap:post',
     'discuss:pre',
     'discuss:post',
     'plan:pre',
