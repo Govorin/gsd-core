@@ -84,8 +84,8 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 INIT_AUTONOMOUS=$(gsd_run query init.autonomous ${GSD_WS:+--ws=${GSD_WS##* }} $CONVERGE_PARAM $CROSS_AI_PARAM)
 if [[ "$INIT_AUTONOMOUS" == @file:* ]]; then INIT_AUTONOMOUS=$(cat "${INIT_AUTONOMOUS#@file:}"); fi
 MAX_PHASES=$(gsd_run config-get workflow.autonomous_max_phases --raw 2>/dev/null || echo "")
-if echo "$ARGUMENTS" | grep -qE '\-\-max-phases\s+[0-9]'; then
-  MAX_PHASES=$(echo "$ARGUMENTS" | grep -oE '\-\-max-phases\s+[0-9]+' | awk '{print $2}')
+if echo "$GSD_ARGS" | grep -qE '\-\-max-phases\s+[0-9]'; then
+  MAX_PHASES=$(echo "$GSD_ARGS" | grep -oE '\-\-max-phases\s+[0-9]+' | awk '{print $2}')
 fi
 PHASES_RUN=0
 ```

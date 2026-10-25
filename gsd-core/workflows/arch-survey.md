@@ -47,7 +47,11 @@ If the output starts with `@file:`, read the JSON from that path. Keep from it: 
 Resolve the models and the skills once:
 
 ```bash
-GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 SURVEYOR_MODEL=$(gsd_run query resolve-model gsd-arch-surveyor --raw)
 REFUTER_MODEL=$(gsd_run query resolve-model gsd-finding-refuter --raw)
 AGENT_SKILLS_SURVEYOR=$(gsd_run query agent-skills gsd-arch-surveyor ${GSD_WS:+--ws=${GSD_WS##* }})
