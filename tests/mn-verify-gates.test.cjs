@@ -708,10 +708,9 @@ describe('verify gates — the round trip a gate actually makes', () => {
   let phaseDir;
 
   const deps = () => ({
-    findPhaseArtifact: (searchDir, suffix) => {
-      const hit = fs.readdirSync(searchDir).find((f) => f.endsWith(suffix));
-      return hit ? path.join(searchDir, hit) : null;
-    },
+    // #5313: the lookup returns every candidate (more than one is ambiguous and blocks).
+    findPhaseArtifact: (searchDir, suffix) =>
+      fs.readdirSync(searchDir).filter((f) => f.endsWith(suffix)).map((f) => path.join(searchDir, f)),
     readFrontmatter: (file) => extractFrontmatter(fs.readFileSync(file, 'utf8')),
     // Never reached by this predicate kind; required by the evaluator's
     // dependency contract.
