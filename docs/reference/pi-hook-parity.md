@@ -56,6 +56,7 @@ Hook text that reaches the model (advisories and block reasons) has control char
 | `gsd-check-update.js` | SessionStart | unsupported: its cache is read only by the Claude statusline and update banner; Pi updates through the installer or `pi update` |
 | `gsd-statusline.js`, `gsd-update-banner.js` | statusLine | unsupported: Pi extensions have no statusline command |
 | `gsd-check-update-worker.js`, `gsd-node-runner.sh` | internal | not run on their own |
+| `gsd-prohibition-guard.js`, `gsd-test-tamper-guard.js`, `gsd-exit-gate.js`, `gsd-pin-invariants.js`, `gsd-worktree-provision.js` | PreToolUse, SubagentStop, SessionStart, WorktreeCreate / WorktreeRemove | unsupported: the fork's enforcement layer, registered on Claude Code only |
 | `gsd-cursor-*`, `gsd-windsurf-*` | other runtimes | not applicable |
 
 The table is `PI_HOOK_DISPOSITIONS` in `pi/gsd.cjs`; a test fails if a managed hook or a `hooks.json` event has no entry.
