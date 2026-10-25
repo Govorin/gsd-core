@@ -3,9 +3,13 @@
 /**
  * Scenario driver for the #5207 hook-registration parity pin (ADR-5057 Phase 11).
  *
- * Drives the real `applySettingsJsonHooks` across every runtime whose
- * `hooksSurface` is `settings-json` and returns the resulting settings object
- * plus both console streams, for each scenario. `golden.json` was generated
+ * Drives the real table registration (`applySettingsJsonHookTables` with the
+ * production tables) across every runtime whose `hooksSurface` is
+ * `settings-json` and returns the resulting settings object plus both console
+ * streams, for each scenario. Fork (mn): `applySettingsJsonHooks` runs these
+ * tables and then a Claude-only enforcement layer; that composition is pinned
+ * against this same golden by tests/mn-hook-registration-layer.test.cjs.
+ * `golden.json` was generated
  * from the PRE-migration per-hook-branch implementation (base commit
  * e0762bbeb0) and is the oracle the table-driven implementation must
  * reproduce byte-for-byte. Regenerate only from a known-good implementation:
@@ -18,7 +22,15 @@ const os = require('node:os');
 const path = require('node:path');
 
 const ROOT = path.join(__dirname, '..', '..', '..');
-const { applySettingsJsonHooks } = require(path.join(ROOT, 'gsd-core/bin/lib/runtime-hooks-surface.cjs'));
+const {
+  applySettingsJsonHookTables,
+  SETTINGS_JSON_HOOK_ROWS,
+  SETTINGS_JSON_EXTENDED_ROWS,
+} = require(path.join(ROOT, 'gsd-core/bin/lib/runtime-hooks-surface.cjs'));
+
+/** The table contract the golden pins: the production tables, without the fork's Claude-only layer. */
+const applyProductionTables = (settings, opts) =>
+  applySettingsJsonHookTables(settings, opts, { rows: SETTINGS_JSON_HOOK_ROWS, extendedRows: SETTINGS_JSON_EXTENDED_ROWS });
 const registry = require(path.join(ROOT, 'gsd-core/bin/lib/runtime-config-adapter-registry.cjs'));
 
 const JS_HOOKS = [
@@ -85,9 +97,9 @@ function capture(fn) {
 /**
  * @param {object} rt     runtime row from settingsJsonRuntimes()
  * @param {object} spec   { isGlobal, present, nullJs, nullSh, seed, runs, configReloadNull }
- * @param {Function} [apply]  registration function under test (defaults to the real one)
+ * @param {Function} [apply]  registration function under test (defaults to the production tables)
  */
-function runOne(rt, spec, apply = applySettingsJsonHooks) {
+function runOne(rt, spec, apply = applyProductionTables) {
   const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-hookreg-'));
   try {
     fs.mkdirSync(path.join(targetDir, 'hooks'), { recursive: true });
