@@ -73,7 +73,7 @@ points.
 | `profile-pipeline` | feature | full | `>=1.6.0` | — | — | first-party |
 | `refactor-trigger` | feature | full | `>=1.10.0` | `execute:post` | step | first-party |
 | `research` | feature | standard | `>=1.6.0` | `plan:pre` | step | first-party |
-| `retro` | feature | full | `>=1.15.0` | `execute:post`, `ship:post` | step | first-party |
+| `retro` | feature | full | `>=1.15.0` | `roadmap:post`, `execute:post`, `ship:post` | step | first-party |
 | `schema-gate` | feature | full | `>=1.6.0` | `plan:pre` | contribution | first-party |
 | `security` | feature | full | `>=1.6.0` | `plan:pre`, `verify:post`, `ship:pre` | step, contribution, gate | first-party |
 | `tdd` | feature | full | `>=1.6.0` | `plan:pre`, `execute:post` | contribution, gate | first-party |

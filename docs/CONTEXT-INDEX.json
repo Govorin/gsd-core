@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 310,
+  "count": 315,
   "classes": {
     "ARCH": 1,
     "CI": 2,
@@ -19,6 +19,7 @@
     "PROC": 14,
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
+    "RETRO": 5,
     "RULESET": 62,
     "SEAM": 24,
     "SESSION": 9,
@@ -962,6 +963,31 @@
       "id": "RELEASE-NOTES.WORKFLOW.view",
       "klass": "RELEASE-NOTES",
       "value": "gh release view <tag> --json body --jq .body"
+    },
+    {
+      "id": "RETRO.RUNS-JOURNAL",
+      "klass": "RETRO",
+      "value": ".planning/retro/RUNS.json {version:1, runs:[{stem, at (ISO UTC), planningDir, milestone, executedPhases}]}; written by retro prepare (a retro is held when its deterministic pass runs, even when the analyst finds nothing); never inferred from RETRO stems (date-only) or mtimes; an invalid or partly malformed journal is never rewritten"
+    },
+    {
+      "id": "RETRO.SCHEDULE.cadence",
+      "klass": "RETRO",
+      "value": "executed phases (disk_status executed|complete — execute:post runs before the verifier marks complete) of the current milestone minus the last run's executedPhases snapshot >= retro.cadence_phases (default 3; 0 = off); no run in the milestone → counted from the milestone start; a shipped milestone is never due (the next milestone-start covers the boundary)"
+    },
+    {
+      "id": "RETRO.SCHEDULE.milestone-start",
+      "klass": "RETRO",
+      "value": "current milestone has ROADMAP phases AND no phase started (disk_status not executed/complete/partial) AND not shipped (heading marker or milestones/<v>-ROADMAP.md snapshot) AND no run journaled for this planning dir + milestone; retro.at_milestone_start (default true) gates it and is the when-key of the roadmap:post step"
+    },
+    {
+      "id": "RETRO.SCHEDULE.scope",
+      "klass": "RETRO",
+      "value": "per planning directory (workstream) and per milestone; retro.auto off or retro.enabled false sets due=false but retro due still reports the counts"
+    },
+    {
+      "id": "RETRO.TRIGGER",
+      "klass": "RETRO",
+      "value": "signals|milestone-start|cadence; signals = friction score >= retro.signal_threshold (retro-signals); milestone-start and cadence are the schedule; the stage answer names the one that fired in `trigger` and all that fired in `triggers`; friction wins when both fire and keeps its unchanged command"
     },
     {
       "id": "RULESET.ADR-HEADER",

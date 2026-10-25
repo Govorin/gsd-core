@@ -2,7 +2,7 @@
 
 # new-milestone
 
-Источник: `gsd-core/workflows/new-milestone.md`. Единицы: 15 разделов H2, 2 секции `gsd:section`. Спавнов: 3 (агенты: `gsd-project-researcher`, `gsd-research-synthesizer`, `gsd-roadmapper`). Точки цикла: нет.
+Источник: `gsd-core/workflows/new-milestone.md`. Единицы: 16 разделов H2, 2 секции `gsd:section`. Спавнов: 3 (агенты: `gsd-project-researcher`, `gsd-research-synthesizer`, `gsd-roadmapper`). Точки цикла: `roadmap:post`.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 4; не называют реальный шаг и не рисуются — **2**; названы по имени шага и нарисованы пунктиром `goto` — 2.
 
@@ -49,6 +49,7 @@ flowchart TB
   subgraph g_10["10. Create Roadmap"]
     u_heading_10__Create_Roadmap["10. Create Roadmap"]
     u_heading_10_5__Link_Pending_Todos_to_Roadmap_Phases["10.5. Link Pending Todos to Roadmap Phases"]
+    u_heading_10_6__Roadmap_Hooks["10.6. Roadmap Hooks"]
   end
   subgraph g_11["11. Done"]
     u_heading_11__Done["11. Done"]
@@ -70,7 +71,8 @@ flowchart TB
   u_heading_8__Research_Decision --> u_heading_9__Define_Requirements
   u_heading_9__Define_Requirements --> u_heading_10__Create_Roadmap
   u_heading_10__Create_Roadmap --> u_heading_10_5__Link_Pending_Todos_to_Roadmap_Phases
-  u_heading_10_5__Link_Pending_Todos_to_Roadmap_Phases --> u_heading_11__Done
+  u_heading_10_5__Link_Pending_Todos_to_Roadmap_Phases --> u_heading_10_6__Roadmap_Hooks
+  u_heading_10_6__Roadmap_Hooks --> u_heading_11__Done
   u_heading_3_5__Verify_Milestone_Understanding -.->|"goto"| u_heading_4__Update_PROJECT_md
   u_heading_8__Research_Decision -.->|"goto"| u_heading_9__Define_Requirements
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
@@ -94,11 +96,18 @@ flowchart LR
     a_gsd_research_synthesizer[["gsd-research-synthesizer"]]:::agent
     a_gsd_roadmapper[["gsd-roadmapper"]]:::agent
   end
+  subgraph g_points["Точки цикла и капабилити"]
+    p_roadmap_post{{"roadmap#58;post"}}:::point
+    c_roadmap_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
+  end
   u_heading_8__Research_Decision["8. Research Decision"]
   u_heading_10__Create_Roadmap["10. Create Roadmap"]
+  u_heading_10_6__Roadmap_Hooks["10.6. Roadmap Hooks"]
   u_heading_8__Research_Decision --> a_gsd_project_researcher
   u_heading_8__Research_Decision --> a_gsd_research_synthesizer
   u_heading_10__Create_Roadmap --> a_gsd_roadmapper
+  p_roadmap_post -.-> c_roadmap_post_retro_command_retro_stage
+  u_heading_10_6__Roadmap_Hooks --> p_roadmap_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -131,7 +140,8 @@ flowchart LR
 | 14 | `9. Define Requirements` | H2 |  |  |  |  |
 | 15 | `10. Create Roadmap` | H2 |  | `gsd-roadmapper` |  |  |
 | 16 | `10.5. Link Pending Todos to Roadmap Phases` | H2 |  |  |  |  |
-| 17 | `11. Done` | H2 |  |  |  |  |
+| 17 | `10.6. Roadmap Hooks` | H2 |  |  | `roadmap:post` |  |
+| 18 | `11. Done` | H2 |  |  |  |  |
 
 ## Дефекты
 

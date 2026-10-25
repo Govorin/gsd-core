@@ -82,8 +82,8 @@
 | [map-codebase](map-codebase.md) | 13 шагов `<step>` | 4 | 1 |  | 1 / 12 | 0 |
 | [milestone-summary](milestone-summary.md) | 9 разделов H2 | 0 | 0 |  | 0 / 2 | 0 |
 | [mvp-phase](mvp-phase.md) | 9 разделов H2 | 0 | 0 |  | 2 / 4 | 0 |
-| [new-milestone](new-milestone.md) | 15 разделов H2, 2 секции `gsd:section` | 3 | 3 |  | 2 / 4 | 0 |
-| [new-project](new-project.md) | 13 разделов H2, 3 секции `gsd:section` | 15 | 3 |  | 5 / 10 | 0 |
+| [new-milestone](new-milestone.md) | 16 разделов H2, 2 секции `gsd:section` | 3 | 3 | `roadmap:post` | 2 / 4 | 0 |
+| [new-project](new-project.md) | 13 разделов H2, 3 секции `gsd:section` | 15 | 3 | `roadmap:post` | 5 / 10 | 0 |
 | [new-workspace](new-workspace.md) | 9 разделов H2 | 0 | 0 |  | 1 / 1 | 0 |
 | [next](next.md) | 7 шагов `<step>` | 0 | 0 |  | 4 / 9 | 0 |
 | [node-repair](node-repair.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
