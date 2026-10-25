@@ -3353,8 +3353,11 @@ describe('#4939: decision-coverage answers a caller error for a phase directory 
   // permission bits: root bypasses them and Windows ignores them.
   function runGateWithStatFailure(t, subcommand, code) {
     const realStatSync = fs.statSync;
+    // The gate may stat the phase directory by its realpath (macOS: /var is a symlink to /private/var),
+    // so both spellings of it are the target.
+    const targets = new Set([path.resolve(phaseDir), fs.realpathSync(phaseDir)]);
     t.mock.method(fs, 'statSync', (p, ...rest) => {
-      if (typeof p === 'string' && path.resolve(p) === path.resolve(phaseDir)) {
+      if (typeof p === 'string' && targets.has(path.resolve(p))) {
         const err = new Error(`${code}: injected stat failure, stat '${p}'`);
         err.code = code;
         throw err;
