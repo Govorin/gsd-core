@@ -33,6 +33,7 @@ const MATRIX_PATH = path.join(ROOT, 'docs', 'reference', 'capability-matrix.md')
 
 /** Canonical loop extension points, in order (mirrors the phase loop). */
 const LOOP_POINTS = [
+  'roadmap:post',
   'discuss:pre', 'discuss:post',
   'plan:pre', 'plan:post',
   'execute:pre', 'execute:wave:pre', 'execute:wave:post', 'execute:post',

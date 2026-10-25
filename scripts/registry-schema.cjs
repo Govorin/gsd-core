@@ -14,7 +14,8 @@
  * registry-scoped mirror, not the runtime source of truth:
  *
  *   - `LOOP_POINTS` mirrors ADR-857 "Loop Extension Points (the 12)" and its
- *     milestone-boundary amendment (docs/adr/857-capability-system.md).
+ *     milestone-boundary and milestone-opening amendments
+ *     (docs/adr/857-capability-system.md).
  *     The canonical runtime set lives in `src/loop-resolver.cts`
  *     (`CANONICAL_POINTS` / `CANONICAL_POINTS_FALLBACK`, derived from
  *     `loop-host-contract.cjs`) — changing that set requires updating this
@@ -57,8 +58,9 @@
  * CLI wrappers that perform I/O around these functions.
  */
 
-// ─── ADR-857 "Loop Extension Points" (the 12, plus the milestone boundary) ──
+// ─── ADR-857 "Loop Extension Points" (the 12, plus the milestone boundary and opening) ──
 const LOOP_POINTS = Object.freeze([
+  'roadmap:post',
   'discuss:pre',
   'discuss:post',
   'plan:pre',

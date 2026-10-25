@@ -3,8 +3,9 @@
 Generic reference for consuming the `--raw` JSON output of `gsd_run loop render-hooks <point>`
 in any host-loop workflow. This document is point-agnostic — it applies to every loop
 extension point (discuss:pre, discuss:post, plan:pre, plan:post, execute:pre, execute:wave:pre,
-execute:wave:post, execute:post, verify:pre, verify:post, ship:pre, ship:post, and the milestone
-boundary's milestone:pre, milestone:post, hosted by complete-milestone).
+execute:wave:post, execute:post, verify:pre, verify:post, ship:pre, ship:post, the milestone
+boundary's milestone:pre, milestone:post, hosted by complete-milestone, and the milestone opening's
+roadmap:post, hosted by new-milestone and new-project).
 
 ## Envelope shape
 
@@ -56,8 +57,9 @@ Dispatch the referenced unit. Exactly one of `ref.skill`, `ref.agent`, or `ref.c
   gsd_run ${ref.command} --phase "${PHASE_NUMBER}" --raw
   ```
 
-  At the milestone points (`milestone:pre`, `milestone:post`) there is no phase: append
-  `--milestone "<version>"` (the milestone being closed, e.g. `v1.2`) instead of `--phase`.
+  At the milestone points (`milestone:pre`, `milestone:post`, `roadmap:post`) there is no
+  phase: append `--milestone "<version>"` (the milestone being closed, or at `roadmap:post`
+  the one being opened, e.g. `v1.2`) instead of `--phase`.
 
   Make this Bash call with `timeout: 600000` (the ten-minute maximum), never the default. A
   command step may run long by design — `verify mutation` runs the test suite once per mutant

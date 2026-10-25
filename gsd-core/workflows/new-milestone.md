@@ -1,3 +1,10 @@
+<!-- gsd:loop-host
+step: roadmap
+points: roadmap:post
+agent-roles: orchestrator
+produces: ROADMAP.md, REQUIREMENTS.md
+consumes: PROJECT.md
+-->
 <purpose>
 
 Start a new milestone cycle for an existing project. Loads project context, gathers milestone goals (from MILESTONE-CONTEXT.md or conversation), updates PROJECT.md and STATE.md, optionally runs parallel research, defines scoped requirements with REQ-IDs, spawns the roadmapper to create phased execution plan, and commits all artifacts. Brownfield equivalent of new-project.
@@ -696,6 +703,16 @@ Print a summary:
   → [todo title] → Phase [N]: [Phase Name]
   (Leave [M] unmatched todos in pending/)
 ```
+
+## 10.6. Roadmap Hooks
+
+The roadmap is approved and committed and no phase has run: the milestone's opening, where capabilities look at the environment before the phases that would pay for it (retro's schedule stage runs here).
+
+```bash
+ROADMAP_POST_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:post --raw)
+```
+
+Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.command` here runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Advisory: a step never undoes the roadmap.
 
 ## 11. Done
 
