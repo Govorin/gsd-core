@@ -40,7 +40,7 @@ PREP=$(gsd_run retro prepare "${SELECTION_ARGS[@]}")
 - `status: "degraded"` → keep going, and tell the user which sources were not read (the bundle's `report.reasons`). On a runtime other than Claude Code the retro works from git, `.planning` and the inventory only.
 - `suggest: false` with signals present → say the friction score is below `retro.signal_threshold` and continue: the user asked for this retro explicitly.
 
-`prepare` also journals this retro in `.planning/retro/RUNS.json` (`run` in `PREP`): the schedule (`retro.cadence_phases`, `retro.at_milestone_start`) counts from it whatever the analyst finds, so "Nothing to retro" still restarts the count. `run.recorded: false` → show `run.problems` and continue.
+`prepare` also journals this retro in `.planning/retro/RUNS.json` (`run` in `PREP`): the schedule (`retro.cadence_phases`, every 2 executed phases by default, `0` off; `retro.at_milestone_start`) counts from it whatever the analyst finds, so "Nothing to retro" still restarts the count. `run.recorded: false` → show `run.problems` and continue.
 
 Keep `stem`, `bundle`, `report`, `candidates`, `patches` from `PREP`.
 </step>

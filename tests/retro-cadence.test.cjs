@@ -66,6 +66,22 @@ describe('cadence: executed phases since the last retro against retro.cadence_ph
     }
   }
 
+  // The default (absent from config) is 2: limit−1, limit, limit+1.
+  for (const [since, expected] of [[1, false], [2, true], [3, true]]) {
+    test(`default config: ${since} phase(s) since the last retro → due ${expected}`, () => {
+      const { config } = rc.resolveCadenceConfig({});
+      assert.equal(config.cadencePhases, 2);
+      const d = rc.computeRetroDue({
+        facts: facts({ total: 8, executed: 1 + since }),
+        runs: [runAt('2026-10-20T10:00:00.000Z', { executedPhases: ['1'] })],
+        config,
+        active: true,
+        mode: 'suggest',
+      });
+      assert.deepEqual([d.phasesSinceRetro, d.due, d.trigger, d.cadencePhases], [since, expected, expected ? 'cadence' : null, 2]);
+    });
+  }
+
   test('cadence_phases 0 switches the cadence off at any count', () => {
     for (const executed of [0, 1, 5, 8]) {
       const d = due({ facts: facts({ total: 8, executed }), runs: [runAt('2026-10-20T10:00:00.000Z')], config: { cadencePhases: 0, atMilestoneStart: true } });
@@ -203,8 +219,8 @@ describe('journal-invalid: nothing is counted from a journal that cannot be read
 // ─── config ───────────────────────────────────────────────────────────────────
 
 describe('resolveCadenceConfig', () => {
-  test('absent keeps the defaults: 3 phases, at milestone start', () => {
-    assert.deepEqual(rc.resolveCadenceConfig({}), { config: { cadencePhases: 3, atMilestoneStart: true }, problems: [] });
+  test('absent keeps the defaults: 2 phases, at milestone start', () => {
+    assert.deepEqual(rc.resolveCadenceConfig({}), { config: { cadencePhases: 2, atMilestoneStart: true }, problems: [] });
   });
 
   test('valid values pass, 0 included', () => {
@@ -213,9 +229,9 @@ describe('resolveCadenceConfig', () => {
   });
 
   for (const bad of [-1, 2.5, '3', true]) {
-    test(`cadence_phases ${JSON.stringify(bad)} keeps 3 and is named`, () => {
+    test(`cadence_phases ${JSON.stringify(bad)} keeps 2 and is named`, () => {
       const r = rc.resolveCadenceConfig({ cadencePhases: bad });
-      assert.equal(r.config.cadencePhases, 3);
+      assert.equal(r.config.cadencePhases, 2);
       assert.equal(r.problems.length, 1);
     });
   }

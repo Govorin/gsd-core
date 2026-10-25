@@ -14,7 +14,7 @@
  *                    (`retro.at_milestone_start`, default true)
  *   cadence          at least `retro.cadence_phases` phases of the current
  *                    milestone finished executing since the last retro held
- *                    in it (default 3; 0 switches the cadence off)
+ *                    in it (default 2; 0 switches the cadence off)
  *
  * The schedule makes a retro due; it never decides what runs. That stays
  * `retro.auto` (suggest | auto | off) in the router.
@@ -67,7 +67,7 @@ export const RETRO_TRIGGER = Object.freeze({
 export type RetroTrigger = (typeof RETRO_TRIGGER)[keyof typeof RETRO_TRIGGER];
 export type ScheduleTrigger = typeof RETRO_TRIGGER.MILESTONE_START | typeof RETRO_TRIGGER.CADENCE;
 
-export const DEFAULT_CADENCE_PHASES = 3;
+export const DEFAULT_CADENCE_PHASES = 2;
 export const DEFAULT_AT_MILESTONE_START = true;
 
 /** Executed: every plan has a summary. `complete` adds a passing verification. */

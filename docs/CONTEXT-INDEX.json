@@ -972,7 +972,7 @@
     {
       "id": "RETRO.SCHEDULE.cadence",
       "klass": "RETRO",
-      "value": "executed phases (disk_status executed|complete — execute:post runs before the verifier marks complete) of the current milestone minus the last run's executedPhases snapshot >= retro.cadence_phases (default 3; 0 = off); no run in the milestone → counted from the milestone start; a shipped milestone is never due (the next milestone-start covers the boundary)"
+      "value": "executed phases (disk_status executed|complete — execute:post runs before the verifier marks complete) of the current milestone minus the last run's executedPhases snapshot >= retro.cadence_phases (default 2, absent = 2; 0 = off); no run in the milestone → counted from the milestone start; a shipped milestone is never due (the next milestone-start covers the boundary)"
     },
     {
       "id": "RETRO.SCHEDULE.milestone-start",

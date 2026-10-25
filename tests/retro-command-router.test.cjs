@@ -514,7 +514,7 @@ describe('retro due', () => {
       'cadencePhases', 'atMilestoneStart', 'phases', 'phasesSinceRetro', 'phasesSinceRetroIds',
       'baseline', 'lastRetro', 'latestReport', 'journal', 'problems',
     ]);
-    assert.deepEqual([r.json.due, r.json.reason, r.json.cadencePhases, r.json.journal], [false, 'no-roadmap', 3, '.planning/retro/RUNS.json']);
+    assert.deepEqual([r.json.due, r.json.reason, r.json.cadencePhases, r.json.journal], [false, 'no-roadmap', 2, '.planning/retro/RUNS.json']);
   });
 
   test('a planned milestone is due at its start; the retro held there clears it', () => {
@@ -544,7 +544,7 @@ describe('retro due', () => {
   test('an invalid cadence key keeps the default and is named', () => {
     writeConfig(project, { retro: { cadence_phases: -2 } });
     const r = retro(['due'], project);
-    assert.equal(r.json.cadencePhases, 3);
+    assert.equal(r.json.cadencePhases, 2);
     assert.equal(r.json.problems.length, 1);
   });
 
@@ -581,8 +581,8 @@ describe('retro stage: the schedule triggers', () => {
     assert.equal(r.json.schedule.due, true);
   });
 
-  // Boundary at the default retro.cadence_phases 3: N−1, N, N+1 phases after the retro.
-  for (const [executed, decision] of [[2, 'skip'], [3, 'suggest'], [4, 'suggest']]) {
+  // Boundary at the default retro.cadence_phases 2 (absent from config): limit−1, limit, limit+1.
+  for (const [executed, decision] of [[1, 'skip'], [2, 'suggest'], [3, 'suggest']]) {
     test(`execute:post, ${executed} phase(s) executed since the retro → ${decision}`, () => {
       const run = holdRetro();
       for (let n = 1; n <= executed; n++) executePhase(n);

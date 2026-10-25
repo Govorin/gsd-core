@@ -45,8 +45,8 @@
     },
     "retro.cadence_phases": {
       "type": "number",
-      "default": 3,
-      "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post, once per executed phase; ship:post does not repeat it. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; a journal that cannot be read pauses the schedule (reason `journal-invalid`) instead of counting from zero. `gsd-tools retro due` shows where it stands."
+      "default": 2,
+      "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post, once per executed phase; ship:post does not repeat it. A phase counts once every plan has a summary. The default is 2: a retro every two executed phases. Absent means 2; 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; a journal that cannot be read pauses the schedule (reason `journal-invalid`) instead of counting from zero. `gsd-tools retro due` shows where it stands."
     },
     "retro.at_milestone_start": {
       "type": "boolean",
