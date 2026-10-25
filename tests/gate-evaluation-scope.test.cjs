@@ -1145,7 +1145,11 @@ describe('evaluateEvaluationScope — the --window verb', () => {
     ]);
     assert.deepEqual(verdict.payload.unit, { kind: 'window', since: '2026-09-27', until: 'main' });
     assert.equal(evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', 'HEAD'] }).outcome, 'advisory');
-    assert.equal(evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', 'last'] }).outcome, 'skip');
+    // `last` with no recorded window is `unresolvable` (ADR-5208), and since #5170 an unresolvable
+    // scope is outcome `unreadable` (exit UNAVAILABLE), never a skip — the payload keeps the reason.
+    const noMarker = evaluateEvaluationScope({ projectDir: repo.dir, args: ['--window', 'last'] });
+    assert.equal(noMarker.outcome, 'unreadable');
+    assert.equal(noMarker.payload.reason, 'no-last-window-marker');
   });
 });
 
