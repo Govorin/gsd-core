@@ -32,7 +32,7 @@ The change under review is `git diff <base> <tip> -- <file>` for each file in th
 For `lens: standards`, the standards are what this repository wrote down — not your preferences:
 
 1. `./CLAUDE.md` (and `.claude/CLAUDE.md`), `CONTRIBUTING.md`, `CODING_STANDARDS.md`, `CONTEXT.md` when present; accepted decisions under `docs/adr/` when a change touches what one decides.
-2. The reviewer skills injected into this prompt (`agent_skills`), self-loaded per @__GSD_PI_ENGINE_ROOT__/gsd-core/references/agent-skills-bootstrap.md — the standards this project gives its reviewer and not its implementer.
+2. The reviewer skills injected into this prompt (`agent_skills`), self-loaded per @__GSD_PI_ENGINE_ROOT__/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-standards-reviewer`) — the standards this project gives its reviewer and not its implementer.
 3. The **smell baseline**, always a judgement call and always overridden by a repository rule that says otherwise: Mysterious Name, Duplicated Code, Long Function, Long Parameter List, Global Data, Mutable Data, Divergent Change, Shotgun Surgery, Feature Envy, Primitive Obsession, Speculative Generality, Middle Man.
 
 A rule counts only if you can quote it. "Best practice" with no source in this repository is not a standard here.
