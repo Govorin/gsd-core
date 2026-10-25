@@ -4405,7 +4405,7 @@ const capabilities = {
           "off"
         ],
         "default": "suggest",
-        "description": "What the retro stage (`gsd-tools retro stage`, the same answer as `retro signals --decide`) answers at the end of a milestone's roadmap (roadmap:post), at the end of execute-phase (execute:post) and after ship (ship:post) once a retro is worth proposing: the friction score reached retro.signal_threshold (trigger `signals`) or the schedule made one due (`milestone-start`, `cadence`). suggest prints one line proposing /gsd-retro; auto lets the caller spawn gsd-retro-analyst itself, and its candidates are still never applied; off always skips, the schedule included. When nothing fired the answer is skip in every mode."
+        "description": "What the retro stage (`gsd-tools retro stage`, the same answer as `retro signals --decide`) answers at the end of a milestone's roadmap (roadmap:post), at the end of execute-phase (execute:post) and after ship (ship:post, friction only: `retro stage signals`) once a retro is worth proposing: the friction score reached retro.signal_threshold (trigger `signals`) or the schedule made one due (`milestone-start`, `cadence`). suggest prints one line proposing /gsd-retro; auto lets the caller spawn gsd-retro-analyst itself, and its candidates are still never applied; off always skips, the schedule included. When nothing fired the answer is skip in every mode."
       },
       "retro.signal_threshold": {
         "type": "number",
@@ -4415,7 +4415,7 @@ const capabilities = {
       "retro.cadence_phases": {
         "type": "number",
         "default": 3,
-        "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post and ship:post. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; `gsd-tools retro due` shows where it stands."
+        "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post, once per executed phase; ship:post does not repeat it. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; a journal that cannot be read pauses the schedule (reason `journal-invalid`) instead of counting from zero. `gsd-tools retro due` shows where it stands."
       },
       "retro.at_milestone_start": {
         "type": "boolean",
@@ -4530,7 +4530,7 @@ const capabilities = {
       {
         "point": "ship:post",
         "ref": {
-          "command": "retro stage"
+          "command": "retro stage signals"
         },
         "produces": [],
         "consumes": [],
@@ -6294,7 +6294,7 @@ const byLoopPoint = {
         "capId": "retro",
         "point": "ship:post",
         "ref": {
-          "command": "retro stage"
+          "command": "retro stage signals"
         },
         "produces": [],
         "consumes": [],
@@ -7404,7 +7404,7 @@ const configSchema = {
     "owner": "retro",
     "type": "enum",
     "default": "suggest",
-    "description": "What the retro stage (`gsd-tools retro stage`, the same answer as `retro signals --decide`) answers at the end of a milestone's roadmap (roadmap:post), at the end of execute-phase (execute:post) and after ship (ship:post) once a retro is worth proposing: the friction score reached retro.signal_threshold (trigger `signals`) or the schedule made one due (`milestone-start`, `cadence`). suggest prints one line proposing /gsd-retro; auto lets the caller spawn gsd-retro-analyst itself, and its candidates are still never applied; off always skips, the schedule included. When nothing fired the answer is skip in every mode.",
+    "description": "What the retro stage (`gsd-tools retro stage`, the same answer as `retro signals --decide`) answers at the end of a milestone's roadmap (roadmap:post), at the end of execute-phase (execute:post) and after ship (ship:post, friction only: `retro stage signals`) once a retro is worth proposing: the friction score reached retro.signal_threshold (trigger `signals`) or the schedule made one due (`milestone-start`, `cadence`). suggest prints one line proposing /gsd-retro; auto lets the caller spawn gsd-retro-analyst itself, and its candidates are still never applied; off always skips, the schedule included. When nothing fired the answer is skip in every mode.",
     "values": [
       "suggest",
       "auto",
@@ -7421,7 +7421,7 @@ const configSchema = {
     "owner": "retro",
     "type": "number",
     "default": 3,
-    "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post and ship:post. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; `gsd-tools retro due` shows where it stands."
+    "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post, once per executed phase; ship:post does not repeat it. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; a journal that cannot be read pauses the schedule (reason `journal-invalid`) instead of counting from zero. `gsd-tools retro due` shows where it stands."
   },
   "retro.at_milestone_start": {
     "owner": "retro",

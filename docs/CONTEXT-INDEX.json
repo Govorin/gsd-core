@@ -967,7 +967,7 @@
     {
       "id": "RETRO.RUNS-JOURNAL",
       "klass": "RETRO",
-      "value": ".planning/retro/RUNS.json {version:1, runs:[{stem, at (ISO UTC), planningDir, milestone, executedPhases}]}; written by retro prepare (a retro is held when its deterministic pass runs, even when the analyst finds nothing); never inferred from RETRO stems (date-only) or mtimes; an invalid or partly malformed journal is never rewritten"
+      "value": ".planning/retro/RUNS.json {version:1, runs:[{stem, at (ISO UTC), planningDir, milestone, executedPhases}]}; written by retro prepare (a retro is held when its deterministic pass runs, even when the analyst finds nothing); never inferred from RETRO stems (date-only) or mtimes; an invalid or partly malformed journal is never rewritten and fails closed on read (reason journal-invalid, counts and lastRetro null, baseline unknown; the stage answers suggest with a warning message, no command, no next); the read-append-write holds .planning/retro/.RUNS.lock (capability-lock, injectable JournalLock seam)"
     },
     {
       "id": "RETRO.SCHEDULE.cadence",
@@ -982,7 +982,7 @@
     {
       "id": "RETRO.SCHEDULE.scope",
       "klass": "RETRO",
-      "value": "per planning directory (workstream) and per milestone; retro.auto off or retro.enabled false sets due=false but retro due still reports the counts"
+      "value": "per planning directory (workstream, from --ws / GSD_WORKSTREAM / the pointer) and per milestone; every command the stage proposes carries --ws <name> under a workstream so the retro journals the same directory; retro.auto off or retro.enabled false sets due=false but retro due still reports the counts"
     },
     {
       "id": "RETRO.TRIGGER",

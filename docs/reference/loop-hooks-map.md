@@ -125,7 +125,7 @@ flowchart LR
     n_hook_ship_pre_gate_mn_verify_gate_7{"mn-verify-gate#58; check mn-clean-state"}:::crit
     n_hook_ship_pre_gate_security_8{"security#58; check ?"}:::crit
     n_hook_ship_post_step_mempalace_0["mempalace#58; agent#58;gsd-mempalace-curator"]:::step
-    n_hook_ship_post_step_retro_1["retro#58; command#58;retro stage"]:::step
+    n_hook_ship_post_step_retro_1["retro#58; command#58;retro stage signals"]:::step
   end
   subgraph n_step_milestone["milestone"]
     n_point_milestone_pre(["milestone#58;pre"]):::point
@@ -539,7 +539,7 @@ flowchart TB
 | `ship:pre` | mn-verify-gate | gate | `mn-clean-state` | `workflow.clean_state_enforce` | `halt` | yes |
 | `ship:pre` | security | gate |  | `workflow.security_enforcement` | `halt` | yes |
 | `ship:post` | mempalace | step | `agent:gsd-mempalace-curator` | `mempalace.enabled` | `skip` |  |
-| `ship:post` | retro | step | `command:retro stage` | `retro.enabled` | `skip` |  |
+| `ship:post` | retro | step | `command:retro stage signals` | `retro.enabled` | `skip` |  |
 | `milestone:pre` | code-review | step | `command:review stage` | `workflow.code_review` | `skip` |  |
 | `milestone:post` | architecture | step | `command:arch stage` | `architecture.metrics_at_milestone` | `skip` |  |
 
