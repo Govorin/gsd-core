@@ -227,12 +227,18 @@ describe('gen-health-docs.cjs row content (representative codes)', () => {
     assert.ok(lastW < firstI, 'every W-code must sort before every I-code');
   });
 
-  test('renderRepairActionsRegion lists all 7 real repair actions, including the previously-undocumented addAiIntegrationPhaseKey', () => {
+  test('renderRepairActionsRegion lists all 8 real repair actions, including the previously-undocumented addAiIntegrationPhaseKey', () => {
     const region = renderRepairActionsRegion();
     for (const action of REMEDY_ACTION_ORDER) {
       assert.ok(region.includes(`| ${action} |`), `missing repair action row: ${action}`);
     }
-    assert.equal(REMEDY_ACTION_ORDER.length, 7);
+    // Every real action the module declares (ADVISE only describes) — 8 since the 1.18 sync:
+    // upstream's repairVerificationStatus (W030, #5291) beside the fork's normalizeVerificationStatus
+    // (W031). Bound to REMEDY_ACTION, so a lost or added action is reported by name, not by a count.
+    const { REMEDY_ACTION } = require(path.join(ROOT, 'gsd-core', 'bin', 'lib', 'health-diagnostic-types.cjs'));
+    const realActions = Object.values(REMEDY_ACTION).filter((a) => a !== REMEDY_ACTION.ADVISE);
+    assert.deepEqual([...REMEDY_ACTION_ORDER], realActions);
+    assert.equal(REMEDY_ACTION_ORDER.length, 8);
     assert.ok(region.includes('addAiIntegrationPhaseKey'), '#3309: this action was "live in code, missing from docs"');
   });
 });
