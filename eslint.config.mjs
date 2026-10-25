@@ -382,12 +382,13 @@ export default tseslint.config(
       'gsd-core/bin/lib/gsd2-import.cjs',
       'gsd-core/bin/lib/profile-pipeline.cjs',
       // tsc-generated runtime artifacts — lint src/session-transcript.cts,
-      // src/retro-signals.cts, src/retro-inventory.cts, src/retro-artifacts.cts
-      // and src/retro-command-router.cts, not these.
+      // src/retro-signals.cts, src/retro-inventory.cts, src/retro-artifacts.cts,
+      // src/retro-cadence.cts and src/retro-command-router.cts, not these.
       'gsd-core/bin/lib/session-transcript.cjs',
       'gsd-core/bin/lib/retro-signals.cjs',
       'gsd-core/bin/lib/retro-inventory.cjs',
       'gsd-core/bin/lib/retro-artifacts.cjs',
+      'gsd-core/bin/lib/retro-cadence.cjs',
       'gsd-core/bin/lib/retro-command-router.cjs',
       'gsd-core/bin/lib/template.cjs',
       'gsd-core/bin/lib/uat.cjs',

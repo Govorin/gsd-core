@@ -3,7 +3,7 @@
   "role": "feature",
   "version": "1.15.0",
   "title": "Environment retrospective",
-  "description": "Retrospective on a coding session that proposes changes to the agent's ENVIRONMENT, not to the product: a deterministic pass reads the Claude Code transcript, the planning record and git history into friction signals (retro-signals) and an inventory of the checks already in place (retro-inventory); only when the weighted signal sum reaches retro.signal_threshold is a fresh gsd-retro-analyst worth running. Candidates are laid out by kind — mechanical → a check (project lint rule, hook, gate, verify_gates), judgement → reviewer skills (agent_skills.*), never CLAUDE.md, environment → settings — each tied to a signal and checked against the inventory. Nothing is applied automatically: the report is written to .planning/retro/ and a human routes each candidate. Accepted checks are journaled in .planning/retro/CHECKS.json so a check that never fires becomes a removal candidate. Claude Code only; every other runtime is degraded to git and .planning evidence and says so (ADR-5209).",
+  "description": "Retrospective on a coding session that proposes changes to the agent's ENVIRONMENT, not to the product: a deterministic pass reads the Claude Code transcript, the planning record and git history into friction signals (retro-signals) and an inventory of the checks already in place (retro-inventory); a fresh gsd-retro-analyst is worth running when the weighted signal sum reaches retro.signal_threshold, or when the schedule makes a retro due: once a milestone is planned and before its first phase runs (retro.at_milestone_start), and every retro.cadence_phases executed phases since the last retro (retro-cadence, journaled in .planning/retro/RUNS.json). Candidates are laid out by kind — mechanical → a check (project lint rule, hook, gate, verify_gates), judgement → reviewer skills (agent_skills.*), never CLAUDE.md, environment → settings — each tied to a signal and checked against the inventory. Nothing is applied automatically: the report is written to .planning/retro/ and a human routes each candidate. Accepted checks are journaled in .planning/retro/CHECKS.json so a check that never fires becomes a removal candidate. Claude Code only; every other runtime is degraded to git and .planning evidence and says so (ADR-5209).",
   "tier": "full",
   "requires": [],
   "engines": {
@@ -36,12 +36,22 @@
         "off"
       ],
       "default": "suggest",
-      "description": "What the retro stage at the end of execute-phase (execute:post) and after ship (ship:post) — `gsd-tools retro stage`, the same answer as `retro signals --decide` — answers once the signal sum reaches retro.signal_threshold: suggest (print one line proposing /gsd-retro), auto (the caller may spawn gsd-retro-analyst itself — its candidates are still never applied), or off (always skip). Below the threshold the answer is skip in every mode."
+      "description": "What the retro stage (`gsd-tools retro stage`, the same answer as `retro signals --decide`) answers at the end of a milestone's roadmap (roadmap:post), at the end of execute-phase (execute:post) and after ship (ship:post) once a retro is worth proposing: the friction score reached retro.signal_threshold (trigger `signals`) or the schedule made one due (`milestone-start`, `cadence`). suggest prints one line proposing /gsd-retro; auto lets the caller spawn gsd-retro-analyst itself, and its candidates are still never applied; off always skips, the schedule included. When nothing fired the answer is skip in every mode."
     },
     "retro.signal_threshold": {
       "type": "number",
       "default": 8,
       "description": "Session friction score at or above which a retro is worth a model pass (score >= threshold). Each signal has units = count − min + 1; per kind the units are taken as a rate over the session volume (retro.volume_turns, retro.volume_calls), capped at retro.kind_cap and weighted — see src/retro-signals.cts for the weights. Calibrated on real sessions (ADR-5209): at 8 a retro is suggested for about one session in ten, almost all of them with explicit user pushback."
+    },
+    "retro.cadence_phases": {
+      "type": "number",
+      "default": 3,
+      "description": "Executed phases of the current milestone since the last retro held in it at or above which a retro is due by schedule (trigger `cadence`), whatever the friction score. The retro stage checks it at execute:post and ship:post. A phase counts once every plan has a summary. 0 switches the cadence off. The count restarts at each retro (`retro prepare` journals it in .planning/retro/RUNS.json) and at each milestone; `gsd-tools retro due` shows where it stands."
+    },
+    "retro.at_milestone_start": {
+      "type": "boolean",
+      "default": true,
+      "description": "Make a retro due once a milestone is planned: its ROADMAP has phases, none has started executing, it has not shipped, and no retro has been held in it yet (trigger `milestone-start`). The retro stage checks it at roadmap:post, the end of /gsd-new-milestone and /gsd-new-project; false removes that stage. A milestone boundary is where the environment is cheapest to change, before the phases that would pay for it."
     },
     "retro.kind_cap": {
       "type": "number",
@@ -128,6 +138,16 @@
   ],
   "hooks": [],
   "steps": [
+    {
+      "point": "roadmap:post",
+      "ref": {
+        "command": "retro stage"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "retro.at_milestone_start",
+      "onError": "skip"
+    },
     {
       "point": "execute:post",
       "ref": {

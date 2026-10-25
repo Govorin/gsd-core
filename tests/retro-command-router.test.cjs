@@ -467,6 +467,193 @@ describe('retro checks', () => {
   });
 });
 
+// ─── the schedule: retro due, and the stage's schedule triggers ───────────────
+
+/** STATE.md + ROADMAP.md for milestone `version` with `phaseCount` phases, none run. */
+function writeMilestone(phaseCount, version = 'v1.2') {
+  const planning = path.join(project, '.planning');
+  fs.writeFileSync(path.join(planning, 'STATE.md'), `---\nmilestone: ${version}\n---\n# State\n`);
+  const phases = Array.from({ length: phaseCount }, (_, i) => `### Phase ${i + 1}: P${i + 1}\n**Goal:** g${i + 1}\n`).join('\n');
+  fs.writeFileSync(path.join(planning, 'ROADMAP.md'), `# Roadmap\n\n## ${version} — Cadence\n\n${phases}`);
+}
+
+/** Phase `n` finished executing: its one plan has a summary. */
+function executePhase(n) {
+  const dir = path.join(project, '.planning', 'phases', `0${n}-p${n}`);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `0${n}-01-PLAN.md`), '# Plan');
+  fs.writeFileSync(path.join(dir, `0${n}-01-SUMMARY.md`), '# Summary');
+}
+
+function readRuns() {
+  return JSON.parse(fs.readFileSync(path.join(project, '.planning', 'retro', 'RUNS.json'), 'utf8'));
+}
+
+describe('retro due', () => {
+  test('the JSON a dashboard reads: one stable shape', () => {
+    const r = retro(['due'], project);
+    assert.equal(r.success, true, r.error);
+    assert.deepEqual(Object.keys(r.json), [
+      'due', 'trigger', 'triggers', 'reason', 'active', 'mode', 'planningDir', 'milestone',
+      'cadencePhases', 'atMilestoneStart', 'phases', 'phasesSinceRetro', 'phasesSinceRetroIds',
+      'baseline', 'lastRetro', 'latestReport', 'journal', 'problems',
+    ]);
+    assert.deepEqual([r.json.due, r.json.reason, r.json.cadencePhases, r.json.journal], [false, 'no-roadmap', 3, '.planning/retro/RUNS.json']);
+  });
+
+  test('a planned milestone is due at its start; the retro held there clears it', () => {
+    writeMilestone(4);
+    const before = retro(['due'], project);
+    assert.deepEqual([before.json.due, before.json.trigger, before.json.milestone, before.json.lastRetro], [true, 'milestone-start', 'v1.2', null]);
+
+    writeSession(sessions, project, 'sess-smooth', smoothRecords());
+    const prep = retro(['prepare', '--sessions-dir', sessions], project);
+    assert.equal(prep.success, true, prep.error);
+    assert.deepEqual(prep.json.run, { journal: '.planning/retro/RUNS.json', recorded: true, problems: [] });
+    const runs = readRuns();
+    assert.equal(runs.runs.length, 1);
+    assert.deepEqual([runs.runs[0].stem, runs.runs[0].milestone, runs.runs[0].executedPhases, runs.runs[0].planningDir], [prep.json.stem, 'v1.2', [], '.planning']);
+
+    const after = retro(['due'], project);
+    assert.deepEqual([after.json.due, after.json.reason, after.json.baseline], [false, 'not-due', 'retro']);
+    assert.equal(after.json.lastRetro.stem, prep.json.stem);
+  });
+
+  test('retro.at_milestone_start false: not due at the start', () => {
+    writeMilestone(4);
+    writeConfig(project, { retro: { at_milestone_start: false } });
+    assert.deepEqual(retro(['due'], project).json.triggers, []);
+  });
+
+  test('an invalid cadence key keeps the default and is named', () => {
+    writeConfig(project, { retro: { cadence_phases: -2 } });
+    const r = retro(['due'], project);
+    assert.equal(r.json.cadencePhases, 3);
+    assert.equal(r.json.problems.length, 1);
+  });
+
+  test('config-set accepts the schedule keys', () => {
+    for (const [key, value] of [['retro.cadence_phases', '2'], ['retro.at_milestone_start', 'false']]) {
+      const res = runGsdTools(['config-set', key, value], project);
+      assert.equal(res.success, true, `config-set ${key}: ${res.error}`);
+    }
+    const r = retro(['due'], project);
+    assert.deepEqual([r.json.cadencePhases, r.json.atMilestoneStart], [2, false]);
+  });
+});
+
+describe('retro stage: the schedule triggers', () => {
+  /** Hold a retro now (as /gsd-retro does), then return the stage answer after `executed` more phases. */
+  function holdRetro() {
+    const prep = retro(['prepare', '--sessions-dir', sessions], project);
+    assert.equal(prep.success, true, prep.error);
+    return readRuns().runs.at(-1);
+  }
+
+  beforeEach(() => {
+    writeMilestone(6);
+    writeSession(sessions, project, 'sess-smooth', smoothRecords());
+  });
+
+  test('roadmap:post on a planned milestone: suggest, trigger milestone-start', () => {
+    const r = retro(['stage', '--milestone', 'v1.2', '--sessions-dir', sessions], project);
+    assert.equal(r.success, true, r.error);
+    assert.deepEqual([r.json.decision, r.json.reason, r.json.trigger, r.json.triggers], ['suggest', 'milestone-start', 'milestone-start', ['milestone-start']]);
+    assert.equal(r.json.command, '/gsd-retro --session sess-smooth');
+    assert.deepEqual(r.json.next, { skill: 'retro', args: '--session sess-smooth' });
+    assert.equal(typeof r.json.message, 'string');
+    assert.equal(r.json.schedule.due, true);
+  });
+
+  // Boundary at the default retro.cadence_phases 3: N−1, N, N+1 phases after the retro.
+  for (const [executed, decision] of [[2, 'skip'], [3, 'suggest'], [4, 'suggest']]) {
+    test(`execute:post, ${executed} phase(s) executed since the retro → ${decision}`, () => {
+      const run = holdRetro();
+      for (let n = 1; n <= executed; n++) executePhase(n);
+      const r = retro(['stage', '--phase', String(executed), '--sessions-dir', sessions], project);
+      assert.equal(r.success, true, r.error);
+      assert.equal(r.json.decision, decision);
+      assert.equal(r.json.schedule.phasesSinceRetro, executed);
+      if (decision === 'skip') {
+        assert.deepEqual([r.json.reason, r.json.trigger, r.json.next], ['below-threshold', null, null]);
+      } else {
+        assert.deepEqual([r.json.reason, r.json.trigger], ['cadence-reached', 'cadence']);
+        // A scheduled retro reaches back to the last one.
+        assert.deepEqual(r.json.next, { skill: 'retro', args: `--session sess-smooth --since ${run.at}` });
+      }
+    });
+  }
+
+  test('the retro the cadence asked for restarts the count', () => {
+    holdRetro();
+    for (let n = 1; n <= 3; n++) executePhase(n);
+    assert.equal(retro(['stage', '--phase', '3', '--sessions-dir', sessions], project).json.decision, 'suggest');
+    holdRetro();
+    const r = retro(['stage', '--phase', '3', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.schedule.phasesSinceRetro], ['skip', 0]);
+  });
+
+  test('retro.cadence_phases 0 never makes a retro due by count', () => {
+    writeConfig(project, { retro: { cadence_phases: 0 } });
+    holdRetro();
+    for (let n = 1; n <= 6; n++) executePhase(n);
+    const r = retro(['stage', '--phase', '6', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.triggers], ['skip', []]);
+  });
+
+  test('retro.auto off silences the schedule too, and nothing is read', () => {
+    writeConfig(project, { retro: { auto: 'off' } });
+    const r = retro(['stage', '--milestone', 'v1.2', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.reason, r.json.schedule, r.json.score], ['skip', 'retro-auto-off', null, null]);
+    assert.equal(retro(['due'], project).json.due, false);
+  });
+
+  test('retro.auto auto dispatches the scheduled retro with no message', () => {
+    writeConfig(project, { retro: { auto: 'auto' } });
+    const r = retro(['stage', '--milestone', 'v1.2', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.trigger, r.json.message], ['auto', 'milestone-start', null]);
+    assert.deepEqual(r.json.next, { skill: 'retro', args: '--session sess-smooth' });
+  });
+
+  test('friction wins over the schedule and keeps its answer unchanged', () => {
+    writeSession(sessions, project, 'sess-e2e', strugglingRecords(), new Date(Date.now() + 60000));
+    const r = retro(['stage', '--milestone', 'v1.2', '--sessions-dir', sessions], project);
+    assert.deepEqual([r.json.decision, r.json.reason, r.json.trigger], ['suggest', 'threshold-reached', 'signals']);
+    assert.deepEqual(r.json.triggers, ['signals', 'milestone-start']);
+    assert.equal(r.json.command, '/gsd-retro --session sess-e2e');
+    assert.deepEqual(r.json.next, { skill: 'retro', args: '--session sess-e2e' });
+  });
+});
+
+describe('decideRetro with a schedule', () => {
+  const report = (score) => ({ score, threshold: 8, session: 's1', status: 'ok' });
+  const schedule = (over = {}) => ({
+    due: true, trigger: 'cadence', triggers: ['cadence'], milestone: 'v1.2', phasesSinceRetro: 3, cadencePhases: 3,
+    lastRetro: { stem: 'RETRO-2026-10-20', at: '2026-10-20T10:00:00.000Z', milestone: 'v1.2' }, ...over,
+  });
+
+  test('a due schedule below the threshold proposes, naming the trigger', () => {
+    const d = router.decideRetro({ active: true, mode: 'suggest', report: report(2), schedule: schedule() });
+    assert.deepEqual([d.decision, d.reason, d.trigger, d.triggers], ['suggest', 'cadence-reached', 'cadence', ['cadence']]);
+    assert.equal(d.command, '/gsd-retro --session s1 --since 2026-10-20T10:00:00.000Z');
+  });
+
+  test('without a session or an earlier retro the command is bare', () => {
+    const d = router.decideRetro({ active: true, mode: 'auto', report: { ...report(0), session: null }, schedule: schedule({ trigger: 'milestone-start', triggers: ['milestone-start'], lastRetro: null }) });
+    assert.deepEqual([d.decision, d.reason, d.command, d.next], ['auto', 'milestone-start', '/gsd-retro', { skill: 'retro', args: '' }]);
+  });
+
+  test('a schedule that is not due changes nothing', () => {
+    const d = router.decideRetro({ active: true, mode: 'suggest', report: report(7), schedule: schedule({ due: false, trigger: null, triggers: [] }) });
+    assert.deepEqual([d.decision, d.reason, d.trigger], ['skip', 'below-threshold', null]);
+  });
+
+  test('off and inactive skip whatever the schedule says', () => {
+    assert.equal(router.decideRetro({ active: true, mode: 'off', report: null, schedule: schedule() }).reason, 'retro-auto-off');
+    assert.equal(router.decideRetro({ active: false, mode: 'auto', report: null, schedule: schedule() }).reason, 'capability-disabled');
+  });
+});
+
 // ─── unknown subcommand ───────────────────────────────────────────────────────
 
 test('an unknown subcommand is refused', () => {

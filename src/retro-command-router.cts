@@ -9,8 +9,9 @@
  *
  *   signals     friction report for one session (retro-signals), or with
  *               `--decide` the lifecycle answer skip | suggest | auto
- *   stage       `signals --decide` as a loop-point command step (ship:post,
- *               execute:post): the stage answer of loop-hook-dispatch.md
+ *   stage       `signals --decide` as a loop-point command step (roadmap:post,
+ *               execute:post, ship:post): the stage answer of loop-hook-dispatch.md
+ *   due         whether a retro is due by schedule (retro-cadence): read-only
  *   inventory   what the environment already enforces (retro-inventory)
  *   prepare     the analyst's input bundle + this retro's artifact paths
  *   candidates  validate the analyst's candidates against that bundle
@@ -85,6 +86,17 @@ import {
   CHECK_KINDS,
 } from './retro-artifacts.cjs';
 import type { ChecksStatus, CheckKind, RetroPaths } from './retro-artifacts.cjs';
+import {
+  RETRO_TRIGGER,
+  resolveCadenceConfig,
+  readMilestoneFacts,
+  readRunsJournal,
+  runsJournalRelPath,
+  computeRetroDue,
+  recordRun,
+  runFor,
+} from './retro-cadence.cjs';
+import type { CadenceConfig, RetroDue, RetroTrigger } from './retro-cadence.cjs';
 
 const { output, ERROR_REASON, formatDiagnosticToken, getJsonErrorMode } = io;
 const { ExitError } = cliExit;
@@ -125,6 +137,8 @@ interface RetroConfig {
   /** Flat `retro.<key>` values a project actually set, for `resolveRetroThresholds`. */
   thresholdConfig: Record<string, unknown>;
   checkStaleDays: number;
+  /** `retro.cadence_phases` / `retro.at_milestone_start` (retro-cadence). */
+  cadence: CadenceConfig;
 }
 
 function readRetroConfig(cwd: string): RetroConfig {
@@ -152,7 +166,28 @@ function readRetroConfig(cwd: string): RetroConfig {
     if (typeof staleRaw === 'number' && Number.isInteger(staleRaw) && staleRaw >= 1) checkStaleDays = staleRaw;
     else problems.push(`retro.check_stale_days must be an integer >= 1, got ${JSON.stringify(staleRaw)} — using 30`);
   }
-  return { active: isCapabilityActive(CAPABILITY_ID, cwd), mode: auto.mode, problems, thresholdConfig, checkStaleDays };
+  const cadence = resolveCadenceConfig({ cadencePhases: read('cadence_phases').value, atMilestoneStart: read('at_milestone_start').value });
+  problems.push(...cadence.problems);
+  return { active: isCapabilityActive(CAPABILITY_ID, cwd), mode: auto.mode, problems, thresholdConfig, checkStaleDays, cadence: cadence.config };
+}
+
+/**
+ * The schedule's answer for the active planning directory: milestone facts,
+ * the runs journal and the newest report on disk. Reads planning files only,
+ * never a transcript.
+ */
+function scheduleFor(cwd: string, cfg: RetroConfig): RetroDue {
+  const runs = readRunsJournal(cwd);
+  return computeRetroDue({
+    facts: readMilestoneFacts(cwd),
+    runs: runs.journal.runs,
+    config: cfg.cadence,
+    active: cfg.active,
+    mode: cfg.mode,
+    latestReport: latestRetroStem(cwd),
+    journal: runsJournalRelPath(cwd),
+    problems: [...cfg.problems, ...runs.problems],
+  });
 }
 
 function retroSlash(cwd: string): string {
@@ -170,7 +205,11 @@ type RetroDecisionKind = 'skip' | 'suggest' | 'auto';
 
 interface RetroDecision {
   decision: RetroDecisionKind;
-  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached';
+  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached' | 'milestone-start' | 'cadence-reached';
+  /** What made the retro worth proposing: friction, or one of the schedules; null on skip. */
+  trigger: RetroTrigger | null;
+  /** Every trigger that fired (the threshold and the schedule), whatever the mode. */
+  triggers: RetroTrigger[];
   mode: RetroAutoMode;
   score: number | null;
   threshold: number | null;
@@ -182,46 +221,89 @@ interface RetroDecision {
   message: string | null;
   /** What the host dispatches on `auto` (loop-hook-dispatch.md stage answer); null on skip. */
   next: { skill: 'retro'; args: string } | null;
+  /** The schedule's answer (`retro due`); null when it was not consulted. */
+  schedule: RetroDue | null;
   problems: string[];
 }
 
+function scheduleMessage(schedule: RetroDue, command: string): string {
+  if (schedule.trigger === RETRO_TRIGGER.MILESTONE_START) {
+    const m = schedule.milestone ?? 'the current milestone';
+    return `Retro due: ${m} is planned and no phase has run yet: run ${command}`;
+  }
+  return `Retro due: ${schedule.phasesSinceRetro} phase(s) executed since the last retro (retro.cadence_phases ${schedule.cadencePhases}): run ${command}`;
+}
+
 /**
- * The lifecycle answer for a loop point (ship:post, end of execute-phase):
- * skip below the threshold or when switched off; otherwise what `retro.auto`
- * says. `auto` licenses spawning the analyst, never applying its candidates.
+ * The lifecycle answer for a loop point (roadmap:post, execute:post,
+ * ship:post): skip when switched off; otherwise what `retro.auto` says once
+ * the friction score reaches the threshold (trigger `signals`) or the
+ * schedule makes a retro due (`milestone-start`, `cadence`). Friction wins
+ * when both fire: its command names the session it scored, unchanged.
+ * `auto` licenses spawning the analyst, never applying its candidates.
  */
 function decideRetro(input: {
   active: boolean;
   mode: RetroAutoMode;
   report: Pick<RetroSignalReport, 'score' | 'threshold' | 'session' | 'status'> | null;
+  /** The schedule's answer; absent or null = the schedule was not consulted. */
+  schedule?: RetroDue | null;
   problems?: string[];
   /** The retro command in the runtime's own slash form (default `/gsd-retro`). */
   slash?: string;
 }): RetroDecision {
   const r = input.report;
-  const base = {
+  const schedule = input.schedule ?? null;
+  const signalsFired = r !== null && r.score >= r.threshold;
+  const triggers: RetroTrigger[] = [
+    ...(signalsFired ? [RETRO_TRIGGER.SIGNALS] : []),
+    ...(schedule ? schedule.triggers : []),
+  ];
+  const answer = (
+    decision: RetroDecisionKind,
+    reason: RetroDecision['reason'],
+    trigger: RetroTrigger | null,
+    command: string | null,
+    message: string | null,
+    next: RetroDecision['next'],
+  ): RetroDecision => ({
+    decision,
+    reason,
+    trigger,
+    triggers,
     mode: input.mode,
     score: r ? r.score : null,
     threshold: r ? r.threshold : null,
     session: r ? r.session : null,
     status: r ? r.status : null,
+    command,
+    message,
+    next,
+    schedule,
     problems: [...(input.problems ?? [])],
-  };
-  const skip = (reason: RetroDecision['reason']): RetroDecision => ({ ...base, decision: 'skip', reason, command: null, message: null, next: null });
+  });
+  const skip = (reason: RetroDecision['reason']): RetroDecision => answer('skip', reason, null, null, null, null);
   if (!input.active) return skip('capability-disabled');
   if (input.mode === 'off') return skip('retro-auto-off');
-  if (!r || r.score < r.threshold) return skip('below-threshold');
   const slash = input.slash ?? '/gsd-retro';
-  const args = r.session ? `--session ${r.session}` : '';
-  const command = args === '' ? slash : `${slash} ${args}`;
-  return {
-    ...base,
-    decision: input.mode,
-    reason: 'threshold-reached',
-    command,
-    message: input.mode === 'suggest' ? `This session struggled (friction ${r.score} >= ${r.threshold}): run ${command}` : null,
-    next: { skill: 'retro', args },
-  };
+  const sessionArgs = r && r.session ? [`--session ${r.session}`] : [];
+  if (r && signalsFired) {
+    const args = sessionArgs.join(' ');
+    const command = args === '' ? slash : `${slash} ${args}`;
+    const message = input.mode === 'suggest' ? `This session struggled (friction ${r.score} >= ${r.threshold}): run ${command}` : null;
+    return answer(input.mode, 'threshold-reached', RETRO_TRIGGER.SIGNALS, command, message, { skill: 'retro', args });
+  }
+  if (schedule && schedule.due && schedule.trigger !== null) {
+    // A scheduled retro looks back to the last one: git and planning
+    // evidence from then on, not only from this session's start.
+    const sinceArgs = schedule.lastRetro ? [`--since ${schedule.lastRetro.at}`] : [];
+    const args = [...sessionArgs, ...sinceArgs].join(' ');
+    const command = args === '' ? slash : `${slash} ${args}`;
+    const reason = schedule.trigger === RETRO_TRIGGER.MILESTONE_START ? 'milestone-start' : 'cadence-reached';
+    const message = input.mode === 'suggest' ? scheduleMessage(schedule, command) : null;
+    return answer(input.mode, reason, schedule.trigger, command, message, { skill: 'retro', args });
+  }
+  return skip('below-threshold');
 }
 
 // ─── Arguments ────────────────────────────────────────────────────────────────
@@ -458,11 +540,24 @@ function handleSignals(env: Env, stage = false): Invalid | undefined {
   }
   const pick = pickSession(env.cwd, sel);
   if (isInvalid(pick)) return pick;
+  // The schedule reads planning files only, so it is settled before the
+  // transcript read starts.
+  const schedule = decide ? scheduleFor(env.cwd, cfg) : null;
   gatherSignals(env.cwd, sel, pick, cfg, env.now)
     .then(({ report }) => {
-      output(decide ? decideRetro({ active: true, mode: cfg.mode, report, problems: cfg.problems, slash: retroSlash(env.cwd) }) : report, env.raw);
+      output(decide ? decideRetro({ active: true, mode: cfg.mode, report, schedule, problems: cfg.problems, slash: retroSlash(env.cwd) }) : report, env.raw);
     })
     .catch(reportRejection);
+  return undefined;
+}
+
+/**
+ * `retro due`: the schedule alone, in one stable shape whatever the config
+ * says. Planning files and the runs journal are read; no transcript, and
+ * nothing is written.
+ */
+function handleDue(env: Env): undefined {
+  output(scheduleFor(env.cwd, readRetroConfig(env.cwd)), env.raw);
   return undefined;
 }
 
@@ -517,6 +612,9 @@ function handlePrepare(env: Env): Invalid | undefined {
       },
     };
     writeBundle(env.cwd, paths, bundle);
+    // A retro is held from here on, whatever the analyst finds: the schedule
+    // counts from this run (retro-cadence, `.planning/retro/RUNS.json`).
+    const run = recordRun(env.cwd, runFor(paths.stem, env.now, readMilestoneFacts(env.cwd)));
     output({
       stem: paths.stem,
       bundle: paths.bundle,
@@ -532,6 +630,7 @@ function handlePrepare(env: Env): Invalid | undefined {
       omitted: report.omitted.length,
       inventoryFindings: inventory.findings.length,
       removalCandidates: checks ? checks.removalCandidates.length : 0,
+      run: { journal: runsJournalRelPath(env.cwd), recorded: run.recorded, problems: run.problems },
     }, env.raw);
   };
   run().catch(reportRejection);
@@ -673,15 +772,17 @@ function routeRetroCommand({ args, cwd, raw, error, _now }: RouteRetroCommandOpt
     family: 'retro',
     args,
     // Alphabetical for a stable unknown-subcommand message.
-    subcommands: ['candidates', 'checks', 'inventory', 'prepare', 'signals', 'stage'],
+    subcommands: ['candidates', 'checks', 'due', 'inventory', 'prepare', 'signals', 'stage'],
     handlers: {
       candidates: () => handleCandidates(env),
       checks: () => handleChecks(env),
+      due: () => handleDue(env),
       inventory: () => handleInventory(env),
       prepare: () => handlePrepare(env),
       signals: () => handleSignals(env),
-      // A loop-point command step is `retro stage --phase N`: the phase is the
-      // host's, the session is still the newest one, so `--phase` is ignored.
+      // A loop-point command step is `retro stage --phase N` (`--milestone v`
+      // at roadmap:post): the session is still the newest one and the
+      // schedule reads the active milestone itself, so both are ignored.
       stage: () => handleSignals(env, true),
     },
     unknownMessage: (subcommand: string, available: string[]) =>
