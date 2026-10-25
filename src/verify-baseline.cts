@@ -49,6 +49,12 @@ import verifyGates = require('./verify-gates.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
 const { extractFrontmatter } = frontmatterMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import ioModule = require('./io.cjs');
+const { output, error, ERROR_REASON } = ioModule;
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateVerdict } from './gate-verdict.cjs';
+import { declareGateExit } from './gate-exit.cjs';
 
 /** The frontmatter key the baseline is recorded under. */
 export const BASELINE_RECORD_KEY = 'baseline';
@@ -187,36 +193,47 @@ function previousAcceptance(baselinePath: string): Record<string, unknown> {
  * `gsd_run verify baseline <phase-dir> [--accept <why>]`
  * `gsd_run verify baseline --phase <N> [--accept <why>]`   (the dispatcher's form)
  *
- * Exit codes, as `verify gates`:
+ * Exit status as `verify gates`, through the gate-exit seam (status mode; #5170):
  *   0  the baseline was recorded (whatever it says — the gate judges)
- *   2  it could not be recorded, nothing was configured to run, or the arguments are wrong
- *  69  workflow.verify_gates is set but malformed (UNAVAILABLE, ADR-3889)
+ *  66  nothing is configured to run (NO_INPUT)
+ *  69  the phase could not be found, it could not be recorded, or workflow.verify_gates is set but
+ *      malformed (UNAVAILABLE, ADR-3889)
+ *  wrong arguments are a usage error through `error()` (1; 64 under v2)
  */
 export function cmdVerifyBaseline(cwd: string, args: readonly string[], raw: boolean, options: BaselineOptions = {}): void {
-  const emit = (payload: Record<string, unknown>, exitCode: number) => {
-    process.stdout.write(`${raw ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)}\n`);
-    process.exitCode = exitCode;
+  // Printed (compact under --raw), then the exit declared from the verdict.
+  const emit = (verdict: GateVerdict): void => {
+    output(verdict.payload, raw, raw ? JSON.stringify(verdict.payload) : undefined);
+    declareGateExit(verdict, 'status');
   };
   const usage = 'Usage: verify baseline <phase-dir> | --phase <N> [--accept "<why the red base is accepted>"]';
 
   const parsed = parseBaselineArgs(args);
   if (parsed.problem) {
-    emit({ ok: false, reason: 'bad_arguments', problem: parsed.problem, message: usage }, 2);
+    error(`${parsed.problem} — ${usage}`, ERROR_REASON.USAGE, { refusal: 'bad_arguments', problem: parsed.problem });
     return;
   }
   if (parsed.accept !== undefined && parsed.accept.trim() === '') {
     // An acceptance with no reason is a bypass nobody can review later.
-    emit({ ok: false, reason: 'accept_needs_reason', message: usage }, 2);
+    error(`--accept needs a reason — ${usage}`, ERROR_REASON.USAGE, { refusal: 'accept_needs_reason' });
     return;
   }
   const target = verifyGates.resolveRecorderPhase(cwd, parsed.phaseDir, parsed.phase, usage);
   if (!target.ok) {
-    emit(target.payload, target.exitCode);
+    if ('usage' in target) {
+      error(target.usage.message, ERROR_REASON.USAGE, target.usage.payload);
+      return;
+    }
+    emit(target.verdict);
     return;
   }
   const roster = verifyGates.resolveRoster(cwd);
   if (!roster.ok) {
-    emit(roster.payload, roster.exitCode);
+    if ('usage' in roster) {
+      error(roster.usage.message, ERROR_REASON.USAGE, roster.usage.payload);
+      return;
+    }
+    emit(roster.verdict);
     return;
   }
 
@@ -250,21 +267,20 @@ export function cmdVerifyBaseline(cwd: string, args: readonly string[], raw: boo
     }).created;
   } catch (err) {
     emit(
-      {
+      gateUnreadable(false, {
         ok: false,
         reason: 'record_failed',
         baselinePath,
         error: (err as { code?: string } | null)?.code || 'UNKNOWN',
         message: err instanceof Error ? err.message : String(err),
         baseline: block,
-      },
-      2
+      })
     );
     return;
   }
 
   emit(
-    {
+    gateVerdict(measured.all_passed ? 'pass' : 'advisory', false, {
       ok: true,
       baselinePath,
       created,
@@ -277,7 +293,6 @@ export function cmdVerifyBaseline(cwd: string, args: readonly string[], raw: boo
       baseline: block,
       results: verifyGates.resultsPayload(results),
       warnings: verifyGates.unmeasuredWarnings(results),
-    },
-    0
+    })
   );
 }

@@ -50,8 +50,12 @@ const { extractFrontmatter, spliceFrontmatter } = frontmatterModule;
 import phaseLocator = require('./phase-locator.cjs');
 const { findPhaseInternal } = phaseLocator;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-import cliExitModule = require('./cli-exit.cjs');
-const { projectOutcome, getContractVersion } = cliExitModule;
+import ioModule = require('./io.cjs');
+const { output, error, ERROR_REASON } = ioModule;
+import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import type { GateVerdict } from './gate-verdict.cjs';
+import { declareGateExit } from './gate-exit.cjs';
+import { statEvidence } from './gate-evidence.cjs';
 
 // ─── Types ────────────────────────────────────────────────────────────────
 
@@ -712,11 +716,13 @@ interface CmdOptions {
  * `gsd_run verify gates <phase-dir> [--strict]`
  * `gsd_run verify gates --phase <N> [--strict]`   (the dispatcher's form)
  *
- * Exit codes:
+ * Exit status follows the verdict through the one exit seam (`declareGateExit`, status mode; #5170):
  *   0  the results were recorded (whatever they say)
- *   1  a check failed AND --strict was passed
- *   2  the results could not be recorded, or nothing was configured to run
- *  69  workflow.verify_gates is set but malformed (UNAVAILABLE, ADR-3889)
+ *   1  a check failed AND --strict was passed (FAIL)
+ *  66  nothing is configured to run (NO_INPUT: ran, zero checks in scope)
+ *  69  the phase could not be found, the results could not be recorded, or workflow.verify_gates is
+ *      set but malformed (UNAVAILABLE, ADR-3889)
+ *  a wrong invocation (no phase, two phases) is a usage error through `error()` (1; 64 under v2)
  *
  * The default 0-on-red is deliberate; see the module header.
  */
@@ -726,25 +732,18 @@ function cmdVerifyGates(
   raw: boolean,
   options: CmdOptions = {}
 ): void {
-  const emit = (payload: Record<string, unknown>, exitCode: number) => {
-    if (raw) {
-      process.stdout.write(`${JSON.stringify(payload)}\n`);
-    } else {
-      process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
-    }
-    process.exitCode = exitCode;
-  };
+  const emit = (verdict: GateVerdict): void => emitRecorderVerdict(verdict, raw);
 
   const target = resolveRecorderPhase(cwd, phaseDirArg, options.phase, 'Usage: verify gates <phase-dir> | --phase <N> [--strict]');
   if (!target.ok) {
-    emit(target.payload, target.exitCode);
+    refuseRecorder(target, raw);
     return;
   }
   const { phaseDir } = target;
 
   const roster = resolveRoster(cwd);
   if (!roster.ok) {
-    emit(roster.payload, roster.exitCode);
+    refuseRecorder(roster, raw);
     return;
   }
   const { checks } = roster;
@@ -763,15 +762,14 @@ function cmdVerifyGates(
     // were genuinely measured, and losing them because the file was unwritable
     // would waste the run and leave the caller with nothing to act on.
     emit(
-      {
+      gateUnreadable(false, {
         ok: false,
         reason: 'record_failed',
         verificationPath,
         error: (err as { code?: string } | null)?.code || 'UNKNOWN',
         message: err instanceof Error ? err.message : String(err),
         gates,
-      },
-      2
+      })
     );
     return;
   }
@@ -779,8 +777,9 @@ function cmdVerifyGates(
   // --strict propagates anything short of green: a check that could not run
   // has not shown the code is fine either.
   const strictFailure = Boolean(options.strict) && !gates.all_passed;
+  const outcome = strictFailure ? 'block' : gates.all_passed ? 'pass' : 'advisory';
   emit(
-    {
+    gateVerdict(outcome, strictFailure, {
       ok: true,
       verificationPath,
       created,
@@ -796,8 +795,7 @@ function cmdVerifyGates(
       // command line itself), for a human reading a failure.
       results: resultsPayload(results),
       warnings: unmeasuredWarnings(results),
-    },
-    strictFailure ? 1 : 0
+    })
   );
 }
 
@@ -835,7 +833,29 @@ function unmeasuredWarnings(
     }));
 }
 
-type Refusal = { ok: false; payload: Record<string, unknown>; exitCode: number };
+/**
+ * Why a recorder did not record: a wrong invocation (`usage`, reported through `error()`), or a
+ * verdict — the phase or the roster could not be resolved — printed and exited through the gate-exit
+ * seam like every other recorder result.
+ */
+type Refusal =
+  | { ok: false; usage: { message: string; payload: Record<string, unknown> } }
+  | { ok: false; verdict: GateVerdict };
+
+/** Print a recorder's payload (compact JSON under --raw), then declare its exit from the verdict. */
+function emitRecorderVerdict(verdict: GateVerdict, raw: boolean): void {
+  output(verdict.payload, raw, raw ? JSON.stringify(verdict.payload) : undefined);
+  declareGateExit(verdict, 'status');
+}
+
+/** Report a refusal: a usage error never returns; a verdict is printed and declared. */
+function refuseRecorder(refusal: Refusal, raw: boolean): void {
+  if ('usage' in refusal) {
+    error(refusal.usage.message, ERROR_REASON.USAGE, refusal.usage.payload);
+    return;
+  }
+  emitRecorderVerdict(refusal.verdict, raw);
+}
 
 /**
  * Which phase a recorder writes into: a directory argument, or `--phase <N>` (the step
@@ -850,10 +870,10 @@ function resolveRecorderPhase(
   if (phaseDirArg && phase) {
     // Two answers to "which phase" is a caller bug; picking one silently would
     // record a run into a directory the other half of the caller never meant.
-    return { ok: false, payload: { ok: false, reason: 'conflicting_phase_args', message: usage }, exitCode: 2 };
+    return { ok: false, usage: { message: usage, payload: { refusal: 'conflicting_phase_args' } } };
   }
   if (!phaseDirArg && !phase) {
-    return { ok: false, payload: { ok: false, reason: 'missing_phase_dir', message: usage }, exitCode: 2 };
+    return { ok: false, usage: { message: usage, payload: { refusal: 'missing_phase_dir' } } };
   }
 
   let phaseDir: string;
@@ -866,21 +886,22 @@ function resolveRecorderPhase(
     if (!found || !found.found || !found.directory) {
       return {
         ok: false,
-        payload: {
+        verdict: gateUnreadable(false, {
           ok: false,
           reason: 'phase_not_found',
           phase,
           ...(found?.ambiguous_matches?.length ? { ambiguous_matches: found.ambiguous_matches } : {}),
-        },
-        exitCode: 2,
+        }),
       };
     }
     phaseDir = path.resolve(cwd, found.directory);
   } else {
     phaseDir = path.resolve(cwd, phaseDirArg as string);
   }
-  if (!fs.existsSync(phaseDir)) {
-    return { ok: false, payload: { ok: false, reason: 'phase_dir_not_found', phaseDir }, exitCode: 2 };
+  const dir = statEvidence(phaseDir);
+  if (dir.kind !== 'found' || !dir.value.isDirectory()) {
+    const readError = dir.kind === 'unreadable' ? { readError: dir.reason } : {};
+    return { ok: false, verdict: gateUnreadable(false, { ok: false, reason: 'phase_dir_not_found', phaseDir, ...readError }) };
   }
   return { ok: true, phaseDir };
 }
@@ -895,15 +916,14 @@ function resolveRoster(cwd: string): { ok: true; checks: GateCheck[] } | Refusal
     // telling them to add a setting they already wrote is the wrong advice.
     return {
       ok: false,
-      payload: {
+      verdict: gateUnreadable(false, {
         ok: false,
         reason: 'invalid_checks_config',
         problems: config.problems,
         message:
           'workflow.verify_gates is set but cannot be run. It takes an object of check name → command line, ' +
           `e.g. gsd_run query config-set workflow.verify_gates '{"tests":"npm test"}'.`,
-      },
-      exitCode: projectOutcome('UNAVAILABLE', getContractVersion()),
+      }),
     };
   }
   if (config.checks.length === 0) {
@@ -912,15 +932,14 @@ function resolveRoster(cwd: string): { ok: true; checks: GateCheck[] } | Refusal
     // reading it would report success for a project that ran nothing at all.
     return {
       ok: false,
-      payload: {
+      verdict: gateVerdict('empty', false, {
         ok: false,
         reason: 'no_checks_configured',
         message:
           'workflow.verify_gates names no commands. Set it with e.g. ' +
           `gsd_run query config-set workflow.verify_gates '{"tests":"npm test","typecheck":"npx tsc --noEmit"}' — ` +
           'recording "no checks" as a pass would be a green field that proves nothing.',
-      },
-      exitCode: 2,
+      }),
     };
   }
   return { ok: true, checks: config.checks };
@@ -947,6 +966,8 @@ export = {
   unmeasuredWarnings,
   resolveRecorderPhase,
   resolveRoster,
+  emitRecorderVerdict,
+  refuseRecorder,
   CHECK_STATUS,
   CHECK_STATUS_VERDICT,
   CHECK_OUTCOME_RULES,

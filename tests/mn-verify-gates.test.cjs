@@ -75,6 +75,18 @@ function runGatesCli(dir, phaseDir, extraArgs = []) {
   return { ...result, payload };
 }
 
+/**
+ * A wrong invocation is a usage error through `error()` (#5170 exit seam): run with `--json-errors`, it
+ * prints `{ reason: 'usage', refusal }` on stderr and exits non-zero. Returns the refusal named.
+ */
+function usageRefusal(result) {
+  assert.equal(result.outcome, OUTCOME.EXITED, result.stderr);
+  assert.notEqual(result.exitCode, 0, 'a wrong invocation must not exit 0');
+  const err = JSON.parse(result.stderr.trim());
+  assert.equal(err.reason, 'usage', result.stderr);
+  return err.refusal;
+}
+
 describe('verify gates — measuring', () => {
   const green = () => ({ status: 0, stdout: '', stderr: '', error: null, signal: null });
   const red = () => ({ status: 1, stdout: 'boom', stderr: '', error: null, signal: null });
@@ -488,7 +500,8 @@ describe('verify gates — CLI contract', () => {
     const phaseDir = makeProject(dir, null);
     const result = runGatesCli(dir, phaseDir);
     assert.equal(result.outcome, OUTCOME.EXITED);
-    assert.equal(result.exitCode, 2);
+    // Ran, zero checks in scope, and that emptiness is genuine (NO_INPUT, gate-exit status mode).
+    assert.equal(result.exitCode, exitCodeFor('NO_INPUT'));
     assert.equal(result.payload.reason, 'no_checks_configured');
     assert.equal(
       fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')),
@@ -619,12 +632,11 @@ describe('verify gates — CLI contract', () => {
 
   test('a missing phase directory and a missing argument both refuse', () => {
     makeProject(dir, { tests: 'true' });
-    assert.equal(
-      runGatesCli(dir, path.join(dir, '.planning', 'phases', 'nope')).payload.reason,
-      'phase_dir_not_found'
-    );
-    const noArg = runNode([TOOLS, 'verify', 'gates', '--cwd', dir], { cwd: dir });
-    assert.equal(noArg.exitCode, 2);
+    const missing = runGatesCli(dir, path.join(dir, '.planning', 'phases', 'nope'));
+    assert.equal(missing.payload.reason, 'phase_dir_not_found');
+    assert.equal(missing.exitCode, exitCodeFor('UNAVAILABLE'), 'could not find what to record into');
+    const noArg = runNode([TOOLS, 'verify', 'gates', '--json-errors', '--cwd', dir], { cwd: dir });
+    assert.equal(usageRefusal(noArg), 'missing_phase_dir');
   });
 });
 
@@ -675,7 +687,7 @@ describe('verify gates — called with --phase, as the step dispatcher calls it'
   test('an unknown phase number refuses and writes nothing', () => {
     const phaseDir = makeProject(dir, { tests: 'true' });
     const result = runPhaseCli(['--phase', '9']);
-    assert.equal(result.exitCode, 2);
+    assert.equal(result.exitCode, exitCodeFor('UNAVAILABLE'));
     assert.equal(result.payload.reason, 'phase_not_found');
     assert.equal(fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')), false);
   });
@@ -684,22 +696,21 @@ describe('verify gates — called with --phase, as the step dispatcher calls it'
     const phaseDir = makeProject(dir, { tests: 'true' });
     fs.mkdirSync(path.join(dir, '.planning', 'phases', '03-other'), { recursive: true });
     const result = runPhaseCli(['--phase', '3']);
-    assert.equal(result.exitCode, 2);
+    assert.equal(result.exitCode, exitCodeFor('UNAVAILABLE'));
     assert.equal(result.payload.reason, 'phase_not_found');
     assert.equal(fs.existsSync(path.join(phaseDir, '03-VERIFICATION.md')), false);
   });
 
   test('a directory and --phase together refuse — two answers to one question', () => {
     const phaseDir = makeProject(dir, { tests: 'true' });
-    const result = runPhaseCli([phaseDir, '--phase', '3']);
-    assert.equal(result.exitCode, 2);
-    assert.equal(result.payload.reason, 'conflicting_phase_args');
+    const result = runPhaseCli([phaseDir, '--phase', '3', '--json-errors']);
+    assert.equal(usageRefusal(result), 'conflicting_phase_args');
   });
 
   test('a dangling --phase is a missing argument, not a phase called "--raw"', () => {
     makeProject(dir, { tests: 'true' });
-    const result = runNode([TOOLS, 'verify', 'gates', '--phase', '--cwd', dir], { cwd: dir });
-    assert.equal(result.exitCode, 2);
+    const result = runNode([TOOLS, 'verify', 'gates', '--phase', '--json-errors', '--cwd', dir], { cwd: dir });
+    assert.equal(usageRefusal(result), 'missing_phase_dir');
   });
 });
 
@@ -789,11 +800,15 @@ describe('verify gates — the enforce gate tells red from stale', () => {
     cleanup(dir);
   });
 
+  // A delivered verdict exits 0; could-not-check is outcome unreadable since #5170 and exits 69
+  // (UNAVAILABLE) with the same payload — and only that status does.
   function gate(phaseDir) {
     const result = runNode([TOOLS, 'check', 'mn-verify-gates', phaseDir, '--raw', '--cwd', dir], { cwd: dir });
     assert.equal(result.outcome, OUTCOME.EXITED, result.stderr);
-    assert.equal(result.exitCode, 0, `a verdict is never an exit code: ${result.stdout}${result.stderr}`);
-    return JSON.parse(result.stdout);
+    const payload = JSON.parse(result.stdout);
+    const expected = payload.status === 'unresolvable' ? exitCodeFor('UNAVAILABLE') : 0;
+    assert.equal(result.exitCode, expected, `status ${payload.status}: ${result.stdout}${result.stderr}`);
+    return payload;
   }
 
   const record = (roster) => {

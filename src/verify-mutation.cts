@@ -54,7 +54,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { isGateUsageFailure } from './gate-verdict.cjs';
+import { gateUnreadable, gateVerdict, isGateUsageFailure } from './gate-verdict.cjs';
+import type { GateVerdict } from './gate-verdict.cjs';
+import { declareGateExit } from './gate-exit.cjs';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import ioModule = require('./io.cjs');
+const { output, error, ERROR_REASON } = ioModule;
 import { acquireRestoreJournal, defaultIsAlive, pendingMutant } from './mutation-restore-journal.cjs';
 import type { RestoreJournal } from './mutation-restore-journal.cjs';
 import { resolveMnPhase } from './gate-mn-support.cjs';
@@ -549,6 +554,10 @@ export interface CmdVerifyMutationOptions {
 /**
  * `gsd_run verify mutation --phase <N>`   (the step dispatcher's form)
  * `gsd_run verify mutation <phase-dir | N>`
+ *
+ * Exit status through the gate-exit seam (status mode; #5170): 0 when the spot-check was recorded
+ * (whatever it found — the gate judges), 69 (UNAVAILABLE) when the phase cannot be found or the record
+ * cannot be written; a wrong invocation is a usage error through `error()` (1; 64 under v2).
  */
 export async function cmdVerifyMutation(
   cwd: string,
@@ -556,18 +565,19 @@ export async function cmdVerifyMutation(
   raw: boolean,
   options: CmdVerifyMutationOptions = {},
 ): Promise<void> {
-  const emit = (payload: Record<string, unknown>, exitCode: number) => {
-    process.stdout.write(`${raw ? JSON.stringify(payload) : JSON.stringify(payload, null, 2)}\n`);
-    process.exitCode = exitCode;
+  // Printed (compact under --raw), then the exit declared from the verdict.
+  const emit = (verdict: GateVerdict): void => {
+    output(verdict.payload, raw, raw ? JSON.stringify(verdict.payload) : undefined);
+    declareGateExit(verdict, 'status');
   };
 
   const phase = resolveMnPhase(cwd, args);
   if (isGateUsageFailure(phase)) {
-    emit({ ok: false, reason: 'usage', message: `${phase.failure.message} — usage: verify mutation --phase <N> | <phase-dir>` }, 1);
+    error(`${phase.failure.message} — usage: verify mutation --phase <N> | <phase-dir>`, ERROR_REASON.USAGE);
     return;
   }
   if ('unresolved' in phase) {
-    emit({ ok: false, reason: 'phase_not_found', message: phase.unresolved }, 1);
+    emit(gateUnreadable(false, { ok: false, reason: 'phase_not_found', message: phase.unresolved }));
     return;
   }
 
@@ -592,16 +602,15 @@ export async function cmdVerifyMutation(
     created = recordVerificationBlock(verificationPath, MUTATION_RECORD_KEY, record).created;
   } catch (err) {
     emit(
-      {
+      gateUnreadable(false, {
         ok: false,
         reason: 'record_failed',
         verificationPath,
         message: err instanceof Error ? err.message : String(err),
         mutation: record,
-      },
-      1,
+      }),
     );
     return;
   }
-  emit({ ok: true, verificationPath, created, mutation: record }, 0);
+  emit(gateVerdict('pass', false, { ok: true, verificationPath, created, mutation: record }));
 }

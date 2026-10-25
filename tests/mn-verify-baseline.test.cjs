@@ -55,10 +55,25 @@ function baseline(dir, args = []) {
   return { exitCode: result.exitCode, payload: json(result) };
 }
 
+/**
+ * A delivered verdict exits 0; could-not-check is outcome unreadable since #5170 and exits 69
+ * (UNAVAILABLE) with the same payload — and only that status does.
+ */
 function gate(dir, phaseArg = '3') {
   const result = runNode([TOOLS, 'check', 'mn-baseline', phaseArg, '--raw', '--cwd', dir], { cwd: dir });
-  assert.equal(result.exitCode, 0, `a verdict is never an exit code: ${result.stdout}${result.stderr}`);
-  return json(result);
+  const payload = json(result);
+  const expected = payload.status === 'unresolvable' ? exitCodeFor('UNAVAILABLE') : 0;
+  assert.equal(result.exitCode, expected, `status ${payload.status}: ${result.stdout}${result.stderr}`);
+  return payload;
+}
+
+/** A wrong invocation is a usage error through `error()`: `{ reason: 'usage', refusal }` on stderr under --json-errors. */
+function usageRefusal(result) {
+  assert.equal(result.outcome, OUTCOME.EXITED, result.stderr);
+  assert.notEqual(result.exitCode, 0, 'a wrong invocation must not exit 0');
+  const err = JSON.parse(result.stderr.trim());
+  assert.equal(err.reason, 'usage', result.stderr);
+  return err.refusal;
 }
 
 function readRecord(phaseDir) {
@@ -133,7 +148,7 @@ describe('verify baseline — recording', () => {
   test('refuses with nothing configured, and writes nothing', () => {
     writeConfig(dir, {});
     const { exitCode, payload } = baseline(dir);
-    assert.equal(exitCode, 2);
+    assert.equal(exitCode, exitCodeFor('NO_INPUT'));
     assert.equal(payload.reason, 'no_checks_configured');
     assert.equal(fs.existsSync(path.join(phaseDir, '03-BASELINE.md')), false);
   });
@@ -149,17 +164,15 @@ describe('verify baseline — recording', () => {
     writeConfig(dir, { verify_gates: { tests: 'true' } });
     const byDir = json(runNode([TOOLS, 'verify', 'baseline', phaseDir, '--raw', '--cwd', dir], { cwd: dir }));
     assert.equal(byDir.ok, true);
-    const both = runNode([TOOLS, 'verify', 'baseline', phaseDir, '--phase', '3', '--raw', '--cwd', dir], { cwd: dir });
-    assert.equal(both.exitCode, 2);
-    assert.equal(json(both).reason, 'conflicting_phase_args');
+    const both = runNode([TOOLS, 'verify', 'baseline', phaseDir, '--phase', '3', '--raw', '--json-errors', '--cwd', dir], { cwd: dir });
+    assert.equal(usageRefusal(both), 'conflicting_phase_args');
   });
 
   test('--accept needs a reason: an acceptance nobody can review later is a bypass', () => {
     writeConfig(dir, { verify_gates: { tests: 'exit 1' } });
     for (const args of [['--accept'], ['--accept='], ['--accept', '   ']]) {
-      const { exitCode, payload } = baseline(dir, args);
-      assert.equal(exitCode, 2, JSON.stringify(args));
-      assert.ok(['bad_arguments', 'accept_needs_reason'].includes(payload.reason), JSON.stringify(args));
+      const result = runNode([TOOLS, 'verify', 'baseline', '--phase', '3', ...args, '--raw', '--json-errors', '--cwd', dir], { cwd: dir });
+      assert.ok(['bad_arguments', 'accept_needs_reason'].includes(usageRefusal(result)), JSON.stringify(args));
     }
     assert.equal(fs.existsSync(path.join(phaseDir, '03-BASELINE.md')), false);
   });
