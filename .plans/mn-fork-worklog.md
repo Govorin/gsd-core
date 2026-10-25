@@ -801,6 +801,49 @@ The acceptance run on `next` after the `fix-cr-cwd` (`pre-fixcr`) and `pk-eval`
   one (only `removed-but-needed` fails), `test:mermaid-real` 150/150. Full `npm test`: 45 551
   tests, 4 failures, exactly the reference set.
 
+### Retro on a schedule (2026-10-25)
+
+Branch `feat/retro-cadence` from `3c4a32d3d`. The owner asked for retros once a milestone is
+planned and every two or three phases, not only when a session's friction crosses
+`retro.signal_threshold`. ADR-5209 §9 (amends §6; §5 "never applied" unchanged), ADR-857
+amendment 2026-10-25.
+
+- **Triggers.** `retro stage` names `trigger` (`signals` | `milestone-start` | `cadence`) and
+  `triggers`. `milestone-start`: ROADMAP phases, none started (`executed`/`complete`/`partial`),
+  not shipped, no retro journaled in this milestone (`retro.at_milestone_start`, default true).
+  `cadence`: ≥ `retro.cadence_phases` (default 3, 0 off) phases of the milestone *executed*
+  since the last retro in it. Executed, not complete: `execute:post` runs before the verifier,
+  so the phase that just ran would otherwise count one stage late. Friction wins and keeps its
+  answer byte-for-byte. A scheduled command adds `--since <last run>`.
+- **Journal, not inference.** `retro prepare` appends to `.planning/retro/RUNS.json` (stem, ISO
+  instant, planning dir, milestone, executed phase numbers). RETRO stems are date-only, mtimes
+  reset on clone, and "Nothing to retro" writes no report. An invalid or partly malformed
+  journal is never rewritten. Pre-§9 retros have no run, so the first count runs from the
+  milestone start.
+- **`gsd-tools retro due`** — read-only JSON for `gsd-deck`; one shape whatever the config
+  (`due`, `trigger`, `triggers`, `reason`, counts, `lastRetro`, `latestReport`, `journal`).
+- **Loop point `roadmap:post`** — step `roadmap` hosted by `new-milestone.md`, `new-project.md`
+  as an auxiliary host (first milestone). Not `new-milestone:post`: `CALL_SITE_RE` in
+  `gen-loop-host-contract.cjs` is `[a-z:]+`, and `milestone` already names the boundary. First
+  in pipeline order; 14 → 15 points across the generator, registry schema, validator, resolver
+  fallback, capability matrix and tests. The retro step there has `when: retro.at_milestone_start`.
+- **Emitted attribution depends on the base.** Against `merge-base(HEAD, upstream/next)` 140/140:
+  `new-milestone.md` already carried a fork growth trailer, so `8faf94d7e` withdraws it and
+  re-declares one reason covering both; `retro.md` is fork-new, so no growth trailer. Against
+  local `next` the same trailers fail (the withdrawal has no earlier ack in range, and
+  `retro.md` growth is unacknowledged). No set of trailers satisfies both bases. The fork's
+  standard (this file) is the upstream merge-base. `tests/emitted-drift-acks/` no longer exists
+  (ADR-3942 §6); the project CLAUDE.md still names it.
+- **Checks:** `build:lib`, `regen:derived` + `lint:generated-sync` clean, eslint on every
+  changed source/test file. Unit suite (`test:affected` widened to it): 44 543 tests, 5
+  failures. Four are the reference set (differential attribution and removed-but-needed vs the
+  stale `origin/next`, compact-content partition guard, quick-batch byte-identical). The fifth,
+  the compact-content benchmark, was this branch's `new-project.md` growth; the baseline was
+  refreshed (`c8dd14702`). Integration 59/59, security 384/384. New tests:
+  `tests/retro-cadence.test.cjs` (38), 18 more in `tests/retro-command-router.test.cjs`.
+- **Not done:** no `roadmap:pre`; no runtime check that a host honoured the stage's `next`
+  (same as every stage).
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
