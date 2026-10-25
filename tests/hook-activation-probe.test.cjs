@@ -99,6 +99,8 @@ function expectedPairs(rt) {
   const rows = [
     ...SETTINGS_JSON_HOOK_ROWS.filter((r) => !(noMonitor && r.file === 'gsd-context-monitor.js')),
     ...SETTINGS_JSON_EXTENDED_ROWS.filter((r) => rt.extendedHookEvents.includes(r.event)),
+    // Fork (mn): the Claude-only enforcement layer registered after the tables (zone-2.md).
+    ...(surface.FORK_ENFORCEMENT_RUNTIMES.has(rt.id) ? surface.FORK_ENFORCEMENT_SLOTS : []),
   ];
   return rows.map((r) => `${r.event}:${r.file}`).sort();
 }
@@ -113,7 +115,11 @@ function censusMismatch(rt, hooksDir, registered) {
   const expected = expectedPairs(rt);
   const got = pairsOf(registered);
   const shipped = new Set(fs.readdirSync(hooksDir));
-  const files = [...SETTINGS_JSON_HOOK_ROWS, ...SETTINGS_JSON_EXTENDED_ROWS.filter((r) => rt.extendedHookEvents.includes(r.event))].map((r) => r.file);
+  const files = [
+    ...SETTINGS_JSON_HOOK_ROWS,
+    ...SETTINGS_JSON_EXTENDED_ROWS.filter((r) => rt.extendedHookEvents.includes(r.event)),
+    ...(surface.FORK_ENFORCEMENT_RUNTIMES.has(rt.id) ? surface.FORK_ENFORCEMENT_SLOTS : []),
+  ].map((r) => r.file);
   return {
     unregistered: expected.filter((p) => !got.includes(p)),
     unprobed: got.filter((p) => !expected.includes(p)),

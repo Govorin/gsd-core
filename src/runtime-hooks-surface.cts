@@ -3397,6 +3397,20 @@ const FORK_WORKTREE_CREATE_TIMEOUT_S = 900;
 // WorktreeRemove: one `git worktree remove --force` (120 s — it deletes
 // installed dependencies too) plus the branch-reachability queries.
 const FORK_WORKTREE_REMOVE_TIMEOUT_S = 180;
+/**
+ * Every (event, hook file) the fork's enforcement layer registers on a FORK_ENFORCEMENT_RUNTIMES
+ * runtime when the file shipped — `applyForkEnforcementHooks`, beside the upstream tables. `pre` is
+ * the tables' vocabulary (PreToolUse / BeforeTool). Census tests derive the fork's expected
+ * registrations from here; tests/mn-hook-registration-layer.test.cjs binds it to the function.
+ */
+const FORK_ENFORCEMENT_SLOTS: ReadonlyArray<Readonly<{ event: string; file: string }>> = Object.freeze([
+  Object.freeze({ event: 'pre', file: 'gsd-prohibition-guard.js' }),
+  Object.freeze({ event: 'pre', file: 'gsd-test-tamper-guard.js' }),
+  Object.freeze({ event: 'SubagentStop', file: 'gsd-exit-gate.js' }),
+  Object.freeze({ event: 'SessionStart', file: 'gsd-pin-invariants.js' }),
+  Object.freeze({ event: 'WorktreeCreate', file: 'gsd-worktree-provision.js' }),
+  Object.freeze({ event: 'WorktreeRemove', file: 'gsd-worktree-provision.js' }),
+]);
 
 const KIMI_BLOCKING_GUARD_NAMES: readonly string[] = BLOCKING_GUARD_NAMES.filter(
   (name) => !KIMI_UNREGISTERED_BLOCKING_GUARDS.includes(name),
@@ -3652,6 +3666,8 @@ export = {
   FORK_BLOCKING_GUARD_NAMES,
   FORK_WORKTREE_CREATE_TIMEOUT_S,
   FORK_WORKTREE_REMOVE_TIMEOUT_S,
+  FORK_ENFORCEMENT_RUNTIMES,
+  FORK_ENFORCEMENT_SLOTS,
 
   // Shared
   stageTransitiveHookLibs,

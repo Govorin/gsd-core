@@ -25,13 +25,8 @@ const surface = require('../gsd-core/bin/lib/runtime-hooks-surface.cjs');
 const scenarios = require('./fixtures/hook-registration/run-scenarios.cjs');
 const golden = require('./fixtures/hook-registration/golden.json');
 
-const FORK_HOOK_FILES = [
-  'gsd-prohibition-guard.js',
-  'gsd-test-tamper-guard.js',
-  'gsd-exit-gate.js',
-  'gsd-pin-invariants.js',
-  'gsd-worktree-provision.js',
-];
+const FORK_HOOK_FILES = [...new Set(surface.FORK_ENFORCEMENT_SLOTS.map((s) => s.file))];
+const tableEvent = (event) => (event === 'PreToolUse' || event === 'BeforeTool' ? 'pre' : event);
 
 /** Registered commands of a settings object, as `<event>:<hook file>`. */
 function registeredSlots(settings) {
@@ -94,14 +89,10 @@ describe('mn hook registration layer — applySettingsJsonHooks = tables + fork 
       const actual = scenarios.runOne(rt, spec, surface.applySettingsJsonHooks);
       const base = registeredSlots(golden.claude[`${scope}/all-present`].settings);
       const added = registeredSlots(actual.settings).filter((s) => !base.includes(s));
-      assert.deepEqual(added, [
-        'PreToolUse:gsd-prohibition-guard.js',
-        'PreToolUse:gsd-test-tamper-guard.js',
-        'SessionStart:gsd-pin-invariants.js',
-        'SubagentStop:gsd-exit-gate.js',
-        'WorktreeCreate:gsd-worktree-provision.js',
-        'WorktreeRemove:gsd-worktree-provision.js',
-      ], scope);
+      // Exactly the declared slots: FORK_ENFORCEMENT_SLOTS is what census tests (hook-activation-probe)
+      // derive the fork's registrations from, so it must be what the layer registers.
+      const declared = surface.FORK_ENFORCEMENT_SLOTS.map((slot) => `${slot.event}:${slot.file}`).sort();
+      assert.deepEqual(added.map((a) => { const [event, file] = a.split(':'); return `${tableEvent(event)}:${file}`; }).sort(), declared, scope);
       for (const slot of base) assert.ok(registeredSlots(actual.settings).includes(slot), `${scope}: lost ${slot}`);
     }
   });
