@@ -93,9 +93,11 @@ const { writeNotice } = require('./lib/worktree-notice.js');
 // artifact, and this hook runs on WorktreeCreate, so the fallback sets the same variable itself.
 let readOnlyGitEnv = (base = process.env) => ({ ...base, GIT_OPTIONAL_LOCKS: '0' });
 try {
+  const { ensureRuntimeBuild } = require('../gsd-core/bin/ensure-runtime-build.cjs');
+  ensureRuntimeBuild();
   ({ readOnlyGitEnv } = require('../gsd-core/bin/lib/read-only-git-env.cjs'));
 } catch {
-  // artifact absent: keep the equivalent fallback above
+  // artifact absent and not buildable: keep the equivalent fallback above
 }
 
 /** Files copied into a provisioned worktree when they exist in the source checkout. */
