@@ -84,8 +84,11 @@ import {
   validateCandidates,
   inventoryRefs,
   CHECK_KINDS,
+  withJournalLock,
+  journalLockPath,
+  defaultJournalLock,
 } from './retro-artifacts.cjs';
-import type { ChecksStatus, CheckKind, RetroPaths } from './retro-artifacts.cjs';
+import type { ChecksStatus, CheckKind, RetroPaths, JournalLock } from './retro-artifacts.cjs';
 import {
   RETRO_TRIGGER,
   resolveCadenceConfig,
@@ -547,6 +550,8 @@ interface Env {
   cwd: string;
   raw: boolean;
   now: Date;
+  /** The journals' lock (CHECKS.json edits); a test seam, production uses the shared primitive. */
+  journalLock: JournalLock;
 }
 
 const STAGE_USAGE = 'Usage: gsd-tools retro stage [signals] [--phase N|--milestone <v>] [--session <id>|--last] [--sessions-dir <dir>]';
@@ -763,15 +768,8 @@ function handleChecks(env: Env): Invalid | undefined {
   const id = flagValue(env.args, '--id', CHECKS_USAGE);
   if (isInvalid(id)) return id;
   if (id === null) return makeInvalidArgs('--id', `--id is required. ${CHECKS_USAGE}`, ERROR_REASON.USAGE);
-  const read = readChecksJournal(env.cwd);
-  if (read.status === 'invalid') {
-    return makeInvalidArgs('journal', `${path.relative(env.cwd, checksJournalPath(env.cwd))} is invalid (${read.problems.join('; ')}); fix it before editing`, ERROR_REASON.USAGE);
-  }
-  let edit;
-  if (action === 'retire') {
-    edit = retireCheck(read.journal, id);
-  } else {
-    const fields: Record<string, string | null> = {};
+  const fields: Record<string, string | null> = {};
+  if (action === 'record') {
     for (const f of ['--kind', '--match', '--retro', '--candidate', '--signal']) {
       const v = flagValue(env.args, f, CHECKS_USAGE);
       if (isInvalid(v)) return v;
@@ -780,17 +778,32 @@ function handleChecks(env: Env): Invalid | undefined {
     if (fields['--kind'] === null || fields['--match'] === null) {
       return makeInvalidArgs('--kind', `record needs --kind (${CHECK_KINDS.join(', ')}) and --match. ${CHECKS_USAGE}`, ERROR_REASON.USAGE);
     }
-    edit = recordCheck(read.journal, {
-      id,
-      kind: fields['--kind'] as CheckKind,
-      match: fields['--match'],
-      acceptedAt: env.now.toISOString().slice(0, 10),
-      source: { retro: fields['--retro'], candidate: fields['--candidate'], signal: fields['--signal'] },
-    });
   }
-  if (!edit.ok) return makeInvalidArgs('--id', edit.reason, ERROR_REASON.USAGE);
-  writeTextAtomic(checksJournalPath(env.cwd), formatChecksJournal(edit.journal));
-  output({ action, id, journal: path.relative(env.cwd, checksJournalPath(env.cwd)).split(path.sep).join('/'), checks: edit.journal.checks.length }, env.raw);
+  const file = checksJournalPath(env.cwd);
+  const rel = path.relative(env.cwd, file).split(path.sep).join('/');
+  // The journal is shared by every workstream: the read-edit-write holds its
+  // lock, as RUNS.json's does, so two edits at once never lose one.
+  const locked = withJournalLock(journalLockPath(env.cwd, file), (): Invalid | { checks: number } => {
+    const read = readChecksJournal(env.cwd);
+    if (read.status === 'invalid') {
+      return makeInvalidArgs('journal', `${rel} is invalid (${read.problems.join('; ')}); fix it before editing`, ERROR_REASON.USAGE);
+    }
+    const edit = action === 'retire'
+      ? retireCheck(read.journal, id)
+      : recordCheck(read.journal, {
+        id,
+        kind: fields['--kind'] as CheckKind,
+        match: fields['--match'] as string,
+        acceptedAt: env.now.toISOString().slice(0, 10),
+        source: { retro: fields['--retro'], candidate: fields['--candidate'], signal: fields['--signal'] },
+      });
+    if (!edit.ok) return makeInvalidArgs('--id', edit.reason, ERROR_REASON.USAGE);
+    writeTextAtomic(file, formatChecksJournal(edit.journal));
+    return { checks: edit.journal.checks.length };
+  }, env.journalLock);
+  if (!locked.ok) return makeInvalidArgs('journal', `${rel} was not edited: ${locked.reason}`, ERROR_REASON.USAGE);
+  if (isInvalid(locked.value)) return locked.value;
+  output({ action, id, journal: rel, checks: locked.value.checks }, env.raw);
   return undefined;
 }
 
@@ -803,10 +816,12 @@ interface RouteRetroCommandOptions {
   error: (message: string, reason?: string) => void;
   /** Test seam: the clock. Production callers omit it. */
   _now?: () => Date;
+  /** Test seam: the journal lock. Production callers omit it. */
+  _journalLock?: JournalLock;
 }
 
-function routeRetroCommand({ args, cwd, raw, error, _now }: RouteRetroCommandOptions): void {
-  const env: Env = { args, cwd, raw, now: (_now ?? (() => new Date()))() };
+function routeRetroCommand({ args, cwd, raw, error, _now, _journalLock }: RouteRetroCommandOptions): void {
+  const env: Env = { args, cwd, raw, now: (_now ?? (() => new Date()))(), journalLock: _journalLock ?? defaultJournalLock };
   routeHubCommandFamily({
     family: 'retro',
     args,

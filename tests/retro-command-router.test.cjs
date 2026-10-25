@@ -417,6 +417,22 @@ describe('retro candidates', () => {
 describe('retro checks', () => {
   const journal = () => JSON.parse(fs.readFileSync(path.join(project, '.planning', 'retro', 'CHECKS.json'), 'utf8'));
 
+  test('an edit runs under the journal lock; a lock that cannot be had writes nothing', () => {
+    const calls = [];
+    const errors = [];
+    const route = (lock) => router.routeRetroCommand({
+      args: ['retro', 'checks', 'record', '--id', 'no-stash', '--kind', 'hook', '--match', 'git stash is disabled'],
+      cwd: project,
+      raw: true,
+      error: (message, reason) => { errors.push(reason); },
+      _journalLock: lock,
+    });
+    route({ acquire: (p) => { calls.push(['acquire', path.basename(p)]); return null; }, release: () => calls.push(['release']) });
+    assert.deepEqual(calls, [['acquire', '.CHECKS.lock']]);
+    assert.deepEqual(errors, ['usage']);
+    assert.equal(fs.existsSync(path.join(project, '.planning', 'retro', 'CHECKS.json')), false);
+  });
+
   test('record and retire edit the journal; a duplicate id is refused', () => {
     const rec = retro(['checks', 'record', '--id', 'no-git-stash', '--kind', 'hook', '--match', 'git stash is disabled', '--signal', 'hook-block:abc'], project);
     assert.equal(rec.success, true, rec.error);
