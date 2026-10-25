@@ -134,17 +134,45 @@ describe('stale-bake-guard.formatStaleBakeWarning (pure formatter)', () => {
 // Pure helpers
 // ---------------------------------------------------------------------------
 describe('stale-bake-guard.resolveRuntimeFromConfig', () => {
+  // #5169 / #4690: the guard reads the SAME chain as every other consumer of
+  // "which runtime is this install" — GSD_RUNTIME → config.runtime → install
+  // marker → 'claude'. Every case passes an explicit env so an ambient
+  // GSD_RUNTIME on the runner cannot leak in, and pins the marker via the seam.
+  const {
+    _setInstallRuntimeMarkerForTests,
+    _resetInstallRuntimeMarkerCacheForTests,
+  } = require('../gsd-core/bin/lib/runtime-slash.cjs');
+  beforeEach(() => _setInstallRuntimeMarkerForTests(null));
+  afterEach(() => _resetInstallRuntimeMarkerCacheForTests());
+
   test('returns runtime string when set', () => {
-    assert.equal(resolveRuntimeFromConfig({ runtime: 'opencode' }), 'opencode');
+    assert.equal(resolveRuntimeFromConfig({ runtime: 'opencode' }, {}), 'opencode');
   });
   test('defaults to claude when unset / null / undefined', () => {
-    assert.equal(resolveRuntimeFromConfig({}), 'claude');
-    assert.equal(resolveRuntimeFromConfig(null), 'claude');
-    assert.equal(resolveRuntimeFromConfig(undefined), 'claude');
+    assert.equal(resolveRuntimeFromConfig({}, {}), 'claude');
+    assert.equal(resolveRuntimeFromConfig(null, {}), 'claude');
+    assert.equal(resolveRuntimeFromConfig(undefined, {}), 'claude');
   });
   test('ignores non-string runtime', () => {
-    assert.equal(resolveRuntimeFromConfig({ runtime: 42 }), 'claude');
-    assert.equal(resolveRuntimeFromConfig({ runtime: '' }), 'claude');
+    assert.equal(resolveRuntimeFromConfig({ runtime: 42 }, {}), 'claude');
+    assert.equal(resolveRuntimeFromConfig({ runtime: '' }, {}), 'claude');
+  });
+  test('GSD_RUNTIME env outranks config.runtime', () => {
+    assert.equal(resolveRuntimeFromConfig({ runtime: 'opencode' }, { GSD_RUNTIME: 'codex' }), 'codex');
+  });
+  test('the install marker is read when neither env nor config names a runtime (#4690)', () => {
+    _setInstallRuntimeMarkerForTests('codex');
+    assert.equal(resolveRuntimeFromConfig({}, {}), 'codex');
+    assert.equal(resolveRuntimeFromConfig(null, {}), 'codex');
+  });
+  test('config.runtime outranks the install marker', () => {
+    _setInstallRuntimeMarkerForTests('codex');
+    assert.equal(resolveRuntimeFromConfig({ runtime: 'kilo' }, {}), 'kilo');
+  });
+  test('an alias in config or marker is canonicalized', () => {
+    assert.equal(resolveRuntimeFromConfig({ runtime: 'codex-cli' }, {}), 'codex');
+    _setInstallRuntimeMarkerForTests('Open-Code');
+    assert.equal(resolveRuntimeFromConfig({}, {}), 'opencode');
   });
 });
 
@@ -239,6 +267,24 @@ describe('stale-bake-guard.warnIfStaleBake (orchestrator, fixtures)', () => {
   function koEnv(agentParentDir) {
     return { KILO_CONFIG_DIR: agentParentDir };
   }
+
+  test('opencode: the guard is independent of the agent file\'s effort form — 1.x `variant:` and 2.x `model#variant` both warn (#5338)', () => {
+    for (const [label, body] of [
+      ['1.x variant key', '---\nname: gsd-executor\nmodel: p/m\nvariant: high\n---\n'],
+      ['2.x model#variant', '---\nname: gsd-executor\nmodel: p/m#high\n---\n'],
+    ]) {
+      _resetWarnedForTests();
+      chunks.length = 0;
+      const agentParent = path.join(tmpRoot, `oc-${label.replace(/\W+/g, '-')}`);
+      const agentDir = path.join(agentParent, 'agents');
+      setupProject({ runtime: 'opencode', configMtime: NEWER, agentDir, agentMtime: OLDER });
+      fs.writeFileSync(path.join(agentDir, 'gsd-executor.md'), body);
+      setMtime(path.join(agentDir, 'gsd-executor.md'), OLDER);
+      const wrote = warnIfStaleBake(tmpRoot, { stderr: stderrStub, homedir: () => tmpRoot, env: ocEnv(agentParent) });
+      assert.equal(wrote, true, label);
+      assert.match(chunks[0], /changed since agents were last baked/, label);
+    }
+  });
 
   test('claude runtime → no warning even when config is newer than agents', () => {
     // OpenCode agent dir shape so the runtime path resolves, but runtime is claude.

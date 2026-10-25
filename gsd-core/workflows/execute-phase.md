@@ -1,7 +1,7 @@
 <!-- gsd:loop-host
 step: execute
 points: execute:pre, execute:wave:pre, execute:wave:post, execute:post
-agent-roles: executor, verifier
+agent-roles: executor, verifier, code-reviewer
 produces: SUMMARY.md
 consumes: PLAN.md
 -->
@@ -87,8 +87,12 @@ Load all context in one call:
 @~/.claude/gsd-core/references/gsd-run-resolver.md
 
 ```bash
-WAVE_PARAM=""; if [[ "$ARGUMENTS" =~ (^|[[:space:]])--wave[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then WAVE_PARAM="--wave ${BASH_REMATCH[2]}"; fi
-GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
+WAVE_PARAM=""; if [[ "$GSD_ARGS" =~ (^|[[:space:]])--wave[[:space:]]+([^[:space:]-][^[:space:]]*) ]]; then WAVE_PARAM="--wave ${BASH_REMATCH[2]}"; fi
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 INIT=$(gsd_run query init.execute-phase ${GSD_WS:+--ws=${GSD_WS##* }} "${PHASE_ARG}" $WAVE_PARAM)
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 AGENT_SKILLS=$(gsd_run query agent-skills gsd-executor ${GSD_WS:+--ws=${GSD_WS##* }})
@@ -103,6 +107,15 @@ Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelizat
 **Model resolution:** If `executor_model` is `"inherit"`, omit the `model=` parameter from all `Agent()` calls — do NOT pass `model="inherit"` to Agent. Omitting the `model=` parameter causes Claude Code to inherit the orchestrator model automatically. Only set `model=` when `executor_model` is an explicit model name (e.g., `"claude-sonnet-5"`, `"claude-opus-4-8"`).
 
 @~/.claude/gsd-core/references/execute-phase-response-language.md
+
+Reset the wave-failure tally (#4915). Fenced `bash` blocks are separate shells, so the post-merge gate's cumulative count reaches step 5.8 through a handoff file; a previous run's tally must not leak in:
+
+```bash
+# gsd-handoff:begin wave-failure-reset
+_GSD_HANDOFF="$( { git rev-parse --absolute-git-dir 2>/dev/null || echo "${TMPDIR:-/tmp}/gsd-$(pwd | cksum | cut -d' ' -f1)"; } )/gsd-handoff"; mkdir -p "$_GSD_HANDOFF"
+: > "$_GSD_HANDOFF/wave-failures"
+# gsd-handoff:end wave-failure-reset
+```
 
 Read runtime/worktree config and fail closed before any executor dispatch:
 
@@ -172,20 +185,30 @@ inline path for each plan.
 
 **REQUIRED — Sync chain flag with intent.** If user invoked manually (no `--auto`), clear the ephemeral chain flag from any previous interrupted `--auto` chain. This prevents stale `_auto_chain_active: true` from causing unwanted auto-advance. This does NOT touch `workflow.auto_advance` (the user's persistent settings preference). You MUST execute this bash block before any config reads:
 ```bash
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
 # REQUIRED: prevents stale auto-chain from previous --auto runs
-if [[ ! "$ARGUMENTS" =~ --auto ]]; then
+if [[ ! "$GSD_ARGS" =~ --auto ]]; then
   gsd_run query config-set workflow._auto_chain_active false || true
 fi
 ```
 
 Resolve `MVP_MODE` once via the centralized `phase.mvp-mode` query verb (precedence chain: CLI flag → ROADMAP `**Mode:** mvp` → `workflow.mvp_mode` config → false):
 ```bash
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
 MVP_FLAG_ARG=""
-if [[ "$ARGUMENTS" =~ (^|[[:space:]])--mvp([[:space:]]|$) ]]; then MVP_FLAG_ARG="--cli-flag"; fi
+if [[ "$GSD_ARGS" =~ (^|[[:space:]])--mvp([[:space:]]|$) ]]; then MVP_FLAG_ARG="--cli-flag"; fi
 MVP_MODE=$(gsd_run query phase.mvp-mode "${PHASE_NUMBER}" $MVP_FLAG_ARG --pick active)
 EXECUTE_POST_HOOKS_JSON=$(gsd_run loop render-hooks execute:post --raw)
 TDD_MODE=$(gsd_run loop render-hooks execute:post --active-cap tdd)
 ```
+
+A `contribution` hook at this point with `into: code-reviewer` (#4790) is not dispatched from this envelope: `code-review.md` reads it itself and hands it to `gsd-code-reviewer` exactly once.
 
 **TDD gate.** Task-scoped enforcement runs inside plan execution (immediately before each implementation step), where `TASK_FILE`, `PLAN_ID`, and `TASK_ID` are defined. #4011: the gate keys on `TDD_MODE` ALONE — a discipline gate coupled to the product-scope `MVP_MODE` flag was silently inert on every non-MVP phase, contradicting `gsd-core/references/tdd.md`'s contract that `workflow.tdd_mode` binds for all `type: tdd` plans. MVP mode remains free to imply TDD; it is no longer required by it. Keep the same predicate and RED-commit contract:
 ```bash
@@ -202,7 +225,10 @@ if [ "$TDD_MODE" = "true" ]; then
     # the gate pass on any in-scope commit. Trade-offs and the Rust gap:
     # references/tdd.md § Create first test file.
 
-    RED_COMMIT=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-${PLAN_ID}" --commits-only --milestone-bound --max-commits 1 --raw --pathspec "*.test.*" --pathspec "*.spec.*" --pathspec "tests/" --pathspec "__tests__/" --pathspec "*_test.go" --pathspec "test_*.py" --pathspec "*_test.py" --pathspec "*_test.exs" --pathspec "*_spec.rb" --pathspec "*_test.rb" 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const c=JSON.parse(s).commits;process.stdout.write(c.length?c[0].sha.slice(0,10)+' '+c[0].subject:'')}catch{}})")
+    RED_COMMIT=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-${PLAN_ID}" --commits-only --milestone-bound --max-commits 1 --raw --pathspec "*.test.*" --pathspec "*.spec.*" --pathspec "tests/" --pathspec "__tests__/" --pathspec "*_test.go" --pathspec "test_*.py" --pathspec "*_test.py" --pathspec "*_test.exs" --pathspec "*_spec.rb" --pathspec "*_test.rb" 2>/dev/null) && RED_SCOPE_RC=0 || RED_SCOPE_RC=$?
+    # Exit 69 (UNAVAILABLE) = the scope could not be resolved: that is not "missing RED commit" (#5170).
+    if [ "$RED_SCOPE_RC" -ne 0 ]; then echo "TDD GATE UNAVAILABLE: could not resolve the plan's commits for ${PLAN_ID}/${TASK_ID} (evaluation-scope exit ${RED_SCOPE_RC})"; exit 1; fi
+    RED_COMMIT=$(printf '%s' "$RED_COMMIT" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const c=JSON.parse(s).commits;process.stdout.write(c.length?c[0].sha.slice(0,10)+' '+c[0].subject:'')}catch{}})")
     if [ -z "$RED_COMMIT" ]; then
       gsd_run query state.update last_gate_trip "${PLAN_ID}/${TASK_ID}" || true
       echo "TDD GATE TRIPPED: missing RED commit for ${PLAN_ID}/${TASK_ID}"
@@ -224,7 +250,10 @@ SUMMARY_PATH="{phase_dir}/{plan_padded}-SUMMARY.md"
 # letter-suffixed phase number (#4619, #4748), reachable from THIS branch only, bounded to
 # the latest reachable tag (milestone marker). One `<sha> <subject>` line per commit, newest first.
 PHASE_NUMBER="{phase_number}"
-PLAN_COMMITS=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-{plan_padded}" --commits-only --milestone-bound --max-commits 30 --raw 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).commits.map(c=>c.sha.slice(0,10)+' '+c.subject).join('\n'))}catch{}})")
+PLAN_COMMITS=$(gsd_run check evaluation-scope --plan "${PHASE_NUMBER}-{plan_padded}" --commits-only --milestone-bound --max-commits 30 --raw 2>/dev/null) && PLAN_SCOPE_RC=0 || PLAN_SCOPE_RC=$?
+# Exit 69 (UNAVAILABLE) = "could not look": empty is then NOT "no commits". Fail closed (#5170).
+if [ "$PLAN_SCOPE_RC" -ne 0 ]; then echo "SAFE-RESUME GATE: could not resolve the plan's commits (evaluation-scope exit ${PLAN_SCOPE_RC}); not dispatching an executor on an unknown resume state." >&2; exit 1; fi
+PLAN_COMMITS=$(printf '%s' "$PLAN_COMMITS" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{process.stdout.write(JSON.parse(s).commits.map(c=>c.sha.slice(0,10)+' '+c.subject).join('\n'))}catch{}})")
 ```
 If production commits exist and `SUMMARY.md is missing` (no `.planning/async-jobs/*.json` manifest matches it: a match is a legal `external_job_waiting` deferral - reconcile per `docs/reference/planning-artifacts.md`, never re-dispatch), stop before spawning a
 new executor; continuing risks duplicate work and stale `STATE.md`/ROADMAP progress.
@@ -488,7 +517,7 @@ if printf '%s' "$ORCH_BRANCH" | grep -Eq '^((worktree-)?agent-|worktree-wf_)'; t
   if [ "$_WT_HAS_COMMITS" -eq 1 ] || [ -n "$_WT_DIRTY_ALL" ]; then
     echo "" >&2
     echo "  To integrate before continuing:" >&2
-    [ -n "$_WT_DIRTY_ALL" ] && echo "    1. git add -A && git commit -m 'wip: recover worktree state'   # from THIS worktree" >&2
+    [ -n "$_WT_DIRTY_ALL" ] && echo "    1. git add -A && git commit -m 'chore(recover): recover worktree state'   # from THIS worktree" >&2
     echo "    2. cd <orchestrator worktree>   # a checkout whose branch is NOT agent-*/worktree-agent-*" >&2
     echo "    3. git merge --no-ff $ORCH_BRANCH        # or: git cherry-pick <sha>...  for selected commits" >&2
     echo "    4. re-run the phase from there" >&2
@@ -590,11 +619,13 @@ increases monotonically across waves. `{status}` is `complete` (success),
    - Bad: "Executing terrain generation plan"
    - Good: "Procedural terrain generator using Perlin noise — creates height maps and biome zones. Required before vehicle physics."
 
-2.5. **Per-plan worktree decision (run for each plan in this wave BEFORE its dispatch):**
+2.5. **Per-plan worktree decision (run for each plan in this wave BEFORE any dispatch):**
 
-   Read and execute `gsd-core/workflows/execute-phase/steps/per-plan-worktree-gate.md` for each plan. It extracts `PLAN_FILES` from the plan's JSON, intersects against `SUBMODULE_PATHS` (with normalization, bidirectional matching, and glob-prefix handling), and sets `USE_WORKTREES_FOR_PLAN` to `false` when the plan touches a submodule path. Append `plan_id` to a `WAVE_WORKTREE_PLANS` accumulator when `USE_WORKTREES_FOR_PLAN != false`.
+   Read and execute **Part 1** of `gsd-core/workflows/execute-phase/steps/per-plan-worktree-gate.md` for each plan. It extracts `PLAN_FILES` from the plan's JSON, intersects against `SUBMODULE_PATHS` (with normalization, bidirectional matching, and glob-prefix handling), and sets `USE_WORKTREES_FOR_PLAN` to `false` when the plan touches a submodule path. Append `plan_id` to a `WAVE_WORKTREE_PLANS` accumulator when `USE_WORKTREES_FOR_PLAN != false`. **Store each plan's decision** (`plan_id → USE_WORKTREES_FOR_PLAN`): the shared `USE_WORKTREES_FOR_PLAN` value is overwritten by the next plan's decision.
 
-   The dispatch branches in step 3 gate on both `USE_WORKTREES` and `USE_WORKTREES_FOR_PLAN` (#2474).
+   The plan-scoped dispatch-isolation record is **not written here**. It is a single slot, so it is written in step 3, immediately before each plan's own dispatch (Part 2 of the gate, #5516).
+
+   The dispatch branches in step 3 gate on both `USE_WORKTREES` and the dispatched plan's own stored `USE_WORKTREES_FOR_PLAN` (#2474).
 
 2.75. **Execute:wave:pre capability dispatch:**
 
@@ -616,6 +647,8 @@ increases monotonically across waves. `{status}` is `complete` (success),
    Pass paths only — executors read files themselves.
 
    **Substitute `{plan_id}` in the prompt below with this plan's `id` field** from the `phase-plan-index` JSON loaded in step 1 (the same field referred to elsewhere in this workflow as `plan.id`) — unmodified and un-truncated, never a paraphrase. The guard hooks compare this value verbatim against the sentinel the per-plan gate wrote (`per-plan-worktree-gate.md`'s `plan_id`); a paraphrase or an omission costs the dispatch its recorded isolation decision.
+
+   **Record this plan's isolation immediately before its dispatch (#5516).** Restore the dispatched plan's **stored decision** from step 2.5 (`plan_id` := this plan's `id`, `USE_WORKTREES_FOR_PLAN` := the value stored for that plan, and `PLAN_FILES` / `PLAN_DELETIONS` re-extracted from this plan's JSON, since the later plans' decisions overwrote them) and run **Part 2** of `gsd-core/workflows/execute-phase/steps/per-plan-worktree-gate.md`, so the single-slot sentinel names the plan being dispatched. Do not run it for any other plan, and do not batch it ahead of the dispatches.
 
    **Executor routing (#1689/#3370).** Per plan, run `gsd-core/workflows/execute-phase/steps/per-plan-executor-routing.md` to set `EXECUTOR_TYPE` for `subagent_type="{EXECUTOR_TYPE}"` below.
 
@@ -777,7 +810,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
 
    ```
        <sequential_execution>
-       You are running as a SEQUENTIAL executor agent on the main working tree.
+       You are running as a SEQUENTIAL executor agent on the main working tree (set SEQUENTIAL=true in your Step 0 commit guard; a linked phase worktree on the configured branch is allowed, #4799).
        Use normal git commits (with hooks). Do NOT use --no-verify.
        Run the `<project_root_pin>` guard before your first Edit/Write and before every commit (#4254).
        REQUIRED ORDER: Write SUMMARY.md → commit → only then any narration. No text between Write and commit (truncation risk; #2070 rescue is not primary defense).
@@ -993,6 +1026,16 @@ increases monotonically across waves. `{status}` is `complete` (success),
 
 5.8. **Handle test gate failures (when `WAVE_FAILURE_COUNT > 0`):**
 
+   Read the count the post-merge gate recorded (#4915); a shell variable set in step 5.6 is gone by now:
+
+   ```bash
+   # gsd-handoff:begin wave-failure-read
+   _GSD_HANDOFF="$( { git rev-parse --absolute-git-dir 2>/dev/null || echo "${TMPDIR:-/tmp}/gsd-$(pwd | cksum | cut -d' ' -f1)"; } )/gsd-handoff"; mkdir -p "$_GSD_HANDOFF"
+   WAVE_FAILURE_COUNT=$(wc -l < "$_GSD_HANDOFF/wave-failures" 2>/dev/null | tr -d ' ' || true); WAVE_FAILURE_COUNT=${WAVE_FAILURE_COUNT:-0}
+   echo "WAVE_FAILURE_COUNT=${WAVE_FAILURE_COUNT}"
+   # gsd-handoff:end wave-failure-read
+   ```
+
    ```
    ## ⚠ Post-Merge Test Failure (cumulative failures: ${WAVE_FAILURE_COUNT})
 
@@ -1031,7 +1074,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
 
    For each SUMMARY.md:
    - Verify first 2 files from `key-files.created` exist on disk
-   - Check `gsd_run check evaluation-scope --plan "{phase}-{plan}" --commits-only --raw` returns `commits` with ≥1 entry (commits on THIS branch only — #5164; a commit that lives only on another branch does not satisfy the check)
+   - Check `gsd_run check evaluation-scope --plan "{phase}-{plan}" --commits-only --raw` returns `commits` with ≥1 entry (commits on THIS branch only — #5164; a commit that lives only on another branch does not satisfy the check; exit `69` means the scope could not be resolved, which fails the spot-check, never "no commits yet")
    - Check for `## Self-Check: FAILED` marker
 
    If ANY spot-check fails: report which plan failed, route to failure handler — ask "Retry plan?" or "Continue with remaining waves?"
@@ -1105,8 +1148,8 @@ When executor returns a checkpoint AND `AUTO_MODE` is `true`:
    [Awaiting section from agent return]
    ```
 5. User responds: "approved"/"done" | issue description | decision selection
-6. **Spawn continuation agent (NOT resume)** using continuation-prompt.md template:
-   - `{completed_tasks_table}`: From checkpoint return
+6. **Spawn continuation agent (NOT resume)** with a prompt built from these placeholders (there is no separate template file; this list is the contract):
+   - `{completed_tasks_table}`: From checkpoint return, wrapped in a `<completed_tasks>` tag (the executor's continuation handling keys on it)
    - `{resume_task_number}` + `{resume_task_name}`: Current task
    - `{user_response}`: What user provided
    - `{resume_instructions}`: Based on checkpoint type

@@ -197,10 +197,11 @@ Adding a key is a reviewed first-party change, which is [ADR-1016](../adr/1016-r
 
 > **History.** `hostBehaviors` went unvalidated until [#2801](https://github.com/open-gsd/gsd-core/issues/2801), and this page previously described it as a deliberate open seam sanctioned by ADR-1016. That attribution was wrong — ADR-1016 does not mention `hostBehaviors` at all. See the [ADR-1016 amendment](../adr/1016-runtime-capability-descriptor.md#amendment-2026-08-09-hostbehaviors-is-closed-2801).
 
-The vocabulary holds 59 keys; 39 of them are set by exactly one capability. This table is not exhaustive — it lists the keys with the widest reuse so a reader can pattern-match new ones against the same shape:
+The vocabulary holds 75 keys; 52 of them are set by exactly one capability. This table is not exhaustive — it lists the keys with the widest reuse so a reader can pattern-match new ones against the same shape:
 
 | Key | Capabilities declaring it |
 |---|---|
+| `contentRewriteProfile` | 14 |
 | `reapplyCommand` | 9 |
 | `skipSharedHooksInstall` | 8 |
 | `frontmatterDialect` | 5 |
@@ -210,6 +211,29 @@ The vocabulary holds 59 keys; 39 of them are set by exactly one capability. This
 | `nativePlugin` | 3 |
 | `skipUpdateBannerCommand` | 3 |
 | `verificationStyle` | 3 |
+
+#### Host behaviors that replaced a runtime-name test ([#5169](https://github.com/open-gsd/gsd-core/issues/5169))
+
+Install and hook code does not compare a runtime id to a literal; it reads one of these keys through `hostBehaviorsFor(runtime)` (`src/runtime-name-policy.cts`). `local/no-runtime-name-literal` fails the lint on a new comparison.
+
+| Key | Type | Declared by | What it controls |
+|---|---|---|---|
+| `contentRewriteProfile` | string | 15 runtimes | Which path-rewrite profile the content-rewrite engine applies: `slash-own-tilde`, `slash-bare-own-tilde`, `slash-lookahead-own-tilde`, `slash-lookahead-nested-own-devin`, `slash-lookahead-own-derived`, `slash-bare-own-derived`, `slash-bare-own-tilde-bare`, `attribution-only`, `slash-tilde-restore`, `slash-lookahead-tilde-restore`, `branded-lookahead-own-derived`, `slash-bare`. Omitted: no path rewrites. Hosts that share a body share a profile. |
+| `skipRuntimeDefaultsStamp` | boolean | `claude` | Skip the non-Claude runtime-identity stamp. |
+| `skipCompactAgents` | boolean | `claude` | Do not stage `*.compact.md` agent variants. |
+| `omitBashRunnerOnWindows` | boolean | `claude` | Emit a shell hook as the bare script path on Windows. |
+| `specRootSkillPass` | boolean | `claude` | Run the global spec-root reference pass over staged skills. |
+| `restoreAtRefTildeInAgents` / `restoreAtRefTildeInSpecTree` | boolean | `claude` | Restore `@~/` include references in agent bodies / the spec tree. |
+| `legacyFlatSkillsCleanup`, `bareStemSkillsCleanup`, `categoryContainerCleanup` | boolean | `hermes` | The Hermes pre-nesting cleanups on install and uninstall. |
+| `opencodePathPrefix` | boolean | `opencode` | Use the OpenCode path-prefix form. |
+| `requiresSubagentPair` | boolean | `kimi` | An agent counts as installed only when both its persona YAML and prompt file exist. |
+| `reclaimsKimiLegacyHooksRoot` | boolean | `kimi-code` | Honor `--reclaim-kimi-legacy`. |
+| `rewriteClaudeAtIncludes` | boolean | `codex` | Rewrite `@~/.claude/…` includes in installed files to the Codex root. |
+| `defaultHomeIncludeRoot` | string | `copilot`, `antigravity` | The default-home directory (relative to HOME) the converter writes into `@` includes; a global install into another directory retargets them to the real install root (#5123). |
+| `retargetsGsdCoreProsePath` | boolean | `kimi` | Kimi has no `@` include, so its converter leaves the prose `GSD core/<path>`; a global install turns it into the real installed path (#5123). |
+| `bakesStaticAgentModel`, `bakedAgentFileExtensions` | boolean, string[] | `codex`, `kilo`, `opencode` | The runtime bakes the resolved model into agent files at install time; the stale-bake guard watches the listed extensions. |
+
+The path and label accessors (`getDirName`, `getRuntimeLabel`, `getGlobalConfigHomeFragment`, `getGlobalConfigDir`, `getGlobalSkillsBase`) **refuse** an id that is not registered (`UnknownRuntimeError`) instead of returning Claude Code's values; an empty id is the generic "no runtime" path and keeps its defaults. `hostBehaviorsFor` itself answers `{}` for an unregistered or retired label — no declared behaviors, the generic path — because guard and hook code read it on user-supplied labels.
 
 **`reviewerCli` has been removed.** It was a boolean that marked a runtime capability as also being a reviewer lane. [ADR-2782](../adr/2782-reviewer-lane-capability-surface.md) replaced it with the [`reviewer` body](#reviewer-body-role-reviewer-or-on-any-role); it survived one release (1.9.0 → 1.10.0) as a derived legacy alias and was deleted in Phase 7 ([#2801](https://github.com/open-gsd/gsd-core/issues/2801)). No shipped capability declares it.
 
@@ -311,7 +335,7 @@ The following invariants are enforced at **build time** by `scripts/gen-capabili
 - **`requires` exist and are acyclic.** Every `id` listed in `requires` must exist in the registry; the dependency graph must be acyclic.
 - **`requires` is tier-monotone.** A `core` capability may not require a `standard` or `full` capability. A `standard` capability may not require a `full` capability.
 - **`point` values are from the closed set.** Every `point` in `steps`, `contributions`, and `gates` must be one of the 12 identifiers above.
-- **`contribution.into` is a published agent role.** The `into` value must be an agent role declared by the host contract for that loop extension point. The published roles are **family-partitioned** (ADR-894 §3, Amendment 2026-09-14): every role belongs to exactly one of orchestration (`orchestrator`), planning (`researcher`, `planner`, `checker`) or execution (`executor`, `verifier`), and each loop step publishes exactly one family. So `execute:*` publishes `executor`/`verifier` and never `orchestrator`, and `discuss:*`/`verify:*`/`ship:*` publish `orchestrator` and never `executor`/`verifier`. The partition is enforced when the host contract is generated, so the role set a point publishes is stable rather than incidental.
+- **`contribution.into` is a published agent role.** The `into` value must be an agent role declared by the host contract for that loop extension point. The published roles are **family-partitioned** (ADR-894 §3, Amendment 2026-09-14): every role belongs to exactly one of orchestration (`orchestrator`), planning (`researcher`, `planner`, `checker`) or execution (`executor`, `verifier`, `code-reviewer`), and each loop step publishes exactly one family. So `execute:*` publishes `executor`/`verifier`/`code-reviewer` and never `orchestrator`, and `discuss:*`/`verify:*`/`ship:*` publish `orchestrator` and never `executor`/`verifier`. The partition is enforced when the host contract is generated, so the role set a point publishes is stable rather than incidental. A `code-reviewer` contribution (#4790) is delivered by `code-review.md` to the built-in `gsd-code-reviewer`, exactly once, beside its `agent_skills.gsd-code-reviewer` guidance; it is read from the loop point the review step is registered at (`workflow.code_review_point`, default `execute:post`). The role is admitted by the `execute` step as a whole, so a `code-reviewer` contribution declared at another execute point installs but is not delivered.
 - **Config key exclusivity.** A federated config key must be owned by exactly one capability and absent from the central `config-schema`. Presence in both is a collision; a half-migrated key fails the build gate.
 - **Artefact production uniqueness per point.** No two capability steps may `produces` the same artefact name at the same loop extension point.
 - **`engines.gsd` is a hard gate.** A capability whose `engines.gsd` range does not satisfy the installed GSD version is blocked at install and skipped (with a warning) at load time.

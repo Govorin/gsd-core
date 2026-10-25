@@ -59,7 +59,7 @@ Before verifying, discover project context:
 
 **Project skills:** Check `.claude/skills/` or `.agents/skills/` directory if either exists:
 
-**agent_skills:** self-load per @~/.claude/gsd-core/references/agent-skills-bootstrap.md
+**agent_skills:** self-load per @~/.claude/gsd-core/references/agent-skills-bootstrap.md (agent type: `gsd-plan-checker`)
 1. List available skills (subdirectories)
 2. Read `SKILL.md` for each skill (lightweight index ~130 lines)
 3. Load specific `rules/*.md` files as needed during verification
@@ -716,6 +716,7 @@ issue:
 1. For each `<automated>` block piping a package-manager list command into grep with a `^` anchor: BLOCKER.
 2. For each `<automated>` block containing `2>/dev/null || echo` where the result feeds a `[ "$VAR" = ... ]` comparison: BLOCKER.
 3. For each `<automated>` block asserting a specific numeric count not cited as measured in this plan: WARNING.
+4. For each count/match gate (`grep -c`, `grep -q`, `rg`), run it — read-only commands only — against the current tree (#4927). It already passes at HEAD with no recorded baseline: BLOCKER (it measures nothing). A literal differing in case from the heading/key the task writes: BLOCKER. Never run a gate that builds, installs, or writes. See `planner-verify-command-grounding.md`.
 
 ## Dimension: Verify Command Path Resolvability (#2401)
 
@@ -787,12 +788,15 @@ shopt -s nullglob 2>/dev/null; setopt NULL_GLOB 2>/dev/null
 
 for plan in "$PHASE_DIR"/*-PLAN.md; do
   echo "=== $plan ==="
-  PLAN_STRUCTURE=$(gsd_run query verify.plan-structure "$plan")
+  PLAN_STRUCTURE=$(gsd_run query verify.plan-structure "$plan") && STRUCTURE_EXIT=0 || STRUCTURE_EXIT=$?
   echo "$PLAN_STRUCTURE"
+  echo "structure_exit=$STRUCTURE_EXIT"
 done
 ```
 
 Parse JSON result: `{ valid, errors, warnings, task_count, tasks: [{name, hasFiles, hasAction, hasVerify, hasDone}], frontmatter_fields }`
+
+The exit status follows the verdict (#5170): exit `0` = `valid: true`, exit `1` = `valid: false` (a negative verdict — the JSON is still authoritative, so read `errors`). Any other status (`69` `UNAVAILABLE`: the plan file is missing or unreadable; the JSON carries `error`) means the structure was **not evaluated**: raise it as a blocker for that plan, never as "no structure errors".
 
 Map errors/warnings to verification dimensions:
 - Missing frontmatter field → `task_completeness` or `must_haves_derivation`
@@ -850,8 +854,10 @@ For each requirement: find covering task(s), verify action is specific, flag gap
 Use `verify.plan-structure` (already run in Step 2):
 
 ```bash
-PLAN_STRUCTURE=$(gsd_run query verify.plan-structure "$PLAN_PATH")
+PLAN_STRUCTURE=$(gsd_run query verify.plan-structure "$PLAN_PATH") && STRUCTURE_EXIT=0 || STRUCTURE_EXIT=$?
 ```
+
+Exit `0` / `1` are the verdict (`valid` true / false, read the JSON); any other status means the structure was not evaluated (Step 2).
 
 The `tasks` array in the result shows each task's completeness:
 - `hasFiles` — files element present

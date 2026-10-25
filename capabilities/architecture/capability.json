@@ -1,7 +1,7 @@
 {
   "id": "architecture",
   "role": "feature",
-  "version": "1.15.0",
+  "version": "1.18.0",
   "title": "Architecture design, review and survey",
   "description": "Fixes structural boundaries before planning (DESIGN.md at plan:pre) and checks they survived the implementation (ARCH-REVIEW.md at verify:pre). The design half feeds the contract-drift gate, which compares each declared signature against the code; without it that gate has nothing to read. At plan:post a blocking gate checks the design's mermaid diagrams: every identifier they draw is declared in the code or introduced by the design itself. The survey half (/gsd:arch-survey, run by a person or proposed at milestone close) looks for drift outside any phase's promises: `gsd-tools arch metrics` counts hot spots, coupling, cycles and co-change and splits the code into zones, one gsd-arch-surveyor per zone writes deepening candidates, gsd-finding-refuter (mode arch) tries to refute them, and every decision lands in .planning/architecture/DECISIONS.md so a rejected candidate is never proposed again.",
   "tier": "full",

@@ -7,23 +7,47 @@
  * Argv after the verb: `<phase-dir> <context-path>` (positional; no `--context` flag here).
  */
 
-import fs from 'node:fs';
-import { gateVerdict, isGateUsageFailure } from './gate-verdict.cjs';
+import { gateVerdict, gateUnreadable, isGateUsageFailure } from './gate-verdict.cjs';
 import type { GateResult } from './gate-verdict.cjs';
 import { resolveContainedPath } from './gate-phase-context.cjs';
 import { isDecisionCoverageGateEnabled } from './gate-config.cjs';
 import {
   decisionMentioned,
   loadPlanContents,
+  phaseDirProblem,
   loadSummaryContents,
   loadDecisionExtraction,
   readModifiedFilesContent,
   phaseCommitMessages,
   buildVerifyMessage,
+  resolveTrackerBodies,
 } from './decision-coverage-support.cjs';
-import type { UncoveredItem } from './decision-coverage-support.cjs';
+import type { UncoveredItem, TrackerResolveDeps } from './decision-coverage-support.cjs';
 
-export function evaluateDecisionCoverageVerify(input: { projectDir: string; args: readonly string[] }): GateResult {
+/**
+ * The verdict when CONTEXT.md or a shipped artifact could not be read. The gate stays advisory
+ * (`block: false`, `blocking: false`); the outcome is `unreadable`, so the exit status is
+ * UNAVAILABLE and no decision is reported honored or not honored from content never seen (#5170).
+ */
+function unreadableVerify(readError: string): GateResult {
+  return gateUnreadable(false, {
+    skipped: false,
+    blocking: false,
+    reason: 'unreadable evidence',
+    total: null,
+    honored: null,
+    not_honored: [],
+    readError,
+    message: `Decision coverage verify (warning): could not read its evidence (${readError}); no decision was checked.`,
+  });
+}
+
+/** The verdict when there is no CONTEXT.md: the legitimate green skip (authoritatively `none`, never `unreadable`). */
+function contextMissingSkip(): GateResult {
+  return gateVerdict('skip', false, { skipped: true, blocking: false, reason: 'CONTEXT.md missing', total: 0, honored: 0, not_honored: [], message: 'No CONTEXT.md - nothing to check.' });
+}
+
+export function evaluateDecisionCoverageVerify(input: { projectDir: string; args: readonly string[]; deps?: TrackerResolveDeps }): GateResult {
   const { projectDir, args } = input;
   let phaseDir = '';
   if (args[0]) {
@@ -41,11 +65,19 @@ export function evaluateDecisionCoverageVerify(input: { projectDir: string; args
   if (!isDecisionCoverageGateEnabled(projectDir)) {
     return gateVerdict('skip', false, { skipped: true, blocking: false, reason: 'workflow.context_coverage_gate is false', total: 0, honored: 0, not_honored: [], message: 'Decision coverage gate disabled by config.' });
   }
-  if (!contextPath || !fs.existsSync(contextPath)) {
-    return gateVerdict('skip', false, { skipped: true, blocking: false, reason: 'CONTEXT.md missing', total: 0, honored: 0, not_honored: [], message: 'No CONTEXT.md - nothing to check.' });
+  // No context argument is the only up-front skip: an absent file is `none` and an unreadable one is
+  // `unreadable` below, from the one read that loads the decisions (`fs.existsSync` answered `false`
+  // for an EACCES on a parent, skipping a CONTEXT.md the gate never saw — #5170).
+  if (!contextPath) {
+    return contextMissingSkip();
   }
 
-  const { trackable: decisions, outcome: decisionOutcome } = loadDecisionExtraction(contextPath);
+  const extracted = loadDecisionExtraction(contextPath);
+  if (extracted.kind === 'unreadable') return unreadableVerify(`${extracted.span ?? contextPath}: ${extracted.reason}`);
+  if (extracted.kind === 'none') {
+    return contextMissingSkip();
+  }
+  const { trackable: decisions, outcome: decisionOutcome } = extracted.value;
 
   // Mirror could-not-parse surface for verify (non-blocking advisory WARN).
   // Fire independent of decisions.length — a parse-miss on any bullet must surface,
@@ -73,12 +105,34 @@ export function evaluateDecisionCoverageVerify(input: { projectDir: string; args
     return gateVerdict('skip', false, { skipped: true, blocking: false, reason: 'no trackable decisions', total: 0, honored: 0, not_honored: [], message: 'No trackable decisions in CONTEXT.md.' });
   }
 
+  // #4939: mirror the plan gate. A phase-dir argument that names no directory
+  // means no plan or summary was scanned, so no decision can be reported
+  // not-honored. Warn (verify stays non-blocking) rather than list every decision.
+  const phaseDirIssue = phaseDir ? phaseDirProblem(phaseDir) : null;
+  if (phaseDirIssue) {
+    const phaseDirResult = { skipped: false, blocking: false, reason: phaseDirIssue.reason, total: null, honored: null, not_honored: [], message: `Decision coverage verify (warning): the phase directory "${args[0]}" ${phaseDirIssue.what}, so no plans or summaries were scanned. ${phaseDirIssue.hint}` };
+    return phaseDirIssue.unreadable ? gateUnreadable(false, phaseDirResult) : gateVerdict('advisory', false, phaseDirResult);
+  }
+
+  // Every file the haystack is built from is typed evidence (#5170): one that exists but cannot be
+  // read is `unreadable`, never an empty slice of the haystack that makes a decision look unhonored.
   const planContents = loadPlanContents(phaseDir);
+  if (planContents.kind === 'unreadable') return unreadableVerify(`${planContents.span ?? phaseDir}: ${planContents.reason}`);
+  const tracker = resolveTrackerBodies(projectDir, planContents.value, input.deps);
+  if (tracker.kind === 'unreadable') return unreadableVerify(`${tracker.span}: ${tracker.reason}`);
   const summaryParts = loadSummaryContents(phaseDir);
+  if (summaryParts.kind === 'unreadable') return unreadableVerify(`${summaryParts.span ?? phaseDir}: ${summaryParts.reason}`);
+  // #4939: mirror the plan gate. A phase directory with no PLAN and no SUMMARY file gave the
+  // verifier nothing to read, which is a caller error, not a phase whose decisions were all missed.
+  if (phaseDir && planContents.value.length === 0 && summaryParts.value.length === 0) {
+    return gateVerdict('advisory', false, { skipped: false, blocking: false, reason: 'phase directory holds no plans', total: null, honored: null, not_honored: [], message: `Decision coverage verify (warning): the phase directory "${args[0]}" holds no PLAN or SUMMARY files, so nothing was scanned. Pass the phase DIRECTORY that holds the plans (e.g. .planning/phases/01-slug), not the phase number.` });
+  }
+  const modifiedFiles = readModifiedFilesContent(projectDir, summaryParts.value);
+  if (modifiedFiles.kind === 'unreadable') return unreadableVerify(`${modifiedFiles.span ?? 'files_modified'}: ${modifiedFiles.reason}`);
   const haystack = [
-    planContents.join('\n\n'),
-    summaryParts.join('\n\n'),
-    readModifiedFilesContent(projectDir, summaryParts),
+    planContents.value.map((c, i) => c + (tracker.value.bodies[i] ? '\n' + tracker.value.bodies[i] : '')).join('\n\n'),
+    summaryParts.value.join('\n\n'),
+    modifiedFiles.value,
     phaseCommitMessages(projectDir, phaseDir),
   ].join('\n\n');
 
@@ -89,6 +143,7 @@ export function evaluateDecisionCoverageVerify(input: { projectDir: string; args
     else notHonored.push({ id: decision.id, text: decision.text, category: decision.category });
   }
 
+  if (notHonored.length > 0 && tracker.value.missingResolver) return unreadableVerify(`${tracker.value.missingResolver.span}: ${tracker.value.missingResolver.reason}`);
   return gateVerdict(notHonored.length === 0 ? 'pass' : 'advisory', false, {
     skipped: false,
     blocking: false,

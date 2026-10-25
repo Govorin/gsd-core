@@ -2,9 +2,9 @@
 
 # discuss-phase-assumptions
 
-Источник: `gsd-core/workflows/discuss-phase-assumptions.md`. Единицы: 16 шагов `<step>`, 1 секция `gsd:section`. Спавнов: 2 (агенты: `gsd-assumptions-analyzer`, `general-purpose`). Точки цикла: нет.
+Источник: `gsd-core/workflows/discuss-phase-assumptions.md`. Единицы: 17 шагов `<step>`, 1 секция `gsd:section`. Спавнов: 2 (агенты: `gsd-assumptions-analyzer`, `general-purpose`). Точки цикла: нет.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 12; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 9.
+> **Переходы в прозе** (фразы «перейди к …»): всего 13; не называют реальный шаг и не рисуются — **4**; названы по имени шага и нарисованы пунктиром `goto` — 9.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -16,6 +16,7 @@
 flowchart TB
   wf_root(["discuss-phase-assumptions.md"]):::root
   u_step_initialize["initialize"]
+  u_step_check_spec["check_spec"]
   u_step_check_existing["check_existing"]
   u_step_load_prior_context["load_prior_context"]
   u_step_cross_reference_todos["cross_reference_todos"]
@@ -33,7 +34,8 @@ flowchart TB
   u_step_auto_advance["auto_advance"]
   u_section_auto_advance_dispatch("§ auto-advance-dispatch"):::conditional
   wf_root --> u_step_initialize
-  u_step_initialize --> u_step_check_existing
+  u_step_initialize --> u_step_check_spec
+  u_step_check_spec --> u_step_check_existing
   u_step_check_existing --> u_step_load_prior_context
   u_step_load_prior_context --> u_step_cross_reference_todos
   u_step_cross_reference_todos --> u_step_load_methodology
@@ -49,7 +51,7 @@ flowchart TB
   u_step_update_state --> u_step_confirm_creation
   u_step_confirm_creation --> u_step_auto_advance
   u_step_auto_advance -->|"when#58; state#58;auto-advance-active"| u_section_auto_advance_dispatch
-  u_step_initialize -.->|"goto"| u_step_check_existing
+  u_step_initialize -.->|"goto"| u_step_check_spec
   u_step_check_existing -.->|"goto"| u_step_load_prior_context
   u_step_present_assumptions -.->|"goto"| u_step_write_context
   u_step_present_assumptions -.->|"goto"| u_step_correct_assumptions
@@ -95,22 +97,23 @@ flowchart LR
 | # | Единица | Вид | Условие | Спавны | Точки цикла | Читает |
 |---|---|---|---|---|---|---|
 | 1 | `initialize` | step |  |  |  |  |
-| 2 | `check_existing` | step |  |  |  |  |
-| 3 | `load_prior_context` | step |  |  |  |  |
-| 4 | `cross_reference_todos` | step |  |  |  |  |
-| 5 | `load_methodology` | step |  |  |  |  |
-| 6 | `scout_codebase` | step |  |  |  |  |
-| 7 | `deep_codebase_analysis` | step |  | `gsd-assumptions-analyzer` |  |  |
-| 8 | `external_research` | step |  | `general-purpose` |  |  |
-| 9 | `present_assumptions` | step |  |  |  |  |
-| 10 | `correct_assumptions` | step |  |  |  |  |
-| 11 | `write_context` | step |  |  |  |  |
-| 12 | `write_discussion_log` | step |  |  |  |  |
-| 13 | `git_commit` | step |  |  |  |  |
-| 14 | `update_state` | step |  |  |  |  |
-| 15 | `confirm_creation` | step |  |  |  |  |
-| 16 | `auto_advance` | step |  |  |  | `discuss-phase-assumptions/steps/auto-advance-dispatch.md` |
-| 17 | `auto-advance-dispatch` | section | when: state:auto-advance-active |  |  | `discuss-phase-assumptions/steps/auto-advance-dispatch.md` |
+| 2 | `check_spec` | step |  |  |  |  |
+| 3 | `check_existing` | step |  |  |  |  |
+| 4 | `load_prior_context` | step |  |  |  |  |
+| 5 | `cross_reference_todos` | step |  |  |  |  |
+| 6 | `load_methodology` | step |  |  |  |  |
+| 7 | `scout_codebase` | step |  |  |  |  |
+| 8 | `deep_codebase_analysis` | step |  | `gsd-assumptions-analyzer` |  |  |
+| 9 | `external_research` | step |  | `general-purpose` |  |  |
+| 10 | `present_assumptions` | step |  |  |  |  |
+| 11 | `correct_assumptions` | step |  |  |  |  |
+| 12 | `write_context` | step |  |  |  |  |
+| 13 | `write_discussion_log` | step |  |  |  |  |
+| 14 | `git_commit` | step |  |  |  |  |
+| 15 | `update_state` | step |  |  |  |  |
+| 16 | `confirm_creation` | step |  |  |  |  |
+| 17 | `auto_advance` | step |  |  |  | `discuss-phase-assumptions/steps/auto-advance-dispatch.md` |
+| 18 | `auto-advance-dispatch` | section | when: state:auto-advance-active |  |  | `discuss-phase-assumptions/steps/auto-advance-dispatch.md` |
 
 ## Дефекты
 

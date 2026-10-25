@@ -289,6 +289,68 @@ shrinks: growth happens by adding an acknowledgment carrying a real issue
 number (a reviewable diff), never by widening the generator's tolerance and
 never by prose alone.
 
+## The gate positive-control ratchet
+
+A gate that has never been seen to fail cannot be trusted to pass. Every gate
+module has a **positive control**: a test that drives the gate, through its real
+`evaluate*` export, to the verdict that makes it fail and to a different one
+(ADR-5057 §4, #5204). `scripts/lint-gate-positive-control.cjs` (part of
+`npm run lint:ci`) fails when a gate has none.
+
+### Reference
+
+- **What counts as a gate.** A module `src/gate-<id>.cts` that exports an
+  `evaluate*` function declared to return `GateResult` (a function declaration,
+  a `const` arrow or function expression, or an `export { … }` re-export). Gates
+  are discovered, never listed, so a new gate is covered without editing the
+  lint. The verb entries outside gate modules (`phase uat-passed`, `verify
+  artifacts`) are covered by the exit guard (`lint-gate-evidence-drift`), not by
+  this ratchet.
+- **The control.** `gateControl({ gate, module, fn, red, expectRed, redScenario,
+  greenScenario })` from `tests/helpers/gate-positive-control.cjs`, as a top-level
+  statement of a `tests/**/*.test.cjs` file (by convention
+  `tests/gate-positive-control.test.cjs`) with `gateControl` bound from that
+  helper (a single top-level `const`, resolved against the file, never rebound or
+  redeclared); an inert call (a local function of that name, a nested call, a
+  reassigned binding, a file that exits or throws before the call, a file the
+  runner does not execute) does not count. Each scenario runs in a fresh temp
+  project (`git: true` for a git repository); `setup(dir)` may return a restore
+  function for a monkeypatched `fs` method (never a `chmod`: root bypasses mode
+  bits). `expectRed` pins the red verdict to the arm the control is about
+  (`outcome` and/or payload keys), so a scenario that fails for an unrelated
+  reason does not count. A misspelled option key is rejected.
+- **`red` is derived, not chosen.** From the exported `evaluate*` and the
+  same-file functions it reaches: `block` when some `gateVerdict` or
+  `gateUnreadable` call's block argument is anything but the literal `false`
+  (the red verdict carries `block: true`, the green one `block: false`);
+  `unreadable` for a gate that can never block (the red verdict is the typed
+  `unreadable` outcome, the green one any other). A control that declares the
+  other value is `wrong-red`, so a control cannot dodge a blocking arm.
+- **Rules.** `no-control`, `duplicate-control`, `wrong-red`,
+  `no-failing-verdict` (a gate that can neither block nor reach `unreadable`),
+  `wrong-module` (the `module` must resolve to `gsd-core/bin/lib/gate-<id>.cjs`),
+  `wrong-fn`, `malformed-control` (a field the lint cannot read as a literal, a
+  call that is not a top-level statement, or a `gateControl` not bound from the
+  helper), `orphan-control`, `unclassified-evaluate` (an exported `evaluate*`
+  with no `GateResult` return, one that cannot be resolved, or a gate file using
+  `export default`, `export * from` or an `evaluate*` class/object member, shapes
+  the lint does not read), `multiple-evaluates` (one gate module, one gate).
+  The allowlist is empty by decision and a stale entry is itself a problem.
+- **Fail-closed.** Zero discovered gates, a `gate-*.cts` file whose name the lint
+  cannot read, or a source the parser cannot read, is a violation: an inert scan
+  does not report a clean tree.
+
+### How-to: you added a gate and `lint:ci` reports `no-control`
+
+1. Add a `gateControl({...})` call to `tests/gate-positive-control.test.cjs`
+   naming your gate, its module and its `evaluate*` function.
+   `expectRed` names the arm the red scenario reaches.
+2. Take `red` from the lint's message (`wrong-red` states what the gate reaches).
+3. Write the red scenario from the input that makes the gate fail, and the green
+   scenario from the nearest input that does not. Reuse the cases in your gate's
+   own unit test; the control asserts the pair through one harness.
+4. Run `npm run lint:gate-positive-control`.
+
 ## Running suites locally
 
 ```bash
@@ -487,7 +549,7 @@ only supported runtime.
 |---|---|---|---|
 | `test` | `ubuntu-latest` (1 targeted + 3-shard full) | `product_changed == 'true'` | The default, always-scoped PR signal — the full `unit`/`integration`/`security` suites run once, sharded, on Linux. **Linux only**: its three `scope: windows` shards were deleted in #4641 (ADR-4641), which found them a second, redundant Windows selector alongside `test-conformance` |
 | `test-inert` | `ubuntu-latest` | `code_changed == 'true' && product_changed != 'true'` | A lightweight lane for PRs that touch only administrative/policy workflow files (code changed, but nothing that needs the real matrix) |
-| `test-conformance` | `windows-latest` (3-shard) + `macos-latest` (unsharded) | `code_changed == 'true' && full_matrix == 'true'` | Runs only the **platform-conformance-tier** file list (`scripts/lib/platform-conformance-tier.generated.cjs`, epic #4589 Phase 2/#4591) on real Windows/macOS — since #4641 the **sole** Windows and macOS selector in CI, not merely the sole gating one. Retired the parallel legacy full-suite matrix in #4603; #4641 removed the second Windows selector in `test` and narrowed the tier from 548 to 266 of 932 eligible unit-suite files (58.8% → 28.5%, measured 2026-09-11; the absolute counts track `next`'s test count, the percentages are what the ceiling test binds on). |
+| `test-conformance` | `windows-latest` (3-shard) + `macos-latest` (unsharded) | `code_changed == 'true' && full_matrix == 'true'`, and — only while the repo variable `GSD_PR_LINUX_ONLY` is `true` — on a `pull_request` also the `full-matrix` label (#5604; a label added after a run started does not re-run it — push a commit or dispatch the branch) | Runs only the **platform-conformance-tier** file list (`scripts/lib/platform-conformance-tier.generated.cjs`, epic #4589 Phase 2/#4591) on real Windows/macOS — since #4641 the **sole** Windows and macOS selector in CI, not merely the sole gating one. Retired the parallel legacy full-suite matrix in #4603; #4641 removed the second Windows selector in `test` and narrowed the tier from 548 to 266 of 932 eligible unit-suite files (58.8% → 28.5%, measured 2026-09-11; the absolute counts track `next`'s test count, the percentages are what the ceiling test binds on). |
 | `coverage-gate` | `ubuntu-latest` | `product_changed == 'true' && test.result == 'success'` | Merges every `test` shard's coverage dumps and evaluates the threshold once (sharding moved this out of the `test` job itself — #2952) |
 | `qa-loop-walk` | `ubuntu-latest` | `product_changed == 'true'` | The QA smell-ratchet scenario walk (see "The QA smell ratchet" below) |
 | `required-tests` | `ubuntu-latest` | `always()` | Aggregates every job above into the one branch-protection-required check |
@@ -539,6 +601,7 @@ mis-ranked files badly enough that the slowest chunk ran ~3.9x the lightest.
 | `RUN_TESTS_TIMINGS_FILE` | `tests/test-timings.json` | Path to the timing table. Tests override it to inject a synthetic cost profile. |
 | `RUN_TESTS_PLATFORM_TIMINGS_FILE` | `tests/test-timings.<platform>.json` | Path to the table measured on the platform the runner is on (`process.platform` spelling: `win32`, `darwin`, `linux`). Only `tests/test-timings.win32.json` is committed. When `RUN_TESTS_TIMINGS_FILE` is overridden and this variable is not, no platform table is loaded, so an injected cost profile is used exactly as given. |
 | `RUN_TESTS_TIMING_EVENTS_FILE` | unset | When set, every chunk appends its per-file `test:summary` durations to this file (the input `gen-test-timings.cjs` reads). Written after every chunk, including failed and killed ones. The runner removes the variable from its own environment before spawning chunks, so a nested `run-tests.cjs` never writes to it. A write failure prints one warning and never changes the exit code. |
+| `GSD_SEAM_SPAWN_LOG_FILE` | set by the runner to the `RUN_TESTS_TIMING_EVENTS_FILE` path | Read by `tests/helpers/process-seam.cjs`: a spawn that took `GSD_SEAM_SLOW_SPAWN_MS` (default 2000) or longer, or was killed, appends one `seam:spawn-stall` line to this file. See [Read CI timeout signals](how-to/read-ci-timeout-signals.md). |
 | `RUN_TESTS_CHUNK_TIMEOUT_MS` | `600000` | Per-chunk timeout. When it fires, the runner kills the chunk (on Windows it first attempts a whole-tree kill) and prints the in-flight-file diagnostic immediately, without waiting for the child's exit to be reported. |
 | `RUN_TESTS_CHUNK_KILL_GRACE_MS` | `30000` | Once a chunk times out, how long the runner waits for the child's exit to be observed before it stops waiting, reports that the exit was never confirmed, and aborts the remaining chunks. |
 

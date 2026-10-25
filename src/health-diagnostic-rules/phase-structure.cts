@@ -70,7 +70,10 @@ const { extractPhaseToken, normalizePhaseName, comparePhaseNum } = phaseIdMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import verificationMod = require('../verification.cjs');
 // The closed set the reader accepts — W030 folds a spelling variant onto it.
-const { VERIFIER_STATUSES } = verificationMod;
+// #5291: W030 also asks whether a raw report status has a known repair
+// (`legacyStatusRepairTarget`). The lookup is a pure read of a frozen table,
+// so `check` stays free of ambient I/O (§8.1 rule 1).
+const { VERIFIER_STATUSES, legacyStatusRepairTarget } = verificationMod;
 type VerifierStatus = verificationMod.VerifierStatus;
 
 // #5060: the Phase Status Module owns the status-label ladder.
@@ -198,7 +201,10 @@ function checkW009(snapshot: PlanningSnapshot): Diagnostic[] {
 // can only say what the value most likely meant and why. Exactly one entry is
 // unambiguous: `verified` is the old spelling of `passed` — same verdict, no
 // judgement to make — so it alone becomes W031, which `--repair` rewrites.
-// Every other value is W030 with a proposal. Where a value could mean either
+// Every other value is W030. A value upstream's maintainer ruled on (#5291,
+// `pass_with_caveats` -> `passed`, `LEGACY_STATUS_REPAIRS` in verification.cts)
+// is a repairable W030 that keeps the original in `legacy_status`; any other
+// value is an advise-only W030 with a proposal. Where a value could mean either
 // a pass or something still open, the proposal is the value that keeps the
 // gate closed (`gaps_found` / `human_needed`), and `passed` is named as the
 // alternative the owner may pick after reading the report.
@@ -304,27 +310,42 @@ function outOfSetDefects(snapshot: PlanningSnapshot): OutOfSetDefect[] {
 
 // ─── W030 — verification report status outside the closed set (#5118) ─────
 //
-// The fix names the proposed value and why; an unambiguous legacy value is
-// W031 instead.
+// A ruled legacy value (#5291) is repaired; for any other value the fix names
+// the proposed value and why. An unambiguous legacy value is W031 instead.
 
 function checkW030(snapshot: PlanningSnapshot): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   for (const defect of outOfSetDefects(snapshot)) {
     if (unambiguousNormalization(defect.rawStatus)) continue;
-    const proposal = proposeVerificationStatus(defect.rawStatus);
-    const advice = adviseRemedy(w030Fix(proposal));
-    // The proposal also rides as data, so a caller migrating reports reads
-    // the suggestion instead of parsing the fix sentence.
-    const remedy = {
-      ...advice,
-      args: {
-        ...advice.args,
-        file: defect.report.filePath,
-        suggested: proposal ? proposal.suggested : null,
-        alternative: proposal ? proposal.alternative : null,
-        reason: proposal ? proposal.reason : null,
-      },
-    };
+    const file = defect.report.filePath;
+    // #5291: a status the maintainer ruled on (`legacyStatusRepairTarget`) is
+    // repairable — rewritten to its closed-set value, the original kept in
+    // `legacy_status`. Every other value has no mapping and stays ADVISE, with
+    // the fork's proposal in the fix and in `remedy.args`.
+    const target = legacyStatusRepairTarget(defect.rawStatus);
+    let remedy: Diagnostic['remedy'];
+    if (target !== null) {
+      remedy = {
+        action: REMEDY_ACTION.REPAIR_VERIFICATION_STATUS,
+        risk: REMEDY_RISK.NONE,
+        args: { file, from: defect.rawStatus, to: target },
+      };
+    } else {
+      const proposal = proposeVerificationStatus(defect.rawStatus);
+      const advice = adviseRemedy(w030Fix(proposal));
+      // The proposal also rides as data, so a caller migrating reports reads
+      // the suggestion instead of parsing the fix sentence.
+      remedy = {
+        ...advice,
+        args: {
+          ...advice.args,
+          file,
+          suggested: proposal ? proposal.suggested : null,
+          alternative: proposal ? proposal.alternative : null,
+          reason: proposal ? proposal.reason : null,
+        },
+      };
+    }
     diagnostics.push({
       code: 'W030',
       severity: SEVERITY.WARNING,
@@ -432,7 +453,10 @@ const RULES: Rule[] = [
     code: 'W030',
     severity: SEVERITY.WARNING,
     description: 'Phase verification report status is outside the closed set',
-    repairable: false,
+    // #5291: repairable per finding — a KNOWN legacy status (`pass_with_caveats`)
+    // is rewritten by `--repair`; any other value stays advise-only (with the
+    // fork's proposal). `verified` is W031, never W030.
+    repairable: true,
     check: checkW030,
   },
   {

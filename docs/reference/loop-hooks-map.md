@@ -73,7 +73,7 @@ flowchart LR
   subgraph n_step_execute["execute"]
     n_point_execute_pre(["execute#58;pre"]):::point
     n_point_execute_wave_pre(["execute#58;wave#58;pre"]):::point
-    n_core_execute("execute#58; executor, verifier → SUMMARY.md"):::core
+    n_core_execute("execute#58; executor, verifier, code-reviewer → SUMMARY.md"):::core
     n_point_execute_wave_post(["execute#58;wave#58;post"]):::point
     n_point_execute_post(["execute#58;post"]):::point
     n_hook_execute_pre_step_mn_verify_gate_0["mn-verify-gate#58; command#58;verify baseline"]:::step
@@ -563,7 +563,7 @@ flowchart TB
 | `verify:pre` | `gsd-core/workflows/verify-work.md` | step, gate, contribution |
 | `verify:post` | `gsd-core/workflows/execute-phase/steps/verify-phase-goal.md` | step |
 | `verify:post` | `gsd-core/workflows/verify-work.md` | step |
-| `ship:pre` | `gsd-core/workflows/ship.md` | gate |
+| `ship:pre` | `gsd-core/workflows/ship.md` | step, gate |
 | `ship:post` | `gsd-core/workflows/ship.md` | step |
 | `milestone:pre` | `gsd-core/workflows/complete-milestone.md` | step |
 | `milestone:post` | `gsd-core/workflows/complete-milestone.md` | step |

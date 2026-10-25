@@ -212,6 +212,7 @@
   - [Per-Task External-Tracker Content-Resolution Seam](#3970-per-task-external-tracker-content-resolution-seam)
   - [Unreadable-Directory Scope Signal](#4014-unreadable-directory-scope-signal)
   - [Graphify CLI Preferred for Planner and Researcher Graph Queries](#4836-graphify-cli-preferred-for-planner-and-researcher-graph-queries)
+  - [Gate Evidence and Verdict-Driven Exit Status](#5170-gate-evidence-and-verdict-driven-exit-status)
 
 ---
 
@@ -1296,7 +1297,7 @@ fix(03-01): correct auth token expiry
 - Codex emits `service_tier: flex` for light-tier agents; GSD skills appear in the Codex `/skills` picker via `SKILL.md` (no `agents/openai.yaml` sidecar is emitted — doing so caused duplicate autocomplete entries, #1326)
 
 **Native packaging:**
-- **Claude Code:** GSD Core ships a `.claude-plugin/plugin.json` manifest, enabling installation and lifecycle management via `claude plugin install|enable|disable|update gsd-core`. Commands load under the `/gsd-core:` namespace (e.g. `/gsd-core:plan-phase`), avoiding slash-command collisions with the classic npm installer which uses `/gsd:`. Always-on guard and update hooks are wired automatically via `hooks/hooks.json`. The plugin path is additive — the npm installer (`npx @opengsd/gsd-core`) remains fully supported.
+- **Claude Code:** GSD Core ships a `.claude-plugin/plugin.json` manifest, enabling installation and lifecycle management via `claude plugin install|enable|disable|update gsd-core`. Workflows load as skills under the `/gsd-core:` namespace (e.g. `/gsd-core:gsd-plan-phase`), avoiding slash-command collisions with the classic npm installer which uses `/gsd:`. Each workflow is registered once, as its `gsd-<name>` skill — the same name workflows use to invoke one another — so the always-on listing carries no duplicate entries (#4860). Always-on guard and update hooks are wired automatically via `hooks/hooks.json`. The plugin path is additive — the npm installer (`npx @opengsd/gsd-core`) remains fully supported.
 
 ---
 
@@ -1311,7 +1312,7 @@ fix(03-01): correct auth token expiry
 - REQ-HOOK-04: All hooks MUST respect `CLAUDE_CONFIG_DIR` env var
 - REQ-HOOK-05: All hooks MUST include 3-second stdin timeout guard
 - REQ-HOOK-06: All hooks MUST fail silently on any error
-- REQ-HOOK-07: Context usage MUST normalize for autocompact buffer (16.5% reserved)
+- REQ-HOOK-07: The context meter's 100% MUST be the token count at which Claude Code auto-compacts — the window from `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, else the `autoCompactWindow` setting `/autocompact` saves (per model under `modelSettings`, or top-level), else the model window, minus the 33k auto-compact buffer and lowered by `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` — and MUST be the model window when auto-compact is off (`autoCompactEnabled: false` in settings, or `DISABLE_AUTO_COMPACT` / `DISABLE_COMPACT`). The bridge's `remaining_percentage` MUST count down to the same point, so the context monitor warns before compaction
 - REQ-HOOK-08: Update banner MUST be opt-in and silent unless an update is available (PR #2795)
 
 **Statusline Display:**
@@ -2302,6 +2303,8 @@ Test suite that scans all agent, workflow, and command files for embedded inject
 - REQ-COMMUNITY-03: `gsd-session-state.sh` MUST track session state transitions
 - REQ-COMMUNITY-04: `gsd-phase-boundary.sh` MUST enforce phase boundary checks
 
+**Hosts:** Claude Code and the other settings-file runtimes register these hooks natively. On OpenCode (1.x and 2.x) the GSD plugin runs `gsd-validate-commit.sh` (before `bash`/`shell` calls), `gsd-phase-boundary.sh` (after `write`/`edit`) and `gsd-session-state.sh` (once per session, handed to the model with its first request); `gsd-graphify-update.sh` runs after `bash`/`shell` calls when `graphify.auto_update` is on. Kilo does not run them.
+
 **Config:**
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
@@ -2969,8 +2972,8 @@ With `features.global_learnings: true`, phase completion runs the extraction for
 
 `check tdd-red-evidence` selects a parser by the captured report format. Node's
 built-in runner and Vitest (`tap` and `tap-flat`) share the TAP adapter; Maven
-Surefire and Failsafe share the JUnit XML adapter; `swift test` (swift-testing)
-and Python `unittest` text output have their own adapters. The command name does not
+Surefire and Failsafe share the JUnit XML adapter; `swift test` (swift-testing),
+Python `unittest` and `go test` text output have their own adapters. The command name does not
 select or bypass validation. Reports from other producers can use these same
 formats. Unsupported or malformed reports return `INVALID_RED` with
 `evidence.report_errors`; configure a supported reporter before proceeding.
@@ -2984,7 +2987,8 @@ No runner-specific TAP summary counters are required.
 The gate rejects incomplete plans/documents, bailouts, skipped/TODO/cancelled targets,
 and ambiguous names. Qualify repeated TAP names with their suite path, and
 repeated JUnit class names with their package, and repeated `unittest` methods
-with their `module.Class.method` id. A swift-testing target is its display name
+with their `module.Class.method` id, and a `go test` name that fails in two packages
+with `import/path.TestName`. A swift-testing target is its display name
 or its function name; repeated swift-testing names cannot be qualified and
 block GREEN. Evidence counts are individual
 tests, excluding suite-closing TAP points; a `unittest` method with failing
@@ -2992,6 +2996,16 @@ subTests or a parameterized swift-testing test counts once. `evidence.matched_te
 persisted `failing_test` identify the target failure rather than an unrelated
 first failure. Report freshness and whether the assertion tests the intended
 behavior still require executor inspection; the parser cannot establish them.
+
+A `go test` package that does not compile or load (`FAIL <pkg> [build failed]` or
+`[setup failed]`) asserted nothing, usually because the test names a symbol that does
+not exist yet. The whole run is refused as `build_failure`, ahead of the generic
+`invalid_record`, even if another package genuinely failed.
+
+Which paths count as test files is one list, `src/tdd-test-files.cts`, shared by the
+behavior-adding check and the RED-commit pathspec in `execute-phase.md` (a test pins the
+two together): `*.test.*`, `*.spec.*`, `tests/` or `test/` and `__tests__/` directories,
+`*_test.go`, `test_*.py`, `*_test.py`, `*_test.exs`, `*_spec.rb` and `*_test.rb`.
 
 The upstream parsers (`tap-parser` and `saxes`) ship as reproducible bundles,
 including license notices, so installed runtimes need no `node_modules`.
@@ -3933,7 +3947,7 @@ See [Resolve verify-command path findings](how-to/resolve-verify-command-path-fi
 
 **Known limits:** no sandbox — once enabled, nothing constrains which origins are reached ([ADR-1244](adr/1244-capability-ecosystem.md) D5); DOM observation only, no screenshot diffing, accessibility audit, or performance tracing.
 
-**Reference:** [Configuration](CONFIGURATION.md) · [Enable live-DOM verification](how-to/enable-live-dom-verification.md) · [Explanation](explanation/live-dom-uat-capability.md) · [Agents](AGENTS.md)
+**Reference:** [Configuration](CONFIGURATION.md) · [Enable live-DOM verification](how-to/enable-live-dom-verification.md) · [Explanation](explanation/live-dom-uat-capability.md) · [Agents](reference/agents.md)
 
 ---
 
@@ -4543,7 +4557,12 @@ from the tracker at execution time instead of reading it inline out of `PLAN.md`
   A resolver that is declared but fails — tracker unreachable, id not found, timeout, malformed
   JSON — makes `task resolve-content` itself **exit non-zero**, which `execute-plan.md` treats as
   a **hard halt**: stop, surface the tracker-id/prefix/stderr, never fall back to stale
-  `PLAN.md` content.
+  `PLAN.md` content. An unsafe id (leading `-` or control characters) is rejected the same way, before any resolver is spawned.
+- **Decision-coverage gates also resolve tracker-held bodies.** `check decision-coverage-plan` and
+  `check decision-coverage-verify` resolve each `tracker-id` task through the same seam and count
+  the resolved `action`/`verify`/`acceptance_criteria`/`read_first`/`done` text as plan text. A
+  declared resolver that fails, times out or returns ambiguous/malformed output blocks the plan
+  gate and reports the verify gate unreadable. Plans without `tracker-id` are unchanged.
 - `execute:task` is a new dispatch shape below wave granularity, deliberately **not** one of the
   12 existing loop extension points (`discuss:pre` … `ship:post`) and not routed through
   `gsd_run loop render-hooks <point>` / `activeHooks`. It exists because the existing
@@ -4655,6 +4674,32 @@ default location.
   different unit.
 - With `graphify` absent from `PATH` the fallback runs and the injected graph
   context is byte-identical to before.
+
+---
+
+### 5170. Gate Evidence and Verdict-Driven Exit Status
+
+**Purpose:** A gate that could not read its evidence used to behave exactly like a gate that read it and found nothing. A phase directory that failed to list, a plan that was a directory, an unreadable `COVERAGE.md` or a nested `plans/` that errored all collapsed to an empty string, an empty list or `false`, and the gate passed over content it never saw. Separately, the exit code was chosen verb by verb: `phase uat-passed` and `verify artifacts` printed a failing verdict and exited `0`, so a script that branched on `$?` shipped a failed phase (#4686). This is the third and fourth bullet of [ADR-5057](adr/5057-one-owner-per-workflow-verdict.md) §4 (epic #5056, #5170).
+
+**Behavior:**
+
+- **Unreadable is a distinct state from none.** A gate reads evidence as `found` (a value; an empty file is `found ''`), `none` (the thing authoritatively does not exist: `ENOENT`, or `ENOTDIR` because a parent is a file) or `unreadable` (it exists or may exist and could not be read: `EISDIR`, `EACCES`, `EIO`, an encoding failure, an unresolvable phase, a plan scan that did not see every plan). `none` is a legitimate answer and each gate keeps its documented policy for it; `unreadable` is never coerced to `''`, `false` or an empty list. The verdict builder for the `unreadable` arm returns a verdict typed `outcome: 'unreadable'`, so a passing verdict from that arm does not type-check. A drift guard (`lint-gate-evidence-drift`) rejects the remaining shapes the type cannot see: an empty `catch` in a gate, a tolerant reader that returns `''`, a verdict arm that passes from `unreadable`, and a gate verb that sets its own exit code.
+- **The exit code is a function of the verdict.** One total function maps the outcome to a registered code: positive verdicts `0`; a negative verdict `1` in status mode; a read-and-genuinely-empty scope `66` (`NO_INPUT`); `unreadable` `69` (`UNAVAILABLE`) in both modes. No verb picks a code. The gate's own `block` decision is untouched: policy did not change, only the outcome and the exit for the unreadable arms.
+- **Status mode and payload mode.** `phase uat-passed` and the `verify` verbs that shell callers branch on (`artifacts`, `plan-structure`, `phase-completeness`, `references`, `commits`, `key-links`) are status mode: exit `1` is a negative verdict and the JSON on stdout is still the verdict. The gates that are routed as `check <verb>`, and the three drift verbs, are payload mode.
+- **Why `check` verbs stay payload mode.** The gate dispatch (`execute-phase/steps/wave-post-gate-hooks.md` step 1, `references/loop-hook-dispatch.md`) reads `.block` from stdout and treats a non-zero exit as a command failure routed by the capability's `onError`. `capabilities/drift` declares schema-drift `blocking: true, onError: skip`; exit `1` for "blocked" would be dropped as a skippable failure. A blocking verdict is therefore a delivered answer and exits `0`; only "could not look" exits `69`, which the dispatch routes as a step-1 command failure.
+- **Callers are migrated.** The workflow and agent shell blocks that consume these verbs capture the status (`… && X_EXIT=0 || X_EXIT=$?`, safe under `set -e`), read the JSON for `0`, `1` and `66`, and treat `69` or anything else as "could not run". Fail-closed consumers (the safe-resume and TDD gates) halt with a message that is not "missing RED commit".
+
+**Declared behavior changes:**
+
+- `verify schema-drift` reads `files_modified` through the Frontmatter Module: a YAML block sequence and CRLF files now yield their files (#4562); before, only the inline array was seen and such a plan reported no drift.
+- `verify plan-structure` flags a `! grep -q 'LIT' f` negative gate whose literal also appears in the same task `<action>` (#4541).
+- A plan that exists but is empty is read: `verify artifacts` / `verify key-links` exit `66` instead of `File not found`; `verify plan-structure` reports it invalid (`1`).
+- `verify commits` outside a git work tree answers `{"error":"Not a git repository"}` with `69` instead of listing every hash as invalid.
+- `scripts/run-tests.cjs` fails a chunk whose registered tests exceed its reported results, or whose accounting inputs are missing; it no longer drops executed tests under `--test-force-exit` (#4031).
+
+**Known limits:** `checkUiPresence` is a vocabulary check over prose and reads nothing; it stays outside the evidence type. Gates whose accepted-evidence model is narrower than GSD's producers (#4692, #4867, #4957) are out of scope.
+
+**Reference:** [Gate verb exit statuses](CLI-TOOLS.md#gate-verb-exit-statuses-5170) · [Exit code reference](reference/exit-codes.md) · [Handle gate verb exit statuses](how-to/handle-gate-verb-exit-statuses.md)
 
 ---
 

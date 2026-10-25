@@ -73,7 +73,8 @@ const LOOP_HOST_CONTRACT = [
     ],
     "agentRoles": [
       "executor",
-      "verifier"
+      "verifier",
+      "code-reviewer"
     ],
     "coreArtifacts": {
       "produces": [

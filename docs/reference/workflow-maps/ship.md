@@ -4,7 +4,7 @@
 
 Источник: `gsd-core/workflows/ship.md`. Единицы: 10 шагов `<step>`. Спавнов: 2. Точки цикла: `ship:pre`, `ship:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 6; не называют реальный шаг и не рисуются — **5**; названы по имени шага и нарисованы пунктиром `goto` — 1.
+> **Переходы в прозе** (фразы «перейди к …»): всего 6; не называют реальный шаг и не рисуются — **4**; названы по имени шага и нарисованы пунктиром `goto` — 2.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -35,6 +35,7 @@ flowchart TB
   u_step_optional_review --> u_step_track_shipping
   u_step_track_shipping --> u_step_ship_post_capability_dispatch
   u_step_ship_post_capability_dispatch --> u_step_report
+  u_step_preflight_checks -.->|"goto"| u_step_push_branch
   u_step_filter_planning_commits -.->|"goto"| u_step_push_branch
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555

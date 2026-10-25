@@ -1465,11 +1465,14 @@ describe('#4142: opts.convention threads through findStaleVerificationSummary', 
 // cross-phase report cannot satisfy the gate merely by sitting in the bracket
 // phase's directory.
 describe('#4142: phase complete verdict scopes bracket verification reports', () => {
-  const { runGsdTools } = require('./helpers.cjs');
+  const { runGsdTools, homeSandboxEnv } = require('./helpers.cjs');
 
   test('a passed cross-phase stray cannot complete a bracket phase', (t) => {
     const projectDir = createTempGitProject('gsd-4142-phase-complete-');
     t.after(() => cleanup(projectDir));
+    // An empty home: the child must not read the developer's ~/.gsd (#5594).
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4142-home-'));
+    t.after(() => cleanup(home));
 
     fs.writeFileSync(
       path.join(projectDir, '.planning', 'config.json'),
@@ -1483,6 +1486,7 @@ describe('#4142: phase complete verdict scopes bracket verification reports', ()
     const result = runGsdTools(
       ['--json-errors', 'phase', 'complete', phaseDirName],
       projectDir,
+      homeSandboxEnv(home),
     );
 
     assert.equal(
@@ -2238,6 +2242,144 @@ function writeSharedDocs4623(projectDir, { roadmapDone = false, reqDone = false 
 
 const SHARED_DOCS_4623 = ['.planning/ROADMAP.md', '.planning/REQUIREMENTS.md'];
 
+describe('#5351: covered-input fingerprints normalize only CRLF byte pairs in v4', () => {
+  const crypto = require('node:crypto');
+  const fc = require('./helpers/fast-check-setup.cjs');
+  const { runGsdTools } = require('./helpers.cjs');
+  const { splitLines, joinLines } = require('../gsd-core/bin/lib/text-lines.cjs');
+
+  // Independent oracle: these fixtures already supply the exact bytes to hash.
+  // No production canonicalizer or line-ending helper participates in the answer.
+  function expectedDigest(version, entries) {
+    const parts = [...entries].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([rel, bytes]) => {
+      const hash = crypto.createHash('sha256').update(bytes).digest('hex');
+      return `${rel}\n${hash}\n`;
+    });
+    const aggregate = crypto.createHash('sha256').update(`v${version}\n${parts.join('')}`).digest('hex');
+    return `v${version}:sha256:${aggregate}`;
+  }
+
+  test('fresh LF and CRLF fingerprints have the same v4 digest', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-5351-eol-'));
+    t.after(() => cleanup(root));
+    const target = path.join(root, 'impl.txt');
+    fs.writeFileSync(target, 'line one\nline two\n');
+    const lf = computeCoveredDigest(root, ['impl.txt']);
+    fs.writeFileSync(target, 'line one\r\nline two\r\n');
+    assert.equal(computeCoveredDigest(root, ['impl.txt']), lf);
+    assert.match(lf, /^v4:sha256:[0-9a-f]{64}$/);
+    assert.equal(parseFingerprintVersion(lf), 4);
+  });
+
+  for (const [name, input, normalized] of [
+    ['empty input', [], []],
+    ['a lone CR', [13], [13]],
+    ['a lone LF', [10], [10]],
+    ['one CRLF pair', [13, 10], [10]],
+    ['a leading pair', [13, 10, 0xff], [10, 0xff]],
+    ['a trailing pair', [0xfe, 13, 10], [0xfe, 10]],
+    ['a lone CR before a pair', [13, 13, 10], [13, 10]],
+    ['a lone CR after a pair', [13, 10, 13], [10, 13]],
+    ['adjacent pairs and binary bytes', [0, 13, 10, 13, 10, 0xff, 13], [0, 10, 10, 0xff, 13]],
+  ]) {
+    test(`byte boundary: ${name}`, (t) => {
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-5351-bytes-'));
+      t.after(() => cleanup(root));
+      fs.writeFileSync(path.join(root, 'impl.bin'), Buffer.from(input));
+      assert.equal(
+        computeCoveredDigest(root, ['impl.bin'], 4),
+        expectedDigest(4, [['impl.bin', Buffer.from(normalized)]]),
+      );
+    });
+  }
+
+  test('distinct invalid UTF-8 bytes and a lone CR still move the v4 digest', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-5351-binary-'));
+    t.after(() => cleanup(root));
+    const target = path.join(root, 'impl.bin');
+    fs.writeFileSync(target, Buffer.from([0xff, 13, 10, 0]));
+    const first = computeCoveredDigest(root, ['impl.bin'], 4);
+    assert.equal(first, expectedDigest(4, [['impl.bin', Buffer.from([0xff, 10, 0])]]));
+    fs.writeFileSync(target, Buffer.from([0xfe, 13, 10, 0]));
+    const changedByte = computeCoveredDigest(root, ['impl.bin'], 4);
+    assert.notEqual(changedByte, first, 'UTF-8 replacement characters must never collapse distinct bytes');
+    fs.writeFileSync(target, Buffer.from([0xfe, 13, 0]));
+    assert.notEqual(computeCoveredDigest(root, ['impl.bin'], 4), changedByte, 'a lone CR is preserved');
+  });
+
+  test('property: v4 drops exactly each CR followed by LF and preserves every other byte', async (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-5351-property-'));
+    t.after(() => cleanup(root));
+    const target = path.join(root, 'impl.bin');
+    await fc.assert(fc.property(
+      fc.array(fc.integer({ min: 0, max: 255 }), { maxLength: 256 }),
+      (randomBytes) => {
+        const bytes = [13, 10, ...randomBytes, 13, 10, 13];
+        const normalized = Buffer.from(bytes.filter((byte, i) => byte !== 13 || bytes[i + 1] !== 10));
+        fs.writeFileSync(target, Buffer.from(bytes));
+        const actual = computeCoveredDigest(root, ['impl.bin'], 4);
+        assert.equal(actual, expectedDigest(4, [['impl.bin', normalized]]));
+        assert.equal(computeCoveredDigest(root, ['impl.bin']), actual, 'fresh fingerprints use v4');
+        for (const version of [1, 2, 3]) {
+          assert.equal(
+            computeCoveredDigest(root, ['impl.bin'], version),
+            expectedDigest(version, [['impl.bin', Buffer.from(bytes)]]),
+            'legacy versions preserve raw bytes',
+          );
+        }
+      },
+    ));
+  });
+
+  for (const version of [1, 2, 3]) {
+    test(`a stored v${version} report retains raw-byte semantics across the v4 upgrade`, (t) => {
+      const root = createTempGitProject();
+      t.after(() => cleanup(root));
+      const phase = makePhase4623(root, '01-legacy');
+      const covered = [...phase.ownFiles, 'impl.bin'];
+      const target = path.join(root, 'impl.bin');
+      fs.writeFileSync(target, Buffer.from([0xff, 13, 10, 0]));
+      const digest = expectedDigest(version, covered.map((rel) => [rel, fs.readFileSync(path.join(root, rel))]));
+      assert.equal(computeCoveredDigest(root, covered, version, { phaseDir: phase.phaseDir }), digest);
+      writeReport4623(phase, covered, digest);
+      assert.equal(readVerificationStatus(phase.phaseDir, NO_GIT_TIMES).status, 'passed');
+
+      fs.writeFileSync(target, Buffer.from([0xff, 10, 0]));
+      assert.notEqual(computeCoveredDigest(root, covered, version, { phaseDir: phase.phaseDir }), digest);
+      assert.equal(readVerificationStatus(phase.phaseDir, NO_GIT_TIMES).status, 'stale', 'legacy bytes still decide staleness');
+    });
+  }
+
+  test('CLI LF fingerprint → CRLF checkout remains passed; a real edit reads stale', (t) => {
+    const root = createTempGitProject();
+    t.after(() => cleanup(root));
+    const phase = makePhase4623(root, '01-checkout');
+    fs.writeFileSync(path.join(root, 'impl.txt'), 'line one\nline two\n');
+    const result = runGsdTools(['verification', 'fingerprint', phase.phaseDir, 'impl.txt'], root);
+    assert.equal(result.success, true, result.error);
+    const fingerprint = JSON.parse(result.output);
+    writeReport4623(phase, fingerprint.covered_files, fingerprint.covered_digest);
+    const reportPath = path.join(phase.phaseDir, '01-VERIFICATION.md');
+    const reportBytes = fs.readFileSync(reportPath);
+    for (const rel of fingerprint.covered_files) {
+      const target = path.join(root, rel);
+      fs.writeFileSync(target, joinLines(splitLines(fs.readFileSync(target, 'utf8')), '\r\n'));
+    }
+    assert.equal(readVerificationStatus(phase.phaseDir, NO_GIT_TIMES).status, 'passed');
+    const status = () => {
+      const res = runGsdTools(['verification', 'status', phase.phaseDir, '--pick', 'status'], root);
+      assert.equal(res.success, true, res.error);
+      return res.output;
+    };
+    assert.equal(status(), 'passed');
+    fs.writeFileSync(path.join(root, 'impl.txt'), 'line one\r\nline changed\r\n');
+    assert.equal(readVerificationStatus(phase.phaseDir, NO_GIT_TIMES).status, 'stale');
+    assert.equal(status(), 'stale');
+    assert.deepEqual(fs.readFileSync(reportPath), reportBytes, 'status reads never re-fingerprint a report');
+    assert.match(fingerprint.covered_digest, /^v4:sha256:[0-9a-f]{64}$/);
+  });
+});
+
 describe('#4623: isSharedPlanningDoc — a repo-wide planning document is a DIRECT child of .planning/', () => {
   test('top-level planning documents are shared, whatever their name', () => {
     for (const rel of [
@@ -2358,12 +2500,12 @@ describe('#4623: parseFingerprintFileArgs — every --files form the issue tried
 });
 
 describe('#4623: computeCoveredDigest v2 — shared planning documents do not enter the digest', () => {
-  test('defaults to v3 and names the version in the digest', (t) => {
-    // #5095: the default fingerprint version bumped v2 -> v3 (ADR-5057 Phase 2).
+  test('defaults to v4 and names the version in the digest', (t) => {
+    // #5351: fresh fingerprints use v4; older versions remain available.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4623-version-'));
     t.after(() => cleanup(root));
     fs.writeFileSync(path.join(root, 'impl.txt'), 'x');
-    assert.match(computeCoveredDigest(root, ['impl.txt']), /^v3:sha256:[0-9a-f]{64}$/);
+    assert.match(computeCoveredDigest(root, ['impl.txt']), /^v4:sha256:[0-9a-f]{64}$/);
     assert.match(computeCoveredDigest(root, ['impl.txt'], 1), /^v1:sha256:[0-9a-f]{64}$/);
     assert.notEqual(computeCoveredDigest(root, ['impl.txt']), computeCoveredDigest(root, ['impl.txt'], 1));
   });
@@ -2551,10 +2693,10 @@ describe('#4623: readVerificationStatus — shared planning documents no longer 
     assert.equal(readVerificationStatus(a.phaseDir, NO_GIT_TIMES).status, 'stale', 'v1 hashed the shared docs; honour that');
 
     // The documented remedy: recompute through the CLI, paste the result.
-    // #5095: the CLI's default fingerprint version bumped v2 -> v3.
-    const v3 = fingerprintViaCli(projectDir, a, covered);
-    assert.match(v3, /^v3:/);
-    writeReport4623(a, covered, v3);
+    // #5351: the CLI writes the current v4 format.
+    const current = fingerprintViaCli(projectDir, a, covered);
+    assert.match(current, /^v4:/);
+    writeReport4623(a, covered, current);
     assert.equal(readVerificationStatus(a.phaseDir, NO_GIT_TIMES).status, 'passed');
     writeSharedDocs4623(projectDir, { roadmapDone: true, reqDone: true });
     assert.equal(readVerificationStatus(a.phaseDir, NO_GIT_TIMES).status, 'passed', 'and it lasts');
@@ -2638,7 +2780,7 @@ describe('#4623: verification.fingerprint CLI — --files forms and the phase-di
     const positional = expectJson(run(projectDir, a.phaseDir, 'fastlane/Fastfile'));
     const flagged = expectJson(run(projectDir, a.phaseDir, '--files', 'fastlane/Fastfile'));
     assert.deepEqual(flagged, positional);
-    // #5095: under v3 (ADR-5057 Phase 2 R1) covered_files is the declared set
+    // #5095: under v3+ (ADR-5057 Phase 2 R1) covered_files is the declared set
     // UNIONED with the phase's own PLAN/SUMMARY artifacts, not the declared
     // list alone — the pin here is that both invocation forms agree.
     assert.deepEqual(positional.covered_files, [...a.ownFiles, 'fastlane/Fastfile'].sort());
@@ -2649,7 +2791,7 @@ describe('#4623: verification.fingerprint CLI — --files forms and the phase-di
     t.after(() => cleanup(projectDir));
     const positional = expectJson(run(projectDir, a.phaseDir, 'b.rb', 'a.rb'));
     // #5095: covered_files is the declared set unioned with the phase's own
-    // PLAN/SUMMARY artifacts under v3 (ADR-5057 Phase 2 R1) — the pin is that
+    // PLAN/SUMMARY artifacts under v3+ (ADR-5057 Phase 2 R1) — the pin is that
     // every equivalent invocation form produces the identical, canonical set.
     assert.deepEqual(positional.covered_files, [...a.ownFiles, 'a.rb', 'b.rb'].sort());
     assert.deepEqual(expectJson(run(projectDir, a.phaseDir, '--files', 'a.rb,b.rb')), positional);
@@ -2668,7 +2810,7 @@ describe('#4623: verification.fingerprint CLI — --files forms and the phase-di
     const { projectDir, a } = setup();
     t.after(() => cleanup(projectDir));
     // #5095: --raw must print exactly the `covered_digest` the SAME command
-    // would emit as JSON (which, under v3, is the declared+artifact union) —
+    // would emit as JSON (which, under v3+, is the declared+artifact union) —
     // not a digest recomputed over the declared list alone.
     const json = expectJson(run(projectDir, a.phaseDir, '--files', 'a.rb,b.rb'));
     const res = run(projectDir, a.phaseDir, '--files', 'a.rb,b.rb', '--raw');
@@ -2744,9 +2886,9 @@ describe('#4623: verification.fingerprint CLI — --files forms and the phase-di
     assert.match(`${dir.output}${dir.error}`, /missing, unreadable/);
   });
 
-  test('a declared shared document stays listed in covered_files, and the emitted v3 digest survives its rewrite', (t) => {
-    // #5095: default fingerprint version bumped v2 -> v3; `covered` here
-    // already equals the phase's own artifact set (a.ownFiles), so the v3
+  test('a declared shared document stays listed in covered_files, and the emitted v4 digest survives its rewrite', (t) => {
+    // `covered` here already equals the phase's own artifact set
+    // (a.ownFiles), so the v3+ (#5095) artifact
     // union contributes nothing new and the digest is byte-identical to a
     // direct computeCoveredDigest call over the same declared list.
     const { projectDir, a } = setup();
@@ -2755,7 +2897,7 @@ describe('#4623: verification.fingerprint CLI — --files forms and the phase-di
     const covered = [...a.ownFiles, ...SHARED_DOCS_4623];
     const first = expectJson(run(projectDir, a.phaseDir, '--files', covered.join(',')));
     assert.deepEqual(first.covered_files, [...covered].sort());
-    assert.match(first.covered_digest, /^v3:/);
+    assert.match(first.covered_digest, /^v4:/);
     assert.equal(first.covered_digest, computeCoveredDigest(projectDir, covered));
 
     writeSharedDocs4623(projectDir, { roadmapDone: true, reqDone: true });
@@ -3366,13 +3508,14 @@ describe('#4894 --project-dir reaches verification root resolution', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 // #5095 / ADR-5057 Phase 2: the fingerprint's input set is closed and
 // idempotent. Rows below follow .gsd/phase/refactor-5095-fingerprint-input-set/
-// 50-test-matrix.md's numbering (1-21). Targets the design's v3 API:
-//   - FINGERPRINT_VERSION === 3, digest prefix v3:sha256: for fresh fingerprints
+// 50-test-matrix.md's numbering (1-21). The v3 input-set contract remains
+// current in v4 (#5351), which additionally normalizes covered CRLF byte pairs:
+//   - FINGERPRINT_VERSION === 4, digest prefix v4:sha256: for fresh fingerprints
 //   - computeCoveredDigest(projectRoot, coveredFiles, version, {phaseDir}):
 //     unchanged signature; v3 filters report-shaped declared paths
 //   - CLI `verification.fingerprint <phaseDir> <files...>` emits covered_files
 //     as a superset of the declared list, including every live
-//     *-PLAN.md/*-SUMMARY.md (root-relative posix), plus a v3 digest
+//     *-PLAN.md/*-SUMMARY.md (root-relative posix), plus a current-version digest
 //   - two containment roots: `.planning/...` paths confined to
 //     realpath(<projectRoot>/.planning); other paths to realpath(projectRoot)
 // Rows explicitly marked fail-first below are expected to fail against
@@ -3418,8 +3561,8 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     return { projectDir, store };
   }
 
-  // ── Row 1: happy path, v3 digest ──────────────────────────────────────────
-  test('row 1: declared [plan, summary, impl], fresh → v3 digest; status passed', (t) => {
+  // ── Row 1: happy path, current-version digest ─────────────────────────────
+  test('row 1: declared [plan, summary, impl], fresh → v4 digest; status passed', (t) => {
     const projectDir = createTempGitProject();
     t.after(() => cleanup(projectDir));
     const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
@@ -3435,7 +3578,7 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
       'src/impl.ts',
     ];
     const digest = computeCoveredDigest(projectDir, files);
-    assert.match(digest, /^v3:sha256:[0-9a-f]{64}$/, 'default fingerprint version must be v3 (#5095)');
+    assert.match(digest, /^v4:sha256:[0-9a-f]{64}$/, 'default fingerprint version must be v4 (#5351)');
 
     const fp = fpCli(projectDir, phaseDir, files);
     writeReportFrom(phaseDir, '01-VERIFICATION.md', fp);
@@ -3552,7 +3695,7 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     ]);
     assert.equal(
       withReportShaped, baseline,
-      'report-shaped files (basename VERIFICATION.md or *-VERIFICATION.md) must not enter the v3 digest',
+      'report-shaped files (basename VERIFICATION.md or *-VERIFICATION.md) must not enter the v3+ digest',
     );
   });
 
@@ -3645,6 +3788,150 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     assert.equal(statusCli(projectDir, phaseDir), 'stale');
   });
 
+  // ── #4817 Part 1 residual: a LEGACY (v1/v2) report whose digest still matches but that never
+  // declared a current plan/summary reads `stale`. The remedy is the same single route, but the
+  // diagnostic must say what is wrong: an artifact the report never covered, named — not "covered
+  // source files changed", which is false here. v3 reports cannot reach this state (the emitter
+  // completes the covered set and the digest includes the live artifacts). ──────────────────────
+  describe('stale diagnostic for a legacy report with an undeclared plan/summary (#4817)', () => {
+    function legacyProject(t, { declared, version = 1 }) {
+      const projectDir = createTempGitProject();
+      t.after(() => cleanup(projectDir));
+      const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
+      fs.mkdirSync(phaseDir, { recursive: true });
+      fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
+      fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), '# Summary\n');
+      fs.mkdirSync(path.join(projectDir, 'src'));
+      fs.writeFileSync(path.join(projectDir, 'src', 'impl.ts'), 'export const x = 1;\n');
+      const { computeCoveredDigest } = require('../gsd-core/bin/lib/verification.cjs');
+      const digest = computeCoveredDigest(projectDir, declared, version, {});
+      assert.ok(digest, 'the legacy digest must compute');
+      fs.writeFileSync(
+        path.join(phaseDir, '01-VERIFICATION.md'),
+        `---\nstatus: passed\ncovered_files:\n${declared.map((f) => `  - ${f}`).join('\n')}\ncovered_digest: "${digest}"\n---\n`,
+      );
+      return { projectDir, phaseDir };
+    }
+
+    function fullStatus(projectDir, phaseDir) {
+      const res = runGsdTools(['verification', 'status', phaseDir], projectDir);
+      assert.ok(res.success, `verification status should run: ${res.error}`);
+      return JSON.parse(res.output);
+    }
+
+    test('zero drift, plan and summary never declared: stale, naming both artifacts, not blaming a changed file', (t) => {
+      const { projectDir, phaseDir } = legacyProject(t, { declared: ['src/impl.ts'] });
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'stale');
+      assert.equal(r.route, 'execute-phase', 'the one stale route is unchanged');
+      assert.deepEqual([...r.uncovered_artifacts].sort(), ['01-01-PLAN.md', '01-01-SUMMARY.md']);
+      assert.ok(r.next_action.includes('01-01-PLAN.md') && r.next_action.includes('01-01-SUMMARY.md'), r.next_action);
+      assert.ok(!/covered source files changed/.test(r.next_action), `must not claim a file changed: ${r.next_action}`);
+    });
+
+    test('a covered file changed AND an artifact never declared: both problems are exposed', (t) => {
+      const { projectDir, phaseDir } = legacyProject(t, { declared: ['src/impl.ts'] });
+      fs.writeFileSync(path.join(projectDir, 'src', 'impl.ts'), 'export const x = 2;\n');
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'stale');
+      assert.ok(/covered source files changed/.test(r.next_action), r.next_action);
+      assert.deepEqual([...r.uncovered_artifacts].sort(), ['01-01-PLAN.md', '01-01-SUMMARY.md']);
+      assert.ok(r.next_action.includes('01-01-PLAN.md'), r.next_action);
+    });
+
+    test('genuine drift with every artifact declared keeps the original diagnostic and no uncovered field', (t) => {
+      const declared = ['src/impl.ts', '.planning/phases/01-foo/01-01-PLAN.md', '.planning/phases/01-foo/01-01-SUMMARY.md'];
+      const { projectDir, phaseDir } = legacyProject(t, { declared });
+      fs.writeFileSync(path.join(projectDir, 'src', 'impl.ts'), 'export const x = 2;\n');
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'stale');
+      assert.ok(/covered source files changed/.test(r.next_action), r.next_action);
+      assert.equal(r.uncovered_artifacts, undefined);
+    });
+
+    test('a fully covered, unchanged legacy report still reads passed', (t) => {
+      const declared = ['src/impl.ts', '.planning/phases/01-foo/01-01-PLAN.md', '.planning/phases/01-foo/01-01-SUMMARY.md'];
+      const { projectDir, phaseDir } = legacyProject(t, { declared });
+      assert.equal(statusCli(projectDir, phaseDir), 'passed');
+    });
+
+    test('a v4 report written by the emitter never shows an uncovered artifact', (t) => {
+      const projectDir = createTempGitProject();
+      t.after(() => cleanup(projectDir));
+      const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
+      fs.mkdirSync(phaseDir, { recursive: true });
+      fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
+      fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), '# Summary\n');
+      fs.mkdirSync(path.join(projectDir, 'src'));
+      fs.writeFileSync(path.join(projectDir, 'src', 'impl.ts'), 'export const x = 1;\n');
+      writeReportFrom(phaseDir, '01-VERIFICATION.md', fpCli(projectDir, phaseDir, ['src/impl.ts']));
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'passed');
+      assert.equal(r.uncovered_artifacts, undefined);
+    });
+  });
+
+  describe('stale diagnostic names the covered files that moved (#4857)', () => {
+    function stampedProject(t) {
+      const projectDir = createTempGitProject();
+      t.after(() => cleanup(projectDir));
+      const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
+      fs.mkdirSync(phaseDir, { recursive: true });
+      fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan\n');
+      fs.writeFileSync(path.join(phaseDir, '01-01-SUMMARY.md'), '# Summary\n');
+      fs.mkdirSync(path.join(projectDir, 'src'));
+      fs.writeFileSync(path.join(projectDir, 'src', 'a.ts'), 'export const a = 1;\n');
+      fs.writeFileSync(path.join(projectDir, 'src', 'b.ts'), 'export const b = 1;\n');
+      writeReportFrom(phaseDir, '01-VERIFICATION.md', fpCli(projectDir, phaseDir, ['src/a.ts', 'src/b.ts']));
+      // The report predates every later edit by a minute, so the edit times below are unambiguous.
+      const past = new Date(Date.now() - 120000);
+      for (const f of ['src/a.ts', 'src/b.ts', '.planning/phases/01-foo/01-01-PLAN.md', '.planning/phases/01-foo/01-01-SUMMARY.md']) {
+        fs.utimesSync(path.join(projectDir, f), past, past);
+      }
+      const reportTime = new Date(Date.now() - 60000);
+      fs.utimesSync(path.join(phaseDir, '01-VERIFICATION.md'), reportTime, reportTime);
+      return { projectDir, phaseDir };
+    }
+
+    function fullStatus(projectDir, phaseDir) {
+      const res = runGsdTools(['verification', 'status', phaseDir], projectDir);
+      assert.ok(res.success, `verification status should run: ${res.error}`);
+      return JSON.parse(res.output);
+    }
+
+    test('one covered file edited after the report: stale, naming exactly that file', (t) => {
+      const { projectDir, phaseDir } = stampedProject(t);
+      fs.writeFileSync(path.join(projectDir, 'src', 'b.ts'), 'export const b = 2;\n');
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'stale');
+      assert.deepEqual(r.moved_files, ['src/b.ts']);
+      assert.ok(r.next_action.includes('src/b.ts') && !r.next_action.includes('src/a.ts'), r.next_action);
+    });
+
+    test('a plan edited after the report is a moved covered file too', (t) => {
+      const { projectDir, phaseDir } = stampedProject(t);
+      fs.writeFileSync(path.join(phaseDir, '01-01-PLAN.md'), '# Plan v2\n');
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'stale');
+      assert.deepEqual(r.moved_files, ['.planning/phases/01-foo/01-01-PLAN.md']);
+    });
+
+    test('an unchanged covered set reads passed with no moved_files', (t) => {
+      const { projectDir, phaseDir } = stampedProject(t);
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'passed');
+      assert.equal(r.moved_files, undefined);
+    });
+
+    test('a file the report does not cover never appears in moved_files', (t) => {
+      const { projectDir, phaseDir } = stampedProject(t);
+      fs.writeFileSync(path.join(projectDir, 'src', 'unrelated.ts'), 'export const u = 1;\n');
+      const r = fullStatus(projectDir, phaseDir);
+      assert.equal(r.status, 'passed');
+      assert.equal(r.moved_files, undefined);
+    });
+  });
+
   // ── R1(a) (CLI, fail-first): --raw returns only the digest, and a caller
   // that writes its OWN declared list (no plans/summaries) plus that raw
   // digest still reads passed — the checker adds the same union on both
@@ -3662,7 +3949,7 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
 
     const raw = runGsdTools(['verification', 'fingerprint', phaseDir, ...declared, '--raw'], projectDir);
     assert.equal(raw.success, true, `--raw fingerprint should succeed: ${raw.error}`);
-    assert.match(raw.output.trim(), /^v3:sha256:[0-9a-f]{64}$/, '--raw must emit only the digest, no JSON envelope');
+    assert.match(raw.output.trim(), /^v4:sha256:[0-9a-f]{64}$/, '--raw must emit only the digest, no JSON envelope');
 
     // The caller declares ONLY its own list — no plans/summaries — and pairs
     // it with the raw digest. The checker's own union (stored ∪ live
@@ -3704,7 +3991,7 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     fs.writeFileSync(path.join(projectDir, 'src', 'x.cts'), 'export const x = 1;\n');
     const digest = computeCoveredDigest(projectDir, ['src/x.cts']);
     assert.ok(digest, 'an ordinary checkout-relative file must still hash');
-    assert.match(digest, /^v3:sha256:/);
+    assert.match(digest, /^v4:sha256:/);
   });
 
   // ── Row 11 (hostile, regression-lock) ─────────────────────────────────────
@@ -3760,8 +4047,8 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     assert.equal(result.status, 'passed', 'a v2-pinned report must recompute under v2 semantics, not v3');
   });
 
-  // ── Row 15 (CLI, independence): a self-covering v2 report heals with one v3 restamp ──
-  test('row 15: a stored v2 digest that covered the report stays stale; a v3 restamp is stable', (t) => {
+  // ── Row 15 (CLI, independence): a self-covering v2 report heals with one current-version restamp ──
+  test('row 15: a stored v2 digest that covered the report stays stale; a v4 restamp is stable', (t) => {
     const projectDir = createTempGitProject();
     t.after(() => cleanup(projectDir));
     const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
@@ -3784,10 +4071,10 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
     );
     assert.equal(statusCli(projectDir, phaseDir), 'stale', 'a v2 report that covers itself never stabilizes');
 
-    // Restamp via the v3 CLI (report excluded by construction).
+    // Restamp via the v4 CLI (report excluded by construction).
     const fp = fpCli(projectDir, phaseDir, [planRel, summaryRel]);
     writeReportFrom(phaseDir, '01-VERIFICATION.md', fp);
-    assert.equal(statusCli(projectDir, phaseDir), 'passed', 'v3 restamp must heal it');
+    assert.equal(statusCli(projectDir, phaseDir), 'passed', 'v4 restamp must heal it');
     assert.equal(statusCli(projectDir, phaseDir), 'passed', 'and stay stable on a second recompute');
   });
 
@@ -3828,7 +4115,7 @@ describe('fingerprint input set is closed and idempotent (#5095, ADR-5057 Phase 
   });
 
   // ── Row 17 (boundary, regression-lock): spelling normalization ───────────
-  test('row 17: "./.planning/…" and ".planning//phases/…" normalize to the same v3 digest', (t) => {
+  test('row 17: "./.planning/…" and ".planning//phases/…" normalize to the same current-version digest', (t) => {
     const projectDir = createTempGitProject();
     t.after(() => cleanup(projectDir));
     const phaseDir = path.join(projectDir, '.planning', 'phases', '01-foo');
@@ -4968,7 +5255,10 @@ describe('#5118 D: every CLI surface translates the out-of-set error once, centr
     test(`${row}: ${name} exits non-zero with reason verification_status_invalid and writes nothing (control: the same fixture with passed exits 0)`, (t) => {
       const control = project(t, 'passed');
       const ok = runGsdTools(['--json-errors', ...argv(control.phaseDir)], control.projectDir);
-      assert.equal(ok.exitCode, 0, `control: ${name} must succeed on an in-set report: ${ok.error}`);
+      // #5170: `phase uat-passed` answers with its verdict, so exit 1 (not passed) is an answer there;
+      // every other surface still exits 0 on an in-set report.
+      const answered = row === 'V30' ? [0, 1] : [0];
+      assert.ok(answered.includes(ok.exitCode), `control: ${name} must answer on an in-set report: ${ok.error}`);
 
       const bad = project(t, 'verified');
       const before = planningBytes(bad.projectDir);
@@ -5120,9 +5410,13 @@ describe('#5118 round 3: containment before read, no write before the error, and
     return outside;
   }
 
+  // `expectExit0` is true (exit 0), false (any exit) or an array of accepted exits. `phase uat-passed`
+  // answers with its verdict (#5170): exit 0 = passed, exit 1 = not passed — both are answers.
+  const VERDICT_EXITS = [0, 1];
   function assertNoLeak(argv, cwd, expectExit0 = true) {
     const res = runGsdTools(argv, cwd);
-    if (expectExit0) assert.equal(res.exitCode, 0, `${argv.join(' ')}: ${res.error}`);
+    if (Array.isArray(expectExit0)) assert.ok(expectExit0.includes(res.exitCode), `${argv.join(' ')}: ${res.error}`);
+    else if (expectExit0) assert.equal(res.exitCode, 0, `${argv.join(' ')}: ${res.error}`);
     assert.equal((`${res.output}${res.error}`).includes(SECRET), false, `${argv.join(' ')}: content of an escaped report reached the output`);
     return res;
   }
@@ -5141,7 +5435,7 @@ describe('#5118 round 3: containment before read, no write before the error, and
       fs.symlinkSync(linkTarget(phaseDir, secretFile), reportPath);
 
       assertNoLeak(['init', 'verify-work', '1'], projectDir);
-      assertNoLeak(['phase', 'uat-passed', '1', '--require-verification'], projectDir);
+      assertNoLeak(['phase', 'uat-passed', '1', '--require-verification'], projectDir, VERDICT_EXITS);
       assertNoLeak(['audit-uat'], projectDir);
       const status = assertNoLeak(['verification', 'status', phaseDir], projectDir);
       assert.equal(JSON.parse(status.output).status, 'missing', 'the escaped file reads missing');
@@ -5367,8 +5661,8 @@ describe('#5118 round 3: containment before read, no write before the error, and
       fs.symlinkSync(linkTarget(phaseDir, secretFile), path.join(phaseDir, uatName));
 
       assertNoLeak(['audit-uat'], projectDir);
-      assertNoLeak(['phase', 'uat-passed', '1'], projectDir);
-      assertNoLeak(['phase', 'uat-passed', '1', '--require-verification'], projectDir);
+      assertNoLeak(['phase', 'uat-passed', '1'], projectDir, VERDICT_EXITS);
+      assertNoLeak(['phase', 'uat-passed', '1', '--require-verification'], projectDir, VERDICT_EXITS);
       assertNoLeak(['init', 'verify-work', '1'], projectDir);
       assertNoLeak(['audit-open'], projectDir);
     });

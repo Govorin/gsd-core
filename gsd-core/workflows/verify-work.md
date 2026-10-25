@@ -39,10 +39,14 @@ No Pass/Fail buttons. No severity questions. Just: "Here's what should happen. D
 If $ARGUMENTS contains a phase number, load context:
 
 ```bash
-_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { _gsd_at "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/${_GSD_SHIM_NAME}" "${HERMES_HOME:-$HOME/.hermes}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEX_HOME:-$HOME/.codex}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/gsd-core/bin/${_GSD_SHIM_NAME}" "${COPILOT_CONFIG_DIR:-$HOME/.copilot}/gsd-core/bin/${_GSD_SHIM_NAME}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}/gsd-core/bin/${_GSD_SHIM_NAME}" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}/gsd-core/bin/${_GSD_SHIM_NAME}" "${TRAE_CONFIG_DIR:-$HOME/.trae}/gsd-core/bin/${_GSD_SHIM_NAME}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}/gsd-core/bin/${_GSD_SHIM_NAME}" "${CLINE_CONFIG_DIR:-$HOME/.cline}/gsd-core/bin/${_GSD_SHIM_NAME}" "${GROK_AGENTS_HOME:-$HOME/.agents}/gsd-core/bin/${_GSD_SHIM_NAME}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}/gsd-core/bin/${_GSD_SHIM_NAME}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}/gsd-core/bin/${_GSD_SHIM_NAME}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}/gsd-core/bin/${_GSD_SHIM_NAME}"; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
+_GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"; GSD_TOOLS="${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}"; _gsd_at() { for _p; do if [ -f "$_p" ]; then GSD_TOOLS="$_p"; return 0; fi; done; return 1; }; _gsd_id_ok() { case "$("$1" runtime-identity --raw 2>/dev/null || true)" in '{"packageName":"@opengsd/gsd-core"'*'}') return 0;; *) return 1;; esac; }; _gsd_homes() { set -- "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" "${ANTIGRAVITY_CONFIG_DIR:-$HOME/.gemini/antigravity}" "$HOME/.gemini/antigravity-ide" "$HOME/.gemini/antigravity-cli" "${AUGMENT_CONFIG_DIR:-$HOME/.augment}" "${CLINE_CONFIG_DIR:-$HOME/.cline}" "${CODEBUDDY_CONFIG_DIR:-$HOME/.codebuddy}" "${CODEX_HOME:-$HOME/.codex}" "${COPILOT_CONFIG_DIR:-${COPILOT_HOME:-$HOME/.copilot}}" "${CURSOR_CONFIG_DIR:-$HOME/.cursor}" "${HERMES_HOME:-$HOME/.hermes}" "${KILO_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/kilo}" "${KIMI_CONFIG_DIR:-$HOME/.config/agents}" "$HOME/.agents" "${KIMI_CODE_HOME:-$HOME/.kimi-code}" "${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/opencode}" "${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}" "${QWEN_CONFIG_DIR:-$HOME/.qwen}" "${TRAE_CONFIG_DIR:-$HOME/.trae}" "${WINDSURF_CONFIG_DIR:-$HOME/.codeium/windsurf}" "${ZCODE_CONFIG_DIR:-$HOME/.zcode}" "${GROK_AGENTS_HOME:-$HOME/.agents}"; for _h; do _gsd_at "$_h/gsd-core/bin/${_GSD_SHIM_NAME}" && return 0; done; return 1; }; if _gsd_at "${_GSD_RUNTIME_ROOT}/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.claude/gsd-core/bin/${_GSD_SHIM_NAME}" "${_GSD_RUNTIME_ROOT}/.codex/gsd-core/bin/${_GSD_SHIM_NAME}"; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif _gsd_homes; then gsd_run() { node "$GSD_TOOLS" "$@"; }; elif unset -f gsd_run; _G="$(command -v gsd_run)"; [ -n "$_G" ] && _gsd_id_ok "$_G"; then GSD_TOOLS="$_G"; gsd_run() { "$GSD_TOOLS" "$@"; }; else echo "ERROR: gsd-tools.cjs not found at $GSD_TOOLS and no identity-proving gsd_run is on PATH. Run: npx -y @opengsd/gsd-core@latest --claude --local" >&2; exit 1; fi; GSD_IDENTITY_STATUS=unverified; _gsd_id_ok gsd_run && GSD_IDENTITY_STATUS=ok; export GSD_IDENTITY_STATUS; [ "$GSD_IDENTITY_STATUS" = ok ] || echo "WARNING: \"$GSD_TOOLS\" did not prove it is @opengsd/gsd-core - it is either a different package or an @opengsd/gsd-core older than the runtime-identity verb. See docs/how-to/diagnose-a-foreign-gsd-tools.md" >&2; if [ -n "${CLAUDE_ENV_FILE:-}" ] && [ -n "${GSD_TOOLS:-}" ]; then printf "export PATH='%s':\"\$PATH\"\n" "${GSD_TOOLS%/*}" >> "$CLAUDE_ENV_FILE" 2>/dev/null || true; fi
 GSD_WS=""
-echo "$ARGUMENTS" | grep -qE -- '--ws[[:space:]]+[A-Za-z0-9._-]+' && GSD_WS=$(echo "$ARGUMENTS" | grep -oE -- '--ws[[:space:]]+[A-Za-z0-9._-]+')
-PHASE_ARG=$(echo "$ARGUMENTS" | sed -E 's/--ws[[:space:]]+[A-Za-z0-9._-]+//g' | xargs)
+echo "$GSD_ARGS" | grep -qE -- '--ws[[:space:]]+[A-Za-z0-9._-]+' && GSD_WS=$(echo "$GSD_ARGS" | grep -oE -- '--ws[[:space:]]+[A-Za-z0-9._-]+')
+PHASE_ARG=$(echo "$GSD_ARGS" | sed -E 's/--ws[[:space:]]+[A-Za-z0-9._-]+//g' | xargs)
 
 INIT=$(gsd_run query init.verify-work "${PHASE_ARG}" ${GSD_WS:+--ws=${GSD_WS##* }})
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
@@ -71,6 +75,7 @@ registry, not hardcoded here.
 ```bash
 VERIFY_PRE_HOOKS_JSON=$(gsd_run loop render-hooks verify:pre --raw)
 PHASE_DIR=$(printf '%s' "$INIT" | jq -r '.phase_dir // empty')
+PHASE_NUMBER=$(printf '%s' "$INIT" | jq -r '.phase_number // empty')
 ```
 
 Read the `activeHooks` array from `VERIFY_PRE_HOOKS_JSON` in-context (do NOT pipe through a shell parser).
@@ -83,22 +88,22 @@ Read the `activeHooks` array from `VERIFY_PRE_HOOKS_JSON` in-context (do NOT pip
 
 Record the union of `produces` artefact names declared by the active step entries as `VERIFY_PRE_PRODUCED` — `extract_tests` consumes it below. An entry declaring `produces: []` contributes nothing, which is the normal case.
 
-⚠ **Validate `check` before shell use** (third-party manifest input) — `loop-hook-dispatch.md` § `gate`.
+⚠ **Validate `check` before shell use** (third-party manifest input; wherever `${hook.check.query}` appears, write the dot-normalized query, each `.` as `-`, and validate and pass that same value) — `loop-hook-dispatch.md` § `gate`.
 
 Resolve active gate hooks from `VERIFY_PRE_HOOKS_JSON` where `kind == "gate"`.
 For each active gate hook, run its declared check (a `check.query` gate runs
 `gsd_run check ${hook.check.query} "${PHASE_DIR}" --raw`; a `predicate` gate
-runs `gsd_run check predicate --predicate '<hook.check.predicate as JSON>' --phase-dir "${PHASE_DIR}" --raw`):
+runs `gsd_run check predicate --predicate '<hook.check.predicate as JSON>' --phase-dir "${PHASE_DIR}" --phase-number "${PHASE_NUMBER}" --raw`):
 
 ```bash
-GATE_RESULT=$(gsd_run check "${hook_check_query}" "${PHASE_DIR}" --raw)
+GATE_RESULT=$(gsd_run check "${hook_check_query}" "${PHASE_DIR}" --raw) && CHECK_EXIT=0 || CHECK_EXIT=$?
 GATE_BLOCK=$(printf '%s' "$GATE_RESULT" | jq -r '.block // false' 2>/dev/null || echo "false")
 ```
 
 **Two-step gate contract (same as execute:wave:post / execute:post):**
 
 - **Step 1 — command failure:** if the `gsd_run check ...` invocation itself
-  fails (non-zero exit, no JSON), route by the gate's `onError`. An `onError:
+  fails (non-zero `CHECK_EXIT`, empty output, or unparseable JSON — `69` `UNAVAILABLE` included), route by the gate's `onError`. An `onError:
   halt` gate HALTs; an `onError: skip` gate logs a warning and continues.
 - **Step 2 — block evaluation:** parse `GATE_RESULT.block`. For a **blocking
   gate** (`hook.blocking == true`) with `block == true`: HALT — do not begin UAT,
@@ -651,7 +656,10 @@ NEXT_COMMAND=$(printf '%s' "$VERIFICATION_STATUS" | jq -r '.next_command')
 IMPLEMENTATION_COMPLETE=$(printf '%s' "$INIT" | jq -r '.phase_completion.implementation_complete // false')
 PHASE_VERIFICATION_STATUS="$VERIFICATION_STATUS_VALUE"
 if [ "$VERIFICATION_STATUS_VALUE" = "human_needed" ]; then
-  UAT_PRECHECK=$(gsd_run phase uat-passed "{phase}" --uat-only) || { echo "phase uat-passed failed — see the error above." >&2; exit 1; }
+  # #5170: exit 0 and exit 1 are VERDICTS (1 = the predicate says not passed) — the JSON on stdout is
+  # authoritative. Any other status, or exit 1 with nothing on stdout (an error()), means it could not run.
+  UAT_PRECHECK=$(gsd_run phase uat-passed "{phase}" --uat-only) && UAT_EXIT=0 || UAT_EXIT=$?
+  if [ "$UAT_EXIT" -gt 1 ] || { [ "$UAT_EXIT" -eq 1 ] && [ -z "$UAT_PRECHECK" ]; }; then echo "phase uat-passed could not run (exit $UAT_EXIT) — see the error above." >&2; exit 1; fi
   UAT_PRECHECK_PASSED=$(printf '%s' "$UAT_PRECHECK" | jq -r '.passed // false' 2>/dev/null || echo "false")
   if [ "$UAT_PRECHECK_PASSED" = "true" ]; then
     gsd_run query frontmatter.set "$VERIFICATION_FILE" --field status --value passed
@@ -675,7 +683,11 @@ itself (its only write is the canonicalization, #4663).
 Load the step's inputs through the SAME bundle execute-phase loads, then include the step:
 
 ```bash
-GSD_WS=$(echo " $ARGUMENTS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
+$ARGUMENTS
+GSD_ARGS_END
+GSD_ARGS=${GSD_ARGS%$'\n'}
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 EXECUTE_INIT=$(gsd_run query init.execute-phase "{phase}" ${GSD_WS:+--ws=${GSD_WS##* }})
 if [[ "$EXECUTE_INIT" == @file:* ]]; then EXECUTE_INIT=$(cat "${EXECUTE_INIT#@file:}"); fi
 for _k in phase_dir phase_number verifier_model phase_req_ids requirements_path section_manifest response_language; do
@@ -698,7 +710,10 @@ NEXT_COMMAND=$(printf '%s' "$VERIFICATION_STATUS" | jq -r '.next_command')
 Otherwise, check the shared UAT-plus-verification completion predicate before transition:
 
 ```bash
-PHASE_COMPLETE=$(gsd_run phase uat-passed "{phase}" --require-verification) || { echo "phase uat-passed failed — see the error above." >&2; exit 1; }
+# #5170: exit 0 and exit 1 are VERDICTS (1 = not passed) — read the JSON either way. Any other status,
+# or exit 1 with nothing on stdout (an error()), means the command could not run: abort.
+PHASE_COMPLETE=$(gsd_run phase uat-passed "{phase}" --require-verification) && PHASE_COMPLETE_EXIT=0 || PHASE_COMPLETE_EXIT=$?
+if [ "$PHASE_COMPLETE_EXIT" -gt 1 ] || { [ "$PHASE_COMPLETE_EXIT" -eq 1 ] && [ -z "$PHASE_COMPLETE" ]; }; then echo "phase uat-passed could not run (exit $PHASE_COMPLETE_EXIT) — see the error above." >&2; exit 1; fi
 PHASE_COMPLETE_PASSED=$(printf '%s' "$PHASE_COMPLETE" | jq -r '.passed' 2>/dev/null || echo "false")
 PHASE_COMPLETE_BLOCKERS=$(printf '%s' "$PHASE_COMPLETE" | jq -r '.blockers[]?' 2>/dev/null || true)
 ```
@@ -785,7 +800,7 @@ Spawn gsd-plan-checker against the fix plans (iteration_count starts at 1), mode
 > **ORCHESTRATOR RULE — CODEX RUNTIME**: After calling Agent() above, stop working on this task immediately. Do not read more files, edit code, or run tests related to this task while the subagent is active. Wait for the subagent to return its result. This prevents duplicate work, conflicting edits, and wasted context. Only resume when the subagent result is available.
 
 On return:
-- **VERIFICATION PASSED:** Proceed to `present_ready`
+- **VERIFICATION PASSED:** If the return lists an entry whose severity is BLOCKER or WARNING, in the YAML issues block or listed in prose (a mention such as "no warnings" or a zero count is not an entry), handle it as ISSUES FOUND below, counting the prose entries as BLOCKER/WARNING entries; the sentinel never decides alone, and an entry with a missing or unrecognized severity counts as a BLOCKER (#5578). Otherwise proceed to `present_ready`
 - **ISSUES FOUND:** Count BLOCKER + WARNING entries in the YAML issues block; an entry whose severity is missing or unrecognized counts as a BLOCKER (fail closed). If zero — every entry is explicitly INFO — display `ℹ advisory — {dimension}: {description}` per entry and proceed to `present_ready`; INFO is advisory and never enters the loop (#3724). Otherwise proceed to `revision_loop`
 
 Exact Agent() prompt fields: `gsd-core/workflows/verify-work/detail/elaboration.md` § 2.

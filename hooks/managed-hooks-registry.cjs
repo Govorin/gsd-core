@@ -30,6 +30,7 @@ const MANAGED_HOOKS = [
   'gsd-ensure-canonical-path.js',
   'gsd-exit-gate.js',
   'gsd-graphify-update.sh',
+  'gsd-path-export.js',
   // #3662: portable node resolver (helper staged in hooks/; managed JS hook
   // commands route through it under --portable-hooks).
   'gsd-node-runner.sh',

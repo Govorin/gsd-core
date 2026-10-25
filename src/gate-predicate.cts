@@ -19,10 +19,10 @@
  * flags.
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { gateVerdict, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
 import type { GateResult } from './gate-verdict.cjs';
+import { readDirEvidence, statEvidence } from './gate-evidence.cjs';
 import { resolveContainedPath } from './gate-phase-context.cjs';
 import { parsePredicateFlags } from './gate-args.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -64,8 +64,22 @@ export function buildPredicateDeps() {
         timedOut: r.timedOut,
       };
     },
-    findPhaseArtifact(phaseDir: string, artifactSuffix: string): string | null {
-      if (!fs.existsSync(phaseDir)) return null;
+    findPhaseArtifact(phaseDir: string, artifactSuffix: string): string[] {
+      // #5170 (ADR-5057 §4): an ABSENT directory or artifact is `none` (the artifact is not there);
+      // one that exists but cannot be examined is `unreadable` and THROWS — `evaluateCheckPredicate`
+      // maps a throw to the usage failure the dispatch contract routes by `onError`. It is never
+      // folded into "artifact not found", which a predicate may read as a clean answer.
+      const unreadable = (target: string, reason: string): never => {
+        throw new Error(`predicate artifact could not be examined: ${target} (${reason})`);
+      };
+      const regularFileOrNull = (candidate: string): string | null => {
+        const st = statEvidence(candidate);
+        if (st.kind === 'unreadable') return unreadable(candidate, st.reason);
+        return st.kind === 'found' && st.value.isFile() ? candidate : null;
+      };
+      const phaseDirStat = statEvidence(phaseDir);
+      if (phaseDirStat.kind === 'unreadable') return unreadable(phaseDir, phaseDirStat.reason);
+      if (phaseDirStat.kind === 'none') return [];
       if (
         artifactSuffix === '.' ||
         artifactSuffix === '..' ||
@@ -73,26 +87,27 @@ export function buildPredicateDeps() {
         path.basename(artifactSuffix) !== artifactSuffix ||
         path.win32.basename(artifactSuffix) !== artifactSuffix
       ) {
-        return null;
+        return [];
       }
-      const directContained = tryWithinRoot(artifactSuffix, phaseDir);
-      if (directContained !== null && fs.existsSync(directContained) && fs.statSync(directContained).isFile()) {
-        return directContained;
-      }
+      // #5313: collect EVERY distinct match; the evaluator fails closed on >1 instead of trusting listing order.
+      const found: string[] = [];
       const planningContained = tryWithinRoot(path.join('.planning', artifactSuffix), phaseDir);
-      if (planningContained !== null && fs.existsSync(planningContained) && fs.statSync(planningContained).isFile()) {
-        return planningContained;
+      if (planningContained !== null) {
+        const planning = regularFileOrNull(planningContained);
+        if (planning !== null) found.push(planning);
       }
-      try {
-        const files = fs.readdirSync(phaseDir);
-        for (const f of files) {
-          if (f.endsWith('-' + artifactSuffix) || f === artifactSuffix) {
-            const candidateContained = tryWithinRoot(f, phaseDir);
-            if (candidateContained !== null && fs.statSync(candidateContained).isFile()) return candidateContained;
-          }
+      const listing = readDirEvidence(phaseDir);
+      if (listing.kind === 'unreadable') return unreadable(phaseDir, listing.reason);
+      if (listing.kind === 'none') return [];
+      for (const f of listing.value) {
+        if (f.endsWith('-' + artifactSuffix) || f === artifactSuffix) {
+          const candidateContained = tryWithinRoot(f, phaseDir);
+          if (candidateContained === null) continue;
+          const candidate = regularFileOrNull(candidateContained);
+          if (candidate !== null) found.push(candidate);
         }
-      } catch { /* ignore */ }
-      return null;
+      }
+      return found;
     },
     readFrontmatter(filePath: string): Record<string, unknown> {
       const content = platformReadSync(filePath);

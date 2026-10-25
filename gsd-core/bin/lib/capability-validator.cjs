@@ -876,6 +876,7 @@ const VALID_CONVERTER_NAMES = new Set([
   'convertClaudeCommandToKimiSkill',
   'convertClaudeCommandToKimiCodeSkill',
   'convertClaudeCommandToOpencodeSkill',
+  'convertClaudeCommandToPiSkill',
   'convertClaudeCommandToTraeSkill',
   'convertClaudeCommandToWindsurfSkill',
   'convertClaudeCommandToWindsurfWorkflow',
@@ -899,6 +900,8 @@ const VALID_CONVERTER_NAMES = new Set([
   // and the kilo/opencode agent converters (shared with those runtimes'
   // commands-kind entries, options-bag signature `(content, {isAgent, modelOverride})`).
   'convertClaudeAgentToHermesAgent',
+  // #5569 (ADR-5559 §3) — the role file Pi's gsd_dispatch loads.
+  'convertClaudeAgentToPiAgent',
   'convertClaudeToKiloFrontmatter',
   'convertClaudeToOpencodeFrontmatter',
 ]);
@@ -1253,6 +1256,20 @@ function validateArtifactKindEntry(capId, entry, prefix) {
   if (entry.recursive !== undefined) {
     if (typeof entry.recursive !== 'boolean') {
       errors.push(ctx + '.recursive must be a boolean if present (got: ' + typeof entry.recursive + ')');
+    }
+  }
+
+  // excludeSuffixes — optional; filename suffixes the agents staging skips (#5569: Pi omits .compact.md)
+  if (entry.excludeSuffixes !== undefined) {
+    if (!Array.isArray(entry.excludeSuffixes)) {
+      errors.push(ctx + '.excludeSuffixes must be an array of non-empty strings if present');
+    } else {
+      for (let i = 0; i < entry.excludeSuffixes.length; i++) {
+        const s = entry.excludeSuffixes[i];
+        if (typeof s !== 'string' || s.length === 0 || s.includes('/') || s.includes('\\')) {
+          errors.push(ctx + '.excludeSuffixes[' + i + '] must be a non-empty string without path separators');
+        }
+      }
     }
   }
 
@@ -1919,6 +1936,10 @@ const REVIEWER_EFFORT_LEVELS = new Set(['minimal', 'low', 'medium', 'high', 'xhi
  * silently rot away from reality (DEFECT.GENERATIVE-FIX).
  */
 const KNOWN_HOST_BEHAVIORS = new Set([
+  // #2586: declares runtime-level feature axes GSD does not/cannot support on
+  // omitting the key on every other runtime carries no inverted meaning.
+  // this host (e.g. Codex's `["context-warnings","phase-lifecycle-display"]`)
+  // — present-and-populated / absent-is-unsupported-empty convention, so
   'agentFileExtension',
   'agentFrontmatterExtensions',
   'agentManifestStyle',
@@ -1926,11 +1947,17 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'attributionConfigResolver',
   'attributionSource',
   'authorsCanonicalWorkflow',
+  'bakedAgentFileExtensions',
+  'bakesStaticAgentModel',
+  'bareStemSkillsCleanup',
   'brandingRewrites',
+  'categoryContainerCleanup',
   'cleanupSkillSidecars',
   'clineRulesSurface',
   'combinedFamilyInstall',
   'commandBodyConverter',
+  'contentRewriteProfile',
+  'defaultHomeIncludeRoot',
   'doneBannerStyle',
   'flatCommandDir',
   'frontmatterDialect',
@@ -1943,6 +1970,7 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'legacyCommandsGsdInstallMigration',
   'legacyCommandsGsdUninstall',
   'legacyDevinSkillsCleanup',
+  'legacyFlatSkillsCleanup',
   'localCommandsViaRules',
   'localInstallDeferred',
   'localInstallStyle',
@@ -1950,35 +1978,43 @@ const KNOWN_HOST_BEHAVIORS = new Set([
   'managedHookEvents',
   'mcpCompanion',
   'namedSubagentsSupported',
+  'nativeCliPlugin',
   'nativeModelAliases',
   'nativePlugin',
   'noPathRewrite',
+  'omitBashRunnerOnWindows',
+  'opencodePathPrefix',
   'ownsClaudePaths',
   'permissionsSchema',
   'pluginOnlyInstall',
   'projectInstructionFile',
   'reapplyCommand',
+  'reclaimsKimiLegacyHooksRoot',
   'reportCommandsDir',
   'reportSkillsCount',
+  'requiresSubagentPair',
+  'restoreAtRefTildeInAgents',
+  'restoreAtRefTildeInSpecTree',
+  'retargetsGsdCoreProsePath',
   'retiredArtifacts',
+  'rewriteClaudeAtIncludes',
   'settingsFileByScope',
   'sharedHooksDirName',
   'skillFrontmatterVersion',
   'skillPriorityFrontmatter',
   'skillsGlobalOnboarding',
   'skillsManifestPrefix',
+  'skipCompactAgents',
   'skipHomePrefixSubstitution',
+  'skipRuntimeDefaultsStamp',
   'skipSettingsUi',
   'skipSharedHooksInstall',
   'skipUpdateBannerCommand',
   'soloStageMetadata',
   'sourceMarkerFile',
+  'specRootSkillPass',
   'tomlConfigInstall',
   'trackCategoryDescription',
-  // #2586: declares runtime-level feature axes GSD does not/cannot support on
-  // this host (e.g. Codex's `["context-warnings","phase-lifecycle-display"]`)
-  // — present-and-populated / absent-is-unsupported-empty convention, so
-  // omitting the key on every other runtime carries no inverted meaning.
   'unsupportedFeatures',
   'verificationStyle',
   'writeCategoryDescription',
@@ -2576,7 +2612,7 @@ function validateLaneProbe(ctx, probe) {
     if (!isPositiveIntegerMs(probe.timeoutMs)) {
       errors.push(
         ctx + ' reviewer.probe.timeoutMs must be a positive integer of milliseconds for kind "' +
-        probe.kind + '" — an unbounded probe hangs every /gsd:review invocation ' +
+        probe.kind + '" — an unbounded probe hangs every /gsd-review invocation ' +
         '(got: ' + describeValue(probe.timeoutMs) + ')',
       );
     }

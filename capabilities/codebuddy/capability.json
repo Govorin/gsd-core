@@ -1,7 +1,7 @@
 {
   "id": "codebuddy",
   "role": "runtime",
-  "version": "1.15.0",
+  "version": "1.18.0",
   "title": "CodeBuddy",
   "description": "CodeBuddy (Tencent) — converted commands + skills artifact layout; settings-json hook surface; Claude hook event dialect; tier-2 support.",
   "tier": "core",
@@ -112,7 +112,11 @@
       "effortSurface": "undocumented"
     },
     "hostBehaviors": {
-      "reportCommandsDir": true
+      "unsupportedFeatures": [
+        "context-warnings"
+      ],
+      "reportCommandsDir": true,
+      "contentRewriteProfile": "slash-bare-own-tilde-bare"
     }
   }
 }

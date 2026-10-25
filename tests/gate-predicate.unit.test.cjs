@@ -213,3 +213,151 @@ describe('U10 evaluateCheckPredicate', () => {
     });
   }
 });
+
+// #5170 (matrix row 23): `findPhaseArtifact`'s listing used to sit in an empty `catch`, so a phase
+// directory that could not be listed read as "artifact not found" — a clean answer a predicate can
+// act on. An unreadable thing now throws, and the evaluator's throw is the existing usage failure
+// (the dispatch contract routes it by `onError`); an ABSENT thing stays `none` => `artifactNotFound`.
+describe('U10 unreadable predicate artifact lookup (#5170)', () => {
+  const PREDICATE = '{"kind":"artifact-frontmatter-equals","artifact":"VERIFICATION.md","field":"status","equals":"passed"}';
+
+  function withReaddirFailure(code, fn) {
+    const dir = createTempProject('gate-u10-readdir-');
+    const real = fs.readdirSync;
+    try {
+      w(dir, '.planning/phases/01-x/01-PLAN.md', '# p\n');
+      fs.readdirSync = function (p, ...rest) {
+        if (String(p).endsWith('01-x')) {
+          const err = new Error(`${code}: simulated readdir failure`);
+          err.code = code;
+          throw err;
+        }
+        return real.call(fs, p, ...rest);
+      };
+      return fn(dir);
+    } finally {
+      fs.readdirSync = real;
+      cleanup(dir);
+    }
+  }
+
+  const evaluate = (dir) => gate.evaluateCheckPredicate({
+    projectDir: dir,
+    args: ['--predicate', PREDICATE, '--phase-dir', '.planning/phases/01-x'],
+  });
+
+  test('a phase directory that cannot be listed (EACCES) is the usage failure, never artifactNotFound', () => {
+    withReaddirFailure('EACCES', (dir) => {
+      const result = evaluate(dir);
+      assert.equal(isGateUsageFailure(result), true, JSON.stringify(result));
+      assert.equal(result.failure.code, 'usage');
+      assert.match(result.failure.message, /^gate predicate evaluation failed: predicate artifact could not be examined: .*01-x \(EACCES\)$/);
+    });
+  });
+
+  test('a phase directory that is absent when listed (ENOENT) is none: the existing artifactNotFound block', () => {
+    withReaddirFailure('ENOENT', (dir) => {
+      const result = evaluate(dir);
+      assert.equal(isGateUsageFailure(result), false, JSON.stringify(result));
+      assert.equal(result.outcome, 'block');
+      assert.equal(result.payload.details.artifactNotFound, true);
+    });
+  });
+});
+
+// #5313: two files matching one artifact (stale bare BEADS.md + NN-BEADS.md) used to resolve to
+// whichever the OS listed first. >1 match now blocks, naming every candidate in sorted order.
+describe('U10 ambiguous predicate artifact (#5313)', () => {
+  const predicate = (name) => `{"kind":"artifact-frontmatter-equals","artifact":"${name}","field":"status","equals":"ok"}`;
+  const evaluate = (dir, name = 'BEADS.md') => gate.evaluateCheckPredicate({
+    projectDir: dir,
+    args: ['--predicate', predicate(name), '--phase-dir', '.planning/phases/01-x'],
+  });
+  const FM = '---\nstatus: ok\n---\n';
+
+  function ambiguousMessage(order) {
+    const dir = createTempProject('gate-u10-ambiguous-');
+    try {
+      for (const f of order) w(dir, `.planning/phases/01-x/${f}`, FM);
+      const result = evaluate(dir);
+      assert.equal(result.outcome, 'block', JSON.stringify(result));
+      assert.equal(result.payload.details.ambiguous, true);
+      assert.deepEqual(result.payload.details.candidates.map((c) => path.basename(c)), ['01-BEADS.md', 'BEADS.md']);
+      return result.payload.message.replace(dir, '<dir>');
+    } finally {
+      cleanup(dir);
+    }
+  }
+
+  test('bare BEADS.md plus 01-BEADS.md blocks naming both', () => {
+    const msg = ambiguousMessage(['BEADS.md', '01-BEADS.md']);
+    assert.match(msg, /^Multiple artifacts match BEADS\.md in .*01-x: 01-BEADS\.md, BEADS\.md; remove or rename all but one$/);
+  });
+
+  // t.after, not try/finally in the body (CONTRIBUTING Testing Standards).
+  function project(t, prefix, files) {
+    const dir = createTempProject(prefix);
+    t.after(() => cleanup(dir));
+    for (const f of files) w(dir, `.planning/phases/01-x/${f}`, FM);
+    return dir;
+  }
+
+  test('three candidates are all named in sorted order', (t) => {
+    const dir = project(t, 'gate-u10-three-', ['BEADS.md', '.planning/BEADS.md', '01-BEADS.md']);
+    const result = evaluate(dir);
+    assert.equal(result.outcome, 'block', JSON.stringify(result));
+    assert.match(result.payload.message, /: \.planning\/BEADS\.md, 01-BEADS\.md, BEADS\.md; remove or rename all but one$/);
+    assert.equal(result.payload.details.candidates.length, 3);
+  });
+
+  test('creation order does not change the message', () => {
+    assert.equal(ambiguousMessage(['BEADS.md', '01-BEADS.md']), ambiguousMessage(['01-BEADS.md', 'BEADS.md']));
+  });
+
+  test('.planning/BEADS.md plus bare BEADS.md blocks naming both', (t) => {
+    const dir = project(t, 'gate-u10-planning-', ['BEADS.md', '.planning/BEADS.md']);
+    const result = evaluate(dir);
+    assert.equal(result.outcome, 'block', JSON.stringify(result));
+    assert.match(result.payload.message, /: \.planning\/BEADS\.md, BEADS\.md; remove or rename all but one$/);
+    assert.equal(result.payload.details.ambiguous, true);
+    assert.deepEqual(
+      result.payload.details.candidates.map((c) => path.relative(path.join(fs.realpathSync(dir), '.planning/phases/01-x'), c).split(path.sep).join('/')),
+      ['.planning/BEADS.md', 'BEADS.md'],
+    );
+  });
+
+  test('a symlink to the same file is one artifact, not an ambiguity', (t) => {
+    const dir = project(t, 'gate-u10-symlink-', ['BEADS.md']);
+    try {
+      fs.symlinkSync('BEADS.md', path.join(dir, '.planning/phases/01-x/01-BEADS.md'));
+    } catch (err) {
+      if (err.code === 'EPERM') return t.skip('symlink creation not permitted on this host');
+      throw err;
+    }
+    const result = evaluate(dir);
+    assert.equal(result.outcome, 'pass', JSON.stringify(result));
+  });
+
+  test('a single match is unchanged: read, no ambiguity', (t) => {
+    const dir = project(t, 'gate-u10-single-', ['01-BEADS.md']);
+    const result = evaluate(dir);
+    assert.equal(result.outcome, 'pass', JSON.stringify(result));
+  });
+
+  test('an unreadable listing throws the usage failure even when a direct file exists', (t) => {
+    const dir = project(t, 'gate-u10-ambiguous-eacces-', ['BEADS.md']);
+    const real = fs.readdirSync;
+    t.after(() => { fs.readdirSync = real; });
+    fs.readdirSync = function (p, ...rest) {
+      if (String(p).endsWith('01-x')) {
+        const err = new Error('EACCES: simulated readdir failure');
+        err.code = 'EACCES';
+        throw err;
+      }
+      return real.call(fs, p, ...rest);
+    };
+    const result = evaluate(dir);
+    assert.equal(isGateUsageFailure(result), true, JSON.stringify(result));
+    assert.equal(result.failure.code, 'usage');
+  });
+});

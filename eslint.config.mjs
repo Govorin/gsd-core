@@ -42,6 +42,8 @@ import noAdhocTimeoutLiteral from './eslint-rules/no-adhoc-timeout-literal.cjs';
 import noRenderedTextLengthAssert from './eslint-rules/no-rendered-text-length-assert.cjs';
 import noUnconfinedPathJoin from './eslint-rules/no-unconfined-path-join.cjs';
 import noVerificationStatusLiteral from './eslint-rules/no-verification-status-literal.cjs';
+import noRuntimeNameLiteral from './eslint-rules/no-runtime-name-literal.cjs';
+import requireReadOnlyGitEnv from './eslint-rules/require-read-only-git-env.cjs';
 
 const unconfinedPathJoinAllowlist = require('./eslint-rules/no-unconfined-path-join.allowlist.json');
 
@@ -78,6 +80,8 @@ const localPlugin = {
     'no-rendered-text-length-assert': noRenderedTextLengthAssert,
     'no-unconfined-path-join': noUnconfinedPathJoin,
     'no-verification-status-literal': noVerificationStatusLiteral,
+    'no-runtime-name-literal': noRuntimeNameLiteral,
+    'require-read-only-git-env': requireReadOnlyGitEnv,
   },
 };
 
@@ -160,6 +164,9 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-decision-coverage-verify.cjs',
       // #5164 (epic #5056 Phase 7): the evaluation-scope resolver, a gate support module.
       'gsd-core/bin/lib/gate-evaluation-scope.cjs',
+      // #5170 (epic #5056 Phase 8): typed gate evidence and the verdict-to-exit mapping.
+      'gsd-core/bin/lib/gate-evidence.cjs',
+      'gsd-core/bin/lib/gate-exit.cjs',
       'gsd-core/bin/lib/gate-api-coverage-verify-pre.cjs',
       'gsd-core/bin/lib/gate-gap-analysis-plan-post.cjs',
       'gsd-core/bin/lib/gate-predicate.cjs',
@@ -168,6 +175,11 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-tdd-review-checkpoint.cjs',
       'gsd-core/bin/lib/gate-ui-plan.cjs',
       'gsd-core/bin/lib/gate-ui-safety.cjs',
+      // #5219 (epic #5056, ADR-5057 §4 arm C): the four drift / prohibition gates, moved out of verify.cts.
+      'gsd-core/bin/lib/gate-schema-drift.cjs',
+      'gsd-core/bin/lib/gate-codebase-drift.cjs',
+      'gsd-core/bin/lib/gate-context-drift.cjs',
+      'gsd-core/bin/lib/gate-prohibition-enforcement.cjs',
       'gsd-core/bin/lib/gate-verdict.cjs',
       'gsd-core/bin/lib/gate-verify-command-paths.cjs',
       'gsd-core/bin/lib/gate-verify-failure-directions.cjs',
@@ -181,6 +193,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/tdd-red-evidence.cjs',
       // #4692: tsc-generated — lint the src/report-parser.cts source.
       'gsd-core/bin/lib/report-parser.cjs',
+      'gsd-core/bin/lib/tdd-test-files.cjs',
       // #4984: tsc-generated — lint the src/pr-branch-patterns.cts source.
       'gsd-core/bin/lib/pr-branch-patterns.cjs',
       // #4984: tsc-generated — lint the src/undo-commit-selection.cts source.
@@ -209,6 +222,10 @@ export default tseslint.config(
       'gsd-core/bin/lib/review-reviewer-selection.cjs',
       'gsd-core/bin/lib/review-lane-descriptor.cjs',
       'gsd-core/bin/lib/review-lane-invocation.cjs',
+      // #5337: tsc-generated runtime artifact — lint src/opencode-version.cts, not this.
+      'gsd-core/bin/lib/opencode-version.cjs',
+      // #5334: tsc-generated runtime artifact — lint src/jsonc-edit.cts, not this.
+      'gsd-core/bin/lib/jsonc-edit.cjs',
       'gsd-core/bin/lib/review-lane-runner.cjs',
       'gsd-core/bin/lib/reviewer-step-dispatch.cjs',
       'gsd-core/bin/lib/clusters.cjs',
@@ -253,6 +270,8 @@ export default tseslint.config(
       'gsd-core/bin/lib/token-scanner.cjs',
       // #3311: tsc-generated runtime artifact — lint src/milestone-lock.cts, not this.
       'gsd-core/bin/lib/milestone-lock.cjs',
+      // #5551: tsc-generated runtime artifact — lint src/git-info-exclude.cts, not this.
+      'gsd-core/bin/lib/git-info-exclude.cjs',
       'gsd-core/bin/lib/health-diagnostic-types.cjs',
       'gsd-core/bin/lib/health-diagnostic.cjs',
       'gsd-core/bin/lib/health-diagnostic-rules/root-existence.cjs',
@@ -291,6 +310,10 @@ export default tseslint.config(
       // 010 also imports node builtins (fs, path) like 007/009, so tsc emits
       // the same `__importDefault` helper. ADR-457: the linted source is the .cts.
       'gsd-core/bin/lib/installer-migrations/010-antigravity-retire-confighome-artifacts.cjs',
+      // 011 imports node builtins (fs, path), so tsc emits the same `__importDefault` helper. ADR-457: lint the .cts.
+      'gsd-core/bin/lib/installer-migrations/011-opencode-mcp-no-prompts.cjs',
+      // #5338: tsc-generated runtime artifact — lint src/opencode-mcp-entry.cts, not this.
+      'gsd-core/bin/lib/opencode-mcp-entry.cjs',
       'gsd-core/bin/lib/observability/logger.cjs',
       'gsd-core/bin/lib/active-workstream-store.cjs',
       'gsd-core/bin/lib/adr-parser.cjs',
@@ -377,6 +400,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/check-command-router.cjs',
       'gsd-core/bin/lib/frontmatter.cjs',
       'gsd-core/bin/lib/frontmatter-fence.cjs',
+      'gsd-core/bin/lib/markdown-line-diff.cjs',
       'gsd-core/bin/lib/frontmatter-splice.cjs',
       'gsd-core/bin/lib/learnings.cjs',
       'gsd-core/bin/lib/gsd2-import.cjs',
@@ -423,6 +447,8 @@ export default tseslint.config(
       'gsd-core/bin/lib/model-adapter.cjs',
       'gsd-core/bin/lib/hook-bus.cjs',
       'gsd-core/bin/lib/state-io.cjs',
+      // #5048: tsc-generated runtime artifact — lint the src/read-only-git-env.cts source.
+      'gsd-core/bin/lib/read-only-git-env.cjs',
       'gsd-core/bin/lib/external-descriptor-trust.cjs',
       'gsd-core/bin/lib/mcp-server.cjs',
       // #3072: tsc-generated runtime artifact — lint the src/mcp-catalog.cts source.
@@ -593,6 +619,36 @@ export default tseslint.config(
       // literal compared against a verification status elsewhere in src/ is a
       // re-derivation. The rule exempts the owner by path.
       'local/no-verification-status-literal': 'error',
+      // #5169 (ADR-5057 Phase 10): the runtime descriptor owns every
+      // runtime-specific fact; comparing a runtime identifier to a registered
+      // runtime-id literal re-derives one. Exempts the owner by path.
+      'local/no-runtime-name-literal': 'error',
+      // #5048: a direct git spawn takes its env from readOnlyGitEnv() so a
+      // read-only call never contends for the optional index lock. A git
+      // command that never opens the index suppresses with
+      // `// allow-index-refresh: <reason>`.
+      'local/require-read-only-git-env': 'error',
+    },
+  },
+
+  // #5169: the same rule on the two non-.cts surfaces that hold install and
+  // hook logic — the hand-written installer and the shipped hook scripts.
+  {
+    files: ['bin/install.js', 'hooks/**/*.js'],
+    plugins: {
+      local: localPlugin,
+    },
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: {
+        ...globals.node,
+      },
+    },
+    rules: {
+      'local/no-runtime-name-literal': 'error',
+      // #5048: see the src/**/*.cts block above. The rule scopes itself to
+      // hooks/**/*.js by path, so bin/install.js is untouched.
+      'local/require-read-only-git-env': 'error',
     },
   },
 
@@ -1087,6 +1143,14 @@ export default tseslint.config(
             message: 'The command router runs no subprocess and reads no file; a gate module does (#5139).',
           },
         ],
+        // ADR-5057 §4 unrepresentable-by-construction (#5219): the router imports a verb's logic only
+        // from a gate module, so a verb implemented elsewhere (verify.cts, a producer's own router) and
+        // wired in here is a lint failure, not a review catch. The non-gate imports are the output
+        // seam, the exit/verdict seams (`gate-*`) and the two gate-support modules the router reads.
+        patterns: [{
+          group: ['./*', '../*', '!./gate-*.cjs', '!./io.cjs', '!./check-auto-mode.cjs', '!./decision-coverage-support.cjs', '!./shell-command-projection.cjs'],
+          message: 'The command router dispatches to gate modules (src/gate-*.cts) only; implement the verb as a gate module that returns a GateResult (ADR-5057 §4, #5219).',
+        }],
       }],
     },
   },

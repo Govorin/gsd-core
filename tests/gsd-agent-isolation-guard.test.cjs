@@ -50,7 +50,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const fc = require('./helpers/fast-check-setup.cjs');
-const { runHook: runHookSeam } = require('./helpers/process-seam.cjs');
+const { runHook: runHookSeam, runGit } = require('./helpers/process-seam.cjs');
 const { toLegacyResult, gitOrThrow } = require('./helpers/git-fixture.cjs');
 const { PROBE_TIMEOUT_MS, GIT_FIXTURE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 const { createTempDir, createTempProject, runGsdTools, cleanup } = require('./helpers.cjs');
@@ -89,6 +89,10 @@ function runHook(payload, cwd, extraEnv = {}) {
   // `USERPROFILE` too so that redirection actually takes effect on Windows
   // instead of silently leaking the real CI runner's profile directory.
   if ('HOME' in extraEnv) env.USERPROFILE = extraEnv.HOME;
+  // #5017: the defaults store root is GSD_HOME when set, and the test runner exports a sandbox
+  // GSD_HOME to every test — so redirecting only HOME no longer redirects the store. A test that
+  // redirects HOME redirects the store with it, unless it names GSD_HOME itself.
+  if ('HOME' in extraEnv && !('GSD_HOME' in extraEnv)) env.GSD_HOME = extraEnv.HOME;
   const r = runHookSeam(HOOK_PATH, [], {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     cwd,
@@ -511,6 +515,21 @@ describe('gsd-agent-isolation-guard.js: #3045 BLOCKER 2 — default-install fail
     assert.equal(JSON.parse(r.stdout).decision, 'block');
   });
 
+  test('#5017: the defaults.json runtime fallback reads $GSD_HOME/.gsd/defaults.json when GSD_HOME is set', (t) => {
+    const home = mkProject('gsd-aig-5017-home-');
+    const gsdHome = mkProject('gsd-aig-5017-gsdhome-');
+    t.after(() => { cleanup(home); cleanup(gsdHome); });
+    fs.mkdirSync(path.join(gsdHome, '.gsd'), { recursive: true });
+    fs.writeFileSync(path.join(gsdHome, '.gsd', 'defaults.json'), JSON.stringify({ runtime: 'claude' }));
+
+    // Only the GSD_HOME store names a runtime; the home directory has none.
+    const r = runHook(agentPayload(), unconfiguredHarnessProject, { HOME: home, GSD_HOME: gsdHome });
+    assert.equal(r.status, 2, `stdout: ${r.stdout} stderr: ${r.stderr} — GSD_HOME defaults runtime must be enforced`);
+    // A blank GSD_HOME falls back to the home directory, which has no store -> inert.
+    const blank = runHook(agentPayload(), unconfiguredHarnessProject, { HOME: home, GSD_HOME: '' });
+    assert.equal(blank.status, 0, `stdout: ${blank.stdout} stderr: ${blank.stderr} — blank GSD_HOME must fall back to HOME`);
+  });
+
   test('part B (negative control): a project WITH its own config.json runtime key still wins over defaults.json', (t) => {
     const home = mkProject('gsd-aig-b2-home2-');
     t.after(() => cleanup(home));
@@ -733,6 +752,7 @@ describe('gsd-agent-isolation-guard.js: #3566 — per-install .gsd-runtime marke
 
   let savedHome;
   let savedUserProfile;
+  let savedGsdHome;
   let savedGsdRuntime;
   let markerProject; // scaffold-shaped config ({}), per #2840's no-runtime-key template
 
@@ -749,6 +769,7 @@ describe('gsd-agent-isolation-guard.js: #3566 — per-install .gsd-runtime marke
     }
     process.env.HOME = home;
     process.env.USERPROFILE = home;
+    process.env.GSD_HOME = home; // #5017: the store root
     if (envRuntime === undefined) delete process.env.GSD_RUNTIME;
     else process.env.GSD_RUNTIME = envRuntime;
     t.after(() => {
@@ -765,6 +786,7 @@ describe('gsd-agent-isolation-guard.js: #3566 — per-install .gsd-runtime marke
   before(() => {
     savedHome = process.env.HOME;
     savedUserProfile = process.env.USERPROFILE;
+    savedGsdHome = process.env.GSD_HOME;
     savedGsdRuntime = process.env.GSD_RUNTIME;
     markerProject = mkProject('gsd-aig-3566-');
     // Mirrors gsd-core/templates/config.json exactly: no `runtime` key — the COMMON
@@ -778,6 +800,8 @@ describe('gsd-agent-isolation-guard.js: #3566 — per-install .gsd-runtime marke
     else process.env.HOME = savedHome;
     if (savedUserProfile === undefined) delete process.env.USERPROFILE;
     else process.env.USERPROFILE = savedUserProfile;
+    if (savedGsdHome === undefined) delete process.env.GSD_HOME;
+    else process.env.GSD_HOME = savedGsdHome;
     if (savedGsdRuntime === undefined) delete process.env.GSD_RUNTIME;
     else process.env.GSD_RUNTIME = savedGsdRuntime;
     guardModule._setInstallRuntimeMarkerForTests(null);
@@ -876,6 +900,7 @@ describe('gsd-agent-isolation-guard.js: #3566 — per-install .gsd-runtime marke
     const configPath = path.join(proj, '.planning', 'config.json');
     process.env.HOME = home;
     process.env.USERPROFILE = home;
+    process.env.GSD_HOME = home; // #5017: the store root
     t.after(() => {
       cleanup(proj);
       cleanup(home);
@@ -1027,6 +1052,126 @@ describe('#3045 CORE REDESIGN — dispatch-isolation records as an unconditional
     assert.equal(read.harnessFlag, 'isolation="worktree"');
     assert.equal(read.phase, '2');
     assert.equal(read.plan, 'p1');
+  });
+
+  test('dispatch sentinel stays ignored in a project without a root ignore rule (#5086)', (t) => {
+    const dir = createFixture({ prefix: 'gsd-5086-ignore-', git: true, planning: true, projectDoc: true });
+    t.after(() => cleanup(dir));
+    const result = runGsdTools(
+      ['query', 'dispatch-isolation', '--raw'], dir,
+      { GSD_RUNTIME: 'claude', HOME: dir, USERPROFILE: dir },
+    );
+    assert.equal(result.success, true, result.error);
+    assert.equal(readSentinelRaw(dir).isolation, 'harness-worktree');
+
+    const status = runGit(['status', '--short', '--', '.gsd'], {
+      cwd: dir, timeoutMs: GIT_FIXTURE_TIMEOUT_MS,
+    });
+    assert.equal(status.exitCode, 0, status.stderr);
+    assert.equal(status.stdout.trim(), '', 'the sentinel must not appear in git status');
+  });
+
+  test('a second dispatch leaves the new local ignore file unchanged (#5086)', (t) => {
+    const dir = createTempProject('gsd-5086-idempotent-');
+    t.after(() => cleanup(dir));
+    const env = { GSD_RUNTIME: 'claude', HOME: dir, USERPROFILE: dir };
+    const ignorePath = path.join(dir, '.gsd', '.gitignore');
+
+    for (let i = 0; i < 2; i++) {
+      const result = runGsdTools(['query', 'dispatch-isolation', '--raw'], dir, env);
+      assert.equal(result.success, true, result.error);
+      assert.equal(fs.readFileSync(ignorePath, 'utf8'), '*\n');
+      assert.equal(readSentinelRaw(dir).isolation, 'harness-worktree');
+    }
+  });
+
+  test('dispatch sentinel preserves an existing local ignore file (#5086)', (t) => {
+    const dir = createFixture({ prefix: 'gsd-5086-existing-', git: true, planning: true, projectDoc: true });
+    t.after(() => cleanup(dir));
+    const gsdDir = path.join(dir, '.gsd');
+    fs.mkdirSync(gsdDir);
+    const ignorePath = path.join(gsdDir, '.gitignore');
+    fs.writeFileSync(ignorePath, '!keep.txt\n');
+    fs.writeFileSync(path.join(gsdDir, 'keep.txt'), 'keep\n');
+
+    const env = { GSD_RUNTIME: 'claude', HOME: dir, USERPROFILE: dir };
+    for (let i = 0; i < 2; i++) {
+      const result = runGsdTools(['query', 'dispatch-isolation', '--raw'], dir, env);
+      assert.equal(result.success, true, result.error);
+    }
+    const ignoreText = fs.readFileSync(ignorePath, 'utf8');
+    assert.ok(ignoreText.startsWith('!keep.txt\n'));
+    assert.equal(ignoreText.match(/# gsd-core dispatch sentinel/g)?.length, 1);
+
+    const status = runGit(['status', '--short', '--untracked-files=all', '--', '.gsd'], {
+      cwd: dir, timeoutMs: GIT_FIXTURE_TIMEOUT_MS,
+    });
+    assert.equal(status.exitCode, 0, status.stderr);
+    assert.equal(status.stdout.trim(), '?? .gsd/keep.txt');
+  });
+
+  test('an unusable local ignore file does not prevent recording isolation (#5086)', (t) => {
+    const dir = createTempProject('gsd-5086-ignore-error-');
+    t.after(() => cleanup(dir));
+    const ignorePath = path.join(dir, '.gsd', '.gitignore');
+    fs.mkdirSync(ignorePath, { recursive: true });
+
+    const result = runGsdTools(
+      ['query', 'record-dispatch-isolation', '--isolation', 'none', '--json'], dir,
+      { HOME: dir, USERPROFILE: dir },
+    );
+    assert.equal(result.success, true, result.error);
+    assert.equal(JSON.parse(result.output).recorded, true);
+    assert.equal(readSentinelRaw(dir).isolation, 'none');
+  });
+
+  test('a symlinked .gsd directory cannot redirect sentinel writes (#5086)', (t) => {
+    const dir = createTempProject('gsd-5086-linked-dir-');
+    const outside = createTempDir('gsd-5086-outside-');
+    t.after(() => { cleanup(dir); cleanup(outside); });
+    try {
+      fs.symlinkSync(outside, path.join(dir, '.gsd'), 'junction');
+    } catch (err) {
+      if (['EPERM', 'EACCES', 'ENOTSUP'].includes(err.code)) return t.skip(`symlink unavailable: ${err.code}`);
+      throw err;
+    }
+
+    const result = runGsdTools(
+      ['query', 'record-dispatch-isolation', '--isolation', 'none', '--json'], dir,
+      { HOME: dir, USERPROFILE: dir },
+    );
+    assert.equal(result.success, true, result.error);
+    const recorded = JSON.parse(result.output);
+    assert.equal(recorded.recorded, false);
+    assert.match(recorded.error, /sentinel directory is a symlink/);
+    assert.equal(fs.readdirSync(outside).length, 0);
+  });
+
+  test('a symlinked local ignore file cannot redirect writes (#5086)', (t) => {
+    const dir = createTempProject('gsd-5086-linked-ignore-');
+    const outside = createTempDir('gsd-5086-ignore-target-');
+    t.after(() => { cleanup(dir); cleanup(outside); });
+    const ignoreDir = path.join(dir, '.gsd');
+    fs.mkdirSync(ignoreDir);
+    const target = path.join(outside, 'target.txt');
+    fs.writeFileSync(target, 'unchanged\n');
+    try {
+      fs.symlinkSync(target, path.join(ignoreDir, '.gitignore'), 'file');
+    } catch (err) {
+      if (['EPERM', 'EACCES', 'ENOTSUP'].includes(err.code)) return t.skip(`symlink unavailable: ${err.code}`);
+      throw err;
+    }
+
+    const result = runGsdTools(
+      ['query', 'record-dispatch-isolation', '--isolation', 'none', '--json'], dir,
+      { HOME: dir, USERPROFILE: dir },
+    );
+    assert.equal(result.success, true, result.error);
+    const recorded = JSON.parse(result.output);
+    assert.equal(recorded.recorded, false);
+    assert.match(recorded.error, /sentinel ignore file is a symlink/);
+    assert.equal(fs.readFileSync(target, 'utf8'), 'unchanged\n');
+    assert.equal(fs.existsSync(sentinelFile(dir)), false);
   });
 
   // #3737 — the project-level opt-out (workflow.use_worktrees === false) is

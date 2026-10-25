@@ -18,6 +18,9 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 ## How-to guides
 
 - [Install on your runtime](how-to/install-on-your-runtime.md) — runtime-specific install steps for all 16 supported runtimes
+- [Start a GSD workflow from Pi](how-to/start-a-gsd-workflow-from-pi.md) — run `/skill:gsd-<command>` (or `/gsd <command>`) in Pi instead of getting a JSON dump from `/gsd`
+- [Check that GSD's guards run on Pi](how-to/check-gsd-guards-on-pi.md) — confirm the secret-read guard blocks a `.env` read in Pi and turn on the opt-in hooks
+- [Install GSD as a Pi package](how-to/install-gsd-as-a-pi-package.md) — `pi install npm:@opengsd/gsd-core` instead of the gsd-core installer, with the same commands and extension
 - [Install a minimal GSD and add skills later](how-to/install-minimal-and-add-skills.md) — install only the core skills, then grow the surface with profiles and `/gsd-surface`
 - [Attach a plugin-provided skill to a GSD agent](how-to/attach-a-plugin-skill-to-a-gsd-agent.md) — use the `global:plugin:skill` entry form to load Claude Code plugin skills into agent prompts
 - [Discuss a phase](how-to/discuss-a-phase.md) — capture implementation decisions before planning begins
@@ -32,6 +35,7 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 - [Resolve a contract-drift finding](how-to/resolve-contract-drift-findings.md) — bring an agent's completion contract, read-tag gate, or deleted-file test reference back into agreement with the registry
 - [Resolve unreachable-guard findings](how-to/resolve-unreachable-guard-findings.md) — fix shell guards whose fallback arm cannot run, and tell "nothing to report" apart from "could not look"
 - [Declare a hook's crash policy](how-to/declare-a-hook-crash-policy.md) — terminate a GSD hook with `allow`/`deny`/`crash`, declare its `ON_CRASH` policy, and tell a hook's own crash apart from a check that could not run at all
+- [Handle gate verb exit statuses](how-to/handle-gate-verb-exit-statuses.md) — capture a gate verb's status safely under `set -e` and tell a failing verdict from a gate that could not look
 - [Resolve a skipped capability probe](how-to/resolve-a-skipped-capability-probe.md) — act on a coverage gate that held your phase for an unestablished scope, or a planning checkpoint that reported `skipped` instead of a verdict
 - [Diagnose which gsd-tools is running](how-to/diagnose-a-foreign-gsd-tools.md) — tell this package's tool apart from the predecessor's colliding binary and from a gsd-core too old to identify itself
 - [Resolve an ESLint glob-coverage finding](how-to/resolve-eslint-coverage-findings.md) — bring a source file that matches no lint rule under coverage, or record a reasoned exemption
@@ -82,6 +86,7 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 - [Drive GSD from a tracker issue](how-to/drive-gsd-from-a-tracker-issue.md) — start a phase from a GitHub, Linear, or Jira issue
 - [Migrate from GSD 2](how-to/migrate-from-gsd-2.md) — upgrade an existing GSD 2 project to GSD Core
 - [Update GSD](how-to/update-gsd.md) — re-run the installer to pick up the latest release
+- [Move GSD from OpenCode 1.x to OpenCode 2.x](how-to/upgrade-opencode-1-to-2.md) — upgrade the binary and the install before the 1.x window ends on 2026-12-31
 - [Clean up get-shit-done-cc](cleanup-get-shit-done-cc.md) — remove leftover old-package artifacts that cause a spurious `⬆ /gsd-update` indicator after migrating to `@opengsd/gsd-core`
 - [Fix the worktree base-mismatch (exit 42) error](how-to/fix-worktree-base-mismatch.md) — resolve the branch-divergence condition that halts parallel phase execution
 - [Recover and troubleshoot](how-to/recover-and-troubleshoot.md) — fix common problems, rebuild context, and uninstall
@@ -96,11 +101,14 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 - [JSON error mode](json-errors.md) — `gsd-tools` failure channels: faults (stderr, exit 1) vs degraded results (stdout, exit 0), and the reason-code taxonomy
 - [Features](FEATURES.md) — complete feature index
 - [Inventory](INVENTORY.md) — installed skills and surface map
+- [Pi hook and lifecycle parity](reference/pi-hook-parity.md) — which GSD hooks run on Pi, the verified Pi event contract, and why each other hook is not bridged
+- [Pi parity matrix](reference/pi-parity-matrix.md) — what each command, workflow, agent role and hook becomes on Pi, and the test-enforced list of what Pi does not support
 - [STATE.md schema](reference/state-md.md) — field-by-field reference for `.planning/STATE.md`
 - [CONTEXT.md schema](reference/context-md.md) — field-by-field reference for `.planning/phases/<N>/CONTEXT.md`
 - [PLAN.md schema](reference/plan-md.md) — field-by-field reference for `.planning/phases/<N>/PLAN.md`
 - [Planning artifacts](reference/planning-artifacts.md) — all `.planning/` files and their roles
 - [Review and verification capabilities](reference/review-verification-capabilities.md) — code review, security, and Nyquist capability ownership and hook contracts
+- [Agent reference](reference/agents.md) — role cards, tools and constraints for every shipped GSD agent
 - [Gate predicates](reference/gate-predicates.md) — canonical specification of the phase-gate predicate vocabulary
 - [Capability matrix](reference/capability-matrix.md) — generated catalogue of every capability's role, tier, extension points, hook kinds, and `engines.gsd`
 - [Exit code reference](reference/exit-codes.md) — generated catalogue of every registered process exit code, its name, meaning, and owning module, plus the reserved bands and the v1/v2 exit contract
@@ -120,6 +128,7 @@ Language versions: [English](README.md) · [Português (pt-BR)](pt-BR/README.md)
 - [The phase loop](explanation/the-phase-loop.md) — design rationale for the Discuss → Plan → Execute → Verify → Ship cycle
 - [Multi-agent orchestration](explanation/multi-agent-orchestration.md) — how subagents are spawned, scoped, and coordinated
 - [Security model](explanation/security-model.md) — trust boundaries, permissions, and safe automation
+- [How GSD runs on Pi](explanation/how-gsd-runs-on-pi.md) — how commands, agent roles and guards map onto Pi's skills, tools and events, and the limits that leaves
 - [The capability trust model](explanation/capability-trust-model.md) — why third-party capabilities are gated by consent + integrity + reversibility, not a sandbox
 - [How overlay capabilities compose](explanation/capability-overlay-model.md) — why first-party always wins and how the loader resolves precedence, conflicts, and fail-open load-failure warnings
 - [Architecture](ARCHITECTURE.md) — system architecture, agent model, and data flow

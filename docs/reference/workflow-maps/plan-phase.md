@@ -4,7 +4,7 @@
 
 Источник: `gsd-core/workflows/plan-phase.md`. Единицы: 41 раздел H2, 6 секций `gsd:section`. Спавнов: 10 (агенты: `gsd-planner`, `gsd-plan-checker`). Точки цикла: `plan:pre`, `plan:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 44; не называют реальный шаг и не рисуются — **9**; названы по имени шага и нарисованы пунктиром `goto` — 35.
+> **Переходы в прозе** (фразы «перейди к …»): всего 45; не называют реальный шаг и не рисуются — **9**; названы по имени шага и нарисованы пунктиром `goto` — 36.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -153,8 +153,8 @@ flowchart TB
   u_heading_9__Handle_Planner_Return -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_9a__Filesystem_Fallback__Planner_ -.->|"goto"| u_heading_8__Spawn_gsd_planner_Agent
   u_heading_9c__Handle_Source_Audit_Gaps -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
-  u_heading_11__Handle_Checker_Return -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_11__Handle_Checker_Return -.->|"goto"| u_heading_11b__Refute_Findings__conditional_
+  u_heading_11__Handle_Checker_Return -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_11a__Filesystem_Fallback__Checker_ -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
   u_heading_11a__Filesystem_Fallback__Checker_ -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
   u_heading_11b__Refute_Findings__conditional_ -.->|"goto"| u_heading_12__Revision_Loop__Max_3_Iterations_
@@ -285,7 +285,7 @@ flowchart LR
 | 44 | `13d. Commit Plans if commit_docs is true` | H2 |  |  |  |  |
 | 45 | `13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)` | H2 |  |  | `plan:post` |  |
 | 46 | `14. Present Final Status` | H2 |  |  |  |  |
-| 47 | `15. Auto-Advance Check` | H2 |  |  |  |  |
+| 47 | `15. Auto-Advance Check` | H2 |  |  |  | `plan-phase/steps/auto-advance-check.md` |
 
 ## Дефекты
 

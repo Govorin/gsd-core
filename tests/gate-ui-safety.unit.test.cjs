@@ -66,9 +66,10 @@ const CASES = [
       return {
         frontend: true,
         hasUiFiles: true,
+        hasFrontendEvidence: true,
         hasUiSpec: false,
         block: true,
-        message: 'UI files changed in this wave but no UI-SPEC.md exists for Phase 1. Run /gsd:ui-phase 1 to generate the design contract before continuing.',
+        message: 'UI files changed in this wave but no UI-SPEC.md exists for Phase 1. Run /gsd-ui-phase 1 to generate the design contract before continuing.',
         // #5164: the phase records no task commits, so its scope is the widened phase-directory range, and says so.
         scopeStatus: 'degraded',
         scopeReason: 'no-summary',
@@ -93,6 +94,7 @@ const CASES = [
       return {
         frontend: true,
         hasUiFiles: true,
+        hasFrontendEvidence: true,
         hasUiSpec: true,
         block: false,
         scopeStatus: 'degraded',
@@ -118,6 +120,7 @@ const CASES = [
       return {
         frontend: true,
         hasUiFiles: false,
+        hasFrontendEvidence: false,
         hasUiSpec: false,
         block: false,
         scopeStatus: 'degraded',
@@ -143,6 +146,7 @@ const CASES = [
       return {
         frontend: false,
         hasUiFiles: true,
+        hasFrontendEvidence: false,
         hasUiSpec: false,
         block: false,
         scopeStatus: 'degraded',
@@ -158,13 +162,15 @@ const CASES = [
       h.w(dir, '.planning/ROADMAP.md', ['# Roadmap', '', '### Phase 1: Dashboard frontend', '**Goal**: Build the React dashboard UI for operators', ''].join('\n'));
     },
     args() { return ['9']; },
-    // #5164: a phase the resolver cannot find is "could not look" — a `skip` verdict, never a `pass`.
-    outcome: 'skip',
+    // #5164/#5170: a phase the resolver cannot find is "could not look" — an `unreadable` verdict
+    // (exit UNAVAILABLE), never a `pass`; `block` stays the gate's own policy (false).
+    outcome: 'unreadable',
     block: false,
     expected() {
       return {
         frontend: false,
         hasUiFiles: false,
+        hasFrontendEvidence: false,
         hasUiSpec: false,
         block: false,
         phaseLookupFailed: true,
@@ -175,17 +181,18 @@ const CASES = [
   },
   {
     id: 'U4f',
-    title: 'no git repository -> hasUiFiles false, and the unreadable scope is reported (skip), not passed',
+    title: 'no git repository -> hasUiFiles false, and the unreadable scope is reported (unreadable), not passed',
     setup(dir, h) {
       h.w(dir, '.planning/ROADMAP.md', ['# Roadmap', '', '### Phase 1: Dashboard frontend', '**Goal**: Build the React dashboard UI for operators', ''].join('\n'));
     },
     args() { return ['1']; },
-    outcome: 'skip',
+    outcome: 'unreadable',
     block: false,
     expected() {
       return {
         frontend: true,
         hasUiFiles: false,
+        hasFrontendEvidence: false,
         hasUiSpec: false,
         block: false,
         scopeStatus: 'unresolvable',

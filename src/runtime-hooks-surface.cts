@@ -1153,7 +1153,16 @@ function buildCodexHookWindowsShimIR(scriptAbsPath: string, absoluteRunnerToken:
   const scriptQuoted = JSON.stringify(targetAbs);
   const cmdPath = scriptAbsPath.replace(/\.js$/, '.cmd');
   const hookCommand = JSON.stringify(shellCmdProjection.posixNormalize(cmdPath));
-  const runnerQuoted = JSON.stringify(interpreter);
+  // #4838: node is resolved when the hook fires. The install-time path dies when a
+  // version manager (WinGet) removes the versioned directory on upgrade, and a
+  // shim that only knew that path failed silently until the installer re-ran.
+  // Order: explicit GSD_NODE_PATH; the install-time path while it still exists
+  // (keeps the #3662 minimal-PATH guarantee); node.exe on PATH. `where $PATH:`
+  // searches PATH only, never the current directory, so repo content cannot
+  // become the runner. `%` is doubled so cmd.exe cannot expand a variable out
+  // of an install path.
+  const bakedBat = JSON.stringify(interpreter).slice(1, -1).replace(/%/g, '%%');
+  const scriptBat = scriptQuoted.replace(/%/g, '%%');
   return {
     invocation: { interpreter, target: scriptAbsPath },
     cmdPath,
@@ -1161,7 +1170,16 @@ function buildCodexHookWindowsShimIR(scriptAbsPath: string, absoluteRunnerToken:
     eol: { cmd: '\r\n' },
     passthroughArgs: true,
     render: {
-      cmd: () => `@ECHO OFF\r\n@SETLOCAL\r\n@${runnerQuoted} ${scriptQuoted} %*\r\n`,
+      cmd: () => [
+        '@ECHO OFF',
+        '@SETLOCAL',
+        '@SET "GSD_NODE="',
+        '@IF DEFINED GSD_NODE_PATH IF EXIST "%GSD_NODE_PATH%" SET "GSD_NODE=%GSD_NODE_PATH%"',
+        `@IF NOT DEFINED GSD_NODE IF EXIST "${bakedBat}" SET "GSD_NODE=${bakedBat}"`,
+        '@IF NOT DEFINED GSD_NODE FOR /F "delims=" %%N IN (\'where $PATH:node.exe 2^>NUL\') DO @IF NOT DEFINED GSD_NODE SET "GSD_NODE=%%N"',
+        `@"%GSD_NODE%" ${scriptBat} %*`,
+        '',
+      ].join('\r\n'),
     },
   };
 }
@@ -1461,10 +1479,10 @@ function configuredEntrypointsForHook(
   const bash = resolveBashExecutable(opts);
   if (isShellHook) {
     // An unresolved bash must still surface as an interpreterCandidates entry
-    // (the literal token, same as the portableHooks runner below) so
+    // (the sentinel token, same as the portableHooks runner below) so
     // validateConfiguredEntrypoints reports 'unresolved-interpreter' instead
     // of silently skipping the check because the field is absent.
-    return [{ ...target, interpreterCandidates: [bash === null ? 'bash' : bash] }];
+    return [{ ...target, interpreterCandidates: [bash === null ? UNRESOLVED_BASH_SENTINEL : bash] }];
   }
 
   // #4249: check the SAME stable alias buildNodeRunnerChainToken bakes as its
@@ -1487,7 +1505,7 @@ function configuredEntrypointsForHook(
     runtime,
     configPath,
     scriptPath: path.join(configDir, 'hooks', NODE_RUNNER_RESOLVER_HOOK),
-    interpreterCandidates: bash === null ? ['bash'] : [bash],
+    interpreterCandidates: bash === null ? [UNRESOLVED_BASH_SENTINEL] : [bash],
     platform,
   };
   return [runner, { ...target, interpreterCandidates: nodeCandidates }];
@@ -1505,6 +1523,20 @@ function recordConfiguredHookCommand(
     );
   }
   return command;
+}
+
+// #5100: the two null-runner branches of buildHookCommand share this. No
+// command was ever built, so track() (which needs one) cannot record the
+// hook — push the entry directly instead, so the gate sees it rather than
+// the hook going silently unregistered.
+function recordUnresolvedBashEntrypoint(
+  configDir: string,
+  hookName: string,
+  opts: BuildHookCommandOpts,
+): void {
+  if (opts.configuredEntrypoints) {
+    opts.configuredEntrypoints.push(...configuredEntrypointsForHook(configDir, hookName, opts));
+  }
 }
 
 function buildHookCommand(configDir: string, hookName: string, opts?: BuildHookCommandOpts): string | null {
@@ -1534,15 +1566,9 @@ function buildHookCommand(configDir: string, hookName: string, opts?: BuildHookC
     const runner = resolveBashRunner(opts);
     if (runner === null) {
       // #4249 (antigravity review): this early return skips `track()` below,
-      // so an unresolved bash on win32 (no Git Bash found) previously left
-      // this hook silently unregistered with nothing for
-      // validateConfiguredEntrypoints to reject — configuredEntrypointsForHook's
-      // own 'unresolved bash must still surface' comment describes intent this
-      // return never reached. Push the entry directly (no `command`, since
-      // none was ever built) so the gate actually sees it.
-      if (opts.configuredEntrypoints) {
-        opts.configuredEntrypoints.push(...configuredEntrypointsForHook(configDir, hookName, opts));
-      }
+      // which needs a command that was never built — record the entry
+      // directly so the gate can reject it.
+      recordUnresolvedBashEntrypoint(configDir, hookName, opts);
       return null;
     }
 
@@ -1588,9 +1614,13 @@ function buildHookCommand(configDir: string, hookName: string, opts?: BuildHookC
       configDir,
       homeDir: os.homedir(),
     });
-    // Absolute Git-Bash discovery on win32 when available (#580); `bash` on
-    // PATH otherwise — the same assumption .sh hooks already make.
-    const resolverRunner = resolveBashRunner(opts) || 'bash';
+    // #5100: same contract as the .sh early return. A bare `bash` is how
+    // win32 reaches WSL's System32 launcher, and the gate used to accept it.
+    const resolverRunner = resolveBashRunner(opts);
+    if (resolverRunner === null) {
+      recordUnresolvedBashEntrypoint(configDir, hookName, opts);
+      return null;
+    }
     return track(shellCmdProjection.projectShellCommandText({
       runnerToken: resolverRunner,
       argTokens: [
@@ -2473,765 +2503,513 @@ interface ApplySettingsJsonHooksOpts {
   localShellCmd: (hookFile: string) => string | null;
   /** Print nothing — for the dry run over empty settings that tells install what this build registers. */
   quiet?: boolean;
+  /**
+   * #4840: false when the runtime declares `context-warnings` unsupported
+   * (`hostBehaviors.unsupportedFeatures`) — it has no statusline writer for the
+   * metrics bridge file `gsd-context-monitor.js` reads, so the hook could never
+   * warn. The monitor is then not registered, and a registration left by an
+   * earlier install is stripped. Absent means supported.
+   */
+  contextWarnings?: boolean;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts): void {
-  /* eslint-disable @typescript-eslint/no-unsafe-member-access,
-                    @typescript-eslint/no-unsafe-call,
-                    @typescript-eslint/no-unsafe-assignment */
-  const {
-    runtime,
-    isGlobal,
-    targetDir,
-    postToolEvent,
-    hookEvents,
-    extendedHookEvents,
-    hooksSurface,
-    updateCheckCommand,
-    contextMonitorCommand,
-    promptGuardCommand,
-    readGuardCommand,
-    readInjectionScannerCommand,
-    configReloadCommand,
-    hookOpts,
-    localCmd,
-    localShellCmd,
-    quiet,
-  } = opts;
+// ---------------------------------------------------------------------------
+// The settings-json hook registration tables (#5207, ADR-5057 §5).
+//
+// Hook registration inside the `settings-json` hooksSurface adapter is data:
+// one row per managed hook, consumed by ONE loop (applySettingsJsonHookTables).
+// A hook is added by adding a row; there is no per-hook branch to copy. Rows
+// are listed in registration order — SessionStart / post-tool / pre-tool event
+// arrays are created, and entries pushed, in this order, which is observable
+// in the settings.json users diff.
+// ---------------------------------------------------------------------------
+
+type SettingsJsonHookEvent = 'SessionStart' | 'post' | 'pre';
+
+type SettingsJsonCommandKey =
+  | 'updateCheckCommand'
+  | 'contextMonitorCommand'
+  | 'promptGuardCommand'
+  | 'readGuardCommand'
+  | 'readInjectionScannerCommand'
+  | 'configReloadCommand';
+
+interface SettingsJsonHookRow {
+  /** Hook script basename under <targetDir>/hooks/; its extension-less stem is what `referencesHook` matches. */
+  readonly file: string;
+  /** `post`/`pre` resolve to the descriptor's PostToolUse/AfterTool and PreToolUse/BeforeTool dialect. */
+  readonly event: SettingsJsonHookEvent;
+  readonly matcher?: string;
+  /** Seconds, or 'blocking' for BLOCKING_GUARD_TIMEOUT_S (#3981). Omitted → no timeout key. */
+  readonly timeout?: number | 'blocking';
+  /** `opts`: a command the caller pre-built; `build`: built here (global → buildHookCommand, local → localCmd / localShellCmd). */
+  readonly command: { readonly opts: SettingsJsonCommandKey } | { readonly build: 'js' | 'sh' };
+  readonly configuredMessage: string;
+  readonly skipLabel: string;
+  /** What to do when the hook is already registered. */
+  readonly onPresent?: { readonly kind: 'migrate-matcher-timeout' | 'repair-matcher'; readonly message: string };
+  /** Warning appended after "Skipped <label> —" when the file exists but no command could be built. */
+  readonly noCommandMessage?: string;
+}
+
+interface SettingsJsonExtendedRow {
+  readonly event: string;
+  readonly file: string;
+  readonly command: { readonly opts: SettingsJsonCommandKey };
+  readonly matcher?: string;
+  readonly timeout: number;
+  readonly configuredMessage: string;
+  /** Append "(<runtime capability title>)" to the configured message. */
+  readonly runtimeLabelSuffix?: boolean;
+  readonly noCommandMessage?: string;
+}
+
+interface SettingsJsonHookTables {
+  readonly rows: readonly SettingsJsonHookRow[];
+  readonly extendedRows: readonly SettingsJsonExtendedRow[];
+}
+
+const BASH_UNAVAILABLE_MESSAGE = 'Bash executable path unavailable (#3393)';
+
+// The tables are exported as a contract; freeze every row (and its nested
+// objects) so no consumer can mutate a matcher or timeout at runtime.
+function deepFreeze<T extends object>(value: T): T {
+  for (const child of Object.values(value)) {
+    if (child !== null && typeof child === 'object') deepFreeze(child as object);
+  }
+  return Object.freeze(value);
+}
+
+const SETTINGS_JSON_HOOK_ROWS: readonly SettingsJsonHookRow[] = deepFreeze([
+  // Guard: only register if the hook file was actually installed (#1754, #1817).
+  { file: 'gsd-check-update.js', event: 'SessionStart', command: { opts: 'updateCheckCommand' },
+    configuredMessage: 'Configured update check hook', skipLabel: 'update check hook' },
+  // #5465: persists the gsd-core bin directory on PATH through $CLAUDE_ENV_FILE (SessionStart-only).
+  { file: 'gsd-path-export.js', event: 'SessionStart', timeout: 5, command: { build: 'js' },
+    configuredMessage: 'Configured PATH persistence hook', skipLabel: 'PATH persistence hook' },
+  { file: 'gsd-context-monitor.js', event: 'post', matcher: 'Bash|Edit|Write|MultiEdit|Agent|Task', timeout: 10,
+    command: { opts: 'contextMonitorCommand' },
+    configuredMessage: 'Configured context window monitor hook', skipLabel: 'context monitor hook',
+    onPresent: { kind: 'migrate-matcher-timeout', message: 'Updated context monitor hook (added matcher + timeout)' } },
+  { file: 'gsd-prompt-guard.js', event: 'pre', matcher: 'Write|Edit', timeout: 'blocking',
+    command: { opts: 'promptGuardCommand' },
+    configuredMessage: 'Configured prompt injection guard hook', skipLabel: 'prompt guard hook' },
+  // Read-before-edit guidance (#1628): advisory-only, does not block.
+  { file: 'gsd-read-guard.js', event: 'pre', matcher: 'Write|Edit', timeout: 5,
+    command: { opts: 'readGuardCommand' },
+    configuredMessage: 'Configured read-before-edit guard hook', skipLabel: 'read guard hook' },
+  // Read-time prompt injection scanning (#2201).
+  { file: 'gsd-read-injection-scanner.js', event: 'post', matcher: 'Read', timeout: 5,
+    command: { opts: 'readInjectionScannerCommand' },
+    configuredMessage: 'Configured read injection scanner hook', skipLabel: 'read injection scanner hook' },
+  // Community hooks — registered on install but opt-in at runtime via .planning/config.json.
+  { file: 'gsd-workflow-guard.js', event: 'pre', matcher: 'Bash|Edit|Write|MultiEdit', timeout: 'blocking',
+    command: { build: 'js' },
+    configuredMessage: 'Configured workflow guard hook (opt-in via hooks.workflow_guard)', skipLabel: 'workflow guard hook',
+    onPresent: { kind: 'repair-matcher', message: 'Updated workflow guard hook matcher' } },
+  // Worktree absolute-path safety (#260).
+  { file: 'gsd-worktree-path-guard.js', event: 'pre', matcher: 'Write|Edit|MultiEdit', timeout: 'blocking',
+    command: { build: 'js' },
+    configuredMessage: 'Configured worktree path guard hook', skipLabel: 'worktree path guard hook' },
+  // Agent-dispatch isolation (#3045); matcher widened to Agent|Task (#3045 MAJOR 1).
+  { file: 'gsd-agent-isolation-guard.js', event: 'pre', matcher: 'Agent|Task', timeout: 'blocking',
+    command: { build: 'js' },
+    configuredMessage: 'Configured agent isolation dispatch guard hook', skipLabel: 'agent isolation guard hook' },
+  // Catastrophic-shrink protection (#2255, fix 3 of #973).
+  { file: 'gsd-write-guard.js', event: 'pre', matcher: 'Write', timeout: 'blocking',
+    command: { build: 'js' },
+    configuredMessage: 'Configured write guard hook (catastrophic-shrink protection)', skipLabel: 'write guard hook' },
+  // Secret-file read protection (#4221).
+  { file: 'gsd-secret-read-guard.js', event: 'pre', matcher: 'Read|Grep|Bash', timeout: 'blocking',
+    command: { build: 'js' },
+    configuredMessage: 'Configured secret read guard hook (.env / .secrets read protection)', skipLabel: 'secret read guard hook' },
+  // The four `.sh` rows: their built commands also feed the #3329 reconcile.
+  { file: 'gsd-validate-commit.sh', event: 'pre', matcher: 'Bash', timeout: 'blocking',
+    command: { build: 'sh' },
+    configuredMessage: 'Configured commit validation hook (opt-in via config)', skipLabel: 'commit validation hook',
+    noCommandMessage: BASH_UNAVAILABLE_MESSAGE },
+  { file: 'gsd-graphify-update.sh', event: 'post', matcher: 'Bash', timeout: 5,
+    command: { build: 'sh' },
+    configuredMessage: 'Configured graphify auto-update hook (opt-in via graphify.auto_update)', skipLabel: 'graphify auto-update hook',
+    noCommandMessage: BASH_UNAVAILABLE_MESSAGE },
+  { file: 'gsd-session-state.sh', event: 'SessionStart',
+    command: { build: 'sh' },
+    configuredMessage: 'Configured session state orientation hook (opt-in via config)', skipLabel: 'session state hook',
+    noCommandMessage: BASH_UNAVAILABLE_MESSAGE },
+  { file: 'gsd-phase-boundary.sh', event: 'post', matcher: 'Write|Edit', timeout: 5,
+    command: { build: 'sh' },
+    configuredMessage: 'Configured phase boundary detection hook (opt-in via config)', skipLabel: 'phase boundary hook',
+    noCommandMessage: BASH_UNAVAILABLE_MESSAGE },
+]);
+
+// Extended lifecycle events are descriptor-gated (`extendedHookEvents`): a row
+// registers only for runtimes whose descriptor lists its event. SubagentStart
+// is qwen/codebuddy-only today; the Before/After Agent/Model rows are an inert
+// seam (no runtime declares them) that re-activates if one does (#776, #1928).
+// FileChanged hot-reloads the gsd config on .planning/config.json edits.
+function contextMonitorRow(event: string, runtimeLabelSuffix: boolean): SettingsJsonExtendedRow {
+  return {
+    event,
+    file: 'gsd-context-monitor.js',
+    command: { opts: 'contextMonitorCommand' },
+    timeout: 10,
+    configuredMessage: `Configured ${event} context monitor hook`,
+    ...(runtimeLabelSuffix ? { runtimeLabelSuffix } : {}),
+  };
+}
+
+const SETTINGS_JSON_EXTENDED_ROWS: readonly SettingsJsonExtendedRow[] = deepFreeze([
+  contextMonitorRow('SubagentStop', true),
+  contextMonitorRow('Stop', true),
+  contextMonitorRow('PreCompact', true),
+  contextMonitorRow('SubagentStart', true),
+  contextMonitorRow('BeforeAgent', false),
+  contextMonitorRow('AfterAgent', false),
+  contextMonitorRow('BeforeModel', false),
+  { event: 'FileChanged', file: 'gsd-config-reload.js', command: { opts: 'configReloadCommand' }, matcher: 'config.json', timeout: 8,
+    configuredMessage: 'Configured FileChanged config-reload hook (Claude Code)',
+    noCommandMessage: 'Node executable path unavailable' },
+]);
+
+function hookStem(file: string): string {
+  return file.replace(/\.(?:js|sh)$/, '');
+}
+
+/* eslint-disable @typescript-eslint/no-unsafe-member-access,
+                  @typescript-eslint/no-unsafe-call,
+                  @typescript-eslint/no-unsafe-assignment,
+                  @typescript-eslint/no-explicit-any */
+function groupReferencesHook(entry: any, stem: string): boolean {
+  return Boolean(entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, stem)));
+}
+
+function resolveRowTimeout(timeout: number | 'blocking' | undefined): number | undefined {
+  return timeout === 'blocking' ? BLOCKING_GUARD_TIMEOUT_S : timeout;
+}
+
+function resolveRowCommand(row: SettingsJsonHookRow, opts: ApplySettingsJsonHooksOpts): string | null {
+  if ('opts' in row.command) return opts[row.command.opts];
+  if (opts.isGlobal) return buildHookCommand(opts.targetDir, row.file, opts.hookOpts);
+  return row.command.build === 'sh' ? opts.localShellCmd(row.file) : opts.localCmd(row.file);
+}
+
+function reconcilePresentHook(row: SettingsJsonHookRow, entries: any[], existing: any, log: (line: string) => void): void {
+  const present = row.onPresent;
+  if (!present) return;
+  if (present.kind === 'repair-matcher') {
+    if (existing.matcher !== row.matcher) {
+      existing.matcher = row.matcher;
+      log(`  ${green}✓${reset} ${present.message}`);
+    }
+    return;
+  }
+  // migrate-matcher-timeout: add the matcher and timeout an older installer omitted.
+  const stem = hookStem(row.file);
+  const timeout = resolveRowTimeout(row.timeout);
+  for (const entry of entries) {
+    if (!groupReferencesHook(entry, stem)) continue;
+    let migrated = false;
+    if (!entry.matcher) {
+      entry.matcher = row.matcher;
+      migrated = true;
+    }
+    for (const h of entry.hooks) {
+      if (referencesHook(h as Record<string, unknown>, stem) && !h.timeout) {
+        h.timeout = timeout;
+        migrated = true;
+      }
+    }
+    if (migrated) log(`  ${green}✓${reset} ${present.message}`);
+  }
+}
+
+function pushHookGroup(entries: any[], matcher: string | undefined, command: string, timeout: number | undefined): void {
+  const hook: Record<string, unknown> = { type: 'command', command };
+  if (timeout !== undefined) hook['timeout'] = timeout;
+  entries.push(matcher === undefined ? { hooks: [hook] } : { matcher, hooks: [hook] });
+}
+
+/** #4840: the hook that reads the statusline's metrics bridge file. */
+const CONTEXT_MONITOR_HOOK = 'gsd-context-monitor.js';
+
+/**
+ * #4840: remove GSD-managed registrations of `stem` from one event's groups,
+ * leaving user-authored hooks (even in the same group) untouched. Returns
+ * whether anything was removed. A group left with no hooks is dropped.
+ */
+function stripManagedHookRegistrations(entries: any[], stem: string): boolean {
+  let removed = false;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry || !Array.isArray(entry.hooks)) continue;
+    const kept = entry.hooks.filter((h: HookEntry) => {
+      const managed = referencesHook(h as Record<string, unknown>, stem)
+        && isManagedHookCommand((h as { command?: string }).command, { surface: 'settings-json', includeLegacyAliases: true });
+      if (managed) removed = true;
+      return !managed;
+    });
+    if (kept.length === entry.hooks.length) continue;
+    if (kept.length === 0) entries.splice(i, 1);
+    else entry.hooks = kept;
+  }
+  return removed;
+}
+
+function applySettingsJsonHookTables(settings: any, opts: ApplySettingsJsonHooksOpts, tables: SettingsJsonHookTables): void {
+  const { runtime, postToolEvent, hookEvents, extendedHookEvents, hooksSurface, targetDir, hookOpts, quiet } = opts;
   const log = (line: string): void => { if (!quiet) console.log(line); };
   const warn = (line: string): void => { if (!quiet) console.warn(line); };
 
-  // ADR-857 phase 5f-3: extended hook events are now driven by the registry
+  // ADR-857 phase 5f-3: extended hook events are driven by the registry
   // descriptor field rather than hardcoded runtime-name checks.
   const extendedEvents = Array.isArray(extendedHookEvents) ? extendedHookEvents : [];
 
   // ADR-857 phase 5g drive 3: hook-skip guard is driven by the hooksSurface
   // descriptor field. Only runtimes with hooksSurface === 'settings-json'
-  // register settings.json hooks; runtimes with hooksSurface === 'none'
-  // (opencode, kilo) are skipped. Equivalence: hooksSurface !== 'none' iff
-  // the old !isOpencode && !isKilo check.
+  // register settings.json hooks; 'none' (opencode, kilo) is skipped.
   // #2095: kimi's hooksSurface is 'kimi-hooks-toml' — it registers hooks into
-  // its own native config.toml via writeKimiHooksToml, not settings.json (kimi
-  // never writes settings.json at all: writesSharedSettings stays false). This
-  // guard must also skip kimi's surface so applySettingsJsonHooks doesn't log
-  // misleading "Configured ..." console messages for a settings object that
-  // finishInstall() will never persist for kimi.
-  if (hooksSurface !== 'none' && hooksSurface !== 'kimi-hooks-toml') {
-    if (!settings.hooks) {
-      settings.hooks = {};
-    }
-    if (!settings.hooks.SessionStart) {
-      settings.hooks.SessionStart = [];
-    }
+  // its own native config.toml via writeKimiHooksToml and never writes
+  // settings.json, so this guard must skip it too, or the console would log
+  // "Configured ..." for a settings object finishInstall() never persists.
+  if (hooksSurface === 'none' || hooksSurface === 'kimi-hooks-toml') return;
 
-    // #3981: raise existing managed blocking-guard entries still on the old
-    // 5 s budget to BLOCKING_GUARD_TIMEOUT_S (module-level; rationale there).
-    // Registration below uses the same constant. On the runtimes that carry the
-    // mn fork's write guards, those are blocking guards too: registration skips
-    // an entry that is already present, so without this an install that has
-    // them at 5 s keeps 5 s across every reinstall.
-    const migratedGuardNames: readonly string[] = FORK_ENFORCEMENT_RUNTIMES.has(runtime)
-      ? [...BLOCKING_GUARD_NAMES, ...FORK_BLOCKING_GUARD_NAMES]
-      : BLOCKING_GUARD_NAMES;
-    for (const entries of Object.values(settings.hooks as Record<string, HookGroup[]>)) {
-      if (!Array.isArray(entries)) continue;
-      for (const entry of entries) {
-        if (!entry || !Array.isArray(entry.hooks)) continue;
-        for (const h of entry.hooks) {
-          if (
-            migratedGuardNames.some((name) => referencesHook(h as Record<string, unknown>, name)) &&
-            h.timeout === 5
-          ) {
-            h.timeout = BLOCKING_GUARD_TIMEOUT_S;
-          }
-        }
-      }
-    }
-
-    const hasGsdUpdateHook = settings.hooks.SessionStart.some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-check-update'))
-    );
-
-    // Guard: only register if the hook file was actually installed (#1754).
-    // When hooks/dist/ is missing from the npm package (as in v1.32.0), the
-    // copy step produces no files but the registration step ran unconditionally,
-    // causing "hook error" on every tool invocation.
-    const checkUpdateFile = path.join(targetDir, 'hooks', 'gsd-check-update.js');
-    if (!hasGsdUpdateHook && fs.existsSync(checkUpdateFile) && updateCheckCommand) {
-      settings.hooks.SessionStart.push({
-        hooks: [
-          {
-            type: 'command',
-            command: updateCheckCommand
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured update check hook`);
-    } else if (!hasGsdUpdateHook && !fs.existsSync(checkUpdateFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped update check hook — gsd-check-update.js not found at target`);
-    }
-
-    // Configure post-tool hook for context window monitoring
-    if (!settings.hooks[postToolEvent]) {
-      settings.hooks[postToolEvent] = [];
-    }
-
-    const hasContextMonitorHook = settings.hooks[postToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-context-monitor'))
-    );
-
-    const contextMonitorFile = path.join(targetDir, 'hooks', 'gsd-context-monitor.js');
-    if (!hasContextMonitorHook && fs.existsSync(contextMonitorFile) && contextMonitorCommand) {
-      settings.hooks[postToolEvent].push({
-        matcher: 'Bash|Edit|Write|MultiEdit|Agent|Task',
-        hooks: [
-          {
-            type: 'command',
-            command: contextMonitorCommand,
-            timeout: 10
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured context window monitor hook`);
-    } else if (!hasContextMonitorHook && !fs.existsSync(contextMonitorFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped context monitor hook — gsd-context-monitor.js not found at target`);
-    } else {
-      // Migrate existing context monitor hooks: add matcher and timeout if missing
-      for (const entry of settings.hooks[postToolEvent]) {
-        if (entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-context-monitor'))) {
-          let migrated = false;
-          if (!entry.matcher) {
-            entry.matcher = 'Bash|Edit|Write|MultiEdit|Agent|Task';
-            migrated = true;
-          }
-          for (const h of entry.hooks) {
-            if (referencesHook(h as Record<string, unknown>, 'gsd-context-monitor') && !h.timeout) {
-              h.timeout = 10;
-              migrated = true;
-            }
-          }
-          if (migrated) {
-            log(`  ${green}✓${reset} Updated context monitor hook (added matcher + timeout)`);
-          }
-        }
-      }
-    }
-
-    // Configure PreToolUse hook for prompt injection detection
-    // ADR-857 phase 5f-2: drive dialect from opts.hookEvents (registry descriptor).
-    // hookEvents='gemini' → BeforeTool; all others → PreToolUse.
-    // Equivalence: hookEvents='gemini' iff runtime===antigravity (same as old check).
-    const preToolEvent = hookEvents === 'gemini' ? 'BeforeTool' : 'PreToolUse';
-    if (!settings.hooks[preToolEvent]) {
-      settings.hooks[preToolEvent] = [];
-    }
-
-    const hasPromptGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-prompt-guard'))
-    );
-
-    const promptGuardFile = path.join(targetDir, 'hooks', 'gsd-prompt-guard.js');
-    if (!hasPromptGuardHook && fs.existsSync(promptGuardFile) && promptGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Write|Edit',
-        hooks: [
-          {
-            type: 'command',
-            command: promptGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured prompt injection guard hook`);
-    } else if (!hasPromptGuardHook && !fs.existsSync(promptGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped prompt guard hook — gsd-prompt-guard.js not found at target`);
-    }
-
-    // Configure PreToolUse hook for read-before-edit guidance (#1628)
-    // Prevents infinite retry loops when non-Claude models attempt to edit
-    // files without reading them first. Advisory-only — does not block.
-    const hasReadGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-read-guard'))
-    );
-
-    const readGuardFile = path.join(targetDir, 'hooks', 'gsd-read-guard.js');
-    if (!hasReadGuardHook && fs.existsSync(readGuardFile) && readGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Write|Edit',
-        hooks: [
-          {
-            type: 'command',
-            command: readGuardCommand,
-            timeout: 5
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured read-before-edit guard hook`);
-    } else if (!hasReadGuardHook && !fs.existsSync(readGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped read guard hook — gsd-read-guard.js not found at target`);
-    }
-
-    // Configure PostToolUse hook for read-time prompt injection scanning (#2201)
-    // Scans content returned by the Read tool for injection patterns, including
-    // summarisation-specific patterns that survive context compression.
-    const hasReadInjectionScannerHook = settings.hooks[postToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-read-injection-scanner'))
-    );
-
-    const readInjectionScannerFile = path.join(targetDir, 'hooks', 'gsd-read-injection-scanner.js');
-    if (!hasReadInjectionScannerHook && fs.existsSync(readInjectionScannerFile) && readInjectionScannerCommand) {
-      settings.hooks[postToolEvent].push({
-        matcher: 'Read',
-        hooks: [
-          {
-            type: 'command',
-            command: readInjectionScannerCommand,
-            timeout: 5
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured read injection scanner hook`);
-    } else if (!hasReadInjectionScannerHook && !fs.existsSync(readInjectionScannerFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped read injection scanner hook — gsd-read-injection-scanner.js not found at target`);
-    }
-
-    // Community hooks — registered on install but opt-in at runtime.
-    // Each hook checks .planning/config.json for hooks.community: true
-    // and exits silently (no-op) if not enabled. This lets users enable
-    // them per-project by adding: "hooks": { "community": true }
-
-    // Configure workflow guard hook (opt-in via hooks.workflow_guard: true)
-    // Detects file edits outside GSD workflow context and advises using
-    // /gsd-quick or /gsd-fast for state-tracked changes. Also hard-blocks
-    // unsafe Bash commands that violate worktree-agent isolation.
-    const workflowGuardCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-workflow-guard.js', hookOpts)
-      : localCmd('gsd-workflow-guard.js');
-    const workflowGuardMatcher = 'Bash|Edit|Write|MultiEdit';
-    const workflowGuardHookEntry = settings.hooks[preToolEvent].find((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-workflow-guard'))
-    );
-    const hasWorkflowGuardHook = Boolean(workflowGuardHookEntry);
-
-    const workflowGuardFile = path.join(targetDir, 'hooks', 'gsd-workflow-guard.js');
-    if (hasWorkflowGuardHook && workflowGuardHookEntry.matcher !== workflowGuardMatcher) {
-      workflowGuardHookEntry.matcher = workflowGuardMatcher;
-      log(`  ${green}✓${reset} Updated workflow guard hook matcher`);
-    } else if (!hasWorkflowGuardHook && fs.existsSync(workflowGuardFile) && workflowGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: workflowGuardMatcher,
-        hooks: [
-          {
-            type: 'command',
-            command: workflowGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured workflow guard hook (opt-in via hooks.workflow_guard)`);
-    } else if (!hasWorkflowGuardHook && !fs.existsSync(workflowGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped workflow guard hook — gsd-workflow-guard.js not found at target`);
-    }
-
-    // Configure PreToolUse hook for worktree absolute-path safety (#260)
-    // Hard-blocks Edit/Write/MultiEdit tool calls with absolute paths that resolve
-    // outside the current worktree root. Prevents executor agents from
-    // accidentally writing to the main checkout when running in isolation="worktree".
-    const worktreePathGuardCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-worktree-path-guard.js', hookOpts)
-      : localCmd('gsd-worktree-path-guard.js');
-    const hasWorktreePathGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-worktree-path-guard'))
-    );
-    const worktreePathGuardFile = path.join(targetDir, 'hooks', 'gsd-worktree-path-guard.js');
-    if (!hasWorktreePathGuardHook && fs.existsSync(worktreePathGuardFile) && worktreePathGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Write|Edit|MultiEdit',
-        hooks: [
-          {
-            type: 'command',
-            command: worktreePathGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured worktree path guard hook`);
-    } else if (!hasWorktreePathGuardHook && !fs.existsSync(worktreePathGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped worktree path guard hook — gsd-worktree-path-guard.js not found at target`);
-    }
-
-    // Configure PreToolUse hook for Agent-dispatch isolation (#3045)
-    // Hard-blocks an executor Agent() dispatch (subagent_type="gsd-executor")
-    // missing its harness isolation parameter when this project's resolved
-    // dispatch isolation is harness-worktree. Prevents the executor from
-    // silently running and committing in the primary checkout when the
-    // model-authored dispatch omits isolation="worktree".
-    const agentIsolationGuardCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-agent-isolation-guard.js', hookOpts)
-      : localCmd('gsd-agent-isolation-guard.js');
-    const hasAgentIsolationGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-agent-isolation-guard'))
-    );
-    const agentIsolationGuardFile = path.join(targetDir, 'hooks', 'gsd-agent-isolation-guard.js');
-    if (!hasAgentIsolationGuardHook && fs.existsSync(agentIsolationGuardFile) && agentIsolationGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        // #3045 MAJOR 1: widened from "Agent"-only — hooks.json's own
-        // PostToolUse precedent (context-monitor) already hedges both names,
-        // and the hook itself now accepts tool_name "Task" too.
-        matcher: 'Agent|Task',
-        hooks: [
-          {
-            type: 'command',
-            command: agentIsolationGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured agent isolation dispatch guard hook`);
-    } else if (!hasAgentIsolationGuardHook && !fs.existsSync(agentIsolationGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped agent isolation guard hook — gsd-agent-isolation-guard.js not found at target`);
-    }
-
-    // Configure PreToolUse hook for catastrophic-shrink protection (#2255, fix 3 of #973)
-    // Hard-blocks a whole-file Write that collapses a curated .planning/ artifact
-    // (ROADMAP.md, milestone roadmaps, STATE.md) far below its on-disk size.
-    // Escape hatches (both named in the block message): the single-use
-    // sentinel .planning/.gsd-allow-shrink (workflow steps — a per-step env
-    // cannot reach a hook) and GSD_ALLOW_PLANNING_SHRINK=1 (interactive).
-    const writeGuardCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-write-guard.js', hookOpts)
-      : localCmd('gsd-write-guard.js');
-    const hasWriteGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-write-guard'))
-    );
-    const writeGuardFile = path.join(targetDir, 'hooks', 'gsd-write-guard.js');
-    if (!hasWriteGuardHook && fs.existsSync(writeGuardFile) && writeGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Write',
-        hooks: [
-          {
-            type: 'command',
-            command: writeGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured write guard hook (catastrophic-shrink protection)`);
-    } else if (!hasWriteGuardHook && !fs.existsSync(writeGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped write guard hook — gsd-write-guard.js not found at target`);
-    }
-
-    // Configure PreToolUse hook for secret-file read protection (#4221).
-    // Hard-blocks Read/Grep/Bash reads of .env, .env.<suffix> and .secrets.
-    // Replaces the Read(.env*) permission deny rules the installer used to
-    // write (#768): on Claude Code >= 2.1.259 ANY Read() deny rule makes every
-    // `cd DIR && grep …` compound prompt for approval, even in auto mode; a
-    // hook denial is not a permission rule and never arms that check.
-    const secretReadGuardCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-secret-read-guard.js', hookOpts)
-      : localCmd('gsd-secret-read-guard.js');
-    const hasSecretReadGuardHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-secret-read-guard'))
-    );
-    const secretReadGuardFile = path.join(targetDir, 'hooks', 'gsd-secret-read-guard.js');
-    if (!hasSecretReadGuardHook && fs.existsSync(secretReadGuardFile) && secretReadGuardCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Read|Grep|Bash',
-        hooks: [
-          {
-            type: 'command',
-            command: secretReadGuardCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured secret read guard hook (.env / .secrets read protection)`);
-    } else if (!hasSecretReadGuardHook && !fs.existsSync(secretReadGuardFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped secret read guard hook — gsd-secret-read-guard.js not found at target`);
-    }
-
-    // Configure commit validation hook (Conventional Commits enforcement, opt-in)
-    const validateCommitCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-validate-commit.sh', hookOpts)
-      : localShellCmd('gsd-validate-commit.sh');
-    const hasValidateCommitHook = settings.hooks[preToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-validate-commit'))
-    );
-    // Guard: only register if the .sh file was actually installed. If the npm package
-    // omitted the file (as happened in v1.32.0, bug #1817), registering a missing hook
-    // causes a hook error on every Bash tool invocation.
-    const validateCommitFile = path.join(targetDir, 'hooks', 'gsd-validate-commit.sh');
-    if (!hasValidateCommitHook && fs.existsSync(validateCommitFile) && validateCommitCommand) {
-      settings.hooks[preToolEvent].push({
-        matcher: 'Bash',
-        hooks: [
-          {
-            type: 'command',
-            command: validateCommitCommand,
-            timeout: BLOCKING_GUARD_TIMEOUT_S
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured commit validation hook (opt-in via config)`);
-    } else if (!hasValidateCommitHook && !fs.existsSync(validateCommitFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — gsd-validate-commit.sh not found at target`);
-    } else if (!hasValidateCommitHook && !validateCommitCommand) {
-      warn(`  ${yellow}⚠${reset}  Skipped commit validation hook — Bash executable path unavailable (#3393)`);
-    }
-
-    // Configure graphify auto-update hook (opt-in via graphify.auto_update; default false, #3347).
-    // PostToolUse Bash matcher — fires after git commit/merge/pull/rebase --continue/cherry-pick
-    // on the default branch, dispatches `graphify update .` in a detached subprocess. No-op unless
-    // .planning/config.json has BOTH graphify.enabled=true AND graphify.auto_update=true.
-    const graphifyUpdateCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-graphify-update.sh', hookOpts)
-      : localShellCmd('gsd-graphify-update.sh');
-    const hasGraphifyUpdateHook = settings.hooks[postToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-graphify-update'))
-    );
-    const graphifyUpdateFile = path.join(targetDir, 'hooks', 'gsd-graphify-update.sh');
-    if (!hasGraphifyUpdateHook && fs.existsSync(graphifyUpdateFile) && graphifyUpdateCommand) {
-      settings.hooks[postToolEvent].push({
-        matcher: 'Bash',
-        hooks: [
-          {
-            type: 'command',
-            command: graphifyUpdateCommand,
-            timeout: 5
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured graphify auto-update hook (opt-in via graphify.auto_update)`);
-    } else if (!hasGraphifyUpdateHook && !fs.existsSync(graphifyUpdateFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — gsd-graphify-update.sh not found at target`);
-    } else if (!hasGraphifyUpdateHook && !graphifyUpdateCommand) {
-      warn(`  ${yellow}⚠${reset}  Skipped graphify auto-update hook — Bash executable path unavailable (#3393)`);
-    }
-
-    // Configure session state orientation hook (opt-in)
-    const sessionStateCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-session-state.sh', hookOpts)
-      : localShellCmd('gsd-session-state.sh');
-    const hasSessionStateHook = settings.hooks.SessionStart.some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-session-state'))
-    );
-    const sessionStateFile = path.join(targetDir, 'hooks', 'gsd-session-state.sh');
-    if (!hasSessionStateHook && fs.existsSync(sessionStateFile) && sessionStateCommand) {
-      settings.hooks.SessionStart.push({
-        hooks: [
-          {
-            type: 'command',
-            command: sessionStateCommand
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured session state orientation hook (opt-in via config)`);
-    } else if (!hasSessionStateHook && !fs.existsSync(sessionStateFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped session state hook — gsd-session-state.sh not found at target`);
-    } else if (!hasSessionStateHook && !sessionStateCommand) {
-      warn(`  ${yellow}⚠${reset}  Skipped session state hook — Bash executable path unavailable (#3393)`);
-    }
-
-    // Configure phase boundary detection hook (opt-in)
-    const phaseBoundaryCommand = isGlobal
-      ? buildHookCommand(targetDir, 'gsd-phase-boundary.sh', hookOpts)
-      : localShellCmd('gsd-phase-boundary.sh');
-    const hasPhaseBoundaryHook = settings.hooks[postToolEvent].some((entry: HookGroup) =>
-      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-phase-boundary'))
-    );
-    const phaseBoundaryFile = path.join(targetDir, 'hooks', 'gsd-phase-boundary.sh');
-    if (!hasPhaseBoundaryHook && fs.existsSync(phaseBoundaryFile) && phaseBoundaryCommand) {
-      settings.hooks[postToolEvent].push({
-        matcher: 'Write|Edit',
-        hooks: [
-          {
-            type: 'command',
-            command: phaseBoundaryCommand,
-            timeout: 5
-          }
-        ]
-      });
-      log(`  ${green}✓${reset} Configured phase boundary detection hook (opt-in via config)`);
-    } else if (!hasPhaseBoundaryHook && !fs.existsSync(phaseBoundaryFile)) {
-      warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — gsd-phase-boundary.sh not found at target`);
-    } else if (!hasPhaseBoundaryHook && !phaseBoundaryCommand) {
-      warn(`  ${yellow}⚠${reset}  Skipped phase boundary hook — Bash executable path unavailable (#3393)`);
-    }
-
-    // #3329: the four `.sh` sites above register only-if-absent, so an entry
-    // registered by an older installer keeps its old command forever —
-    // /gsd-update (which re-invokes the installer) never re-derived it. On
-    // Claude/win32 that left the pre-#580/#3393 bash-runner-prefixed commands
-    // in settings.json indefinitely. Reconcile existing managed `.sh` entries
-    // to the command this install would generate today. Inert wherever the
-    // bash runner is still the correct shape; scoped to exact managed
-    // basenames so user-authored hooks are never touched.
-    if (reconcileManagedShellHookCommands(settings as Settings, {
-      'gsd-validate-commit.sh': validateCommitCommand,
-      'gsd-graphify-update.sh': graphifyUpdateCommand,
-      'gsd-session-state.sh': sessionStateCommand,
-      'gsd-phase-boundary.sh': phaseBoundaryCommand,
-    }, { platform: hookOpts.platform, runtime })) {
-      log(`  ${green}✓${reset} Reconciled managed .sh hook commands to current format (#3329)`);
-    }
-
-    // ── Extended hook events: SubagentStop / Stop / PreCompact / SubagentStart
-    //    (#788 + #770 + #2092) ────────────────────────────────────────────────
-    // Claude Code (since #770) and Qwen Code (since #788) both support the
-    // SubagentStop / Stop / PreCompact lifecycle events. Qwen Code additionally
-    // supports SubagentStart (#2092 Phase B, Upgrade 2). Wire gsd-context-
-    // monitor so agents get context-headroom warnings at subagent start,
-    // subagent completion, model stop, and pre-compaction (the most critical
-    // moment to surface headroom info).
-    //
-    //   SubagentStart — subagent lifecycle start (context headroom tracking;
-    //                   qwen-only today — no other runtime declares it in
-    //                   extendedHookEvents)
-    //   SubagentStop  — subagent lifecycle completion (context headroom tracking)
-    //   Stop          — model stop / final-response moment (context headroom)
-    //   PreCompact    — fires before conversation compaction (most critical
-    //                   moment to surface context headroom warnings)
-    //
-    // Note: UserPromptSubmit is NOT wired here.  That event carries the raw
-    // user prompt text, not a tool invocation, so gsd-prompt-guard (which
-    // exits unless tool_name is Write/Edit) would be a silent no-op.  A
-    // dedicated handler for UserPromptSubmit is deferred to a follow-on issue.
-    // SubagentStart, SubagentStop, Stop, PreCompact — route through the context monitor.
-    // Guard is descriptor-driven: only events present in extendedEvents are wired,
-    // so this loop is a no-op for every runtime that doesn't list SubagentStart.
-    {
-      // Descriptor-driven (ADR-1239 / #2092): folded from a hardcoded
-      // `runtime === 'qwen' ? ... : ...` ternary into a capability-title
-      // lookup (see _capabilityTitle above).
-      const runtimeLabel = _capabilityTitle(runtime);
-      for (const event of ['SubagentStop', 'Stop', 'PreCompact', 'SubagentStart']) {
-        if (!extendedEvents.includes(event)) continue;
-        if (!settings.hooks[event]) {
-          settings.hooks[event] = [];
-        }
-        const alreadyHasContextMonitor = settings.hooks[event].some((entry: HookGroup) =>
-          entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-context-monitor'))
-        );
-        if (!alreadyHasContextMonitor && fs.existsSync(contextMonitorFile) && contextMonitorCommand) {
-          settings.hooks[event].push({
-            hooks: [
-              {
-                type: 'command',
-                command: contextMonitorCommand,
-                timeout: 10
-              }
-            ]
-          });
-          log(`  ${green}✓${reset} Configured ${event} context monitor hook (${runtimeLabel})`);
-        } else if (!alreadyHasContextMonitor && !fs.existsSync(contextMonitorFile)) {
-          warn(`  ${yellow}⚠${reset}  Skipped ${event} hook — gsd-context-monitor.js not found at target`);
-        }
-      }
-    }
-    // ── end SubagentStop / Stop / PreCompact / SubagentStart events ────────────
-
-    // ── mn fork enforcement hooks (Claude Code only) ───────────────────────────
-    // Same shape as every registration above: only-if-absent (referencesHook
-    // dedups a hand-registered entry), only when the file was installed, and
-    // built through buildHookCommand(…, hookOpts) so the configured-entrypoint
-    // validation (#4154) covers them. Claude-only: the PreToolUse
-    // permissionDecision protocol the guards emit is Claude Code's. The pin is
-    // registered on SessionStart alone: Claude Code re-fires SessionStart with
-    // source "compact" after a compaction, and PostCompact cannot add context.
-    // gsd-worktree-provision.js owns WorktreeCreate + WorktreeRemove (below).
-    if (FORK_ENFORCEMENT_RUNTIMES.has(runtime)) {
-      // One literal buildHookCommand line per hook: tests/workflow-guard-registration
-      // scans for exactly that shape.
-      const prohibitionGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-prohibition-guard.js', hookOpts) : localCmd('gsd-prohibition-guard.js');
-      const testTamperGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-test-tamper-guard.js', hookOpts) : localCmd('gsd-test-tamper-guard.js');
-      const exitGateCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-exit-gate.js', hookOpts) : localCmd('gsd-exit-gate.js');
-      const pinInvariantsCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-pin-invariants.js', hookOpts) : localCmd('gsd-pin-invariants.js');
-      const forkHooks: Array<{ file: string; command: string | null; event: string; matcher?: string; timeout: number; label: string }> = [
-        { file: 'gsd-prohibition-guard.js', command: prohibitionGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'prohibition guard (writes outside files_modified)' },
-        { file: 'gsd-test-tamper-guard.js', command: testTamperGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'test tamper guard (dropped assertions / new skips)' },
-        { file: 'gsd-exit-gate.js', command: exitGateCommand, event: 'SubagentStop', timeout: FORK_EXIT_GATE_TIMEOUT_S, label: 'executor exit gate' },
-        { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start and after compaction)' },
-      ];
-      for (const spec of forkHooks) {
-        const hookName = spec.file.replace(/\.js$/, '');
-        const command = spec.command;
-        if (!settings.hooks[spec.event]) settings.hooks[spec.event] = [];
-        const present = settings.hooks[spec.event].some((entry: HookGroup) =>
-          entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, hookName))
-        );
-        const file = path.join(targetDir, 'hooks', spec.file);
-        if (!present && fs.existsSync(file) && command) {
-          const group: { matcher?: string; hooks: Array<Record<string, unknown>> } = {
-            hooks: [{ type: 'command', command, timeout: spec.timeout }],
-          };
-          if (spec.matcher) group.matcher = spec.matcher;
-          settings.hooks[spec.event].push(group);
-          log(`  ${green}✓${reset} Configured ${spec.label} hook`);
-        } else if (!present && !fs.existsSync(file)) {
-          warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
-        }
-      }
-
-      // gsd-worktree-provision.js on WorktreeCreate + WorktreeRemove. A
-      // WorktreeCreate hook REPLACES Claude Code's `git worktree add`: it creates
-      // the checkout (from local HEAD) and prints its path. WorktreeRemove is its
-      // pair — the harness never deletes a branch a hook created. Registered in
-      // settings.json, not the plugin hooks.json: the hooks reference documents
-      // these events for settings files only. All matching hooks run in
-      // parallel, so a second creator would race this one for the same
-      // worktree: a WorktreeCreate handler that is not ours — in the settings
-      // being written, or in either settings layer beside it on disk
-      // (findWorktreeCreateHook, which exempts this hook) — means the user owns
-      // creation, and neither event is claimed. An unparseable layer counts:
-      // a creator in it cannot be ruled out.
-      // One registration per user (review M2): the user layer and a project's
-      // local layer carry different command lines for this same hook, so both
-      // would run for one name and race on `git worktree add -b`. A local
-      // install therefore defers to a user-layer registration — and drops the
-      // project registration an earlier local install left behind.
-      const worktreeProvisionCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-worktree-provision.js', hookOpts) : localCmd('gsd-worktree-provision.js');
-      const worktreeProvisionFile = path.join(targetDir, 'hooks', 'gsd-worktree-provision.js');
-      const handlersOf = (event: string): HookEntry[] =>
-        (Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []).flatMap((entry: HookGroup) =>
-          entry && Array.isArray(entry.hooks) ? entry.hooks : []
-        );
-      const isProvision = (h: HookEntry): boolean => referencesHook(h as Record<string, unknown>, 'gsd-worktree-provision');
-      const foreignCreators = handlersOf('WorktreeCreate').filter((h) => !isProvision(h));
-      const layerCreator = findWorktreeCreateHook(targetDir, undefined, null);
-      const userClaudeDir = isGlobal ? null : getGlobalConfigDir('claude');
-      const userLayerProvision =
-        userClaudeDir !== null && path.resolve(userClaudeDir) !== path.resolve(targetDir) ? findUserLayerWorktreeProvision(userClaudeDir) : null;
-      if (foreignCreators.length > 0 || layerCreator) {
-        const where = layerCreator ? layerCreator.file : 'the settings being written';
-        warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
-      } else if (userLayerProvision) {
-        for (const event of ['WorktreeCreate', 'WorktreeRemove']) {
-          if (!Array.isArray(settings.hooks[event])) continue;
-          const kept = (settings.hooks[event] as HookGroup[])
-            .map((group: HookGroup) =>
-              group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((h: HookEntry) => !isProvision(h)) } : group
-            )
-            .filter((group: HookGroup) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
-          if (kept.length > 0) settings.hooks[event] = kept;
-          else delete settings.hooks[event];
-        }
-        log(`  ${green}✓${reset} Worktree provisioning hook already registered for this user (${userLayerProvision}) — not registered again for the project`);
-      } else if (!fs.existsSync(worktreeProvisionFile)) {
-        warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
-      } else if (worktreeProvisionCommand) {
-        const worktreeEvents: Array<{ event: string; timeout: number }> = [
-          { event: 'WorktreeCreate', timeout: FORK_WORKTREE_CREATE_TIMEOUT_S },
-          { event: 'WorktreeRemove', timeout: FORK_WORKTREE_REMOVE_TIMEOUT_S },
-        ];
-        let added = false;
-        for (const { event, timeout } of worktreeEvents) {
-          if (handlersOf(event).some(isProvision)) continue;
-          if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
-          settings.hooks[event].push({ hooks: [{ type: 'command', command: worktreeProvisionCommand, timeout }] });
-          added = true;
-        }
-        if (added) log(`  ${green}✓${reset} Configured worktree provisioning hook (WorktreeCreate from local HEAD + WorktreeRemove)`);
-      }
-    }
-    // ── end mn fork enforcement hooks ──────────────────────────────────────────
-
-    // ── Extended hook events (#776; Gemini runtime removed #1928) ──────────────
-    // The Gemini-3-backend dialect exposes several hook events beyond
-    // BeforeTool/AfterTool. These were added for the now-removed Gemini CLI
-    // runtime (#776). No currently supported runtime declares them —
-    // Antigravity's descriptor carries `extendedHookEvents: []` — so this loop
-    // is an inert, descriptor-driven seam: it no-ops for every present runtime
-    // and re-activates automatically if a future runtime declares any of them.
-    // Three high-value events would be wired here:
-    //
-    //   BeforeAgent  — fires after user submits a prompt, before the agent
-    //                  plans.  Wire gsd-context-monitor for context headroom
-    //                  awareness at prompt time.
-    //   AfterAgent   — fires once per turn after the model generates its final
-    //                  response.  Wire gsd-context-monitor to track headroom
-    //                  after each agent turn completes.
-    //   BeforeModel  — fires before each LLM call (per-turn, not per-session).
-    //                  Wire gsd-context-monitor for per-turn context injection
-    //                  — more precise than session-start-only injection.
-    //
-    // All three reuse gsd-context-monitor.js — no new hook files needed.
-    // The `decision:"deny"` retry capability of AfterAgent is intentionally
-    // left to the hook script to implement when triggered (gsd-context-monitor
-    // exits 0 / advisory-only today; an active quality gate is a follow-on).
-    //
-    // Note: BeforeToolSelection is NOT wired.  That event does not map to a
-    // gsd hook use case at this time; deferred to a follow-on issue.
-    //
-    // Guard is now descriptor-driven: only events present in extendedEvents are wired.
-    for (const extendedEvent of ['BeforeAgent', 'AfterAgent', 'BeforeModel']) {
-      if (!extendedEvents.includes(extendedEvent)) continue;
-      if (!Array.isArray(settings.hooks[extendedEvent])) {
-        settings.hooks[extendedEvent] = [];
-      }
-      const alreadyHasContextMonitor = settings.hooks[extendedEvent].some((entry: HookGroup) =>
-        entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-context-monitor'))
-      );
-      if (!alreadyHasContextMonitor && fs.existsSync(contextMonitorFile) && contextMonitorCommand) {
-        settings.hooks[extendedEvent].push({
-          hooks: [
-            {
-              type: 'command',
-              command: contextMonitorCommand,
-              timeout: 10
-            }
-          ]
-        });
-        log(`  ${green}✓${reset} Configured ${extendedEvent} context monitor hook`);
-      } else if (!alreadyHasContextMonitor && !fs.existsSync(contextMonitorFile)) {
-        warn(`  ${yellow}⚠${reset}  Skipped ${extendedEvent} hook — gsd-context-monitor.js not found at target`);
-      }
-    }
-    // ── end Antigravity-only extended hook events ──────────────────────────────
-
-    // ── FileChanged hook: hot-reload gsd config on .planning/config.json edits ─
-    // Claude Code fires FileChanged when a watched file changes on disk.  Wire
-    // gsd-config-reload.js to reload the gsd config context whenever the user
-    // edits .planning/config.json mid-session, eliminating the need to restart.
-    //
-    // The matcher "config.json" watches for changes to any file named config.json
-    // (Claude Code matches by filename, not full path).  The hook exits silently
-    // when the changed file is not the gsd config.
-    //
-    // Scoped to Claude Code only: Qwen Code's FileChanged support is not yet
-    // verified; extend in a follow-on if empirically confirmed.
-    if (extendedEvents.includes('FileChanged')) {
-      if (!settings.hooks.FileChanged) {
-        settings.hooks.FileChanged = [];
-      }
-      const configReloadFile = path.join(targetDir, 'hooks', 'gsd-config-reload.js');
-      const alreadyHasConfigReload = settings.hooks.FileChanged.some((entry: HookGroup) =>
-        entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, 'gsd-config-reload'))
-      );
-      if (!alreadyHasConfigReload && fs.existsSync(configReloadFile) && configReloadCommand) {
-        settings.hooks.FileChanged.push({
-          matcher: 'config.json',
-          hooks: [
-            {
-              type: 'command',
-              command: configReloadCommand,
-              timeout: 8
-            }
-          ]
-        });
-        log(`  ${green}✓${reset} Configured FileChanged config-reload hook (Claude Code)`);
-      } else if (!alreadyHasConfigReload && !fs.existsSync(configReloadFile)) {
-        warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — gsd-config-reload.js not found at target`);
-      } else if (!alreadyHasConfigReload && !configReloadCommand) {
-        warn(`  ${yellow}⚠${reset}  Skipped FileChanged hook — Node executable path unavailable`);
-      }
-    }
-    // ── end FileChanged hook ────────────────────────────────────────────────────
+  if (!settings.hooks) {
+    settings.hooks = {};
   }
-  /* eslint-enable @typescript-eslint/no-unsafe-member-access,
-                   @typescript-eslint/no-unsafe-call,
-                   @typescript-eslint/no-unsafe-assignment */
+  if (!settings.hooks.SessionStart) {
+    settings.hooks.SessionStart = [];
+  }
+
+  // #3981: raise existing managed blocking-guard entries still on the old
+  // 5 s budget to BLOCKING_GUARD_TIMEOUT_S (module-level; rationale there).
+  // Registration below uses the same constant. On the runtimes that carry the
+  // mn fork's write guards, those are blocking guards too: registration skips
+  // an entry that is already present, so without this an install that has
+  // them at 5 s keeps 5 s across every reinstall.
+  const migratedGuardNames: readonly string[] = FORK_ENFORCEMENT_RUNTIMES.has(runtime)
+    ? [...BLOCKING_GUARD_NAMES, ...FORK_BLOCKING_GUARD_NAMES]
+    : BLOCKING_GUARD_NAMES;
+  for (const entries of Object.values(settings.hooks as Record<string, HookGroup[]>)) {
+    if (!Array.isArray(entries)) continue;
+    for (const entry of entries) {
+      if (!entry || !Array.isArray(entry.hooks)) continue;
+      for (const h of entry.hooks) {
+        if (
+          migratedGuardNames.some((name) => referencesHook(h as Record<string, unknown>, name)) &&
+          h.timeout === 5
+        ) {
+          h.timeout = BLOCKING_GUARD_TIMEOUT_S;
+        }
+      }
+    }
+  }
+
+  // hookEvents='gemini' → BeforeTool/AfterTool; all others → PreToolUse/PostToolUse.
+  const preToolEvent = hookEvents === 'gemini' ? 'BeforeTool' : 'PreToolUse';
+  const eventKey = (event: SettingsJsonHookEvent): string =>
+    event === 'SessionStart' ? 'SessionStart' : event === 'post' ? postToolEvent : preToolEvent;
+
+  // Built `.sh` commands, in row order, feed the #3329 reconcile below.
+  const shellCommands: Record<string, string | null> = {};
+
+  for (const row of tables.rows) {
+    const key = eventKey(row.event);
+    if (!settings.hooks[key]) {
+      settings.hooks[key] = [];
+    }
+    const entries: any[] = settings.hooks[key];
+    if (row.file === CONTEXT_MONITOR_HOOK && opts.contextWarnings === false) {
+      if (stripManagedHookRegistrations(entries, hookStem(row.file))) {
+        log(`  ${green}✓${reset} Removed stale context monitor hook (${_capabilityTitle(runtime)} has no context metrics writer, #4840)`);
+      }
+      continue;
+    }
+    const command = resolveRowCommand(row, opts);
+    if ('build' in row.command && row.command.build === 'sh') shellCommands[row.file] = command;
+
+    const stem = hookStem(row.file);
+    const existing = entries.find((entry) => groupReferencesHook(entry, stem));
+    if (existing) {
+      reconcilePresentHook(row, entries, existing, log);
+      continue;
+    }
+    if (!fs.existsSync(path.join(targetDir, 'hooks', row.file))) {
+      warn(`  ${yellow}⚠${reset}  Skipped ${row.skipLabel} — ${row.file} not found at target`);
+    } else if (command) {
+      pushHookGroup(entries, row.matcher, command, resolveRowTimeout(row.timeout));
+      log(`  ${green}✓${reset} ${row.configuredMessage}`);
+    } else if (row.noCommandMessage) {
+      warn(`  ${yellow}⚠${reset}  Skipped ${row.skipLabel} — ${row.noCommandMessage}`);
+    }
+  }
+
+  // #3329: `.sh` rows register only-if-absent, so an entry registered by an
+  // older installer keeps its old command forever — /gsd-update (which
+  // re-invokes the installer) never re-derived it. On Claude/win32 that left
+  // the pre-#580/#3393 bash-runner-prefixed commands in settings.json
+  // indefinitely. Reconcile existing managed `.sh` entries to the command this
+  // install would generate today. Inert wherever the bash runner is still the
+  // correct shape; scoped to exact managed basenames so user-authored hooks
+  // are never touched.
+  if (reconcileManagedShellHookCommands(settings as Settings, shellCommands, { platform: hookOpts.platform, runtime })) {
+    log(`  ${green}✓${reset} Reconciled managed .sh hook commands to current format (#3329)`);
+  }
+
+  // Descriptor-driven (ADR-1239 / #2092): the runtime's capability title.
+  const runtimeLabel = _capabilityTitle(runtime);
+  for (const row of tables.extendedRows) {
+    if (!extendedEvents.includes(row.event)) continue;
+    if (!Array.isArray(settings.hooks[row.event])) {
+      settings.hooks[row.event] = [];
+    }
+    const entries: any[] = settings.hooks[row.event];
+    if (entries.some((entry) => groupReferencesHook(entry, hookStem(row.file)))) continue;
+    const command = opts[row.command.opts];
+    if (!fs.existsSync(path.join(targetDir, 'hooks', row.file))) {
+      warn(`  ${yellow}⚠${reset}  Skipped ${row.event} hook — ${row.file} not found at target`);
+    } else if (command) {
+      pushHookGroup(entries, row.matcher, command, row.timeout);
+      log(`  ${green}✓${reset} ${row.configuredMessage}${row.runtimeLabelSuffix ? ` (${runtimeLabel})` : ''}`);
+    } else if (row.noCommandMessage) {
+      warn(`  ${yellow}⚠${reset}  Skipped ${row.event} hook — ${row.noCommandMessage}`);
+    }
+  }
 }
+
+/**
+ * mn fork: register the fork's enforcement hooks on the runtimes in
+ * FORK_ENFORCEMENT_RUNTIMES. Kept outside SETTINGS_JSON_HOOK_ROWS and outside
+ * applySettingsJsonHookTables on purpose: the rows are upstream's exported,
+ * runtime-agnostic contract (every settings-json runtime registers every row,
+ * pinned byte-for-byte by tests/hook-registration-table.test.cjs), while these
+ * hooks are Claude-only, sit on events the rows do not model (SubagentStop,
+ * WorktreeCreate/WorktreeRemove), and the worktree pair needs a
+ * foreign-creator and user-layer check no row kind expresses. Runs after the
+ * tables, so SubagentStop keeps the context monitor ahead of the exit gate.
+ */
+function applyForkEnforcementHooks(settings: any, opts: ApplySettingsJsonHooksOpts): void {
+  const { runtime, isGlobal, targetDir, hookOpts, localCmd, hookEvents, hooksSurface, quiet } = opts;
+  // The same surface guard as the tables: no settings.json is written there.
+  if (hooksSurface === 'none' || hooksSurface === 'kimi-hooks-toml') return;
+  const log = (line: string): void => { if (!quiet) console.log(line); };
+  const warn = (line: string): void => { if (!quiet) console.warn(line); };
+  const preToolEvent = hookEvents === 'gemini' ? 'BeforeTool' : 'PreToolUse';
+  if (!settings.hooks) settings.hooks = {};
+  // ── mn fork enforcement hooks (Claude Code only) ───────────────────────────
+  // Same shape as every registration above: only-if-absent (referencesHook
+  // dedups a hand-registered entry), only when the file was installed, and
+  // built through buildHookCommand(…, hookOpts) so the configured-entrypoint
+  // validation (#4154) covers them. Claude-only: the PreToolUse
+  // permissionDecision protocol the guards emit is Claude Code's. The pin is
+  // registered on SessionStart alone: Claude Code re-fires SessionStart with
+  // source "compact" after a compaction, and PostCompact cannot add context.
+  // gsd-worktree-provision.js owns WorktreeCreate + WorktreeRemove (below).
+  if (!FORK_ENFORCEMENT_RUNTIMES.has(runtime)) return;
+
+  // One literal buildHookCommand line per hook: tests/workflow-guard-registration
+  // scans for exactly that shape.
+  const prohibitionGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-prohibition-guard.js', hookOpts) : localCmd('gsd-prohibition-guard.js');
+  const testTamperGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-test-tamper-guard.js', hookOpts) : localCmd('gsd-test-tamper-guard.js');
+  const exitGateCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-exit-gate.js', hookOpts) : localCmd('gsd-exit-gate.js');
+  const pinInvariantsCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-pin-invariants.js', hookOpts) : localCmd('gsd-pin-invariants.js');
+  const forkHooks: Array<{ file: string; command: string | null; event: string; matcher?: string; timeout: number; label: string }> = [
+    { file: 'gsd-prohibition-guard.js', command: prohibitionGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'prohibition guard (writes outside files_modified)' },
+    { file: 'gsd-test-tamper-guard.js', command: testTamperGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'test tamper guard (dropped assertions / new skips)' },
+    { file: 'gsd-exit-gate.js', command: exitGateCommand, event: 'SubagentStop', timeout: FORK_EXIT_GATE_TIMEOUT_S, label: 'executor exit gate' },
+    { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start and after compaction)' },
+  ];
+  for (const spec of forkHooks) {
+    const hookName = spec.file.replace(/\.js$/, '');
+    const command = spec.command;
+    if (!settings.hooks[spec.event]) settings.hooks[spec.event] = [];
+    const present = settings.hooks[spec.event].some((entry: HookGroup) =>
+      entry.hooks && entry.hooks.some((h: HookEntry) => referencesHook(h as Record<string, unknown>, hookName))
+    );
+    const file = path.join(targetDir, 'hooks', spec.file);
+    if (!present && fs.existsSync(file) && command) {
+      const group: { matcher?: string; hooks: Array<Record<string, unknown>> } = {
+        hooks: [{ type: 'command', command, timeout: spec.timeout }],
+      };
+      if (spec.matcher) group.matcher = spec.matcher;
+      settings.hooks[spec.event].push(group);
+      log(`  ${green}✓${reset} Configured ${spec.label} hook`);
+    } else if (!present && !fs.existsSync(file)) {
+      warn(`  ${yellow}⚠${reset}  Skipped ${spec.label} hook — ${spec.file} not found at target`);
+    }
+  }
+
+  // gsd-worktree-provision.js on WorktreeCreate + WorktreeRemove. A
+  // WorktreeCreate hook REPLACES Claude Code's `git worktree add`: it creates
+  // the checkout (from local HEAD) and prints its path. WorktreeRemove is its
+  // pair — the harness never deletes a branch a hook created. Registered in
+  // settings.json, not the plugin hooks.json: the hooks reference documents
+  // these events for settings files only. All matching hooks run in
+  // parallel, so a second creator would race this one for the same
+  // worktree: a WorktreeCreate handler that is not ours — in the settings
+  // being written, or in either settings layer beside it on disk
+  // (findWorktreeCreateHook, which exempts this hook) — means the user owns
+  // creation, and neither event is claimed. An unparseable layer counts:
+  // a creator in it cannot be ruled out.
+  // One registration per user (review M2): the user layer and a project's
+  // local layer carry different command lines for this same hook, so both
+  // would run for one name and race on `git worktree add -b`. A local
+  // install therefore defers to a user-layer registration — and drops the
+  // project registration an earlier local install left behind.
+  const worktreeProvisionCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-worktree-provision.js', hookOpts) : localCmd('gsd-worktree-provision.js');
+  const worktreeProvisionFile = path.join(targetDir, 'hooks', 'gsd-worktree-provision.js');
+  const handlersOf = (event: string): HookEntry[] =>
+    (Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []).flatMap((entry: HookGroup) =>
+      entry && Array.isArray(entry.hooks) ? entry.hooks : []
+    );
+  const isProvision = (h: HookEntry): boolean => referencesHook(h as Record<string, unknown>, 'gsd-worktree-provision');
+  const foreignCreators = handlersOf('WorktreeCreate').filter((h) => !isProvision(h));
+  const layerCreator = findWorktreeCreateHook(targetDir, undefined, null);
+  const userClaudeDir = isGlobal ? null : getGlobalConfigDir('claude');
+  const userLayerProvision =
+    userClaudeDir !== null && path.resolve(userClaudeDir) !== path.resolve(targetDir) ? findUserLayerWorktreeProvision(userClaudeDir) : null;
+  if (foreignCreators.length > 0 || layerCreator) {
+    const where = layerCreator ? layerCreator.file : 'the settings being written';
+    warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — a WorktreeCreate hook that creates worktrees is already configured (${where})`);
+  } else if (userLayerProvision) {
+    for (const event of ['WorktreeCreate', 'WorktreeRemove']) {
+      if (!Array.isArray(settings.hooks[event])) continue;
+      const kept = (settings.hooks[event] as HookGroup[])
+        .map((group: HookGroup) =>
+          group && Array.isArray(group.hooks) ? { ...group, hooks: group.hooks.filter((h: HookEntry) => !isProvision(h)) } : group
+        )
+        .filter((group: HookGroup) => !(group && Array.isArray(group.hooks) && group.hooks.length === 0));
+      if (kept.length > 0) settings.hooks[event] = kept;
+      else delete settings.hooks[event];
+    }
+    log(`  ${green}✓${reset} Worktree provisioning hook already registered for this user (${userLayerProvision}) — not registered again for the project`);
+  } else if (!fs.existsSync(worktreeProvisionFile)) {
+    warn(`  ${yellow}⚠${reset}  Skipped worktree provisioning hook — gsd-worktree-provision.js not found at target`);
+  } else if (worktreeProvisionCommand) {
+    const worktreeEvents: Array<{ event: string; timeout: number }> = [
+      { event: 'WorktreeCreate', timeout: FORK_WORKTREE_CREATE_TIMEOUT_S },
+      { event: 'WorktreeRemove', timeout: FORK_WORKTREE_REMOVE_TIMEOUT_S },
+    ];
+    let added = false;
+    for (const { event, timeout } of worktreeEvents) {
+      if (handlersOf(event).some(isProvision)) continue;
+      if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = [];
+      settings.hooks[event].push({ hooks: [{ type: 'command', command: worktreeProvisionCommand, timeout }] });
+      added = true;
+    }
+    if (added) log(`  ${green}✓${reset} Configured worktree provisioning hook (WorktreeCreate from local HEAD + WorktreeRemove)`);
+  }
+  // ── end mn fork enforcement hooks ──────────────────────────────────────────
+}
+
+function applySettingsJsonHooks(settings: any, opts: ApplySettingsJsonHooksOpts): void {
+  applySettingsJsonHookTables(settings, opts, { rows: SETTINGS_JSON_HOOK_ROWS, extendedRows: SETTINGS_JSON_EXTENDED_ROWS });
+  applyForkEnforcementHooks(settings, opts);
+}
+/* eslint-enable @typescript-eslint/no-unsafe-member-access,
+                 @typescript-eslint/no-unsafe-call,
+                 @typescript-eslint/no-unsafe-assignment,
+                 @typescript-eslint/no-explicit-any */
+
 
 // ---------------------------------------------------------------------------
 // Managed settings.json hook filtering — one filter for install and uninstall
@@ -3412,7 +3190,7 @@ function buildKimiHookEntryToml(spec: KimiHookEntrySpec): string | null {
  * unmatched (all tools) instead, which only widens when it fires, it never
  * narrows incorrectly.
  */
-function buildKimiHooksTomlBlock(targetDir: string, opts: { hookOpts: BuildHookCommandOpts }): string | null {
+function buildKimiHooksTomlBlock(targetDir: string, opts: { hookOpts: BuildHookCommandOpts; contextWarnings?: boolean }): string | null {
   const { hookOpts } = opts;
   const cmd = (hookName: string): string | null => {
     if (!fs.existsSync(path.join(targetDir, 'hooks', hookName))) return null;
@@ -3434,7 +3212,8 @@ function buildKimiHooksTomlBlock(targetDir: string, opts: { hookOpts: BuildHookC
     { event: 'PreToolUse', command: cmd('gsd-validate-commit.sh'), matcher: 'Shell', timeout: kimiBlockingGuardTimeout('gsd-validate-commit.sh') },
 
     // PostToolUse
-    { event: 'PostToolUse', command: cmd('gsd-context-monitor.js'), timeout: 10 },
+    // #4840: no metrics writer on kimi, so the warning registration is skipped (a block from an earlier install is replaced wholesale).
+    { event: 'PostToolUse', command: opts.contextWarnings === false ? null : cmd('gsd-context-monitor.js'), timeout: 10 },
     { event: 'PostToolUse', command: cmd('gsd-phase-boundary.sh'), matcher: 'WriteFile|StrReplaceFile', timeout: 5 },
     { event: 'PostToolUse', command: cmd('gsd-read-injection-scanner.js'), matcher: 'ReadFile', timeout: 5 },
     { event: 'PostToolUse', command: cmd('gsd-graphify-update.sh'), matcher: 'Shell', timeout: 5 },
@@ -3510,10 +3289,11 @@ function stripKimiHooksTomlBlock(content: string): string | null {
 function writeKimiHooksToml(
   configPath: string,
   targetDir: string,
-  opts: { hookOpts: BuildHookCommandOpts },
+  opts: { hookOpts: BuildHookCommandOpts; contextWarnings?: boolean },
 ): { changed: boolean; path: string; entryCount: number; configuredEntrypoints: ConfiguredEntrypoint[] } {
   const configuredEntrypoints: ConfiguredEntrypoint[] = [];
   const trackedOpts = {
+    contextWarnings: opts.contextWarnings,
     hookOpts: {
       ...opts.hookOpts,
       configPath,
@@ -3691,9 +3471,44 @@ type ConfiguredEntrypointValidationResult =
   | { ok: true }
   | { ok: false; invalid: ConfiguredEntrypointInvalid[] };
 
+// #5100: the writer emits the bare `bash` token when the Git Bash policy
+// finds nothing, and the gate resolves that token through the same policy —
+// never a PATH scan. One shared definition so the two sides cannot drift.
+const UNRESOLVED_BASH_SENTINEL = 'bash';
+const WIN32_BARE_BASH_TOKENS = [UNRESOLVED_BASH_SENTINEL, 'bash.exe'];
+
+function isWin32BareBashToken(candidate: string, platform?: string): boolean {
+  if ((platform || process.platform) !== 'win32') return false;
+  // Equality already rejects any path: a string holding a separator can never
+  // equal a bare token, so no explicit separator guard is needed here.
+  return WIN32_BARE_BASH_TOKENS.includes(candidate.trim().toLowerCase());
+}
+
+// #5100: the literal `bash` sentinel means "Git Bash policy found nothing"
+// (#4249). Resolve that token through resolveBashExecutable, never a PATH
+// scan — WSL's System32\bash.exe is on PATH and cannot see Windows paths.
+function win32BareBashResolves(
+  candidate: string,
+  platform: string | undefined,
+  deps: { env?: NodeJS.ProcessEnv; existsSync?: (p: string) => boolean },
+): boolean | null {
+  if (!isWin32BareBashToken(candidate, platform)) return null;
+  return resolveBashExecutable({
+    platform: 'win32',
+    env: deps.env,
+    existsSync: deps.existsSync,
+  }) !== null;
+}
+
 function validateConfiguredEntrypoints(
   entries: ConfiguredEntrypoint[],
-  deps: { statSync?: typeof fs.statSync; accessSync?: typeof fs.accessSync; resolveExecutableBinary?: typeof resolveExecutableBinary } = {},
+  deps: {
+    statSync?: typeof fs.statSync;
+    accessSync?: typeof fs.accessSync;
+    resolveExecutableBinary?: typeof resolveExecutableBinary;
+    env?: NodeJS.ProcessEnv;
+    existsSync?: (p: string) => boolean;
+  } = {},
 ): ConfiguredEntrypointValidationResult {
   const statSync = deps.statSync ?? fs.statSync;
   const accessSync = deps.accessSync ?? fs.accessSync;
@@ -3746,9 +3561,11 @@ function validateConfiguredEntrypoints(
         invalid.push({ runtime: entry.runtime, configPath: entry.configPath, role: 'script', path: entry.scriptPath, reason: 'not-executable' });
       }
     }
-    if (entry.interpreterCandidates && !entry.interpreterCandidates.some(candidate =>
-      resolve(candidate, { platform: entry.platform, requireExecutable: true }) !== null,
-    )) {
+    if (entry.interpreterCandidates && !entry.interpreterCandidates.some(candidate => {
+      const bareBash = win32BareBashResolves(candidate, entry.platform, deps);
+      if (bareBash !== null) return bareBash;
+      return resolve(candidate, { platform: entry.platform, requireExecutable: true }) !== null;
+    })) {
       invalid.push({ runtime: entry.runtime, configPath: entry.configPath, role: 'interpreter', path: entry.interpreterCandidates.join(' | '), reason: 'unresolved-interpreter' });
     }
   }
@@ -3841,6 +3658,9 @@ export = {
   buildHookCommand,
   recordConfiguredHookCommand,
   applySettingsJsonHooks,
+  applySettingsJsonHookTables,
+  SETTINGS_JSON_HOOK_ROWS,
+  SETTINGS_JSON_EXTENDED_ROWS,
   filterManagedSettingsHooks,
   reconcileManagedSettingsHooks,
   validateConfiguredEntrypoints,
@@ -3853,6 +3673,11 @@ export = {
   resolveBashExecutable,
   resolveBashRunner,
   NODE_RUNNER_RESOLVER_HOOK,
+  // #5100: the literal the writer records for an unresolved Git Bash and the
+  // gate resolves through the Git Bash policy. Exported so a consumer that
+  // needs to recognise that entry imports it rather than respelling it;
+  // bin/install.js keys on the entry having no command instead.
+  UNRESOLVED_BASH_SENTINEL,
 
   // Atomic write seam (shared with bin/install.js so all writes participate
   // in install.js's _cleanTmpFiles() scoped temp-cleanup).

@@ -117,12 +117,19 @@ not one shape of one.
 capability manifest, which may be third-party — and `gates[].check` is **not** one of the
 executable surfaces the install consent prompt discloses (`hooks`, command modules,
 `mcpServers`, reviewer lanes), so a capability can be consented to as declarative-only and
-still reach a shell through a gate. Check the query value you read from `activeHooks` against
-`^[a-z][a-z0-9-]*( [a-z][a-z0-9-]*)*$` yourself, IN-CONTEXT — **never** by pasting it into a
-shell command to be tested there, because a value carrying a quote, `;`, a `` ` ``, `$(`, or a
-newline would terminate the assignment and run as its own statement before any shell-side
-check could execute. A value that fails is a malformed manifest: record a warning, route it
-per the gate's `onError`, and do not run it. Pass `check.predicate` as a **single argv
+still reach a shell through a gate. Normalize first, then validate: the registry declares query
+ids in dotted form (`ui.plan-gate`, `verify.codebase-drift`) and `gsd_run check` accepts them by
+turning each `.` into `-`, so replace every `.` with `-` in the query value you read from
+`activeHooks`, then check that normalized value against
+`^[a-z][a-z0-9]*(-[a-z0-9]+)*( [a-z][a-z0-9]*(-[a-z0-9]+)*)*$` yourself, IN-CONTEXT — **never** by
+pasting it into a shell command to be tested there, because a value carrying a quote, `;`, a
+`` ` ``, `$(`, or a newline would terminate the assignment and run as its own statement before
+any shell-side check could execute. The normalized value is the one value you validate and the
+one value you pass: wherever a workflow shows `${hook.check.query}`, write the normalized value.
+A leading dot, a trailing dot or consecutive dots become a leading, trailing or doubled hyphen,
+which the pattern rejects. A value that fails — or that passes but names no known check, which
+`gsd_run check` rejects as an unknown check subcommand — is a malformed manifest: record a
+warning, route it per the gate's `onError`, and do not run it. Pass `check.predicate` as a **single argv
 element** for the same reason — never re-quote it into a shell string, where an apostrophe
 would close the literal. This is the identical requirement `step` → `ref.command` carries
 above; it was stated there and omitted here, which is the gap #3559 closed.
@@ -134,7 +141,13 @@ Evaluate `check` (one of `query`, `predicate`, or `agentVerdict`). Then honor `b
 - `blocking: false` → advisory only; surface the message but continue regardless of outcome.
 
 Honor `onError` if the check itself errors: `skip` means treat as non-blocking and continue;
-`halt` means surface the error and stop.
+`halt` means surface the error and stop. "Errors" means a non-zero exit from `gsd_run check ...`,
+and that includes `69` (`UNAVAILABLE`, #5170): a gate verb exits `69` when it **could not look** at
+its evidence, still printing the gate's usual JSON (its own fields name what could not be read, such
+as `status: "unresolvable"`, `readError`, or `unreadable`). That JSON is not a verdict — do not act
+on its `block`; route it by `onError` as a step-1 command failure. Exit `0` always means a
+delivered verdict, a blocking one included (`block: true`): a gate verb never exits non-zero to say
+"blocked".
 
 ## Empty / absent `activeHooks`
 

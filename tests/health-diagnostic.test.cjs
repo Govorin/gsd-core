@@ -84,10 +84,10 @@ function setupHealthyProject(tmpDir) {
   fs.mkdirSync(path.join(tmpDir, '.planning', 'phases', '01-setup'), { recursive: true });
 }
 
-// ─── Row 9 — REMEDY_ACTION locks exactly 8 members ─────────────────────────
+// ─── Row 9 — REMEDY_ACTION locks exactly 9 members ─────────────────────────
 
 describe('REMEDY_ACTION', () => {
-  test('row 9: locks exactly 8 members (7 real repair actions — incl. the fork\'s W031 normalizeVerificationStatus — + ADVISE)', () => {
+  test('row 9: locks exactly 9 members (8 real repair actions — incl. #5291\'s repairVerificationStatus and the fork\'s W031 normalizeVerificationStatus — + ADVISE)', () => {
     assert.deepEqual(Object.keys(REMEDY_ACTION).sort(), [
       'ADD_AI_INTEGRATION_PHASE_KEY',
       'ADD_NYQUIST_KEY',
@@ -96,6 +96,7 @@ describe('REMEDY_ACTION', () => {
       'CREATE_CONFIG',
       'NORMALIZE_VERIFICATION_STATUS',
       'REGENERATE_STATE',
+      'REPAIR_VERIFICATION_STATUS',
       'RESET_CONFIG',
     ]);
     assert.deepEqual(
@@ -108,6 +109,7 @@ describe('REMEDY_ACTION', () => {
         'createConfig',
         'normalizeVerificationStatus',
         'regenerateState',
+        'repairVerificationStatus',
         'resetConfig',
       ],
     );
@@ -756,5 +758,51 @@ describe('W031 — normalizeVerificationStatus repair (fork 3.4a)', () => {
     );
     const again = run({});
     assert.equal(again.warnings.some((w) => w.code === 'W031' || w.code === 'W030'), false);
+  });
+});
+
+// ─── W030 — a ruled legacy status is repairable (#5291) on the fork's report set ──
+//
+// Upstream's `repairVerificationStatus` rides on the fork's report enumeration
+// (`verificationReportDefects`) and keeps the fork's guard: a path outside
+// `.planning/` is refused before any read or write, like W031's repair.
+
+describe('W030 — repairVerificationStatus on the fork report set (#5291)', () => {
+  test('W030: `pass_with_caveats` is repairable; --repair rewrites the frontmatter status and keeps the original as legacy_status', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const report = writeLegacyReport(tmpDir, '01-setup', 'pass_with_caveats');
+
+    const diagnostics = evaluateRules(buildPlanningSnapshot(tmpDir));
+    const w030 = diagnostics.filter((d) => ['W030', 'W031'].includes(d.code));
+    assert.deepEqual(w030.map((d) => d.code), ['W030']);
+    assert.equal(w030[0].remedy.action, REMEDY_ACTION.REPAIR_VERIFICATION_STATUS);
+    const { file, from, to } = w030[0].remedy.args;
+    assert.deepEqual({ file: path.basename(file), from, to }, { file: '01-VERIFICATION.md', from: 'pass_with_caveats', to: 'passed' });
+
+    const result = applyRepairs(tmpDir, diagnostics, true, false);
+    assert.ok(result.applied.includes('W030'), JSON.stringify(result.details));
+    const text = fs.readFileSync(report, 'utf-8');
+    assert.match(text, /^status: passed\nlegacy_status: pass_with_caveats\n/m);
+    assert.match(text, /^status: pass_with_caveats \(body text, not frontmatter\)$/m, 'the body is untouched');
+    const after = evaluateRules(buildPlanningSnapshot(tmpDir));
+    assert.deepEqual(after.filter((d) => ['W030', 'W031'].includes(d.code)), []);
+  });
+
+  test('W030: a repairVerificationStatus remedy naming a file outside the planning directory is refused before any write', (t) => {
+    const tmpDir = createTempProject();
+    t.after(() => cleanup(tmpDir));
+    setupHealthyProject(tmpDir);
+    const outside = path.join(tmpDir, 'NOT-PLANNING-VERIFICATION.md');
+    fs.writeFileSync(outside, '---\nstatus: pass_with_caveats\n---\n');
+    const diagnostics = [{
+      code: 'W030', severity: SEVERITY.WARNING, message: 'fabricated',
+      remedy: { action: REMEDY_ACTION.REPAIR_VERIFICATION_STATUS, risk: REMEDY_RISK.NONE, args: { file: outside, from: 'pass_with_caveats', to: 'passed' } },
+    }];
+    const result = applyRepairs(tmpDir, diagnostics, true, false);
+    assert.deepEqual(result.applied, []);
+    assert.match(result.details[0].error, /outside the planning directory/);
+    assert.equal(fs.readFileSync(outside, 'utf-8'), '---\nstatus: pass_with_caveats\n---\n');
   });
 });

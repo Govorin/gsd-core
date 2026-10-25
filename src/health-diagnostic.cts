@@ -137,11 +137,11 @@ const { getMilestoneInfo } = roadmapParserMod;
 import stateMod = require('./state.cjs');
 const { writeStateMd, assertVerificationReportsReadable } = stateMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+import verificationMod = require('./verification.cjs');
+const { isReportContained, repairLegacyVerificationStatus } = verificationMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import frontmatter = require('./frontmatter.cjs');
 const { extractFrontmatter, spliceFrontmatter } = frontmatter;
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-import verificationMod = require('./verification.cjs');
-const { isReportContained } = verificationMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import stateTransitionMod = require('./state-transition.cjs');
 const { rebuildStateTransaction } = stateTransitionMod;
@@ -330,6 +330,31 @@ function runRepairAction(cwd: string, remedy: Remedy, paths: RepairPaths): Repai
   const { rootBase, configPath, statePath, milestonesPath, milestonesArchiveDir } = paths;
 
   switch (action) {
+    case REMEDY_ACTION.REPAIR_VERIFICATION_STATUS: {
+      // #5291: the report path comes from the finding's own remedy args, not
+      // from user input; `repairLegacyVerificationStatus` re-verifies that it is
+      // a report contained in its phase directory before it writes a byte, and
+      // re-reads the status, so a report edited since the check to a value
+      // with no mapping is left alone. The report enumeration reaches archived
+      // phases too; like W031's repair, a path outside `.planning/` is refused.
+      const file = typeof args['file'] === 'string' ? args['file'] : '';
+      if (file === '') return { success: false, error: 'no report path on the finding' };
+      const rel = path.relative(cwd, file).split(path.sep).join('/');
+      const inside = path.relative(rootBase, file);
+      if (inside.startsWith('..') || path.isAbsolute(inside)) {
+        return { success: false, path: rel, error: `not applied: ${rel} is outside the planning directory` };
+      }
+      const repaired = repairLegacyVerificationStatus(file);
+      if (!repaired.ok) return { success: false, path: rel, error: repaired.reason };
+      return {
+        success: true,
+        path: rel,
+        detail: repaired.legacyStatusKept
+          ? `status ${repaired.from} -> ${repaired.to}; the report's existing legacy_status was left as it was`
+          : `status ${repaired.from} -> ${repaired.to}; original kept as legacy_status`,
+      };
+    }
+
     case REMEDY_ACTION.CREATE_CONFIG:
     case REMEDY_ACTION.RESET_CONFIG: {
       platformWriteSync(configPath, JSON.stringify(defaultConfigPayload(), null, 2));
@@ -506,6 +531,38 @@ function applyRepairs(
   const details: RepairDetail[] = [];
   const paths = repairPaths(cwd);
 
+  // #5291: a legacy-status repair is the CURE for the refusal the pre-check
+  // below enforces, so it runs first (a report edit is its only write and it
+  // validates its own target); the pre-check then sees the repaired reports.
+  // The fork's W031 respelling (`normalizeVerificationStatus`) is the same cure
+  // for the same refusal and runs in this pass too.
+  const STATUS_REPAIR_ACTIONS: ReadonlySet<RemedyAction> = new Set<RemedyAction>([
+    REMEDY_ACTION.REPAIR_VERIFICATION_STATUS,
+    REMEDY_ACTION.NORMALIZE_VERIFICATION_STATUS,
+  ]);
+  const statusRepairs = new Set<Diagnostic>();
+  if (repair) {
+    for (const diagnostic of diagnostics) {
+      const { remedy, code } = diagnostic;
+      if (!STATUS_REPAIR_ACTIONS.has(remedy.action) || remedy.risk === REMEDY_RISK.DESTRUCTIVE) continue;
+      statusRepairs.add(diagnostic);
+      try {
+        const outcome = runRepairAction(cwd, remedy, paths);
+        details.push({
+          code,
+          action: remedy.action,
+          success: outcome.success,
+          ...(outcome.path ? { path: outcome.path } : {}),
+          ...(outcome.detail ? { detail: outcome.detail } : {}),
+          ...(outcome.error ? { error: outcome.error } : {}),
+        });
+        if (outcome.success) applied.push(code);
+      } catch (err) {
+        details.push({ code, action: remedy.action, success: false, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  }
+
   // #5118 (no write before the error): a requested REGENERATE_STATE rewrites
   // STATE.md from every phase's report and throws on one whose `status` is
   // outside the closed set — but other repairs in the SAME run (config,
@@ -528,6 +585,7 @@ function applyRepairs(
   for (const diagnostic of diagnostics) {
     const { remedy, code } = diagnostic;
     if (remedy.action === REMEDY_ACTION.ADVISE) continue;
+    if (statusRepairs.has(diagnostic)) continue;
 
     const requested =
       remedy.action === REMEDY_ACTION.BACKFILL_MILESTONES ? repair || backfill : repair;

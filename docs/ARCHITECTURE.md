@@ -286,6 +286,7 @@ Runtime hooks that integrate with the host AI agent:
 | `gsd-context-monitor.js` | `PostToolUse` / `AfterTool` | Injects agent-facing context warnings at 35%/25% remaining by default (configurable — see [CONFIGURATION.md](CONFIGURATION.md)) |
 | `gsd-check-update.js` | `SessionStart` | Foreground trigger for the background update check |
 | `gsd-ensure-canonical-path.js` | `SessionStart` | For Claude Code plugin installs, symlinks `~/.claude/gsd-core/{bin,contexts,references,templates,workflows}` to the plugin's bundled tree so `@~/.claude/gsd-core/...` includes resolve; runs first in `SessionStart`, no-op in classic installs, self-heals after `claude plugin update` (#997) |
+| `gsd-path-export.js` | `SessionStart` | Appends the installed `gsd-core/bin` directory to `$CLAUDE_ENV_FILE` (provided to SessionStart hooks only) so a later Bash call resolves `gsd_run` from PATH; no-op when the variable is unset |
 | `gsd-check-update-worker.js` | (helper) | Background worker spawned by `gsd-check-update.js`; no direct event registration |
 | `gsd-prompt-guard.js` | `PreToolUse` | Scans `.planning/` writes for prompt injection patterns (advisory) |
 | `gsd-read-injection-scanner.js` | `PostToolUse` | Scans Read tool output for injected instructions in untrusted content |
@@ -318,9 +319,9 @@ CJS command family routers dispatch through `CommandRoutingHub`. The hub owns th
 
 ### Check Gate Modules (`src/gate-*.cts`, `src/check-command-router.cts`, #5139, epic #5056)
 
-Every `gsd-tools check <gate>` verb is a module that returns a value; the router only turns that value into output. Each gate module (`gate-decision-coverage-plan`, `gate-decision-coverage-verify`, `gate-ui-plan`, `gate-ui-safety`, `gate-tdd-review-checkpoint`, `gate-tdd-red-evidence`, `gate-verify-command-paths`, `gate-verify-failure-directions`, `gate-gap-analysis-plan-post`, `gate-predicate`, `gate-api-coverage-verify-pre`) returns a `GateResult` from `gate-verdict`: a `GateVerdict` (`outcome`, `block`, a frozen ordered `payload`) or a `GateUsageFailure`. `GATE_FAILURE_CODE` is the closed set of failure codes.
+Every `gsd-tools check <gate>` verb is a module that returns a value; the router only turns that value into output. Each gate module (`gate-decision-coverage-plan`, `gate-decision-coverage-verify`, `gate-ui-plan`, `gate-ui-safety`, `gate-tdd-review-checkpoint`, `gate-tdd-red-evidence`, `gate-verify-command-paths`, `gate-verify-failure-directions`, `gate-gap-analysis-plan-post`, `gate-predicate`, `gate-api-coverage-verify-pre`, and, since #5219 (ADR-5057 §4), `gate-schema-drift`, `gate-codebase-drift`, `gate-context-drift` and `gate-prohibition-enforcement`) returns a `GateResult` from `gate-verdict`: a `GateVerdict` (`outcome`, `block`, a frozen ordered `payload`) or a `GateUsageFailure`. `GATE_FAILURE_CODE` is the closed set of failure codes.
 
-`src/check-command-router.cts` (233 lines) parses argv, calls the gate, and formats the result through one output site, `emitGateResult`. A gate's stdout and exit code are byte-identical to the pre-refactor router; 103 golden files pin them (`tests/check-router-cutover-equivalence.test.cjs`).
+`src/check-command-router.cts` (261 lines) parses argv, calls the gate, and formats the result through one output site, `emitGateResult`. A gate's stdout and exit code are byte-identical to the pre-refactor router; 149 golden files pin them (`tests/check-router-cutover-equivalence.test.cjs`).
 
 Support modules shared by the gates: `gate-config` (workflow switches, read quietly), `gate-args` (argument parsing), `gate-phase-context` (containment, phase-directory resolution, the tolerant file read and the degraded verify-probe verdict), `decision-coverage-support` (decision extraction and matching), and `check-auto-mode` (the `check auto-mode` state reader). XML decision-tag extraction lives in the markdown sectionizer seam (`src/markdown-sectionizer.cts`), and `type: tdd` detection in the Frontmatter Module (`frontmatterKeyHasValue`).
 
@@ -357,7 +358,7 @@ The design rules:
 - **The scope is a union, not a range.** A range keeps every interleaved non-phase commit in its window. Measured on a 9,676-commit repository, the range held 23, 194 and 602 files for three phases where the union of the phases' own commits held 9, 42 and 69. A phase's commits are the `## Task Commits` rows of its SUMMARY files (section-scoped, row-scoped, backtick-anchored: a sha quoted in prose is not a task commit); a merge commit contributes its diff against its first parent.
 - **Only commits reachable from the evaluated ref count.** The former `git log --all` let a commit on any branch satisfy a check.
 - **An empty union never becomes an empty scope.** A phase with no SUMMARY, no task rows, no reachable task commits, or only planning paths degrades to the phase-directory range and reports `degraded` with the reason. A phase directory git has never seen, or an unreadable repository, is `unresolvable`.
-- **Plan commits are matched on the subject.** `<type>(<phase>-<plan>):` is anchored, tolerant of zero padding (`03-01`, `3-1`) and of decimal, N-segment and letter-suffixed phase numbers, and escapes every metacharacter, so `03-01` never matches `03-010`.
+- **Plan commits are matched on the subject.** `<type>(<phase>-<plan>):` is anchored, tolerant of zero padding (`03-01`, `3-1`) and of decimal, N-segment and letter-suffixed phase numbers, and escapes every metacharacter, so `03-01` never matches `03-010`. An id carrying the project's CONFIGURED `project_code` (`PRJ-01-01` with `project_code: "PRJ"`, #5271) matches either spelling of the same plan — `feat(PRJ-01-01):` and `feat(01-01):` — because the two init verbs hand out different phase tokens for one plan. The code is stripped only when it is the configured one, matched case-sensitively; the configured value only has to pass a safety check (a letter first, then letters, digits, `_`, `.` or `-`, at most 32 characters), so `gsd` and `AUTH-X` work. An id that merely looks coded (`AUTH-01-02`), and an unusable `project_code` value, keeps the literal behaviour. Every spelling is built by `qualifiedPlanSubjectPattern`, the builder the workstream-qualified id proposed in #5177 is meant to share.
 - **Every git call is bounded** by the `execGit` seam; a timeout or a missing git is `unresolvable`, never a throw and never an empty scope.
 - **A window is a commit set, not a diff** ([ADR-5208](adr/5208-window-review-unit.md)). It is `base..until`, where `base` is a ref, the tip recorded in `.planning/reviews/LAST-WINDOW.json` (`last`), or the newest first-parent commit older than the boundary (a commit exactly on the boundary is inside), so a branch merged inside the window counts although its commits are older. A merge contributes only what it changed against every parent (`--cc`). Each commit names its phase (SUMMARY `## Task Commits`, active and archived) or `unattributed`; an empty window degrades with `empty-window`, and `last` with no recorded tip is `unresolvable` (`no-last-window-marker`).
 
@@ -1043,7 +1044,7 @@ The migration-specific ownership and source snapshots live in
 | Runtime | Global root | Local root | Invocation surface | Agent surface | Config and hooks |
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | `~/.claude` | `./.claude` | Global `skills/gsd-*/SKILL.md` (flat, #924); local `commands/gsd/*.md` | `agents/gsd-*.md` | `settings.json` hook and statusLine entries |
-| OpenCode | `~/.config/opencode` | `./.opencode` | `commands/gsd-*.md` | `agents/gsd-*.md` | `opencode.json` or `opencode.jsonc`; no GSD hooks |
+| OpenCode (1.x and 2.x) | `~/.config/opencode` | `./.opencode` | `commands/gsd-*.md`; every command is also a model-loadable skill (`skills/gsd-*/SKILL.md`) | `agents/gsd-*.md`, with a `permission:` block denying the tools an agent's `tools:` allowlist leaves out | `opencode.json` or `opencode.jsonc` (edited as text, so a commented file keeps its comments); one native plugin, `plugins/gsd-core.js`, that serves both generations and runs the `hooks/` guards under Node — see [OpenCode 1.x and 2.x](#opencode-1x-and-2x) |
 | Kilo | `~/.config/kilo` | `./.kilo` | `command/gsd-*.md` | `agents/gsd-*.md` | `kilo.json` or `kilo.jsonc`; no GSD hooks |
 | Kimi CLI | First-existing generic root: `~/.config/agents` recommended, then `~/.agents` when `~/.agents/skills` exists and `~/.config/agents/skills` does not | Deferred and guarded | `skills/gsd-*/SKILL.md` (flat) invoked as `/skill:gsd-*` | `agents/gsd.yaml`, `agents/gsd.md`, and `agents/subagents/gsd-*` YAML/prompt pairs | Explicit `kimi --agent-file <configRoot>/agents/gsd.yaml`; no GSD hooks or statusline |
 | Codex | `~/.codex` | `./.codex` | `skills/gsd-*/SKILL.md` (flat) | `agents/` source markdown plus per-agent TOML (Codex auto-discovers each `agents/gsd-*.toml`; this is the sole canonical role registration, #2406) | `config.toml` bare `[agents]` dispatch-tuning scalar (`max_depth`, no per-role `[agents.gsd-*]` tables), `[features].hooks` (canonical; legacy alias `codex_hooks` is recognized and migrated forward on reinstall, #3566), and hook tables |
@@ -1057,6 +1058,51 @@ The migration-specific ownership and source snapshots live in
 | Hermes Agent | `~/.hermes` | `./.hermes` | `skills/gsd/ns-*/SKILL.md` (6 routers, prefix='') + `skills/gsd/ns-*/skills/<name>/SKILL.md` (nested concretes) | `agents/gsd-*.md` | Common GSD settings and hook entries where supported |
 | CodeBuddy | `~/.codebuddy` | `./.codebuddy` | `skills/gsd-*/SKILL.md` (flat, `user-invocable: false`) | `agents/gsd-*.md` | `/gsd-*` slash commands under `commands/`; common GSD settings and hook entries where supported |
 | Cline | `~/.cline` | project root | `skills/gsd-ns-*/SKILL.md` (6 routers) + `skills/gsd-ns-*/skills/<name>/SKILL.md` (nested concretes) + `.clinerules` | Rules only | No GSD hooks or statusline |
+
+### OpenCode 1.x and 2.x
+
+OpenCode 1.x and 2.x use the same `opencode` command and config directories and cannot be installed side by side,
+so one `opencode` runtime serves both. The design is recorded in
+[ADR-5331](adr/5331-opencode-v2-support-and-v1-sunset.md); Kilo is a fork on the 1.x line and is unaffected.
+
+- **Generation detection** (`opencode-version.cts`): a bounded, argv-only `opencode --version` run (`1.19.0` on 1.x,
+  `opencode v2.0.27` on 2.x), `GSD_OPENCODE_GENERATION=1|2` to force it, and 2.x-only config signals as a fallback.
+  An undeterminable generation is `null` and keeps today's behavior. The installer prints the result and records it as
+  `hostGeneration` in `gsd-install-state.json`, which `update-context` reports.
+- **One plugin, two entrypoints:** `plugins/gsd-core.js` exports `server` (1.x) and a non-enumerable `setup` (2.x). `setup`
+  is inert unless it is handed a 2.x context (1.18.29 and 1.19.0 also call it, with one that has no `tool`). Both
+  adapters run the same guards; the 2.x `shell` and `patch` tool ids map to `Bash` and `MultiEdit`; `file.edited`, which
+  2.x never emits, is derived from completed edit-tool calls on `.planning/config.json`.
+- **Hooks run under Node.** Inside OpenCode `process.execPath` is the OpenCode binary, so the plugin starts hook
+  scripts with `node` from `PATH` (override: `GSD_HOOK_RUNTIME`); before this every guard was silently skipped (#4849).
+- **Spawn arguments differ by generation** and are adapted when a command line is built: 2.x has no `--dir` (the worker
+  binds through its working directory, which 2.x takes from `$PWD`, so it must be launched from a shell that has
+  `cd`'d there) and no `--variant` (effort rides on the model as `provider/model#variant`); the reviewer lane drops the
+  trailing stdin `-`, which 2.x sends to the model as text, and runs `--standalone` so no background service outlives it.
+- **Config edits preserve JSONC.** `jsonc-edit.cts` splices only the keys GSD owns, so an annotated `opencode.jsonc` or
+  `kilo.jsonc` keeps its comments, trailing commas and layout through install, migration and uninstall (#5334). Plain
+  JSON without comments is rewritten as before. GSD never writes 2.x-only shapes to user config.
+- **MCP companion.** The installer registers `mcp.gsd` with `--no-prompts`; OpenCode would otherwise list every GSD
+  prompt as a second `gsd:<name>` slash command next to the command files. Migration 011 converges existing entries.
+  The entry stays in the 1.x shape, which 2.x reads in place; 2.x's default Code Mode is left as it is, because the
+  companion's tools are reached by exact name from GSD workflows and nothing relies on them being native tools.
+- **Data directory.** 2.x adds its own session tables beside 1.x's and 1.x keeps working; a data directory 2.x creates
+  from scratch has no 1.x tables and 1.x cannot open it. The installer reads the schema (never writes it) and says which
+  case applies.
+- **Uninstall is complete on both generations:** it removes every staged `hooks/lib` helper (derived from what the
+  installer copies, so the lists cannot drift), the install state and migration-journal records (backups of files the
+  user modified are kept), an empty `settings.json`, the GSD `mcp` entry in both shapes, empty directories GSD created,
+  and the `~/.gsd/defaults.json` keys the install set once no other runtime needs them and the user has not changed them.
+
+- **Phase 3 additions (#5339).** The OpenCode-only parity code in the plugin sits between `gsd:opencode-parity` markers and
+  is absent from the byte-identical Kilo mirror: the four opt-in `.sh` hooks (commit validation, phase boundary, session
+  state, graphify auto-update) run under bash, with their config gates re-checked in-process so a project that has not
+  opted in pays no spawn; advisories are appended to the tool result (OpenCode shows neither a plugin's stderr nor its
+  metadata to the model); the 2.x adapter treats the first event naming a session as `session.created`, because a 2.x
+  `run` never emits one. The terminal-client plugin `plugins/gsd-statusline/tui.tsx` (descriptor key
+  `hostBehaviors.nativeCliPlugin`) renders the output of `hooks/gsd-statusline.js` in the `home.footer.status` and
+  `prompt.footer.status` slots; 1.x never loads it. The deprecation notice and freeze date live in `opencode-version.cts`
+  (`describeDeprecationNotice`, `OPENCODE_V1_FREEZE_DATE`). Execution evidence: [verification matrix](reference/opencode-v2-verification-matrix.md).
 
 ### Upstream Contract Sources
 

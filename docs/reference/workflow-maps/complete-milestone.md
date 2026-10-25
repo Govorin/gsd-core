@@ -2,9 +2,9 @@
 
 # complete-milestone
 
-Источник: `gsd-core/workflows/complete-milestone.md`. Единицы: 15 шагов `<step>`, 1 секция `gsd:section`. Спавнов: 0. Точки цикла: `milestone:pre`, `milestone:post`.
+Источник: `gsd-core/workflows/complete-milestone.md`. Единицы: 14 шагов `<step>`, 2 секции `gsd:section`. Спавнов: 0. Точки цикла: `milestone:pre`, `milestone:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 5; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 2.
+> **Переходы в прозе** (фразы «перейди к …»): всего 6; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 3.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -21,7 +21,7 @@ flowchart TB
   u_step_gather_stats["gather_stats"]
   u_step_extract_accomplishments["extract_accomplishments"]
   u_step_create_milestone_entry["create_milestone_entry"]
-  u_step_evolve_project_full_review["evolve_project_full_review"]
+  u_section_project_md_evolution_review("§ project-md-evolution-review"):::conditional
   u_step_archive_milestone["archive_milestone"]
   u_step_reorganize_roadmap_and_delete_originals["reorganize_roadmap_and_delete_originals"]
   u_step_write_retrospective["write_retrospective"]
@@ -37,8 +37,8 @@ flowchart TB
   u_step_milestone_pre_hooks --> u_step_gather_stats
   u_step_gather_stats --> u_step_extract_accomplishments
   u_step_extract_accomplishments --> u_step_create_milestone_entry
-  u_step_create_milestone_entry --> u_step_evolve_project_full_review
-  u_step_evolve_project_full_review --> u_step_archive_milestone
+  u_step_create_milestone_entry -->|"when#58; state#58;flat-mode"| u_section_project_md_evolution_review
+  u_section_project_md_evolution_review --> u_step_archive_milestone
   u_step_archive_milestone --> u_step_reorganize_roadmap_and_delete_originals
   u_step_reorganize_roadmap_and_delete_originals --> u_step_write_retrospective
   u_step_write_retrospective --> u_step_update_state
@@ -48,6 +48,7 @@ flowchart TB
   u_step_git_commit_milestone --> u_step_milestone_post_hooks
   u_step_milestone_post_hooks --> u_step_offer_next
   u_step_verify_readiness -.->|"goto"| u_step_gather_stats
+  wf_root -.->|"goto"| u_step_archive_milestone
   wf_root -.->|"goto"| u_step_git_commit_milestone
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
@@ -93,14 +94,14 @@ flowchart LR
 
 | # | Единица | Вид | Условие | Спавны | Точки цикла | Читает |
 |---|---|---|---|---|---|---|
-| — | (вне единиц) | — | — |  |  | `complete-milestone/detail/elaboration.md`, `complete-milestone/steps/git-tag.md` |
+| — | (вне единиц) | — | — |  |  | `complete-milestone/detail/elaboration.md`, `complete-milestone/steps/project-md-evolution-review.md`, `complete-milestone/steps/git-tag.md` |
 | 1 | `pre_close_artifact_audit` | step |  |  |  | `complete-milestone/detail/elaboration.md` |
 | 2 | `verify_readiness` | step |  |  |  |  |
 | 3 | `milestone_pre_hooks` | step |  |  | `milestone:pre` |  |
 | 4 | `gather_stats` | step |  |  |  |  |
 | 5 | `extract_accomplishments` | step |  |  |  |  |
 | 6 | `create_milestone_entry` | step |  |  |  |  |
-| 7 | `evolve_project_full_review` | step |  |  |  |  |
+| 7 | `project-md-evolution-review` | section | when: state:flat-mode |  |  | `complete-milestone/steps/project-md-evolution-review.md` |
 | 8 | `archive_milestone` | step |  |  |  |  |
 | 9 | `reorganize_roadmap_and_delete_originals` | step |  |  |  |  |
 | 10 | `write_retrospective` | step |  |  |  |  |

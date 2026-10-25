@@ -166,7 +166,7 @@ project one is reported, since that is the file you are most likely able to fix.
 ## Agent tool grants
 
 `agent_tools` is an opt-in, install-time addition to the tools already declared by shipped
-agents. Put defaults shared by your projects in `~/.gsd/defaults.json` and project-specific
+agents. Put defaults shared by your projects in `$GSD_HOME/.gsd/defaults.json` (`~/.gsd/defaults.json` when `GSD_HOME` is unset) and project-specific
 choices in the nearest `.planning/config.json`:
 
 ```json
@@ -239,7 +239,7 @@ derived from the shipped agent declaration.
 | `dynamic_routing.escalate_on_failure` | boolean | `true`, `false` | `true` | When `false`, escalation is disabled even if `enabled: true` — every attempt uses the default tier. Added in v1.40 |
 | `dynamic_routing.max_escalations` | integer | `0`, `1`, `2`, … | `1` | Hard cap on retries per agent invocation. Beyond the cap the resolver returns the cap-tier model. Also caps `provider_escalation`. Added in v1.40 |
 | `dynamic_routing.provider_escalation` | string[] | ordered model IDs | (none) | Opt-in fallback providers tried when a run dies on a quota / rate limit — see [provider escalation](#provider-escalation-on-quota-exceeded--added-in-v143). Added in v1.43 ([#2296](https://github.com/open-gsd/gsd-core/issues/2296)) |
-| `project_code` | string | any short string | (none) | Prefix for phase directory names (e.g., `"ABC"` produces `ABC-01-setup/`). Added in v1.31 |
+| `project_code` | string | any short string | (none) | Prefix for phase directory names (e.g., `"ABC"` produces `ABC-01-setup/`). Added in v1.31. `check evaluation-scope --plan` resolves a coded plan id (`ABC-01-01`) to its commits when the value starts with a letter, continues with letters, digits, `_`, `.` or `-`, and is at most 32 characters (`"ABC"`, `"gsd"` and `"AUTH-X"` all qualify); an empty value, one with whitespace or control characters, or a longer one is ignored and a coded id is matched literally, so a plan whose commits use the bare `01-01` spelling resolves an empty scope ([#5271](https://github.com/open-gsd/gsd-core/issues/5271)). |
 | `phase_id_convention` | enum | `"sequential"`, `"milestone-prefixed"`, `"bracket"`, `null` | `null` | Phase ID naming convention. `null` and `"sequential"` use legacy numeric IDs (`Phase 1`, `Phase 2`). `"milestone-prefixed"` uses globally unique IDs that encode the enclosing milestone (`Phase 1-01`, `Phase 1-02`). Run `gsd-tools roadmap upgrade --convention milestone-prefixed` to migrate an existing ROADMAP.md. `"bracket"` carries the milestone ahead of the phase number — heading `### [GSD.02] 05: Name`, directory `GSD.02-05-name` — per [ADR-612](adr/612-bracket-phase-id-convention.md) and the [compact convention card](../gsd-core/references/phase-id-convention.md). `config-set` accepts only these three exact strings (or `null` to unset the key). **`"bracket"` currently affects read, display, and migration paths (no bracket emit yet):** read-path surfaces — `roadmap analyze` / `roadmap get-phase`, the W005/W006/W007 phase checks, `validate health` (including an advisory W021 covering a bracket phase's milestone disagreeing with its enclosing section, or a phase heading still spelled in legacy form and not yet migrated to bracket form), both `total_phases` derivations, state, and phase-directory membership — recognize the bracket spelling once it is set; display-path surfaces — progress, stats, manager-init, and statusline — recognize and display canonical IDs, while `progress` / `stats` expose per-phase `display_id` and keep the bare `number`. Phase-directory membership on a bracket repo scopes by the directory's real bracket token, so an artifact misfiled from another phase (`01-VERIFICATION.md` sitting in a phase `03` directory) no longer supplies `phase complete`'s pass/fail verdict for the phase it was misfiled into — the same protection legacy directories already have. Call sites that do not yet resolve a convention keep the wider include-everything fail-safe on bracket directories until they thread one: the aggregate scans (`uat`, `audit`, `gap-checker`) and — except for `init.manager`, whose phase lookup threads the convention through `findPhaseInternal` since #4801 — `phase-locator`'s remaining consumers; `phase complete`'s advisory UAT/VERIFICATION warning pre-scan, which can still surface a spurious warning but cannot decide completion; and the workstream inventory's per-phase completion projection, which can still report a bracket phase complete or incomplete from a cross-phase stray. Existing legacy or M-NN projects can run `gsd-tools roadmap upgrade --convention bracket` to preview the conversion, then add `--apply`; the bracket target requires `project_code`, refuses a dirty tracked tree, and rolls back its own changes on failure. When a renamed phase directory's token changes, the migration also renames that phase's own artifacts inside it (`03-VERIFICATION.md` becomes `01-VERIFICATION.md`, `03-01-PLAN.md` becomes `01-01-PLAN.md`, and so on) so existing plans and verification reports remain attached to the phase under its new identity, and rewrites a `depends_on` entry inside that same directory's plan files that named a renamed sibling by its old token (`depends_on: ["03-01"]` becomes `["01-01"]`) so the dependency still resolves after migration, and rewrites that artifact's own `phase:` frontmatter scalar to its new token so `history-digest` keys decisions correctly after renumbering. Legacy sentinel phases (`Phase 999.x`/`Phase 0.x`) are lifted into their own sentinel bracket milestone rather than folded into the enclosing real milestone, and checklist bullets convert using the same reader-recognized bold-checkbox grammar `missing_phase_details` is scored against (no colon required), attributed to their own milestone section when two sections share a leading major integer. The migration refuses before writing when a source phase has no bracket spelling, a multi-milestone phase (or an out-of-section checklist bullet) has no unambiguous reader-recognized milestone section, the same legacy phase number appears twice within one milestone section, a directory matches more than one candidate heading without its slug disambiguating exactly one, two directories resolve to the same phase heading (a stale same-number copy beside the real directory), or a rename's target directory already exists and is not itself part of the same migration. **The general phase-creation write path is not bracket-native yet**, so the migration slice should not be mistaken for the later bracket emit rollout. A project on any other value compiles the same heading patterns and retains the same output shape it did before. **What opting in costs:** on a bracket repo a heading whose bracket is followed directly by a digit is read as a phase heading, so shapes that are legal prose headings on any other convention — `### [RFC.2119] 5:`, `### [v1.0] 2024:`, `### [ADR.612] 3:` — are claimed as phases and will move `phase_count`, `total_phases` and W006. A bracket repo cedes that heading shape; that is the trade the opt-in buys, and it is why the widened read is selected at construction time from this value rather than applied everywhere. ([#2761](https://github.com/open-gsd/gsd-core/issues/2761), [#3638](https://github.com/open-gsd/gsd-core/issues/3638)) |
 | `response_language` | string | language code | (none) | Language for agent responses (e.g., `"pt"`, `"ko"`, `"ja"`). Propagates to all spawned agents for cross-phase language consistency. Added in v1.32. UAT checkpoint frames (`/gsd-verify-work`) render a localized banner/instruction for English, Spanish, French, German, Portuguese, Japanese, Chinese, Korean, Italian, Dutch, Polish, Russian, Ukrainian, Turkish, Hindi, Arabic, Vietnamese, and Indonesian (endonyms and ISO codes also accepted); any other value falls back to the English frame. One deliberate exception: the `spec-phase` edge-completeness probe is fed an English translation of each requirement's text, because its shape cues are English-only — the SPEC itself stays in this language. See [Spec-Phase Edge-Completeness Probe](FEATURES.md#144-spec-phase-edge-completeness-probe). Every workflow is required to carry a directive honouring this setting, including for inter-tool narration; authors add or fix one per [response-language coverage](contributing/response-language-coverage.md), and `npm run lint:response-language` enforces it. |
 | `context_window` | number | any integer | `200000` | Context window size in tokens. Set `1000000` for 1M-context models (e.g., `claude-fable-5-1`). Values `>= 500000` enable adaptive context enrichment (full-body reads of prior SUMMARY.md, deeper anti-pattern reads). Configured via `/gsd-config --advanced`. |
@@ -913,6 +913,8 @@ Each element in the array is one of three forms:
 
 **Global personal skills** (`global:<name>`) resolve against the runtime's global skills directory (e.g. `~/.claude/skills/`). Symlink-escape protection applies unless the target is listed in `agent_skills_security.trusted_global_roots`.
 
+**Skill dirs named `gsd-*`.** GSD installs its own skills into that same directory as `gsd-<name>/`, and every install or update replaces the dirs GSD owns: a skill GSD ships, a third-party capability skill GSD staged, or a dir the previous install's `gsd-file-manifest.json` records. A `gsd-*` dir that matches none of those is yours. Install and update leave it in place in the skills directory the runtime reads, and print its path as preserved. Where an install clears the two legacy locations GSD has moved off, Codex's skills dir from before its skills moved to `$HOME/.agents/skills` and Windsurf's `.devin/skills`, it removes a skill GSD ships or a capability skill GSD staged and leaves any other `gsd-*` dir in place, printing its path as preserved (`gsd-dev-preferences` and symlinks there are kept without a message). The manifest does not count there, because its entries cannot tell the old location from the current one. Uninstall still removes `gsd-*` skill dirs whoever owns them. Prefer a name outside the `gsd-` prefix anyway, because a skill GSD later ships under the same name replaces yours on the next update.
+
 **Plugin-provided skills** (`global:<plugin>:<skill>`) follow the namespaced form `seg(:seg)*`, where each segment is one or more alphanumeric characters, underscores, or hyphens joined by single colons (e.g. `global:coderabbit:code-review`). This form is **Claude-only**: on the Claude runtime GSD emits a Skill-tool load directive in the agent's `<agent_skills>` block so the agent loads the skill by name via the Skill tool, and Claude Code resolves the `plugin:skill` namespace. On all other runtimes the entry is skipped with a warning — the plugin/Skill-tool model is specific to Claude Code and has no equivalent elsewhere.
 
 > **Why load by name rather than path?** Claude Code's plugin cache is versioned and ephemeral, so there is no stable filesystem path to `@`-include. Loading by namespaced name via the Skill tool lets Claude Code's own resolver locate the current version of the plugin skill at runtime.
@@ -947,7 +949,7 @@ Skills reach a consumer agent through **two cooperating seams** (dual injection 
 
 1. **Orchestrator-side (primary on Claude Code).** At spawn time, workflows call `gsd-tools query agent-skills <type>` (or legacy `node gsd-tools.cjs agent-skills <type>`) in their bash init and interpolate the resulting `<agent_skills>` block into the `Task()`/`Agent()` prompt. This is established across ~25 workflows.
 
-2. **Agent-side self-load (durable fallback).** Each of the 22 consumer agents also self-loads in its own mandatory init step — it runs `gsd_run query agent-skills <its-type>` and `Read`s every listed `SKILL.md` per [`gsd-core/references/agent-skills-bootstrap.md`](../gsd-core/references/agent-skills-bootstrap.md). This is the path that works on every runtime, including **Cursor**, where `Skill()`-delegated workflow bash init does not reliably execute and `/gsd-autonomous` delegates via flat `Skill()` calls.
+2. **Agent-side self-load (durable fallback).** Each of the 22 consumer agents also self-loads in its own mandatory init step — it runs `gsd_run query agent-skills <its-type> --skills-only` (the type is written into the agent file's body; `--skills-only` skips the persona fallback that non-Claude runtimes get from the plain query, so the agent never re-reads its own persona) and `Read`s every listed `SKILL.md` per [`gsd-core/references/agent-skills-bootstrap.md`](../gsd-core/references/agent-skills-bootstrap.md). This is the path that works on every runtime, including **Cursor**, where `Skill()`-delegated workflow bash init does not reliably execute and `/gsd-autonomous` delegates via flat `Skill()` calls.
 
 **Dedup guard.** If an agent's prompt already contains an `<agent_skills>` block (orchestrator already injected one), the agent skips self-load — so on runtimes where both seams run (Claude Code), the prompt never carries two copies. `query agent-skills` is read-only and idempotent: it exits 0 with an empty block when nothing is configured for the type, so self-load is zero-overhead for unconfigured agents.
 
@@ -1490,6 +1492,13 @@ a caller error — the gate fails closed with the missing-argument error, the
 same as calling it with no context path at all, rather than silently
 skipping. The phase directory remains a separate positional argument (there
 is no `--phase` flag; the workflow caller passes both positionals).
+A phase-dir argument that names no directory is a caller error too: the gate
+fails closed with `total`/`covered` null and `reason` `"phase directory not
+found"` (nothing is there, e.g. the phase number `01` was passed), `"phase
+path is not a directory"` (it names a file) or `"phase directory unreadable"`
+(it could not be read; the exit status is then UNAVAILABLE, 69). A phase
+directory that holds no PLAN file answers `reason` `"phase directory holds no
+plans"` the same way: zero plans loaded is not zero coverage.
 
 ### How to write decisions the gates accept
 
@@ -1637,8 +1646,7 @@ On the Claude runtime, fully-qualified Claude model IDs are honored as explicit 
 
 `model_overrides` can be set in either `.planning/config.json` (per-project)
 or `$GSD_HOME/.gsd/defaults.json` (global). The install-time embedding for
-Codex and OpenCode described below still reads `~/.gsd/defaults.json`
-([#5017](https://github.com/open-gsd/gsd-core/issues/5017)). Per-project entries win on conflict and
+Codex and OpenCode described below reads the same store ([#5017](https://github.com/open-gsd/gsd-core/issues/5017)). Per-project entries win on conflict and
 non-conflicting global entries are preserved, so you can tune a single
 agent's model in one repo without re-setting global defaults. This applies
 uniformly across Claude Code, Codex, OpenCode, Kilo, and the other
@@ -2121,6 +2129,29 @@ The intent is the same as the Claude profile tiers -- use a stronger model for p
 | `true` | Maps aliases to full Claude model IDs (`claude-opus-5-5`) | Claude Code with API that requires full IDs |
 | `"omit"` | Claude protection: yields an empty string when no runtime identity is known (or the value fails recognition); a runtime identified by its install marker resolves its own tier map instead | Non-Claude runtimes (Codex, OpenCode, Antigravity CLI, Kilo) |
 
+#### OpenCode 1.x and 2.x
+
+One `opencode` runtime serves OpenCode 1.x and 2.x (design: [ADR-5331](adr/5331-opencode-v2-support-and-v1-sunset.md)).
+
+| Setting | Where | Effect |
+|---------|-------|--------|
+| `GSD_OPENCODE_GENERATION` | environment | `1`, `2`, `v1`, `v2` (any case). Forces the generation GSD assumes when it builds an `opencode run` command line; otherwise GSD runs `opencode --version`. An unreadable version leaves the 1.x behavior. |
+| `GSD_HOOK_RUNTIME` | environment | Executable the OpenCode plugin starts GSD's hook scripts with. Default: `node` from `PATH`. The OpenCode binary itself cannot run them. |
+| `review.models.opencode` | `.planning/config.json` | Reviewer model, `provider/model`. On 2.x a configured reasoning effort is appended as `#<level>` (`provider/model#high`); a model that already has a `#variant` is used as written. |
+| `review.effort.opencode` | `.planning/config.json` | Reasoning effort for the OpenCode reviewer. On 1.x it is passed as `--variant <level>`; on 2.x it needs a configured model to ride on, and is dropped with a warning otherwise. |
+
+OpenCode 1.x is deprecated for GSD: bug fixes only until **2026-12-31**. The installer prints the notice when it finds a 1.x binary (never for 2.x, and never for Kilo). The opt-in community hooks (`hooks.community`) and the graphify auto-update hook (`graphify.auto_update`) run through the OpenCode plugin when enabled in `.planning/config.json`; they need `bash` on `PATH` and are skipped silently without it. `GSD_HOOK_SHELL` overrides the shell they start with.
+
+Installed agents carry a `permission:` block that denies the tools their Claude `tools:` allowlist leaves out (and any
+`disallowedTools:`); allowed tools keep your own configured default, and MCP tool entries are not restricted. An agent
+with neither key inherits everything. `effort sync` keeps the effort in `variant:` on 1.x and in the `#variant` suffix of
+`model:` when an agent already uses the 2.x form.
+
+GSD edits `opencode.json`/`opencode.jsonc` (and Kilo's `kilo.json(c)`) as text when the file has comments or trailing
+commas, so annotations survive install, update and uninstall. It writes the `mcp.gsd` companion entry with
+`--no-prompts`; remove or edit the entry and GSD treats it as yours.
+
+
 ### The `tier` Field
 
 `node gsd-tools.cjs query resolve-model <agent> --pick tier` returns the tier GSD resolved for that agent, independent of `resolve_model_ids`: `opus` | `sonnet` | `haiku` | `fable` | `inherit` | `unknown`. It is also emitted as a `tier` key in the command's full JSON output.
@@ -2308,6 +2339,7 @@ Use `provider: "generic"` (or `"custom"`) for OpenRouter, LiteLLM, local gateway
 | `GSD_SKIP_SCHEMA_CHECK` | Skip schema drift detection during execute-phase (v1.31) |
 | `GSD_EXIT_CONTRACT` | Select the exit-code projection: `v1` (default) or `v2`. See [Exit-code contract](#exit-code-contract-gsd_exit_contract) below. |
 | `GSD_ALLOW_SYMLINKED_DEST` | Set to `1` (or `true`) to permit install/update when `CLAUDE_CONFIG_DIR` (or any artifact-kind child like `skills/`, `hooks/`) is an **intentional, user-owned symlink** pointing outside the install root. v1.7.x write-confinement (ADR-1239 Phase B) refuses such layouts by default to prevent untrusted `destSubpath` traversal. Opt in only if you manage configHome via symlinked external dirs, multi-account config layouts (`~/.claude-personal`, `~/.claude-team`), or dotfiles-managed configHome (nix-darwin, etc.). Two refusals remain load-bearing even with opt-in: path-traversal in `destSubpath` (`../../etc`-style), and a symlink whose resolved target equals the install root itself (would let the prune pass wipe it). |
+| `NODE_DISABLE_COMPILE_CACHE` | Set (to any value) to turn off Node's compile cache, which `gsd-tools` and the hooks that load `gsd-core/bin/lib` enable to start faster. The cache lives in `node-compile-cache` under the OS temp directory, or in `NODE_COMPILE_CACHE` if you set it. Node reads both variables itself. |
 | `WSL_DISTRO_NAME` | Detected by installer for WSL path handling |
 
 ### Exit-code contract (`GSD_EXIT_CONTRACT`)
@@ -2356,6 +2388,8 @@ Save settings as global defaults for future projects:
 
 **Location:** `$GSD_HOME/.gsd/defaults.json` (`GSD_HOME` defaults to your home directory, so `~/.gsd/defaults.json` when unset)
 
+Every reader and writer of this store resolves its root the same way: `GSD_HOME` when it is set and non-blank, otherwise your home directory. That covers the config loader, the install-time model / tools / effort resolvers, the installer's non-Claude defaults writer, the isolation hooks' runtime fallback, capability staging, and the `/gsd-settings` and `/gsd-new-project` workflows (#5017).
+
 When `/gsd-new-project` creates a new `config.json`, it reads global defaults and merges them as the starting configuration. Per-project settings always override globals.
 
 ### What a global file can and cannot set at runtime
@@ -2371,7 +2405,7 @@ Two different rules apply, and the difference is deliberate ([#3532](https://git
   detects this, instead of failing silently. To apply a global model setting to a project,
   put it in that project's `.planning/config.json`.
 - **`effort` is the exception**: the install-time effort channel always merges
-  `~/.gsd/defaults.json` with the project config (that is how `effort sync` works), so a
+  the global defaults store with the project config (that is how `effort sync` works), so a
   global `effort` block keeps working in projects and does not trigger the warning.
 - **The whole `git.*` namespace is project-scoped and never resolves from the global file**,
   in either directory shape — not `git.base_branch`, not `git.protected_branches`, not

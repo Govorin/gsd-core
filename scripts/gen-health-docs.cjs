@@ -22,7 +22,7 @@
  *     never appear in `RULES`, so they are a small, static, clearly-labeled
  *     list merged in here instead.
  *   - `REMEDY_ACTION_METADATA` below — the Effect/Risk prose for each of the
- *     7 real repair actions (`REMEDY_ACTION`, excluding `ADVISE`, which never
+ *     8 real repair actions (`REMEDY_ACTION`, excluding `ADVISE`, which never
  *     acts). Static because the compiled module carries no Effect/Risk text
  *     of its own — only the action identifier.
  *
@@ -123,6 +123,13 @@ const REMEDY_ACTION_METADATA = new Map([
     },
   ],
   [
+    'repairVerificationStatus',
+    {
+      effect: 'Rewrite a known legacy verification `status` (`pass_with_caveats`) to `passed`, keeping the original as `legacy_status`',
+      risk: 'None — only the `status` line changes; unknown statuses are never touched',
+    },
+  ],
+  [
     'normalizeVerificationStatus',
     {
       effect: 'Rewrite a VERIFICATION report\'s frontmatter `status` from an unambiguous legacy synonym (`verified`) to its closed-set value (`passed`); other keys and the body are untouched',
@@ -139,6 +146,7 @@ const REMEDY_ACTION_ORDER = [
   'addNyquistKey',
   'addAiIntegrationPhaseKey',
   'backfillMilestones',
+  'repairVerificationStatus',
   'normalizeVerificationStatus',
 ];
 
@@ -147,7 +155,11 @@ const REMEDY_ACTION_ORDER = [
  * whose remedy is conditional on a flag the plain `Yes`/`No` can't express
  * (mirrors the hand-written table's pre-existing `W018` row: `Yes (--backfill)`).
  */
-const REPAIRABLE_DISPLAY_OVERRIDE = new Map([['W018', 'Yes (`--backfill`)']]);
+const REPAIRABLE_DISPLAY_OVERRIDE = new Map([
+  ['W018', 'Yes (`--backfill`)'],
+  // #5291: only a known legacy status (`pass_with_caveats`) is rewritten.
+  ['W030', 'Yes (known legacy statuses only)'],
+]);
 
 const STATIC_NOT_REPAIRABLE_BULLETS = [
   'PROJECT.md, ROADMAP.md content',

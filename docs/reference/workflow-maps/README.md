@@ -34,7 +34,7 @@
 
 ## Workflows (89)
 
-Всего фраз перехода: 385, из них не называют реальный шаг: 174. Дефектов: 0.
+Всего фраз перехода: 389, из них не называют реальный шаг: 175. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -53,11 +53,11 @@
 | [cleanup](cleanup.md) | 9 шагов `<step>` | 0 | 0 |  | 0 / 1 | 0 |
 | [code-review-fix](code-review-fix.md) | 10 шагов `<step>` | 3 | 2 | `execute:post` | 0 / 0 | 0 |
 | [code-review](code-review.md) | 11 шагов `<step>`, 2 секции `gsd:section` | 4 | 3 |  | 0 / 4 | 0 |
-| [complete-milestone](complete-milestone.md) | 15 шагов `<step>`, 1 секция `gsd:section` | 0 | 0 | `milestone:pre`, `milestone:post` | 3 / 5 | 0 |
+| [complete-milestone](complete-milestone.md) | 14 шагов `<step>`, 2 секции `gsd:section` | 0 | 0 | `milestone:pre`, `milestone:post` | 3 / 6 | 0 |
 | [debug](debug.md) | 8 разделов H2 | 3 | 1 |  | 3 / 3 | 0 |
 | [diagnose-issues](diagnose-issues.md) | 6 шагов `<step>` | 1 | 1 |  | 3 / 3 | 0 |
-| [discuss-phase-assumptions](discuss-phase-assumptions.md) | 16 шагов `<step>`, 1 секция `gsd:section` | 2 | 2 |  | 3 / 12 | 0 |
-| [discuss-phase-power](discuss-phase-power.md) | 6 шагов `<step>` | 0 | 0 |  | 4 / 4 | 0 |
+| [discuss-phase-assumptions](discuss-phase-assumptions.md) | 17 шагов `<step>`, 1 секция `gsd:section` | 2 | 2 |  | 4 / 13 | 0 |
+| [discuss-phase-power](discuss-phase-power.md) | 7 шагов `<step>` | 0 | 0 |  | 5 / 5 | 0 |
 | [discuss-phase](discuss-phase.md) | 17 шагов `<step>` | 0 | 0 | `discuss:pre`, `discuss:post` | 3 / 11 | 0 |
 | [do](do.md) | 6 шагов `<step>` | 0 | 0 |  | 2 / 3 | 0 |
 | [docs-update](docs-update.md) | 16 шагов `<step>`, 1 секция `gsd:section` | 11 | 1 |  | 6 / 22 | 0 |
@@ -90,7 +90,7 @@
 | [note](note.md) | 5 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [onboard](onboard.md) | 4 раздела H2 | 0 | 0 |  | 6 / 6 | 0 |
 | [pause-work](pause-work.md) | 6 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
-| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 9 / 44 | 0 |
+| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 9 / 45 | 0 |
 | [plan-review-convergence](plan-review-convergence.md) | 6 разделов H2 | 0 | 0 |  | 3 / 4 | 0 |
 | [plant-seed](plant-seed.md) | 8 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [pr-branch](pr-branch.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 3 | 0 |
@@ -110,7 +110,7 @@
 | [settings-advanced](settings-advanced.md) | 6 шагов `<step>` | 0 | 0 |  | 3 / 4 | 0 |
 | [settings-integrations](settings-integrations.md) | 6 шагов `<step>` | 0 | 0 |  | 2 / 2 | 0 |
 | [settings](settings.md) | 6 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
-| [ship](ship.md) | 10 шагов `<step>` | 2 | 0 | `ship:pre`, `ship:post` | 5 / 6 | 0 |
+| [ship](ship.md) | 10 шагов `<step>` | 2 | 0 | `ship:pre`, `ship:post` | 4 / 6 | 0 |
 | [sketch-wrap-up](sketch-wrap-up.md) | 12 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
 | [sketch](sketch.md) | 12 шагов `<step>` | 0 | 0 |  | 1 / 4 | 0 |
 | [smart-entry](smart-entry.md) | 6 шагов `<step>` | 0 | 0 |  | 0 / 1 | 0 |

@@ -2,9 +2,9 @@
 
 # discuss-phase-power
 
-Источник: `gsd-core/workflows/discuss-phase-power.md`. Единицы: 6 шагов `<step>`. Спавнов: 0. Точки цикла: нет.
+Источник: `gsd-core/workflows/discuss-phase-power.md`. Единицы: 7 шагов `<step>`. Спавнов: 0. Точки цикла: нет.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 4; не называют реальный шаг и не рисуются — **4**; названы по имени шага и нарисованы пунктиром `goto` — 0.
+> **Переходы в прозе** (фразы «перейди к …»): всего 5; не называют реальный шаг и не рисуются — **5**; названы по имени шага и нарисованы пунктиром `goto` — 0.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -15,13 +15,15 @@
 ```mermaid
 flowchart TB
   wf_root(["discuss-phase-power.md"]):::root
+  u_step_check_spec["check_spec"]
   u_step_analyze["analyze"]
   u_step_generate_json["generate_json"]
   u_step_generate_html["generate_html"]
   u_step_notify_user["notify_user"]
   u_step_wait_loop["wait_loop"]
   u_step_finalize["finalize"]
-  wf_root --> u_step_analyze
+  wf_root --> u_step_check_spec
+  u_step_check_spec --> u_step_analyze
   u_step_analyze --> u_step_generate_json
   u_step_generate_json --> u_step_generate_html
   u_step_generate_html --> u_step_notify_user
@@ -43,12 +45,13 @@ flowchart TB
 
 | # | Единица | Вид | Условие | Спавны | Точки цикла | Читает |
 |---|---|---|---|---|---|---|
-| 1 | `analyze` | step |  |  |  |  |
-| 2 | `generate_json` | step |  |  |  |  |
-| 3 | `generate_html` | step |  |  |  |  |
-| 4 | `notify_user` | step |  |  |  |  |
-| 5 | `wait_loop` | step |  |  |  |  |
-| 6 | `finalize` | step |  |  |  |  |
+| 1 | `check_spec` | step |  |  |  |  |
+| 2 | `analyze` | step |  |  |  |  |
+| 3 | `generate_json` | step |  |  |  |  |
+| 4 | `generate_html` | step |  |  |  |  |
+| 5 | `notify_user` | step |  |  |  |  |
+| 6 | `wait_loop` | step |  |  |  |  |
+| 7 | `finalize` | step |  |  |  |  |
 
 ## Дефекты
 

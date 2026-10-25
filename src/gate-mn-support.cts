@@ -39,7 +39,7 @@ import path from 'node:path';
 import { gateVerdict, gateUsageFailure, isGateUsageFailure, GATE_FAILURE_CODE } from './gate-verdict.cjs';
 import type { GateResult, GateUsageFailure, GateVerdict } from './gate-verdict.cjs';
 import { partitionPredicateArgs } from './gate-args.cjs';
-import { resolveContainedPath, resolvePhaseDirOrEmpty } from './gate-phase-context.cjs';
+import { resolveContainedPath, resolvePhaseDir } from './gate-phase-context.cjs';
 
 /** The `status` an mn gate payload carries — names the verdict, separately from `block`. */
 export const MN_GATE_STATUS = Object.freeze({
@@ -100,9 +100,13 @@ function fromDirectory(projectDir: string, dirArg: string): MnPhase | GateUsageF
 }
 
 function fromToken(projectDir: string, token: string): MnPhase | MnPhaseUnresolved {
-  const dir = resolvePhaseDirOrEmpty(projectDir, token);
-  if (dir === '' || !isDirectory(dir)) return { unresolved: `phase not found: ${token}` };
-  return { phaseDir: dir, phaseArg: token };
+  const located = resolvePhaseDir(projectDir, token);
+  // A lookup that could not look is "could not check", never "no such phase" (#5170, ADR-5057 §4).
+  if (located.kind === 'unreadable') {
+    return { unresolved: `could not read the phase directory for phase ${token}: ${located.reason}` };
+  }
+  if (located.kind === 'none' || !isDirectory(located.value)) return { unresolved: `phase not found: ${token}` };
+  return { phaseDir: located.value, phaseArg: token };
 }
 
 /**

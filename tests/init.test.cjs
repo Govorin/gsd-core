@@ -5163,6 +5163,102 @@ describe('#3171: init execute-phase emits the display name, not the directory sl
   });
 });
 
+// ─── #4854: the sibling init verbs emit the display name too ─────────────────
+// #3171 fixed `init execute-phase` only. Once a phase directory exists,
+// `searchPhaseInDir` derives `phase_name` from the (already slugified) directory
+// remainder, so plan-phase / verify-work / code-review /
+// discuss-phase-assumptions / phase-op emitted a value byte-identical to
+// `phase_slug`. plan-phase.md forwards plan-phase's `phase_name` into
+// `state planned-phase --name`, so every replan wrote the slug into STATE.md.
+describe('#4854: init verbs emit the ROADMAP display name, not the directory slug', () => {
+  const DISPLAY_NAME = 'Receipts Reconciliation';
+  const PHASE_DIR = '37-receipts-reconciliation';
+  const ROADMAP_4854 = [
+    '# Roadmap',
+    '',
+    `### Phase 37: ${DISPLAY_NAME}`,
+    '**Goal:** Reconcile receipts',
+    '**Plans:** 1 plans',
+    '',
+  ].join('\n');
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(createFixture());
+    seedPhase(tmpDir, PHASE_DIR, { '37-01-PLAN.md': '# Plan' });
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), ROADMAP_4854);
+  });
+
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  for (const verb of ['plan-phase', 'verify-work', 'code-review', 'discuss-phase-assumptions', 'phase-op']) {
+    test(`init ${verb}: phase_name is the display name while phase_slug stays the directory remainder`, () => {
+      const result = runGsdTools(`init ${verb} 37 --raw`, tmpDir);
+      assert.ok(result.success, `init ${verb} failed: ${result.error}`);
+      const output = JSON.parse(result.output);
+      assert.strictEqual(
+        output.phase_name,
+        DISPLAY_NAME,
+        `init ${verb} must emit the ROADMAP display name, not the directory slug; got ${JSON.stringify(output.phase_name)}`,
+      );
+      if ('phase_slug' in output) {
+        assert.strictEqual(output.phase_slug, 'receipts-reconciliation', `phase_slug must stay disk-derived; got ${JSON.stringify(output.phase_slug)}`);
+      }
+    });
+  }
+
+  test('a phase with no ROADMAP heading keeps the disk-derived name', () => {
+    fs.writeFileSync(path.join(tmpDir, '.planning', 'ROADMAP.md'), '# Roadmap\n');
+    const result = runGsdTools('init plan-phase 37 --raw', tmpDir);
+    assert.ok(result.success, `init plan-phase failed: ${result.error}`);
+    assert.strictEqual(JSON.parse(result.output).phase_name, 'receipts-reconciliation');
+  });
+
+  test('the plan-phase flow does not land a slug in current_phase_name', () => {
+    const initResult = runGsdTools('init plan-phase 37 --raw', tmpDir);
+    assert.ok(initResult.success, `init plan-phase failed: ${initResult.error}`);
+    const initOutput = JSON.parse(initResult.output);
+    assert.strictEqual(initOutput.phase_name, DISPLAY_NAME);
+
+    fs.writeFileSync(
+      path.join(tmpDir, '.planning', 'STATE.md'),
+      [
+        '---',
+        'gsd_state_version: 1.0',
+        'current_phase: 37',
+        `current_phase_name: ${DISPLAY_NAME}`,
+        'status: planning',
+        '---',
+        '',
+        '# Project State',
+        '',
+        '## Current Position',
+        '',
+        'Phase: 37 — Receipts Reconciliation',
+        'Plan: Not started',
+        'Status: Ready to plan',
+        '',
+      ].join('\n'),
+    );
+
+    // The orchestrator wiring (plan-phase.md step 13b): feed init's phase_name into planned-phase --name.
+    const plannedResult = runGsdTools(
+      ['state', 'planned-phase', '--phase', '37', '--name', initOutput.phase_name, '--plans', '2'],
+      tmpDir,
+    );
+    assert.ok(plannedResult.success, `state planned-phase failed: ${plannedResult.error}`);
+
+    const fm = parseFrontmatter(fs.readFileSync(path.join(tmpDir, '.planning', 'STATE.md'), 'utf-8'));
+    assert.strictEqual(
+      fm.current_phase_name,
+      DISPLAY_NAME,
+      `current_phase_name must hold the display name, not a directory slug; got ${JSON.stringify(fm.current_phase_name)}`,
+    );
+  });
+});
+
 // ─── #3581: init.progress frontier prefers roadmap order over stray artifacts ──
 describe('#3581: init.progress next_phase prefers the roadmap frontier', () => {
   function writeProgressFixture(t, { strayNine, completeAll }) {
@@ -5946,5 +6042,83 @@ describe('#4683 review repairs — fence blindness and deterministic ordering', 
     assert.deepEqual(output.threat_id_duplicates, [
       { id: 'T-47-15', plans: ['47-04-PLAN.md', '47-07-PLAN.md'] },
     ], 'claiming-plan lists must be sorted, never readdir order');
+  });
+});
+
+// #5629: the phase SPEC is one fact, resolved by one predicate (planning-workspace `findPhaseSpecIn`) and
+// reported on every init payload the SPEC-consuming workflows parse, so no workflow globs for it itself.
+describe('init: the phase SPEC (#5629)', () => {
+  const { findPhaseSpecIn } = require('../gsd-core/bin/lib/planning-workspace.cjs');
+  const INIT_VERBS = ['phase-op', 'plan-phase', 'discuss-phase-assumptions'];
+  let tmpDir;
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(createFixture());
+  });
+  afterEach(() => {
+    cleanup(tmpDir);
+  });
+
+  function seedSpecs(names) {
+    seedPhase(tmpDir, '03-api', Object.fromEntries(names.map((n) => [n, '# SPEC\n'])));
+  }
+  function initPayload(verb) {
+    const result = runGsdTools(`init ${verb} 03`, tmpDir);
+    assert.ok(result.success, `init ${verb} failed: ${result.error}`);
+    return JSON.parse(result.output);
+  }
+
+  for (const verb of INIT_VERBS) {
+    test(`init ${verb} reports the phase SPEC (#5629)`, () => {
+      seedSpecs(['03-SPEC.md', '03-UI-SPEC.md', '03-AI-SPEC.md']);
+      const out = initPayload(verb);
+      assert.equal(out.has_spec, true);
+      assert.equal(out.spec_path, absPlanningPath(tmpDir, 'phases', '03-api', '03-SPEC.md'));
+    });
+
+    test(`init ${verb} does not treat a UI-SPEC or AI-SPEC as the phase SPEC (#5629)`, () => {
+      for (const names of [['03-UI-SPEC.md'], ['03-AI-SPEC.md'], ['03-UI-SPEC.md', '03-AI-SPEC.md'], []]) {
+        cleanup(tmpDir);
+        tmpDir = fs.realpathSync(createFixture());
+        seedSpecs(names);
+        const out = initPayload(verb);
+        assert.equal(out.has_spec, false, names.join(',') || '(none)');
+        assert.equal(out.spec_path ?? null, null, names.join(',') || '(none)');
+      }
+    });
+  }
+
+  test('every consumer resolves the phase SPEC through the same predicate (#5629)', () => {
+    // [files in the phase directory, the one file every consumer must call the phase SPEC]
+    const scenarios = [
+      [['03-SPEC.md'], '03-SPEC.md'],
+      [['03-UI-SPEC.md', '03-SPEC.md', '03-AI-SPEC.md'], '03-SPEC.md'],
+      [['03-UI-SPEC.md'], null],
+      [['03-AI-SPEC.md'], null],
+      [['03-SPEC.md.bak', '03-NOTES.md'], null],
+      // a misfiled cross-phase SPEC sorts first but belongs to phase 02
+      [['02-SPEC.md', '03-SPEC.md'], '03-SPEC.md'],
+      [['02-SPEC.md'], null],
+    ];
+    for (const [names, expected] of scenarios) {
+      cleanup(tmpDir);
+      tmpDir = fs.realpathSync(createFixture());
+      seedSpecs(names);
+      const phaseDir = path.join(tmpDir, '.planning', 'phases', '03-api');
+      const old = new Date(Date.now() - 3_600_000);
+      for (const n of names) fs.utimesSync(path.join(phaseDir, n), old, old);
+      fs.writeFileSync(path.join(phaseDir, '03-CONTEXT.md'), '# Context\n');
+      assert.equal(findPhaseSpecIn(fs.readdirSync(phaseDir).filter((f) => f.startsWith('03-'))), expected, 'the predicate agrees with the scenario');
+
+      for (const verb of INIT_VERBS) {
+        const out = initPayload(verb);
+        assert.equal(out.has_spec, expected !== null, `${verb}: ${names.join(',')}`);
+        assert.equal(out.spec_path ? path.basename(out.spec_path) : null, expected, `${verb}: ${names.join(',')}`);
+      }
+      const drift = runGsdTools('verify context-drift 03', tmpDir);
+      assert.ok(drift.success, `verify context-drift failed: ${drift.error}`);
+      const stale = JSON.parse(drift.output).stale_artifacts;
+      assert.deepEqual(stale, expected === null ? [] : [expected], `context-drift gate: ${names.join(',')}`);
+    }
   });
 });

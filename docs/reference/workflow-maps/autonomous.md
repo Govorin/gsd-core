@@ -132,7 +132,7 @@ flowchart LR
 | 2 | `converge-fail-fast` | section | when: state:plan-strategy-converge |  |  | `autonomous/steps/converge-fail-fast.md` |
 | 3 | `converge-banner` | section | when: state:plan-strategy-converge |  |  | `autonomous/steps/converge-banner.md` |
 | 4 | `discover_phases` | step |  |  |  |  |
-| 5 | `execute_phase` | step |  |  | `execute:post`, `verify:post`, `ship:pre`, `verify:pre` | `autonomous/steps/spec-phase.md`, `autonomous/steps/converge-dispatch-bg.md`, `autonomous/steps/converge-dispatch-inline.md`, `autonomous/steps/converge-loop.md`, `autonomous/steps/blocking-gates.md`, `transition.md`, `autonomous/steps/human-needed.md`, `autonomous/steps/gaps-found.md` |
+| 5 | `execute_phase` | step |  |  | `execute:post`, `verify:post`, `ship:pre`, `verify:pre` | `autonomous/steps/spec-phase.md`, `autonomous/templates/minimal-context.md`, `autonomous/steps/converge-dispatch-bg.md`, `autonomous/steps/converge-dispatch-inline.md`, `autonomous/steps/converge-loop.md`, `autonomous/steps/blocking-gates.md`, `transition.md`, `autonomous/steps/human-needed.md`, `autonomous/steps/gaps-found.md` |
 | 6 | `spec-phase` | section |  |  |  | `autonomous/steps/spec-phase.md` |
 | 7 | `converge-dispatch-bg` | section | when: state:plan-strategy-converge |  |  | `autonomous/steps/converge-dispatch-bg.md` |
 | 8 | `converge-dispatch-inline` | section | when: state:plan-strategy-converge |  |  | `autonomous/steps/converge-dispatch-inline.md` |

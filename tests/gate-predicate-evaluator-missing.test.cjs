@@ -19,7 +19,7 @@ function dummyDeps(overrides = {}) {
   return {
     runBoundedShell: () => ({ exitCode: 0, stdout: '', stderr: '', signal: null, timedOut: false }),
     readFrontmatter: () => ({ open_count: '0' }),
-    findPhaseArtifact: (dir, suffix) => path.join(dir, suffix),
+    findPhaseArtifact: (dir, suffix) => [path.join(dir, suffix)],
     ...overrides,
   };
 }
@@ -83,7 +83,7 @@ test('artifact-frontmatter-equals fails closed for missing artifacts and fields'
   const missingArtifact = evaluatePredicate(
     basePredicate,
     dummyCtx,
-    dummyDeps({ findPhaseArtifact: () => null }),
+    dummyDeps({ findPhaseArtifact: () => [] }),
   );
   assert.equal(missingArtifact.block, true);
   assert.equal(missingArtifact.details.artifactNotFound, true);
@@ -178,8 +178,8 @@ test('evaluatePredicate with real buildPredicateDeps resolves project-level .pla
       const projectDir = path.join(parentDir, 'project');
       fs.mkdirSync(projectDir);
       fs.writeFileSync(path.join(parentDir, 'secret.md'), '---\nopen_count: 0\n---\n', 'utf8');
-      assert.equal(deps.findPhaseArtifact(projectDir, '../secret.md'), null);
-      assert.equal(deps.findPhaseArtifact(projectDir, '..\\secret.md'), null);
+      assert.deepEqual(deps.findPhaseArtifact(projectDir, '../secret.md'), []);
+      assert.deepEqual(deps.findPhaseArtifact(projectDir, '..\\secret.md'), []);
     } finally {
       const { cleanup } = require('./helpers.cjs');
       cleanup(parentDir);
@@ -213,7 +213,7 @@ test('artifact-frontmatter-equals optional: an absent artifact passes and says w
   const res = evaluatePredicate(
     { ...basePredicate, optional: true },
     phaseCtx,
-    dummyDeps({ findPhaseArtifact: () => null }),
+    dummyDeps({ findPhaseArtifact: () => [] }),
   );
   assert.equal(res.block, false);
   assert.equal(res.details.artifactNotFound, true);
@@ -247,7 +247,7 @@ test('artifact-frontmatter-equals optional without a phase directory blocks — 
     const res = evaluatePredicate(
       { ...basePredicate, optional: true },
       ctx,
-      dummyDeps({ findPhaseArtifact: () => { looked = true; return null; } }),
+      dummyDeps({ findPhaseArtifact: () => { looked = true; return []; } }),
     );
     assert.equal(res.block, true);
     assert.equal(res.details.phaseDirMissing, true);
@@ -257,7 +257,7 @@ test('artifact-frontmatter-equals optional without a phase directory blocks — 
 
 test('artifact-frontmatter-equals optional: false and an absent key both keep the fail-closed rule', () => {
   for (const predicate of [{ ...basePredicate, optional: false }, basePredicate]) {
-    const res = evaluatePredicate(predicate, dummyCtx, dummyDeps({ findPhaseArtifact: () => null }));
+    const res = evaluatePredicate(predicate, dummyCtx, dummyDeps({ findPhaseArtifact: () => [] }));
     assert.equal(res.block, true);
     assert.equal(res.details.artifactNotFound, true);
     assert.equal(res.details.optional, undefined);
@@ -281,4 +281,65 @@ test('artifact-frontmatter-equals optional with real deps: a missing phase direc
   );
   assert.equal(res.block, false);
   assert.equal(res.details.artifactNotFound, true);
+});
+
+test('artifact-frontmatter-equals optional: several matching artifacts still block as ambiguous (#5313)', () => {
+  const res = evaluatePredicate(
+    { ...basePredicate, optional: true },
+    phaseCtx,
+    dummyDeps({ findPhaseArtifact: (dir) => [path.join(dir, '01-SECURITY.md'), path.join(dir, 'SECURITY.md')] }),
+  );
+  assert.equal(res.block, true);
+  assert.equal(res.details.ambiguous, true);
+});
+
+test('artifact-frontmatter-equals >1 candidates blocks naming sorted candidates whatever order the dep gave (#5313)', () => {
+  const lists = [
+    ['/p/01-BEADS.md', '/p/BEADS.md'],
+    ['/p/BEADS.md', '/p/01-BEADS.md'],
+  ];
+  const msgs = lists.map((candidates) => {
+    const res = evaluatePredicate(
+      { ...basePredicate, artifact: 'BEADS.md' },
+      { cwd: '/p' },
+      dummyDeps({ findPhaseArtifact: () => candidates }),
+    );
+    assert.equal(res.block, true);
+    assert.equal(res.details.ambiguous, true);
+    assert.deepEqual(res.details.candidates, ['/p/01-BEADS.md', '/p/BEADS.md']);
+    return res.message;
+  });
+  assert.equal(msgs[0], 'Multiple artifacts match BEADS.md in /p: 01-BEADS.md, BEADS.md; remove or rename all but one');
+  assert.equal(msgs[1], msgs[0]);
+});
+
+test('artifact-frontmatter-equals ambiguity verdict is invariant under permutation and duplication (#5313)', () => {
+  fc.assert(
+    fc.property(
+      fc.uniqueArray(fc.constantFrom('/p/BEADS.md', '/p/01-BEADS.md', '/p/.planning/BEADS.md', '/p/02-BEADS.md'), { minLength: 2 }),
+      fc.nat(),
+      (set, seed) => {
+        const run = (list) => evaluatePredicate(
+          { ...basePredicate, artifact: 'BEADS.md' },
+          { cwd: '/p' },
+          dummyDeps({ findPhaseArtifact: () => list }),
+        );
+        // Reverse order plus a duplicated prefix: any permutation/duplication must give the same verdict.
+        const mixed = [...set].reverse().concat(set.slice(0, seed % set.length));
+        const expected = [...set].sort();
+        const res = run(mixed);
+        assert.deepEqual(res.details.candidates, expected);
+        assert.equal(res.message, run(expected).message);
+      },
+    ),
+  );
+});
+
+test('artifact-frontmatter-equals throws on a legacy dep returning string | null (#5313)', () => {
+  for (const legacy of [null, '/p/BEADS.md']) {
+    assert.throws(
+      () => evaluatePredicate({ ...basePredicate, artifact: 'BEADS.md' }, { cwd: '/p' }, dummyDeps({ findPhaseArtifact: () => legacy })),
+      /must return an array/,
+    );
+  }
 });

@@ -24,7 +24,8 @@ const {
   sliceCurrentPositionSection,
   stateReplaceProgressPercent,
 } = require('../gsd-core/bin/lib/state-transition.cjs');
-const { stateExtractField } = require('../gsd-core/bin/lib/state-document.cjs');
+const { stateExtractField, computeProgressPercent, toFiniteNumber } = require('../gsd-core/bin/lib/state-document.cjs');
+const { SCOPE } = require('../gsd-core/bin/lib/planning-scope.cjs');
 const { STATE_FIELD_SCHEMA } = require('../gsd-core/bin/lib/state-md-schema.cjs');
 
 const fixedClock = Object.freeze({
@@ -1707,6 +1708,66 @@ describe('ADR-1769 Phase 3: completePhase progress derivation (roadmap)', () => 
   });
 });
 
+// #4901: the body `Completed Phases` write was a plain overwrite while its
+// frontmatter twin ratchets (completedOnlyRaise). A roadmap whose first
+// `## Progress` table is narrower than the project total derived a LOWER count
+// and silently drove the body counter down.
+describe('#4901: completePhase never lowers the body Completed Phases counter', () => {
+  const NARROW_ROADMAP = [
+    '## Progress',
+    '',
+    '| Phase | Plans Complete | Status | Completed |',
+    '| --- | --- | --- | --- |',
+    '| 1 | A | Complete | 2026-01-01 |',
+    '| 2 | B | Complete | 2026-02-01 |',
+    '| 3 | C | In Progress | - |',
+    '',
+    '## Later milestone',
+    '',
+    'Phases 4-60 live in other milestone sections.',
+    '',
+  ].join('\n');
+  const projectWideBody = () => [
+    '# Project State',
+    '',
+    '**Current Phase:** 3 of 60 (Old Name)',
+    '**Status:** Executing Phase 3',
+    '**Last Activity:** 2026-06-20',
+    '**Completed Phases:** 49',
+    '**Total Phases:** 60',
+    '**Progress:** 82%',
+    'percent: 82',
+    '',
+  ].join('\n');
+  const intent = { kind: 'completePhase', phaseNum: '3', nextPhaseNum: '4', nextPhaseName: null, isLastPhase: false, planCount: 3, summaryCount: 3 };
+
+  test('a lower derived count leaves the recorded counter alone', () => {
+    const result = transitionCore(projectWideBody(), intent, { clock: fixedClock, roadmapProvider: () => NARROW_ROADMAP });
+    assert.strictEqual(stateExtractField(result.content, 'Completed Phases'), '49');
+    assert.ok(!result.updated.includes('Completed Phases'), 'a withheld counter is not reported as updated');
+  });
+
+  test('the percent and total are not recomputed from a derivation that lost the ratchet', () => {
+    const result = transitionCore(projectWideBody(), intent, { clock: fixedClock, roadmapProvider: () => NARROW_ROADMAP });
+    assert.strictEqual(stateExtractField(result.content, 'Total Phases'), '60');
+    assert.strictEqual(stateExtractField(result.content, 'Progress'), '82%');
+    assert.ok(/percent:\s*82/.test(result.content), 'the inline percent token keeps the project-wide value');
+  });
+
+  test('a genuinely higher derived count still raises the counter', () => {
+    const result = transitionCore(completePhaseBody(), intent, { clock: fixedClock, roadmapProvider: () => ROADMAP_3_OF_5 });
+    assert.strictEqual(stateExtractField(result.content, 'Completed Phases'), '3');
+    assert.strictEqual(stateExtractField(result.content, 'Progress'), '60%');
+  });
+
+  test('an equal derived count is a no-op and keeps the percent consistent', () => {
+    const body = completePhaseBody().replace('**Completed Phases:** 2', '**Completed Phases:** 3');
+    const result = transitionCore(body, intent, { clock: fixedClock, roadmapProvider: () => ROADMAP_3_OF_5 });
+    assert.strictEqual(stateExtractField(result.content, 'Completed Phases'), '3');
+    assert.strictEqual(stateExtractField(result.content, 'Progress'), '60%');
+  });
+});
+
 describe('ADR-1769 Phase 3: completePhase edge cases', () => {
   const deps = { clock: fixedClock, roadmapProvider: () => ROADMAP_3_OF_5 };
 
@@ -2539,7 +2600,10 @@ describe('ADR-1769 #1796: applyStatePreservation — table-driven post-sync cons
     // Disk scan now counts 54 summaries. The curated completed_plans (50) must
     // ratchet UP to the derived value (54), not stay pinned at 50 — otherwise
     // completed_plans < total_plans forever even though every plan is summarized.
-    const curated = { progress: { total_plans: 54, completed_plans: 50, total_phases: 2, completed_phases: 1, percent: 93 } };
+    // One phase, all of whose plans are summarized: the phase fraction is 1/1, so the written percent
+    // is the plan fraction alone. (The fixture used to say 1 of 2 phases beside a derived 100%, a block
+    // that no counters produce; #5619 makes percent follow the counters written.)
+    const curated = { progress: { total_plans: 54, completed_plans: 50, total_phases: 1, completed_phases: 1, percent: 93 } };
     const r = applyStatePreservation({
       transaction: openStateTransaction({
         snapshot: curated,
@@ -2547,7 +2611,7 @@ describe('ADR-1769 #1796: applyStatePreservation — table-driven post-sync cons
         deriveProgressKeys: true,
         ...untouched,
       }),
-      postFm: { progress: { total_plans: 54, completed_plans: 54, total_phases: 2, completed_phases: 1, percent: 100 } },
+      postFm: { progress: { total_plans: 54, completed_plans: 54, total_phases: 1, completed_phases: 1, percent: 100 } },
     });
     assert.equal(r.postFm.progress.total_plans, 54, 'total_plans takes derived value');
     assert.equal(r.postFm.progress.completed_plans, 54,
@@ -4892,5 +4956,317 @@ describe('C1 (ADR-4629 §8.1): StateWriteIntent type surface', () => {
 
   test('createStateWriteIntent rejects an absent base transaction (construction failure, per §8.6 posture)', () => {
     assert.throws(() => createStateWriteIntent(null, { scope: 'narrow' }), /transaction/i);
+  });
+
+  // C2 (#4866, ADR-4629 §8.2): an assertion may name a whole body SECTION and carry
+  // its intended post-value. Both are optional, so a C1-shaped assertion stays
+  // exactly { field, requirement } (no undefined keys leak into the frozen shape).
+  test('createStateWriteIntent carries C2 target/value only when set', () => {
+    const intent = createStateWriteIntent(openStateTransaction({ snapshot: {} }), {
+      assertions: [
+        { field: 'Status', requirement: 'required' },
+        { field: 'Blockers/Concerns', requirement: 'required', target: 'section', value: 'None yet.' },
+      ],
+    });
+    assert.deepStrictEqual(Object.keys(intent.assertions[0]), ['field', 'requirement']);
+    assert.deepStrictEqual({ ...intent.assertions[1] }, {
+      field: 'Blockers/Concerns', requirement: 'required', target: 'section', value: 'None yet.',
+    });
+    assert.ok(Object.isFrozen(intent.assertions[1]));
+  });
+
+  // #4935 review: §8.2 judges only `required` assertions, so a mistyped
+  // requirement (`'Required'`, `'mandatory'`) would be silently skipped (fail-open).
+  // Construction rejects it, like an unknown target; scope gets the same posture.
+  test('createStateWriteIntent rejects an unknown requirement or scope', () => {
+    const base = openStateTransaction({ snapshot: {} });
+    for (const requirement of ['Required', 'mandatory', undefined]) {
+      assert.throws(
+        () => createStateWriteIntent(base, { assertions: [{ field: 'Status', requirement }] }),
+        { code: 'STATE_WRITE_INTENT_REQUIREMENT_INVALID' },
+      );
+    }
+    assert.throws(
+      () => createStateWriteIntent(base, { scope: 'wide' }),
+      { code: 'STATE_WRITE_INTENT_SCOPE_INVALID' },
+    );
+    // Twins: both known values of each still construct.
+    for (const requirement of ['required', 'best-effort']) {
+      assert.strictEqual(createStateWriteIntent(base, { assertions: [{ field: 'Status', requirement }] }).assertions[0].requirement, requirement);
+    }
+    for (const scope of ['narrow', 'broad']) {
+      assert.strictEqual(createStateWriteIntent(base, { scope }).scope, scope);
+    }
+  });
+});
+
+// ----------------------------------------------------------------------------
+// #4945 — a wrapped **Current focus:** value is replaced whole
+// ----------------------------------------------------------------------------
+
+const { splitLines: splitLines4945 } = require('../gsd-core/bin/lib/text-lines.cjs');
+const clock4945 = Object.freeze({
+  today: () => '2026-10-15',
+  localToday: () => '2026-10-15',
+  nowIso: () => '2026-10-15T12:00:00.000Z',
+});
+
+const beginPhase4945 = (content, extra = {}) =>
+  transitionCore(
+    content,
+    { kind: 'beginPhase', phaseNumber: 49, phaseName: 'Next Phase', planCount: 3, ...extra },
+    { clock: clock4945, sourcePath: '.planning/STATE.md' },
+  ).content;
+
+const state4945 = (focusBlock) => `# Project State
+
+**Current Phase:** 48
+**Status:** Verifying
+${focusBlock}
+
+## Current Position
+Phase: 48 (Old) — VERIFYING
+Plan: 17 of 17 in current phase
+Status: Verifying
+Last activity: 2026-10-01 -- done
+`;
+
+describe('#4945 multiline **Current focus:** is replaced whole', () => {
+  test('a value wrapped onto a second line leaves no orphaned tail', () => {
+    const out = beginPhase4945(state4945(
+      '**Current focus:** Phase 48 — Survivable State Writes and\nHonest Gate Recovery), executing 17 plans across 11 waves.',
+    ));
+    const lines = splitLines4945(out);
+    const at = lines.findIndex((l) => l.startsWith('**Current focus:**'));
+    assert.equal(lines[at], '**Current focus:** Phase 49 — Next Phase');
+    assert.equal(lines[at + 1], '', 'the line after the new focus is the blank separator, not the old tail');
+    assert.doesNotMatch(out, /Honest Gate Recovery/);
+    assert.doesNotMatch(out, /across 11 waves/);
+  });
+
+  test('a value wrapped onto three lines is replaced whole', () => {
+    const out = beginPhase4945(state4945('**Current focus:** one\ntwo\nthree'));
+    assert.doesNotMatch(out, /\btwo\b|\bthree\b/);
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\n\n## Current Position/);
+  });
+
+  test('CONTROL: a single-line focus is replaced exactly as before', () => {
+    const out = beginPhase4945(state4945('**Current focus:** Phase 48 — Old'));
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\n\n## Current Position/);
+  });
+
+  test('CONTROL: a sibling field directly below is not part of the value', () => {
+    const out = beginPhase4945(state4945('**Current focus:** Phase 48 — Old\n**Next step:** run the verifier'));
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\n\*\*Next step:\*\* run the verifier/);
+  });
+
+  test('CONTROL: prose after a blank line is not part of the value', () => {
+    const out = beginPhase4945(state4945('**Current focus:** Phase 48 — Old\n\nA note the author wrote.'));
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\n\nA note the author wrote\./);
+  });
+
+  test('CONTROL: a heading directly below is not part of the value', () => {
+    const out = beginPhase4945(state4945('**Current focus:** Phase 48 — Old\n### Notes\ntext'));
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\n### Notes\ntext/);
+  });
+
+  test('a wrapped value in a CRLF document is replaced whole and keeps its CRLF endings', () => {
+    const crlf = state4945('**Current focus:** Phase 48 — Old and\nwrapped tail').replace(/\n/g, '\r\n');
+    const out = beginPhase4945(crlf);
+    assert.doesNotMatch(out, /wrapped tail/);
+    assert.match(out, /\*\*Current focus:\*\* Phase 49 — Next Phase\r\n\r\n## Current Position/);
+    assert.doesNotMatch(out.replace(/\r\n/g, ''), /[\r\n]/);
+  });
+
+  test('CONTROL: an empty first line has no value to continue, so the line below is kept', () => {
+    const out = beginPhase4945(state4945('**Current focus:**\nA note the author wrote directly below.'));
+    assert.match(out, /\*\*Current focus:\*\*\s?Phase 49 — Next Phase\nA note the author wrote directly below\./);
+  });
+
+  test('CONTROL: a mid-sentence mention is still not matched (#4469)', () => {
+    const body = state4945('') + '\n- decided about **Current focus:** wording earlier\n';
+    const out = beginPhase4945(body);
+    assert.match(out, /- decided about \*\*Current focus:\*\* wording earlier/);
+  });
+});
+
+// #5165: is STATE already positioned past a phase being re-completed?
+{
+  const { isStatePastPhase } = require('../gsd-core/bin/lib/state-transition.cjs');
+
+  describe('#5165 isStatePastPhase', () => {
+    const fmState = (phase) => `---\ncurrent_phase: ${phase}\n---\n\n# S\n`;
+    const bodyState = (line) => `# S\n\n## Current Position\n\n${line}\n`;
+
+    test('past only when strictly greater (limit-1, limit, limit+1)', () => {
+      assert.equal(isStatePastPhase(fmState('"3"'), 4), false);
+      assert.equal(isStatePastPhase(fmState('"4"'), 4), false);
+      assert.equal(isStatePastPhase(fmState('"5"'), 4), true);
+    });
+
+    test('zero-padded, dotted and body-only positions compare as phase numbers', () => {
+      assert.equal(isStatePastPhase(fmState('"04"'), 3), true);
+      assert.equal(isStatePastPhase(fmState('"04.1"'), 4), true);
+      assert.equal(isStatePastPhase(fmState('"04.1"'), 5), false);
+      assert.equal(isStatePastPhase(bodyState('Phase: 4 of 4 (Four)'), 3), true);
+      assert.equal(isStatePastPhase(bodyState('Phase: 4 of 4 (Four)'), 4), false);
+    });
+
+    test('a `Phase N` position names phase N (limit-1, limit, limit+1)', () => {
+      assert.equal(isStatePastPhase(fmState('"Phase 3"'), 4), false);
+      assert.equal(isStatePastPhase(fmState('"Phase 4"'), 4), false);
+      assert.equal(isStatePastPhase(fmState('"Phase 5"'), 4), true);
+      assert.equal(isStatePastPhase(fmState('"phase 5 of 9"'), 4), true);
+      assert.equal(isStatePastPhase(bodyState('Phase: Phase 5 of 9 (Five)'), 4), true);
+    });
+
+    test('an absent or unparseable position is not past', () => {
+      assert.equal(isStatePastPhase('# S\n', 1), false);
+      assert.equal(isStatePastPhase(fmState('"[GSD.02] x"'), 1), false);
+      assert.equal(isStatePastPhase(bodyState('Phase: not started'), 1), false);
+    });
+  });
+
+}
+
+// ─── #5619: state.planned-phase's progress merge on STRING-valued frontmatter ─────────────────
+//
+// `state.planned-phase` writes its progress block through the `progress-ratchet` merge with
+// `deriveProgressKeys: true` (src/state.cts cmdStatePlannedPhase). That arm compared completed counters
+// with `typeof === 'number'`, but parsed frontmatter scalars are STRINGS ("2", not 2): both sides read as
+// -Infinity, the #2969 ratchet-up never fired, and `percent` kept the disk-derived value beside the
+// stored counters, so a block like 1/2 phases, 1/2 plans could be written at 0%. Every fixture below
+// uses the string spelling production emits; the numeric spelling is covered above.
+
+/** The progress block `state.planned-phase` leaves: `curated` is the stored block, `derived` the disk scan. */
+function plannedPhaseMerge(curated, derived, { deriveProgressKeys = true } = {}) {
+  const transaction = openStateTransaction({
+    snapshot: { progress: curated },
+    resync: false,
+    ...(deriveProgressKeys ? { deriveProgressKeys: true } : {}),
+    bodyDeltas: neutralBodyDeltasForMatrix(),
+  });
+  return applyStatePreservation({ transaction, postFm: { progress: derived } }).postFm.progress;
+}
+
+function percentOf(block) {
+  return computeProgressPercent(
+    toFiniteNumber(block.completed_plans),
+    toFiniteNumber(block.total_plans),
+    toFiniteNumber(block.completed_phases),
+    toFiniteNumber(block.total_phases),
+    SCOPE.COMPLETE,
+  );
+}
+
+describe('state.planned-phase progress merge on string-valued frontmatter (#5619)', () => {
+  test('stored counters above derived: percent follows the written counters (#5619)', () => {
+    const written = plannedPhaseMerge(
+      { total_plans: '2', completed_plans: '1', total_phases: '2', completed_phases: '1', percent: '50' },
+      { total_plans: '2', completed_plans: '0', total_phases: '2', completed_phases: '0', percent: 0 },
+    );
+    assert.equal(toFiniteNumber(written.completed_plans), 1, 'the stored counter is kept');
+    assert.equal(toFiniteNumber(written.completed_phases), 1, 'the stored counter is kept');
+    assert.equal(toFiniteNumber(written.percent), percentOf(written), 'percent is computed over the counters written');
+    assert.equal(toFiniteNumber(written.percent), 50);
+  });
+
+  test('a derived completed_plans above stored ratchets up on string scalars (#5619)', () => {
+    const written = plannedPhaseMerge(
+      { total_plans: '3', completed_plans: '0', total_phases: '0', completed_phases: '0', percent: '0' },
+      { total_plans: '3', completed_plans: '1', total_phases: '0', completed_phases: '0', percent: 33 },
+    );
+    assert.equal(toFiniteNumber(written.completed_plans), 1, 'the larger on-disk count is written');
+    assert.equal(toFiniteNumber(written.percent), percentOf(written), 'percent follows the ratcheted counter');
+  });
+
+  test('a derived count below stored never lowers a counter (#5619)', () => {
+    const written = plannedPhaseMerge(
+      { total_plans: '54', completed_plans: '50', total_phases: '2', completed_phases: '1', percent: '50' },
+      { total_plans: '54', completed_plans: '47', total_phases: '2', completed_phases: '1', percent: 50 },
+    );
+    assert.equal(written.completed_plans, '50');
+    assert.equal(toFiniteNumber(written.percent), percentOf(written));
+  });
+
+  test('an equal count keeps the stored value and spelling (#5619)', () => {
+    const written = plannedPhaseMerge(
+      { total_plans: '4', completed_plans: '2', total_phases: '1', completed_phases: '0', percent: '0' },
+      { total_plans: '4', completed_plans: 2, total_phases: '1', completed_phases: 0, percent: 0 },
+    );
+    assert.strictEqual(written.completed_plans, '2', 'the stored string spelling stands on a tie');
+  });
+
+  test('ratchet boundary: below, at, above the stored count (#5619)', () => {
+    const stored = 5;
+    for (const [derivedCount, expected] of [[stored - 1, stored], [stored, stored], [stored + 1, stored + 1]]) {
+      const written = plannedPhaseMerge(
+        { total_plans: '9', completed_plans: String(stored), total_phases: '0', completed_phases: '0', percent: '55' },
+        { total_plans: '9', completed_plans: String(derivedCount), total_phases: '0', completed_phases: '0', percent: 50 },
+      );
+      assert.equal(toFiniteNumber(written.completed_plans), expected, `derived ${derivedCount} against stored ${stored}`);
+      assert.equal(toFiniteNumber(written.percent), percentOf(written), `percent coherent at derived ${derivedCount}`);
+    }
+  });
+
+  test('a withheld derived percent stays withheld (#5619)', () => {
+    const written = plannedPhaseMerge(
+      { total_plans: '2', completed_plans: '1', total_phases: '2', completed_phases: '1', percent: '50' },
+      { total_plans: '2', completed_plans: '0', total_phases: '2', completed_phases: '0' },
+    );
+    assert.equal('percent' in written, false, 'no percent is invented when the derivation withheld one');
+  });
+
+  test('numeric and string scalars give the same merge (#5619)', () => {
+    const asNumbers = plannedPhaseMerge(
+      { total_plans: 3, completed_plans: 0, total_phases: 0, completed_phases: 0, percent: 0 },
+      { total_plans: 3, completed_plans: 1, total_phases: 0, completed_phases: 0, percent: 33 },
+    );
+    const asStrings = plannedPhaseMerge(
+      { total_plans: '3', completed_plans: '0', total_phases: '0', completed_phases: '0', percent: '0' },
+      { total_plans: '3', completed_plans: '1', total_phases: '0', completed_phases: '0', percent: 33 },
+    );
+    assert.equal(toFiniteNumber(asNumbers.completed_plans), toFiniteNumber(asStrings.completed_plans));
+    assert.equal(toFiniteNumber(asNumbers.percent), toFiniteNumber(asStrings.percent));
+  });
+
+  test('totals take the derived value in both directions (#5619)', () => {
+    const grown = plannedPhaseMerge(
+      { total_plans: '2', completed_plans: '2', total_phases: '1', completed_phases: '1', percent: '100' },
+      { total_plans: '4', completed_plans: '2', total_phases: '1', completed_phases: '1', percent: 50 },
+    );
+    assert.equal(toFiniteNumber(grown.total_plans), 4);
+    const shrunk = plannedPhaseMerge(
+      { total_plans: '6', completed_plans: '2', total_phases: '1', completed_phases: '0', percent: '0' },
+      { total_plans: '3', completed_plans: '2', total_phases: '1', completed_phases: '0', percent: 0 },
+    );
+    assert.equal(toFiniteNumber(shrunk.total_plans), 3);
+  });
+
+  test('a body-only write still restores progress wholesale (#5619)', () => {
+    const curated = { total_plans: '54', completed_plans: '50', percent: '93' };
+    const written = plannedPhaseMerge(curated, { total_plans: '54', completed_plans: '54', percent: 100 }, { deriveProgressKeys: false });
+    assert.deepEqual(written, curated, 'without the derive flag the stored block is restored as it was');
+  });
+
+  test('percent is coherent with the written counters for any counters (#5619)', () => {
+    const spelled = fc.boolean();
+    const count = fc.integer({ min: 0, max: 40 });
+    fc.assert(
+      fc.property(count, count, fc.integer({ min: 1, max: 40 }), spelled, spelled,
+        (storedPlans, derivedPlans, totalPlans, storedAsString, derivedAsString) => {
+          const totalPhases = 0; // no phase data: percent is the plan fraction alone
+          const spell = (n, asString) => (asString ? String(n) : n);
+          const storedDone = Math.min(storedPlans, totalPlans);
+          const derivedDone = Math.min(derivedPlans, totalPlans);
+          const written = plannedPhaseMerge(
+            { total_plans: spell(totalPlans, storedAsString), completed_plans: spell(storedDone, storedAsString), total_phases: spell(totalPhases, storedAsString), completed_phases: spell(0, storedAsString), percent: spell(0, storedAsString) },
+            { total_plans: spell(totalPlans, derivedAsString), completed_plans: spell(derivedDone, derivedAsString), total_phases: spell(totalPhases, derivedAsString), completed_phases: spell(0, derivedAsString), percent: 0 },
+          );
+          assert.equal(toFiniteNumber(written.completed_plans), Math.max(storedDone, derivedDone));
+          assert.equal(toFiniteNumber(written.percent), percentOf(written));
+        }),
+      { seed: 5619, numRuns: 200 }, // deterministic and bounded (CONTRIBUTING: property tests pin the seed)
+    );
   });
 });

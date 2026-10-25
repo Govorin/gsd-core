@@ -198,6 +198,13 @@ describe('gen-health-docs.cjs row content (representative codes)', () => {
     assert.match(row, /Yes \(`--backfill`\)/);
   });
 
+  test('W030 renders the known-legacy-statuses Repairable override, not a bare "Yes" (#5291)', () => {
+    const region = renderErrorCodesRegion(rules);
+    const row = region.split('\n').find((line) => line.startsWith('| W030 |'));
+    assert.ok(row);
+    assert.match(row, /Yes \(known legacy statuses only\)/);
+  });
+
   test('W025 (workflow-layer diagnostic, not a Rule) is absent from the generated table', () => {
     const region = renderErrorCodesRegion(rules);
     assert.ok(

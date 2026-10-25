@@ -39,9 +39,13 @@ const {
   collectSection,
   iterateBullets,
   updateBullet,
+  updateHeading,
   extractTaggedBlocks,
   scanTaggedBlocks,
   stripTaggedBlocks,
+  editOutsideTaggedBlocks,
+  maskFences,
+  editOutsideFences,
   replaceSection,
   withSection,
   deleteSection,
@@ -2032,3 +2036,217 @@ describe('deleteSection', () => {
 // Parity guard removed in T5 (ADR-1372): uat-predicate now imports stripFencedCode
 // from the seam directly, so comparing the seam to itself is tautological.
 // The seam's stripFencedCode correctness is already covered by the tests above.
+
+// ─── updateHeading + updateBullet lineIndex (ADR-5057 §6, Phase 13, #5217) ─────
+
+describe('updateHeading (ADR-5057 §6, Phase 13)', () => {
+  const swapTo = (to) => () => to;
+
+  test('rewrites exactly the first accepted heading line, every other byte verbatim', () => {
+    const content = '# Roadmap\n\n### Phase 1: Setup\nbody\n### Phase 2: Next\n';
+    const out = updateHeading(content, (h) => h.text.startsWith('Phase 1'), swapTo('### Phase 1-01: Setup'));
+    assert.equal(out, '# Roadmap\n\n### Phase 1-01: Setup\nbody\n### Phase 2: Next\n');
+  });
+
+  test('a heading inside a fenced block is never offered to match', () => {
+    const content = '```\n### Phase 1: Fenced\n```\n### Phase 1: Real\n';
+    const seen = [];
+    const out = updateHeading(
+      content,
+      (h, _raw, idx) => {
+        seen.push(idx);
+        return true;
+      },
+      swapTo('### CHANGED'),
+    );
+    assert.deepEqual(seen, [3]);
+    assert.equal(out, '```\n### Phase 1: Fenced\n```\n### CHANGED\n');
+  });
+
+  test('CRLF document: rawLine carries the \\r, untouched lines keep their terminators', () => {
+    const content = '### A\r\n### B\r\ntext\n### C';
+    const rawLines = [];
+    const out = updateHeading(
+      content,
+      (h, raw) => {
+        rawLines.push(raw);
+        return h.text === 'B';
+      },
+      (raw) => raw.replace('B', 'Bee'),
+    );
+    assert.deepEqual(rawLines, ['### A\r', '### B\r']);
+    assert.equal(out, '### A\r\n### Bee\r\ntext\n### C');
+  });
+
+  test('lineIndex disambiguates two headings with identical text', () => {
+    const content = '## v1\n### Phase 1: Same\n## v2\n### Phase 1: Same\n';
+    const out = updateHeading(content, (_h, _raw, idx) => idx === 3, swapTo('### Phase 2-01: Same'));
+    assert.equal(out, '## v1\n### Phase 1: Same\n## v2\n### Phase 2-01: Same\n');
+  });
+
+  test('last line without a trailing newline is rewritten without gaining one', () => {
+    assert.equal(updateHeading('# A\n### B', (h) => h.text === 'B', swapTo('### C')), '# A\n### C');
+  });
+
+  test('bounded no-op: no match, non-string transform result, empty or non-string content', () => {
+    const content = '### A\n';
+    assert.equal(updateHeading(content, () => false, swapTo('x')), content);
+    assert.equal(updateHeading(content, () => true, () => 42), content);
+    assert.equal(updateHeading('', () => true, swapTo('x')), '');
+    assert.equal(updateHeading(undefined, () => true, swapTo('x')), undefined);
+  });
+
+  test('property: a rewrite that returns the line unchanged is byte-identical', () => {
+    fc.assert(
+      fc.property(fc.array(fc.constantFrom('# H', '### Phase 1: x', 'text', '', '```', '- [ ] item'), { maxLength: 12 }), (lines) => {
+        const content = lines.join('\n');
+        assert.equal(updateHeading(content, () => true, (raw) => raw), content);
+      }),
+    );
+  });
+});
+
+describe('updateBullet match receives the physical line index (Phase 13)', () => {
+  test('lineIndex equals the content.split("\\n") index of the bullet opening line', () => {
+    const content = 'intro\n- [ ] a\n\n- [ ] a\n';
+    const out = updateBullet(content, (_t, _raw, idx) => idx === 3, (raw) => raw.replace('[ ]', '[x]'));
+    assert.equal(out, 'intro\n- [ ] a\n\n- [x] a\n');
+  });
+});
+
+describe('editOutsideTaggedBlocks (#5543)', () => {
+  const wrap = (s) => `[${s}]`;
+  const seeing = (doc, tag, ...flags) => {
+    let seen = null;
+    editOutsideTaggedBlocks(doc, tag, (s) => { seen = s; return s; }, ...flags);
+    return seen;
+  };
+
+  test('edits only the text outside the blocks and restores the blocks byte-for-byte', () => {
+    const block1 = '<details>\nkeep $1 $& one\n</details>';
+    const block2 = '<details>\nkeep two\n</details>';
+    const out = editOutsideTaggedBlocks(`a\n${block1}\nb\n${block2}\nc`, 'details', wrap);
+    assert.equal(out, `[a\n${block1}\nb\n${block2}\nc]`);
+  });
+
+  test('the edit sees the surrounding text in order, with one placeholder per block', () => {
+    assert.match(
+      seeing('x<details>1</details>y<details>2</details>z', 'details'),
+      /^x<!-- gsd-masked-details-\d+-0 -->y<!-- gsd-masked-details-\d+-1 -->z$/,
+    );
+  });
+
+  test('no block present: the edit runs on the content unchanged', () => {
+    assert.equal(seeing('plain', 'details'), 'plain');
+    assert.equal(editOutsideTaggedBlocks('plain', 'details', wrap), '[plain]');
+  });
+
+  test('an unclosed opener is not a block, so it stays visible to the edit', () => {
+    assert.equal(seeing('<details>open forever', 'details'), '<details>open forever');
+  });
+
+  test('an attributed opener is hidden only when allowAttributes is set', () => {
+    const doc = '<details open>x</details>';
+    assert.equal(seeing(doc, 'details'), doc);
+    assert.match(seeing(doc, 'details', true), /^<!-- gsd-masked-details-\d+-0 -->$/);
+    assert.equal(editOutsideTaggedBlocks(doc, 'details', wrap, true), `[${doc}]`);
+  });
+
+  test('tag matching is case-insensitive by default and exact when caseSensitive is set', () => {
+    const doc = '<details>x</details>';
+    assert.match(seeing(doc, 'DETAILS'), /^<!-- gsd-masked-DETAILS-\d+-0 -->$/);
+    assert.equal(seeing(doc, 'DETAILS', false, true), doc);
+  });
+
+  test('a placeholder-looking string already in the content is never mistaken for a block', () => {
+    const lookalike = '<!-- gsd-masked-details-0-0 -->';
+    const doc = `${lookalike}\n<details>b</details>\ntail`;
+    assert.equal(editOutsideTaggedBlocks(doc, 'details', wrap), `[${doc}]`);
+  });
+
+  test('an edit that drops or duplicates a placeholder returns the original content', () => {
+    const doc = 'a<details>b</details>c';
+    assert.equal(editOutsideTaggedBlocks(doc, 'details', () => 'gone'), doc);
+    assert.equal(editOutsideTaggedBlocks(doc, 'details', (s) => s + s), doc);
+  });
+
+  test('a non-string edit result returns the original content', () => {
+    assert.equal(editOutsideTaggedBlocks('a<details>b</details>', 'details', () => undefined), 'a<details>b</details>');
+  });
+
+  test('empty and non-string input are returned as given; an empty tag name edits the whole content', () => {
+    assert.equal(editOutsideTaggedBlocks('', 'details', wrap), '');
+    assert.equal(editOutsideTaggedBlocks(undefined, 'details', wrap), undefined);
+    assert.equal(editOutsideTaggedBlocks('abc', '', wrap), '[abc]');
+  });
+});
+
+// ─── maskFences / editOutsideFences (#5460) ───────────────────────────────────
+
+describe('maskFences / editOutsideFences (#5460)', () => {
+  const F = '```';
+  const upper = (text) => text.replace(/^field:.*$/gm, 'field: EDITED');
+
+  test('an edit only reaches lines outside fenced blocks, and the blocks come back verbatim', () => {
+    const content = ['field: a', F, 'field: in-fence', F, 'field: b'].join('\n');
+    assert.equal(editOutsideFences(content, upper), ['field: EDITED', F, 'field: in-fence', F, 'field: EDITED'].join('\n'));
+  });
+
+  test('content with no fence is edited as given', () => {
+    assert.equal(editOutsideFences('field: a\nfield: b', upper), 'field: EDITED\nfield: EDITED');
+  });
+
+  test('an unterminated fence masks to the end of the content', () => {
+    const content = ['field: a', F, 'field: in-fence', 'field: also'].join('\n');
+    assert.equal(editOutsideFences(content, upper), ['field: EDITED', F, 'field: in-fence', 'field: also'].join('\n'));
+  });
+
+  test('tilde fences and several blocks are masked independently', () => {
+    const content = ['~~~', 'field: t', '~~~', 'field: live', F, 'field: c', F].join('\n');
+    assert.equal(editOutsideFences(content, upper), ['~~~', 'field: t', '~~~', 'field: EDITED', F, 'field: c', F].join('\n'));
+  });
+
+  test('CRLF content keeps its terminators', () => {
+    const content = ['field: a', F, 'field: in-fence', F, 'field: b'].join('\r\n');
+    const out = editOutsideFences(content, (t) => t.replace(/^field: a/m, 'field: A'));
+    assert.equal(out, ['field: A', F, 'field: in-fence', F, 'field: b'].join('\r\n'));
+  });
+
+  test('an edit that destroys a placeholder returns the content unchanged (fail closed)', () => {
+    const content = ['field: a', F, 'x', F].join('\n');
+    assert.equal(editOutsideFences(content, () => 'nothing left'), content);
+  });
+
+  test('a non-string edit result returns the content unchanged; non-string input is returned as given', () => {
+    const content = ['a', F, 'b', F].join('\n');
+    assert.equal(editOutsideFences(content, () => undefined), content);
+    assert.equal(editOutsideFences(undefined, upper), undefined);
+    assert.equal(editOutsideFences('', upper), '');
+  });
+
+  test('maskFences exposes the masked text and a restore that round-trips', () => {
+    const content = ['field: a', F, 'field: in-fence', F, 'field: b'].join('\n');
+    const mask = maskFences(content);
+    assert.ok(!mask.masked.includes('in-fence'));
+    assert.equal(mask.restore(mask.masked), content);
+  });
+
+  test('a placeholder-like line already in the content does not confuse the restore', () => {
+    const decoy = '<!-- gsd-masked-fence-0-0 -->';
+    const content = [decoy, F, 'field: in-fence', F, 'field: b'].join('\n');
+    assert.equal(editOutsideFences(content, upper), [decoy, F, 'field: in-fence', F, 'field: EDITED'].join('\n'));
+  });
+
+  test('property: restore(mask(x)) === x for generated documents with fences', () => {
+    const line = fc.oneof(
+      fc.constantFrom('```', '~~~', '````', '```js', '  ```', 'field: x', '# Heading', '', '<!-- gsd-masked-fence-0-0 -->'),
+      fc.string({ maxLength: 12 }).filter((l) => !l.includes('\n')),
+    );
+    fc.assert(fc.property(fc.array(line, { maxLength: 14 }), fc.boolean(), (lines, crlf) => {
+      const content = lines.join(crlf ? '\r\n' : '\n');
+      const mask = maskFences(content);
+      assert.equal(mask.restore(mask.masked), content);
+    }));
+  });
+});
+

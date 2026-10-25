@@ -108,6 +108,8 @@ build/
 /gsd-core/bin/lib/markdown-sectionizer.cjs
 # #3311: new module (milestone lock) — emitted artifact, never edited.
 /gsd-core/bin/lib/milestone-lock.cjs
+# #5551: new module (git info/exclude helper) — emitted artifact, never edited.
+/gsd-core/bin/lib/git-info-exclude.cjs
 # #2657: these two (markdown-table.cjs, write-set.cjs) already had the
 # pattern below since #2248, but stayed tracked because `git rm --cached`
 # was never run — same untracking fix as the seven lines that follow.
@@ -151,6 +153,8 @@ build/
 /gsd-core/bin/lib/review-reviewer-selection.cjs
 /gsd-core/bin/lib/review-lane-descriptor.cjs
 /gsd-core/bin/lib/review-lane-invocation.cjs
+/gsd-core/bin/lib/opencode-version.cjs
+/gsd-core/bin/lib/jsonc-edit.cjs
 /gsd-core/bin/lib/review-lane-runner.cjs
 /gsd-core/bin/lib/reviewer-step-dispatch.cjs
 /gsd-core/bin/lib/clusters.cjs
@@ -235,6 +239,8 @@ build/
 /gsd-core/bin/lib/installer-migrations/007-retire-config-root-commonjs-marker.cjs
 /gsd-core/bin/lib/installer-migrations/009-pi-retire-reserved-hooks-dir.cjs
 /gsd-core/bin/lib/installer-migrations/010-antigravity-retire-confighome-artifacts.cjs
+/gsd-core/bin/lib/installer-migrations/011-opencode-mcp-no-prompts.cjs
+/gsd-core/bin/lib/opencode-mcp-entry.cjs
 /gsd-core/bin/lib/observability/logger.cjs
 /gsd-core/bin/lib/active-workstream-store.cjs
 /gsd-core/bin/lib/adr-parser.cjs
@@ -258,6 +264,7 @@ build/
 /gsd-core/bin/lib/pattern.cjs
 /gsd-core/bin/lib/text-lines.cjs
 /gsd-core/bin/lib/token-scanner.cjs
+/gsd-core/bin/lib/read-only-git-env.cjs
 /gsd-core/bin/lib/health-diagnostic-types.cjs
 /gsd-core/bin/lib/health-diagnostic.cjs
 /gsd-core/bin/lib/health-diagnostic-rules/root-existence.cjs
@@ -331,12 +338,19 @@ build/
 /gsd-core/bin/lib/gate-tdd-review-checkpoint.cjs
 /gsd-core/bin/lib/gate-ui-plan.cjs
 /gsd-core/bin/lib/gate-ui-safety.cjs
+/gsd-core/bin/lib/gate-schema-drift.cjs
+/gsd-core/bin/lib/gate-codebase-drift.cjs
+/gsd-core/bin/lib/gate-context-drift.cjs
+/gsd-core/bin/lib/gate-prohibition-enforcement.cjs
 /gsd-core/bin/lib/gate-verdict.cjs
+/gsd-core/bin/lib/gate-evidence.cjs
+/gsd-core/bin/lib/gate-exit.cjs
 /gsd-core/bin/lib/gate-verify-command-paths.cjs
 /gsd-core/bin/lib/gate-verify-failure-directions.cjs
 /gsd-core/bin/lib/verify-command-grounding.cjs
 /gsd-core/bin/lib/frontmatter.cjs
 /gsd-core/bin/lib/frontmatter-fence.cjs
+/gsd-core/bin/lib/markdown-line-diff.cjs
 /gsd-core/bin/lib/frontmatter-splice.cjs
 /gsd-core/bin/lib/learnings.cjs
 /gsd-core/bin/lib/gsd2-import.cjs
@@ -383,6 +397,7 @@ build/
 /gsd-core/bin/lib/task-content-resolution.cjs
 /gsd-core/bin/lib/tdd-red-evidence.cjs
 /gsd-core/bin/lib/report-parser.cjs
+/gsd-core/bin/lib/tdd-test-files.cjs
 /gsd-core/bin/lib/pr-branch-patterns.cjs
 /gsd-core/bin/lib/undo-commit-selection.cjs
 # mn fork modules (src/*.cts) — same ADR-457 regime as the list above.

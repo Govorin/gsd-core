@@ -1478,7 +1478,7 @@ const unpad = (digits: string): string => digits.replace(/^0+(?=\d)/, '');
  *   candidates (#2237).
  *
  *   TAKE `matches[0]` — `cmdPhasesList`, `cmdInitManager`, `cmdRoadmapAnalyze`,
- *   `cmdVerifySchemaDrift`, `detectVerifyFailed`. Each read a directory to
+ *   the schema-drift gate (`resolvePhaseDirByToken`), `detectVerifyFailed`. Each read a directory to
  *   DECORATE a row they are already emitting; each used `.find()` before this
  *   PR, so first-match is their prior behavior preserved verbatim, and each is
  *   order-stable because the directory list is sorted and this function filters
@@ -1612,12 +1612,31 @@ function parentPhaseKey(key: string): string | null {
  * `{ phase: null }` because they do not begin with a phase token. The name
  * extraction (parenthetical or em-dash tail, minus status words) is unchanged.
  */
-function parsePhaseFromProse(value: string | null): { phase: string | null; name: string | null } {
+/**
+ * True when `value` is the planned-phase writer's own status phrase
+ * (`READY TO EXECUTE`), which can sit in the name position of a `Phase:` line but is
+ * never a phase name (#5369). The one owner of that phrase: the prose parser and the
+ * planned-phase writers both ask here.
+ */
+function isPlannedPhaseStatusPhrase(value: unknown): boolean {
+  return typeof value === 'string' && /^ready to execute$/i.test(value.trim());
+}
+
+// The leading phase id of a prose field. #5626: under `milestone-prefixed` the id is the whole `M-NN`
+// (`3-01`), so the number capture takes one optional `-NN` segment; every other convention (and an absent
+// one) keeps the dotted-only capture, where `3-01` reads as phase `3` exactly as before.
+const PHASE_PROSE_RE = /^\s*(?:Phase\s+)?(?:[A-Z][A-Z0-9_]*-)?(\d+[A-Z]?(?:\.\d+)*)\b/i;
+const PHASE_PROSE_MILESTONE_PREFIXED_RE = /^\s*(?:Phase\s+)?(?:[A-Z][A-Z0-9_]*-)?(\d+(?:-\d+)?[A-Z]?(?:\.\d+)*)\b/i;
+
+function parsePhaseFromProse(
+  value: string | null,
+  convention?: string | null,
+): { phase: string | null; name: string | null } {
   if (!value) return { phase: null, name: null };
   // Coerce defensively so a non-string caller cannot throw on this canonical
   // surface (mirrors the sibling #2121 functions' String(...) handling).
   const str = String(value);
-  const phaseMatch = str.match(/^\s*(?:Phase\s+)?(?:[A-Z][A-Z0-9_]*-)?(\d+[A-Z]?(?:\.\d+)*)\b/i);
+  const phaseMatch = str.match(convention === 'milestone-prefixed' ? PHASE_PROSE_MILESTONE_PREFIXED_RE : PHASE_PROSE_RE);
   // The name-extraction quantifiers are length-bounded so a crafted long
   // unterminated run (many `(` or `—`) in an untrusted STATE.md field value
   // cannot drive O(n^2) regex backtracking (CPU-exhaustion DoS). A real phase
@@ -1642,7 +1661,9 @@ function parsePhaseFromProse(value: string | null): { phase: string | null; name
   // The precedence-decision vocabulary is deliberately broader than the final
   // name-nulling filter below: a dash tail that merely LOOKS like a status
   // annotation should lose to a parenthetical name, without changing which
-  // extracted names are nulled (that set stays the long-standing three).
+  // extracted names are nulled (that set is the long-standing three plus the
+  // planned-phase writer's own `READY TO EXECUTE`, #5369: with no parenthetical
+  // name to prefer it was otherwise harvested as the phase name).
   const STATUS_WORD_RE = /^(?:complete|executing|not started)$/i;
   const STATUSY_TAIL_RE = /^(?:completed?|executing|not started|planning|planned|ready(?:\s+to\s+\S.{0,50})?|done|in progress|blocked|paused|verifying)$/i;
   const dashRaw = dashName?.[1]?.trim() ?? null;
@@ -1654,7 +1675,7 @@ function parsePhaseFromProse(value: string | null): { phase: string | null; name
     // `(Name) — STATUS` shape); with no parenthetical it stays the best guess.
     && !(parenName && /^[A-Z][A-Z0-9_-]*$/.test(dashRaw));
   const rawName = dashIsName ? dashRaw : (parenName?.[1] ?? dashRaw ?? null);
-  const name = rawName && !STATUS_WORD_RE.test(rawName.trim())
+  const name = rawName && !STATUS_WORD_RE.test(rawName.trim()) && !isPlannedPhaseStatusPhrase(rawName)
     ? rawName.trim()
     : null;
   return {
@@ -1827,6 +1848,7 @@ export = {
   phaseKeyFromProse,
   parentPhaseKey,
   parsePhaseFromProse,
+  isPlannedPhaseStatusPhrase,
   stripConfiguredProjectCodePrefix,
   isForeignPrefixedPhaseQuery,
   roadmapPhaseLookupSources,
