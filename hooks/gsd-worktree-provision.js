@@ -87,6 +87,17 @@ const { spawnSync } = require('child_process');
 const { terminateNow } = require('./lib/cli-exit.js');
 const { writeNotice } = require('./lib/worktree-notice.js');
 
+// GIT_OPTIONAL_LOCKS=0 on every git spawn (#5048): a read such as `ls-files` or `worktree remove`'s
+// status check must not take the optional .git/index.lock a concurrent commit needs. The env block is
+// owned by src/read-only-git-env.cts; a raw install that never ran build:lib (#3582) lacks the
+// artifact, and this hook runs on WorktreeCreate, so the fallback sets the same variable itself.
+let readOnlyGitEnv = (base = process.env) => ({ ...base, GIT_OPTIONAL_LOCKS: '0' });
+try {
+  ({ readOnlyGitEnv } = require('../gsd-core/bin/lib/read-only-git-env.cjs'));
+} catch {
+  // artifact absent: keep the equivalent fallback above
+}
+
 /** Files copied into a provisioned worktree when they exist in the source checkout. */
 const TOOL_CONFIG_FILES = [
   '.mcp.json',
@@ -171,7 +182,7 @@ function runGit(args, cwd, { timeoutMs = GIT_QUERY_TIMEOUT_MS, input, env } = {}
     timeout: timeoutMs,
     maxBuffer: GIT_MAX_BUFFER,
     input,
-    env: env || process.env,
+    env: readOnlyGitEnv(env || process.env),
     stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });

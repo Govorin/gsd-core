@@ -855,3 +855,26 @@ describe('WorktreeRemove: cleans up what WorktreeCreate made', () => {
     assert.equal(branchExists(repo, 'worktree-gone'), false, 'the empty branch goes too');
   });
 });
+
+describe('git spawns: GIT_OPTIONAL_LOCKS=0 reaches the OS (#5048)', () => {
+  // A read such as `ls-files --others --ignored` or `worktree remove`'s status check must not take the
+  // optional .git/index.lock a concurrent commit needs. Observed in the child itself: a git alias that
+  // prints the variable runs as a real git subprocess with the env runGit built.
+  let dir;
+  beforeEach(() => { dir = createTempDir('gsd-provision-optlocks-'); });
+  afterEach(() => cleanup(dir));
+
+  const printEnv = (name) => ['-c', `alias.printenv-probe=!printenv ${name}`, 'printenv-probe'];
+
+  test('runGit sets it on the default environment', () => {
+    const res = provision.runGit(printEnv('GIT_OPTIONAL_LOCKS'), dir);
+    assert.equal(res.ok, true, res.stderr);
+    assert.equal(res.stdout.trim(), '0');
+  });
+
+  test('runGit sets it on a caller environment and keeps the caller keys', () => {
+    const env = { ...process.env, GSD_PROBE_KEY: 'kept', GIT_OPTIONAL_LOCKS: '1' };
+    assert.equal(provision.runGit(printEnv('GIT_OPTIONAL_LOCKS'), dir, { env }).stdout.trim(), '0');
+    assert.equal(provision.runGit(printEnv('GSD_PROBE_KEY'), dir, { env }).stdout.trim(), 'kept');
+  });
+});

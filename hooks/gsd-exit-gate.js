@@ -139,7 +139,7 @@ function readConfig(planningRoot) {
  */
 function resolveWorkTree(cwd, planningRoot) {
   try {
-    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+    const out = execFileSync('git', ['rev-parse', '--show-toplevel'], { // allow-index-refresh: rev-parse reads .git metadata only, never opens the index
       cwd,
       encoding: 'utf8',
       timeout: 5000,
