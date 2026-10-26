@@ -98,7 +98,10 @@ function resolveCapabilityAgentTools(registry: unknown, readConfigValue: ConfigV
         ? cap['config'][activationKey]['default']
         : undefined;
       const effective = configured !== undefined ? configured : declared;
-      if (effective === false) continue;
+      // Read as capability activation reads it (_resolveActivationValue: Boolean of the
+      // resolved value), so 0, "" or null disable the grants just as they mark the
+      // capability inactive; only an absent key falls through to enabled.
+      if (effective !== undefined && !effective) continue;
     }
 
     for (const agent of agents as string[]) {

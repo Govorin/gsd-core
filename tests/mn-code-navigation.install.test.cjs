@@ -1,9 +1,5 @@
 'use strict';
 
-// allow-test-rule: source-text-is-the-product (ADR-5210) — the assertions read the
-// canonical agents/*.md frontmatter and the installed agent frontmatter, the
-// deployed agent contract, both through parseFrontmatter.
-
 /**
  * mn-code-navigation: install-time code-navigation MCP grants (fork, ADR-5210).
  *
@@ -105,9 +101,29 @@ describe('mn-code-navigation: the declaration', () => {
       'add the agent to capabilities/mn-code-navigation agentTools.agents instead of its tools: line');
   });
 
-  test('the frozen registry carries the declaration the installer reads', () => {
-    const grants = readCapabilityAgentTools(null, { registry: require('../gsd-core/bin/lib/capability-registry.cjs') });
+  test('the frozen registry carries the declaration the installer reads', (t) => {
+    // A home of its own: the person's ~/.gsd/defaults.json must not decide this test.
+    const home = createTempDir('gsd-mn-nav-registry-home-');
+    t.after(() => cleanup(home));
+    const grants = readCapabilityAgentTools(null, {
+      registry: require('../gsd-core/bin/lib/capability-registry.cjs'),
+      homedir: () => home,
+    });
     for (const agent of LISTED) assert.deepStrictEqual(grantsForAgent(grants, agent), GRANTS, agent);
+  });
+
+  test('gsd-executor is granted code navigation only, never a browser family (#2856)', (t) => {
+    // live-dom-uat guards the executor's tools: line, but the fork's grants now arrive at
+    // install. An allowlist here keeps that guard true for what the installer adds.
+    const home = createTempDir('gsd-mn-nav-executor-home-');
+    t.after(() => cleanup(home));
+    const grants = grantsForAgent(readCapabilityAgentTools(null, {
+      registry: require('../gsd-core/bin/lib/capability-registry.cjs'),
+      homedir: () => home,
+    }), 'gsd-executor');
+    const navigation = ['mcp__atlas__*', 'mcp__plugin_serena_serena__*', 'mcp__codebase-memory-mcp__*'];
+    assert.ok(grants.length > 0, 'the executor is among the granted agents');
+    assert.deepStrictEqual(grants.filter((grant) => !navigation.includes(grant)), []);
   });
 });
 
@@ -135,10 +151,15 @@ describe('mn-code-navigation: resolution (pure)', () => {
     assert.deepStrictEqual(grantsForAgent(grants, 'gsd-two.compact'), ['mcp__a__*', 'mcp__b__*']);
   });
 
-  test('the activation key set to false contributes nothing; any other value keeps the grants', () => {
-    assert.deepStrictEqual(grantsForAgent(resolveCapabilityAgentTools(registry(), () => false), 'gsd-one'), []);
-    assert.deepStrictEqual(grantsForAgent(resolveCapabilityAgentTools(registry(), () => true), 'gsd-one'),
-      ['mcp__a__*', 'mcp__b__*']);
+  test('the activation key reads as capability activation does: any falsy value disables, true enables', () => {
+    // _resolveActivationValue takes Boolean(value); a value it calls inactive must not grant.
+    for (const off of [false, 0, '', null]) {
+      assert.deepStrictEqual(grantsForAgent(resolveCapabilityAgentTools(registry(), () => off), 'gsd-one'), [], JSON.stringify(off));
+    }
+    for (const on of [true, 1, 'yes']) {
+      assert.deepStrictEqual(grantsForAgent(resolveCapabilityAgentTools(registry(), () => on), 'gsd-one'),
+        ['mcp__a__*', 'mcp__b__*'], JSON.stringify(on));
+    }
   });
 
   test('a declared default of false is honoured when the key is unset', () => {

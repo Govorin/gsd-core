@@ -1,8 +1,5 @@
 'use strict';
 
-// allow-test-rule: source-text-is-the-product (ADR-5210) — the spawn prompt in a
-// shipped workflow step and the reference it hands over are the runtime surface.
-
 /**
  * The fork's verifier contract (SPEC `AC-n` as truths, `truths_unproven` in the
  * frontmatter) reaches gsd-verifier through the phase-verification spawn prompt,
