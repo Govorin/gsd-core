@@ -901,11 +901,24 @@ fork's earlier commits explain the rest.
 
 **Decisions:**
 
-- **mn could-not-check = upstream `unreadable`.** The fork's three-verdict model maps 1:1:
-  `unresolvable` is "could not look", the payload keeps `status: 'unresolvable'` and
-  `block: true`. Every mn gate is `onError: halt`, so the run still stops; a reader routes it as a
-  command failure, not as a finding. `tests/helpers/mn-gate-fixture.cjs` accepts 69 only with that
-  status.
+- **mn could-not-check: a fixable state is a verdict, a failed read is `unreadable`** (corrected
+  after review, `a07c7f269`). `99a80a976` first mapped every `unresolvable` onto upstream's
+  outcome `unreadable` (exit 69). The gate hosts (`execute-pre-gate-hooks.md`, `ship.md`,
+  `wave-post-gate-hooks.md`, `plan-phase.md`) read any non-zero exit at step 1 as "command
+  error" and never show `GATE_RESULT.message`, so a missing baseline, a stale record or an
+  unmeasured base reached the user as a bare error and the execute:pre accept path was
+  unreachable. The line now falls where upstream's gate-evidence draws it: no record, a stale one,
+  nothing configured or measured, no plan or sources to compare, a dependency cycle, a mutant on
+  disk — a delivered `block` (exit 0, `status: 'unresolvable'`, the remedy in the message,
+  `mnUnresolvedBlock`); exit 69 only for a read that failed, git that would not run, a phase that
+  cannot be found, a crashed body. Host text untouched. Pinned by the fixable-states table in
+  `tests/mn-gate-positive-controls.test.cjs` (exit 0, block, the exported `recordStep` /
+  `acceptHint` / `RUN_STEP` in the message). `tests/helpers/mn-gate-fixture.cjs` accepts 69 only
+  with `status: 'unresolvable'`.
+- **Review follow-ups:** the hook-layer test compares registered slots and the quiet dry run
+  instead of matching stderr lines (`37c91111e`); `code-review-fix.md` parsed `--review` from
+  `"$@"`, empty in a workflow fence — it now splits the captured `$GSD_ARGS` with `read -ra`, and the
+  window test runs the shipped capture with the typed text substituted (`7a220957e`).
 - **Golden scenarios drive the tables, not the entry point** (zone 2's proposal, checked): the
   golden was recorded from upstream's pre-migration code and is the table contract; regenerating
   it with fork hooks would fork upstream's fixture. The fork's composition is pinned in a fork file.
