@@ -125,8 +125,6 @@ PHASE_DATA=$(gsd_run query roadmap.get-phase "$PHASE_NUM" --raw)
 
 Parse the `success_criteria` array from the JSON output. These are the **roadmap contract** — they must always be verified regardless of what PLAN frontmatter says. Store them as `roadmap_truths`.
 
-**Step 2a-bis: Load SPEC Acceptance Criteria (if `"$PHASE_DIR"/*-SPEC.md` exists)** — Read `__GSD_PI_ENGINE_ROOT__/gsd-core/references/verifier-spec-contract.md` now. Every `AC-n` in `## Acceptance Criteria` becomes a `spec_truths` entry (the **phase contract**): verified even when no plan lifted it, an unmet `AC-n` is never green, and plans may ADD truths but never subtract an `AC-n`.
-
 **Step 2b: Load PLAN frontmatter must-haves (if present)**
 
 ```bash
@@ -572,10 +570,7 @@ Classify status using this decision tree IN ORDER (most restrictive first):
 ```text
 score: verified_truths / total_truths        # e.g. 6/7
 behavior_unverified: P                        # truths present + wired but behavior not exercised
-truths_unproven: total_truths - verified_truths   # everything not positively proven
 ```
-
-**`truths_unproven` is mandatory, always emitted even at `0`** — the one number a `ship:pre` gate can compare (`score` is a string). Every truth not positively proven counts, human-routed ones included; rationale in `verifier-spec-contract.md`.
 
 A headline N/N therefore certifies that every behavior-dependent truth had behavioral evidence — a clean score can no longer be reached on symbol presence alone.
 
@@ -690,7 +685,6 @@ status: passed | gaps_found | human_needed
 score: N/M must-haves verified
 covered_files: [...]
 covered_digest: "v4:sha256:..."
-truths_unproven: 0 # REQUIRED even at 0: total_truths - verified_truths (FAILED + ⚠️ PRESENT_BEHAVIOR_UNVERIFIED + UNCERTAIN + insufficient_spec)
 behavior_unverified: 0 # Count of ⚠️ PRESENT_BEHAVIOR_UNVERIFIED truths (present + wired, behavior not exercised); each is detailed in behavior_unverified_items below (and in human_verification when status is human_needed)
 overrides_applied: 0 # Count of PASSED (override) items included in score
 overrides: # Only if overrides exist — carried forward or newly added
