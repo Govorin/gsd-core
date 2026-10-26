@@ -910,7 +910,14 @@ describe('feat-1173: dispatchKindEntry agents converter wiring', () => {
     // converter=null: stageAgentsForProfile with skills='*' returns srcAgentsDir unchanged
     // (no staging dir is created; the source dir IS the staged dir, a passthrough)
     const stagedContent = fs.readFileSync(path.join(stagedDir, 'gsd-planner.md'), 'utf8');
-    assert.strictEqual(stagedContent, CLAUDE_AGENT_SOURCE, 'converter=null must raw-copy the agent content');
+    // Fork (ADR-5210): gsd-planner is listed in capabilities/mn-code-navigation, whose
+    // grants are appended on every staging path; they are the only addition.
+    const { appendAgentTools } = require('../gsd-core/bin/lib/runtime-artifact-conversion.cjs');
+    const { grants } = JSON.parse(fs.readFileSync(
+      path.join(ROOT, 'capabilities', 'mn-code-navigation', 'capability.json'), 'utf8',
+    )).agentTools;
+    assert.strictEqual(stagedContent, appendAgentTools(CLAUDE_AGENT_SOURCE, grants),
+      'converter=null must raw-copy the agent content (plus the declared grants)');
   });
 
   test('scope threads isGlobal to a scope-aware converter (global vs local differ)', (t) => {
