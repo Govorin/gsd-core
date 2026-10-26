@@ -212,16 +212,34 @@ describe('window-scope.md — the shipped step', () => {
 });
 
 describe('code-review-fix.md — the `--review` path parameter', { skip: !HAS_BASH }, () => {
+  // The fence reads the typed text once into GSD_ARGS (#5143) and parses that, never "$@" (empty in a
+  // workflow fence). Run the shipped capture and parse with the runtime's one substitution emulated:
+  // the typed text in place of the `$ARGUMENTS` token.
+  const capture = slice(FIX_WORKFLOW, "IFS= read -rd '' GSD_ARGS", 'GSD_ARGS=${GSD_ARGS%');
   const parse = slice(FIX_WORKFLOW, 'REVIEW_OVERRIDE=""', 'done');
+  const typedInto = (typed) => {
+    assert.ok(capture.includes('\n$ARGUMENTS\nGSD_ARGS_END'), 'the fence must carry the argument capture block');
+    return capture.replace('\n$ARGUMENTS\nGSD_ARGS_END', () => `\n${typed}\nGSD_ARGS_END`);
+  };
   test('[happy] `--review <path>` and `--review=<path>` both set the override; no flag leaves it empty', () => {
-    for (const [args, expected] of [
-      [['--review', '.planning/reviews/2026-10-05-window/REVIEW.md', '--all'], '.planning/reviews/2026-10-05-window/REVIEW.md'],
-      [['--review=.planning/reviews/w/REVIEW.md'], '.planning/reviews/w/REVIEW.md'],
-      [['3', '--all'], ''],
+    for (const [typed, expected] of [
+      ['--review .planning/reviews/2026-10-05-window/REVIEW.md --all', '.planning/reviews/2026-10-05-window/REVIEW.md'],
+      ['--review=.planning/reviews/w/REVIEW.md', '.planning/reviews/w/REVIEW.md'],
+      ['3 --all', ''],
+      ['', ''],
     ]) {
-      const r = bash(`${parse}\nprintf '%s' "$REVIEW_OVERRIDE"`, args);
-      assert.equal(r.stdout, expected, args.join(' '));
+      const r = bash(`${typedInto(typed)}\n${parse}\nprintf '%s' "$REVIEW_OVERRIDE"`);
+      assert.equal(r.stdout, expected, typed);
     }
+  });
+  test('[negative] the parse reads the typed text, not positional parameters', () => {
+    // The pre-#5143 form parsed "$@": with the path only in the typed text, it found nothing.
+    const r = bash(`${typedInto('--review .planning/reviews/w/REVIEW.md')}\n${parse}\nprintf '%s' "$REVIEW_OVERRIDE"`, ['--review', 'positional/REVIEW.md']);
+    assert.equal(r.stdout, '.planning/reviews/w/REVIEW.md');
+  });
+  test('[hostile] typed text is data: a glob or a command substitution is not expanded', () => {
+    const r = bash(`${typedInto('--review $(echo pwned)* *')}\n${parse}\nprintf '%s' "$REVIEW_OVERRIDE"`, [], { cwd: ROOT });
+    assert.equal(r.stdout, '$(echo');
   });
   test('[happy] a window review validates its path through the CLI, skips phase init, and runs one fix pass', () => {
     assert.ok(FIX_WORKFLOW.includes('gsd_run review window-paths ${GSD_WS:+--ws=${GSD_WS##* }} --review "$REVIEW_OVERRIDE"'));

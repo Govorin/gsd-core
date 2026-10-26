@@ -27,9 +27,12 @@ _GSD_SHIM_NAME="gsd-tools.cjs"; _GSD_RUNTIME_ROOT="${RUNTIME_DIR:-$(git rev-pars
 PHASE_ARG="${1}"
 # ADR-5208: `--review <path>` fixes a window review's REVIEW.md (`.planning/reviews/<date>-window/`)
 # instead of a phase's; the window-scope step of code-review.md passes it. No phase is resolved then.
+# The typed arguments are in $GSD_ARGS (#5143; "$@" is empty in a workflow fence): split them into
+# words without glob expansion.
 REVIEW_OVERRIDE=""
 _PREV_ARG=""
-for arg in "$@"; do
+read -ra _GSD_ARGV <<< "$GSD_ARGS"
+for arg in "${_GSD_ARGV[@]}"; do
   if [ "$_PREV_ARG" = "--review" ]; then REVIEW_OVERRIDE="$arg"; fi
   case "$arg" in --review=*) REVIEW_OVERRIDE="${arg#--review=}" ;; esac
   _PREV_ARG="$arg"
