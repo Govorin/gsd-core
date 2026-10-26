@@ -9,8 +9,8 @@
  * this file pins the composition against the same golden, so neither half can drift unseen:
  *   - off Claude the fork layer adds nothing: the entry point reproduces the golden exactly;
  *   - on Claude, with no fork hook installed (the scenarios install only upstream's hooks), the
- *     settings and stdout are the golden's and stderr is the golden's plus one "Skipped" line per
- *     fork hook — so the layer runs, touches no upstream registration, and fails visibly;
+ *     settings, the registered slots and stdout are the golden's — the layer touches no upstream
+ *     registration and adds none without its file — and the quiet dry run prints nothing at all;
  *   - with the fork hooks installed, every one of them is registered.
  * The user settings layer is sandboxed: the worktree step reads it (one registration per user).
  */
@@ -68,15 +68,13 @@ describe('mn hook registration layer — applySettingsJsonHooks = tables + fork 
         }
         assert.deepEqual(actual.settings, expected.settings, `${name}: the fork layer changed a registration`);
         assert.equal(actual.stdout, expected.stdout, `${name}: stdout`);
-        // Every other stderr line is the golden's; each fork hook is reported missing once per run.
-        const lines = (text) => text.split('\n').filter((line) => line.trim() !== '');
-        const forkLines = lines(actual.stderr).filter((line) => FORK_HOOK_FILES.some((f) => line.includes(f)));
-        const rest = lines(actual.stderr).filter((line) => !forkLines.includes(line));
-        assert.deepEqual(rest, lines(expected.stderr), `${name}: stderr beyond the fork layer`);
-        assert.equal(forkLines.length, FORK_HOOK_FILES.length * (spec.runs || 1), `${name}: one Skipped line per fork hook per run\n${actual.stderr}`);
-        for (const file of FORK_HOOK_FILES) {
-          assert.ok(forkLines.some((line) => line.includes(file)), `${name}: ${file} skipped without a word`);
-        }
+        assert.deepEqual(registeredSlots(actual.settings), registeredSlots(expected.settings), `${name}: no fork slot without its file`);
+        // The dry run the installer makes (quiet): the same registrations and not one line of output.
+        const quiet = scenarios.runOne(rt, spec, (settings, opts) => surface.applySettingsJsonHooks(settings, { ...opts, quiet: true }));
+        assert.deepEqual(quiet.settings, expected.settings, `${name}: quiet changes what is registered`);
+        // runOne separates repeated runs with its own `--- run N ---` line; nothing else may appear.
+        const printed = (text) => text.split('\n').filter((line) => line !== '' && !/^--- run \d+ ---$/.test(line));
+        assert.deepEqual([printed(quiet.stdout), printed(quiet.stderr)], [[], []], `${name}: quiet prints`);
       }
     });
   }
