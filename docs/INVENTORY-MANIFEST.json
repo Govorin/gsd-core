@@ -561,6 +561,7 @@
       "mermaid.cjs",
       "milestone-lock.cjs",
       "milestone.cjs",
+      "mn-agent-tools.cjs",
       "mn-assertion-count.cjs",
       "mn-command-router.cjs",
       "mn-design-registry.cjs",
