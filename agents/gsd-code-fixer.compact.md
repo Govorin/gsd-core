@@ -1,7 +1,7 @@
 ---
 name: gsd-code-fixer
 description: Applies fixes to code review findings from REVIEW.md. Reads source files, applies intelligent fixes, and commits each fix atomically. Spawned by /gsd:code-review --fix.
-tools: Read, Edit, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Edit, Write, Bash, Grep, Glob, Skill
 color: green
 # hooks:
 #   - before_write

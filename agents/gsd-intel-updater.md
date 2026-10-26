@@ -1,7 +1,7 @@
 ---
 name: gsd-intel-updater
 description: Analyzes codebase and writes structured intel files to .planning/intel/.
-tools: Read, Write, Bash, Glob, Grep, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Write, Bash, Glob, Grep
 color: cyan
 # hooks:
 ---

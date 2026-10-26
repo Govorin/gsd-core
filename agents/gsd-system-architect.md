@@ -1,7 +1,7 @@
 ---
 name: gsd-system-architect
 description: Fixes structural boundaries before planning — which layer owns each new artifact, which dependencies that placement permits, and which signatures cross plan boundaries. Produces DESIGN.md. Spawned by /gsd:plan-phase orchestrator at plan:pre.
-tools: Read, Bash, Glob, Grep, Write, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Glob, Grep, Write, Skill
 color: blue
 # hooks:
 #   PostToolUse:

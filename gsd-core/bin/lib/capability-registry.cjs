@@ -2976,6 +2976,84 @@ const capabilities = {
     ],
     "gates": []
   },
+  "mn-code-navigation": {
+    "id": "mn-code-navigation",
+    "role": "feature",
+    "version": "1.18.0",
+    "title": "Code-navigation MCP grants",
+    "description": "Grants the code-reading agents the three code-navigation MCP families (atlas, serena, codebase-memory) at install time, so agents/*.md keeps upstream's tools: line byte for byte. agentTools is the one place the grant set and the agents it goes to are declared: the installer appends the grants to each listed agent's tools: before the runtime converter runs (the same pre-converter step as the user's agent_tools, which follows it), so every runtime keeps the representation its converter gives an MCP grant — Claude, Copilot, Hermes, Kimi Code, Qwen and Codex keep the names, Kilo maps them to permissions, the other converters drop them — exactly as when the grants were written into agents/*.md. A grant the agent already declares is not added twice. Only this frozen first-party registry is read: an installed overlay capability can never widen a first-party agent (ADR-1244 D2). Setting code_navigation.enabled to false in ~/.gsd/defaults.json or the nearest .planning/config.json and re-running the install drops the grants.",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.15.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [],
+    "agents": [],
+    "hooks": [],
+    "activationKey": "code_navigation.enabled",
+    "config": {
+      "code_navigation.enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Install-time: append the atlas, serena and codebase-memory MCP grants to the code-reading agents' tools:. Re-run the install after changing it; installed agents do not read config at spawn time."
+      }
+    },
+    "agentTools": {
+      "grants": [
+        "mcp__atlas__*",
+        "mcp__plugin_serena_serena__*",
+        "mcp__codebase-memory-mcp__*"
+      ],
+      "agents": [
+        "gsd-advisor-researcher",
+        "gsd-ai-researcher",
+        "gsd-arch-surveyor",
+        "gsd-architect-reviewer",
+        "gsd-assumptions-analyzer",
+        "gsd-code-fixer",
+        "gsd-code-reviewer",
+        "gsd-codebase-mapper",
+        "gsd-debug-session-manager",
+        "gsd-debugger",
+        "gsd-doc-classifier",
+        "gsd-doc-synthesizer",
+        "gsd-doc-verifier",
+        "gsd-doc-writer",
+        "gsd-domain-researcher",
+        "gsd-eval-auditor",
+        "gsd-eval-planner",
+        "gsd-executor",
+        "gsd-framework-selector",
+        "gsd-integration-checker",
+        "gsd-intel-updater",
+        "gsd-mempalace-curator",
+        "gsd-pattern-mapper",
+        "gsd-phase-researcher",
+        "gsd-plan-checker",
+        "gsd-planner",
+        "gsd-project-researcher",
+        "gsd-research-synthesizer",
+        "gsd-roadmapper",
+        "gsd-spec-reviewer",
+        "gsd-standards-reviewer",
+        "gsd-system-architect",
+        "gsd-ui-auditor",
+        "gsd-ui-checker",
+        "gsd-ui-researcher",
+        "gsd-user-profiler",
+        "gsd-verifier"
+      ]
+    },
+    "steps": [],
+    "contributions": [],
+    "gates": []
+  },
   "mn-expertise": {
     "id": "mn-expertise",
     "role": "feature",
@@ -6526,6 +6604,7 @@ const configKeys = {
   "mempalace.cross_project_tunnels": "mempalace",
   "mempalace.diary_journal": "mempalace",
   "mempalace.auto_capture_hooks": "mempalace",
+  "code_navigation.enabled": "mn-code-navigation",
   "workflow.verify_enforce": "mn-verify-gate",
   "workflow.nyquist_enforce": "mn-verify-gate",
   "workflow.mn_security_enforce": "mn-verify-gate",
@@ -7102,6 +7181,12 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Reserved / not yet implemented: will install MemPalace's native stop/precompact Claude Code hooks for passive mid-session capture (the capability's hooks array is currently empty)."
+  },
+  "code_navigation.enabled": {
+    "owner": "mn-code-navigation",
+    "type": "boolean",
+    "default": true,
+    "description": "Install-time: append the atlas, serena and codebase-memory MCP grants to the code-reading agents' tools:. Re-run the install after changing it; installed agents do not read config at spawn time."
   },
   "workflow.verify_enforce": {
     "owner": "mn-verify-gate",
@@ -10426,6 +10511,7 @@ const _requiresGraph = {
   "llama-cpp": [],
   "lm-studio": [],
   "mempalace": [],
+  "mn-code-navigation": [],
   "mn-expertise": [],
   "mn-verify-gate": [],
   "nyquist": [],

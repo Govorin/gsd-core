@@ -1,7 +1,7 @@
 ---
 name: gsd-arch-surveyor
 description: Surveys one zone of the codebase for deepening opportunities — shallow modules, leaky seams, missing locality — and writes candidate cards as JSON, with the deletion test behind every Strong card. Spawned in parallel, one per zone, by /gsd:arch-survey.
-tools: Read, Bash, Glob, Grep, Write, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Glob, Grep, Write, Skill
 color: cyan
 # hooks:
 #   PostToolUse:

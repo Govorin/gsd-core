@@ -1,7 +1,7 @@
 ---
 name: gsd-doc-verifier
 description: Verifies factual claims in generated docs against the live codebase. Returns structured JSON per doc.
-tools: Read, Write, Bash, Grep, Glob, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Write, Bash, Grep, Glob
 color: orange
 # hooks:
 #   PostToolUse:

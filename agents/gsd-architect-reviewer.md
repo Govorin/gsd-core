@@ -1,7 +1,7 @@
 ---
 name: gsd-architect-reviewer
 description: Reviews shipped code against the phase's declared structure — placements honoured, dependencies legal, no rejected alternative silently adopted. Produces ARCH-REVIEW.md. Spawned by /gsd:verify-work at verify:pre.
-tools: Read, Bash, Glob, Grep, Write, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Glob, Grep, Write, Skill
 color: blue
 # hooks:
 #   PostToolUse:

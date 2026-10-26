@@ -49,16 +49,6 @@ const BROWSER_GLOBS = ['mcp__chrome-devtools__*', 'mcp__claude-in-chrome__*'];
 const BROWSER_FAMILY_PREFIXES = [...BROWSER_GLOBS, 'mcp__playwright__*']
   .map((g) => g.replace(/\*$/, ''));
 
-/**
- * Code-navigation MCP families this fork grants every code-reading agent
- * (CLAUDE.md "code navigation tools"; the same three as FORK_CODE_NAV_TOOLS in
- * scripts/research-profiles.cjs). They read source text, the LSP and the code
- * graph — no browser, no DOM, no page — so they leave the executor exactly as
- * far from the UI as #2856 requires. The executor surface check admits them by
- * name; any other non-context7 family still fails it.
- */
-const CODE_NAV_GLOBS = ['mcp__atlas__*', 'mcp__codebase-memory-mcp__*', 'mcp__plugin_serena_serena__*'];
-
 const AGENT_PATH = path.join(REPO_ROOT, 'agents', `${AGENT}.md`);
 const EXECUTOR_PATH = path.join(REPO_ROOT, 'agents', 'gsd-executor.md');
 const UI_VERIFY_PATH = path.join(
@@ -429,13 +419,14 @@ describe('live-dom-uat: shipped agent and workflow text', () => {
       assert.ok(!tools.some((t) => t.startsWith(family)),
         `gsd-executor must never carry ${family}* — triage refused widening its surface`);
     }
-    // Allowlist, not denylist: a family nobody has reviewed still fails here.
+    // Allowlist, not denylist: a family nobody has reviewed still fails here. The fork's
+    // code-navigation families are added at install by capabilities/mn-code-navigation
+    // (ADR-5210), never on this line.
     const unreviewed = tools
       .filter((t) => t.startsWith('mcp__'))
-      .filter((t) => !t.includes('context7'))
-      .filter((t) => !CODE_NAV_GLOBS.includes(t));
+      .filter((t) => !t.includes('context7'));
     assert.deepStrictEqual(unreviewed, [],
-      'gsd-executor may carry no MCP family beyond context7 and the code-navigation families');
+      'gsd-executor may carry no MCP family beyond context7');
   });
 
   test('browserGlobParityAcrossAgentAndWorkflowSurfaces', () => {
