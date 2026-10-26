@@ -869,6 +869,86 @@ amendment 2026-10-25.
     `GSD_EMITTED_BASE=upstream/next` emitted attribution 140/140. Unit suite (`test:affected`):
     44 593 tests, 4 failures, exactly the reference set. Integration 62/62, security 391/391.
 
+### The upstream 1.18 sync (2026-10-25..26)
+
+Plan `.plans/upstream-sync-1.18-plan.md`; per-file conflict decisions
+`.plans/sync-1.18/zone-{1,2,3}.md`. A plain `git merge upstream/next` (`fa377ad5d`, 329 commits,
+releases 1.16.0-1.18.0; base `81cb6f8f3`), 70 conflicted files, merge commit `350c7f6d5`. Inside
+the merge only what it needed to build: `src/gate-mn-support.cts` moved off
+`resolvePhaseDirOrEmpty` (deleted by #5170) onto the typed `resolvePhaseDir` evidence. Derived
+artifacts were taken from upstream and regenerated. Emitted attribution against `upstream/next`
+was green after the merge with no new trailer: the base moves to `upstream/next` itself, and the
+fork's earlier commits explain the rest.
+
+**What the merge broke, and the fixes** (each its own commit after the merge):
+
+| Defect | Fix | Commit |
+|---|---|---|
+| 1.18 ratchets over `src/gate-*.cts`: typed evidence + verdict-driven exit (#5170) and a positive control per gate (#5204) — 34 + 27 findings in the fork's gates | could-not-check is outcome `unreadable` (exit 69, blocking, routed by `onError: halt`); reads through `gate-evidence` (EACCES no longer reads as absent in blast-radius, clean-state, waves, contract-drift, migration-safety); each gate builds its verdicts over `mnPayload`; `mn-orphan-plans` and `mn-wave-solve` got their own modules; `dispatchMnCheck`; `tests/mn-gate-positive-controls.test.cjs` (15 gates) | `99a80a976` |
+| `verify gates/baseline/mutation` owned their exit codes (0/1/2) | exit through `declareGateExit`: 0 recorded, 1 strict red, 66 nothing configured, 69 cannot find/record/parse; usage errors through `error()` with `refusal`; exit 2 gone (ADR-3889) | `8f8e37005` |
+| `code-review-pipeline-regression` ran the `gsd-resolve-lib` blocks the fork does not carry (#5640) | pins the five `gsd_run review` verbs after the launcher, no cwd `require`, a real global install runs each installed file's launcher + verb; three red controls | `0043dc6a6` |
+| hook golden picked up the fork layer and read the real `~/.claude` | the scenario driver runs the production tables (the golden's contract); a fork test pins tables + layer against the same golden, user layer sandboxed | `e94c2afef` |
+| activation probe counted the fork layer as unprobed | `FORK_ENFORCEMENT_SLOTS`/`_RUNTIMES` exported; the probe executes the fork registrations too | `74327e22f` |
+| fork hooks had no Pi disposition (#5560) | five `unsupported` entries with reasons, both parity pages | `c65adf5d8` |
+| fork hooks' git spawns without `readOnlyGitEnv` (#5048) | provision `runGit` through the seam (+ `ensureRuntimeBuild`, #3582), exit-gate `rev-parse` exempted with its reason | `e85ba53f0`, `724efa4b0` |
+| eight fork-only workflows kept the 1.15 launcher preamble (#5169) | `scripts/sync-runtime-launcher.cjs` | `8140581bd` |
+| four fork fences spliced `$ARGUMENTS` into shell (#5143) | per-fence `GSD_ARGS` heredoc capture | `ca3a593c1` |
+| `<!-- /gsd:pinned -->` in the capability description = a colon-form command in the shipped registry (#4859) | named in words | `0e0243387` |
+| standards reviewer named no type on its skill pointer (#5122) | `(agent type: gsd-standards-reviewer)`, the type its frontmatter gave it before | `09064103c` |
+| `ui-researcher` 24 719 B > DEFAULT 24 576 | the fork's SPEC.md table and design-contract rules moved verbatim to `references/ui-researcher-spec-and-design-contract.md`, conditional pointers left (23 540 B) | `732a312d3` |
+| stale test expectations: 7→8 repair actions, `findPhaseArtifact` array (#5313), window `last` without a marker is `unreadable`, `#4483` dispatch list, `#4939` mock missing the macOS realpath | tests corrected; the health count bound to `REMEDY_ACTION` | `a71ad31ef`, `88cd97100`, `a25e039d2`, `109d2fadf`, `b41aeb901` |
+| derived: compact-content benchmark, conformance tiers | regenerated | `4b1b3c150`, `4ae199290` |
+
+**Decisions:**
+
+- **mn could-not-check = upstream `unreadable`.** The fork's three-verdict model maps 1:1:
+  `unresolvable` is "could not look", the payload keeps `status: 'unresolvable'` and
+  `block: true`. Every mn gate is `onError: halt`, so the run still stops; a reader routes it as a
+  command failure, not as a finding. `tests/helpers/mn-gate-fixture.cjs` accepts 69 only with that
+  status.
+- **Golden scenarios drive the tables, not the entry point** (zone 2's proposal, checked): the
+  golden was recorded from upstream's pre-migration code and is the table contract; regenerating
+  it with fork hooks would fork upstream's fixture. The fork's composition is pinned in a fork file.
+- **Not done here, owner decision: `agents/gsd-verifier.md` stays over the LARGE cap** (50 045 /
+  49 152; the only red test besides removed-but-needed). Upstream alone is 49 109 B, 43 B of
+  headroom; the fork's `tools:` suffix (code-navigation MCP) alone is +74 B, and the fork's verifier
+  contract is already a pointer to `verifier-spec-contract.md` (862 B of pointer-level text). Moving
+  more fork text out cannot reach the cap without touching upstream bytes. Options: (1) add the
+  code-navigation families at install time instead of in 63 agent frontmatters (removes a conflict
+  in every upstream `tools:` change) and hand the verifier its contract pointer from the spawn
+  prompt in `verify-phase-goal.md` — the verifier file becomes upstream's bytes; (2) `gsd-verifier`
+  into the XL tier (one line in an upstream test; upstream is at 99.9 % of LARGE itself);
+  (3) move upstream's MVP-only `<mvp_mode_verification>` (1 981 B, already defers to
+  `verify-mvp-mode.md`) into that reference — upstream text, pinned by
+  `tests/verifier-mvp-section.test.cjs`.
+
+**Risks for the next sync:**
+
+- `gsd-core/workflows/plan-phase.md` is 98 296 B under the XL cap of 98 304 (8 B). The fork's text
+  in it is already pointer-sized (11b points at `finding-refutation.md`; two required-reading lines;
+  the PASSED → 11b route), so there is no step file to extract naturally. The next upstream growth
+  there will need an extraction of upstream text or a step file for 11b's routing.
+- `regen:derived` leaves `capability-registry.cjs` stale when versions move:
+  `sync-manifest-versions` bumps `capabilities/*/capability.json` after `build` generated the
+  registry. Run `node scripts/gen-capability-registry.cjs --write` after a version bump (done in
+  the merge).
+- `pi/package-agents` and `pi/package-skills` (#5558) are derived from `agents/` and the skills:
+  any agent edit needs `regen:derived` in the same commit.
+- `hooks/gsd-worktree-provision.js` now loads `read-only-git-env.cjs` through
+  `ensureRuntimeBuild()` on WorktreeCreate; on a cold tree that builds once.
+
+**Gates on `4ae199290`** (the same trees as the measured run; commit subjects were shortened afterwards) (Node 24.11): `build:lib`, `regen:derived`, `lint:generated-sync` clean;
+`lint:ci` 51 of 52 steps, the one red is `lint-removed-but-needed` (stale `origin/next`, the
+reference set); `npm test` (`RUN_TESTS_CHUNK_TIMEOUT_MS=1500000 GSD_EMITTED_BASE=upstream/next`,
+1 203 files) 50 190 tests, 50 087 pass, 2 fail, 100 skipped: removed-but-needed against
+`origin/next` (reference set) and the verifier LARGE cap (owner decision above). Emitted
+attribution against `upstream/next` green.
+
+**gsd-deck JSON** (polyglot, `next` installed vs the merged worktree): `smart-entry --json`,
+`progress json`, `state-snapshot`, `list-todos`, `retro due`, `roadmap get-phase 118`,
+`phase-plan-index 118`, `find-phase 118`, `planning inspect` — no key removed or renamed, no value
+type changed; one key added, `smart-entry` `signals.milestone_phases`.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
@@ -1025,6 +1105,14 @@ Lessons from the 1.15 sync, each paid for by a defect above.
   silently drops pinned items; move fork text into a reference instead.
 - **`spawnSync` and a signal-restore handler do not mix** — the handler never runs
   while the child does.
+- **An upstream ratchet over a file family covers the fork's files in it** (1.18:
+  `lint-gate-evidence-drift` and `lint-gate-positive-control` over every `src/gate-*.cts`,
+  the Pi disposition table over every managed hook, the launcher parity over every workflow).
+  Conflict resolution never sees these: run `lint:ci` and the full suite on the merged tree,
+  not only the tests the zones named.
+- **`npm test` from a non-interactive shell picks Homebrew's node** (`npm`/`node` are lazy
+  nvm functions here). Run the suite with the nvm Node 24 `bin` first on `PATH`, or the
+  Node-version-gated controls (`gsd-validate-commit-sigpipe`) fail on an unchecked line.
 
 ---
 
