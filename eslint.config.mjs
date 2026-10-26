@@ -509,6 +509,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-mn-waves.cjs',
       'gsd-core/bin/lib/gate-mn-wave-solve.cjs',
       'gsd-core/bin/lib/gate-mn-blast-radius.cjs',
+      'gsd-core/bin/lib/mn-agent-tools.cjs',
       'gsd-core/bin/lib/gate-mn-contract-drift.cjs',
       'gsd-core/bin/lib/gate-mn-migration-safety.cjs',
       'gsd-core/bin/lib/gate-mn-clean-state.cjs',
