@@ -987,7 +987,16 @@ seven fork-only agents lost the suffix too), and so do
   itself (`capability.json`, not the module). `live-dom-uat` drops the code-navigation allowlist
   that `cd8f7615c` added, since the canonical executor no longer carries them. The
   `emitted-provenance` "no transforms" exemplar moves from Copilot's rename rule to Kimi's subagent
-  rule.
+  rule. Two upstream staging tests with a `gsd-planner` fixture (descriptor-parity I2,
+  `runtime-converters` "converter=null still raw-copies") now expect the source plus the grants
+  (`a74128703`).
+- **Gates** (Node 24.11, on `a74128703`): `build:lib`, `regen:derived` (tree clean after),
+  `lint:generated-sync`, eslint on the changed files: clean. Install/agent set (agent-size-budget,
+  agent-frontmatter, agent-tools.install, agent-descriptor-parity.install, the two new files,
+  live-dom-uat, agent-classification-parity, emitted-provenance, inventory, capability-registry,
+  runtime-artifact-layout-surface): 1 317/1 317. Emitted attribution against `upstream/next`:
+  148/148. `test:affected` against `e5a06ccd7` (535 files): 29 814 tests, 1 failure (11 skipped), which
+  `a74128703` fixes (`runtime-converters` re-run 218/218).
 
 **Not done / open:** an upstream rewrite of the `verifier_dispatch` prompt in
 `verify-phase-goal.md` has to keep the contract line (`tests/mn-verifier-contract-pointer.test.cjs`
