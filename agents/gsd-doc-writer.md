@@ -1,7 +1,7 @@
 ---
 name: gsd-doc-writer
 description: Writes and updates project documentation. Spawned with a doc_assignment block specifying doc type, mode (create/update/supplement), and project context.
-tools: Read, Bash, Grep, Glob, Write, Edit, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Grep, Glob, Write, Edit, Skill
 color: purple
 # hooks:
 #   PostToolUse:

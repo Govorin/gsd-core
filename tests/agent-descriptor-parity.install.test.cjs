@@ -104,6 +104,13 @@ const capabilityRegistry = require(path.join(LIB_DIR, 'capability-registry.cjs')
 const { composeWorkflow } = require(path.join(LIB_DIR, 'workflow-fragments.cjs'));
 const installBin = require(path.join(REPO_ROOT, 'bin', 'install.js'));
 
+// Fork (ADR-5210): the code-navigation grants the real path appends before the
+// converter, read from the declaration itself — not from the registry or the
+// module that applies them, so the oracle stays independent.
+const MN_CODE_NAVIGATION = JSON.parse(
+  fs.readFileSync(path.join(REPO_ROOT, 'capabilities', 'mn-code-navigation', 'capability.json'), 'utf8'),
+).agentTools;
+
 // ---------------------------------------------------------------------------
 // Fixture builders
 // ---------------------------------------------------------------------------
@@ -223,6 +230,10 @@ function computeExpectedOutput(runtime, agentsDir, ctx, converterNameOverride) {
     content = runtimeArtifactConversion.applyAgentPathRewrites(content, runtime, pathPrefix);
     // Step 2: attribution
     content = runtimeArtifactConversion.processAttribution(content, attribution);
+    // Step 2b (fork, ADR-5210): capability-declared grants, before the converter.
+    if (MN_CODE_NAVIGATION.agents.includes(agentName.replace(/\.compact$/, ''))) {
+      content = runtimeArtifactConversion.appendAgentTools(content, MN_CODE_NAVIGATION.grants);
+    }
     // Step 3: converter — dispatched off the INDEPENDENT expected-name map,
     // never off the descriptor under test.
     if (converterName) {
@@ -460,7 +471,10 @@ test('agent-descriptor-parity: I2 — real descriptor path with no agentCtx is u
   t.after(() => cleanup(stagedDir));
   const planner = fs.readFileSync(path.join(stagedDir, 'gsd-planner.md'), 'utf8');
   const original = fs.readFileSync(path.join(agentsDir, 'gsd-planner.md'), 'utf8');
-  assert.equal(planner, original, 'no agentCtx must leave content byte-identical to source (converter:null == identity)');
+  // Fork (ADR-5210): like global agent_tools, the capability-declared grants are not
+  // agentCtx cross-cutting — they apply on this path too, and are all it adds.
+  const expected = runtimeArtifactConversion.appendAgentTools(original, MN_CODE_NAVIGATION.grants);
+  assert.equal(planner, expected, 'no agentCtx must leave content byte-identical to source plus the declared grants (converter:null == identity)');
 });
 
 // ---------------------------------------------------------------------------

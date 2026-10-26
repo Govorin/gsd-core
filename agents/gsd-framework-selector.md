@@ -1,7 +1,7 @@
 ---
 name: gsd-framework-selector
 description: Presents an interactive decision matrix to surface the right AI/LLM framework for the user's specific use case. Produces a scored recommendation with rationale. Spawned by /gsd:ai-integration-phase and /gsd-select-framework orchestrators.
-tools: Read, Bash, Grep, Glob, WebSearch, AskUserQuestion, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Grep, Glob, WebSearch, AskUserQuestion
 color: cyan
 ---
 

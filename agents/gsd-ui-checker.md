@@ -1,7 +1,7 @@
 ---
 name: gsd-ui-checker
 description: Validates UI-SPEC.md design contracts against 8 quality dimensions. Produces BLOCK/FLAG/PASS verdicts. Spawned by /gsd:ui-phase orchestrator.
-tools: Read, Bash, Glob, Grep, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Glob, Grep, Skill
 color: cyan
 ---
 

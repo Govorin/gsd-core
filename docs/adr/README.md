@@ -277,6 +277,7 @@ These govern the system as it stands. Cite these.
 | [ADR-5057](5057-one-owner-per-workflow-verdict.md) | One owner per workflow verdict — phase status, verification, gates, runtime activation, planning writes | Accepted | — |
 | [ADR-5208](5208-window-review-unit.md) | The window review unit — evaluation scope over a period, still a union | Accepted | — |
 | [ADR-5209](5209-retro-capability.md) | The retro capability — local transcript reading, Claude-first, never self-applied | Accepted | — |
+| [ADR-5210](5210-install-time-agent-tool-grants.md) | Fork additions to agent tools are declared by a capability and applied at install | Accepted | — |
 | [ADR-5559](5559-pi-agent-role-dispatch.md) | Agent-role dispatch on Pi — a GSD-owned `gsd_dispatch` tool that runs each role in an isolated `pi` child process | Accepted | — |
 
 ### Proposed

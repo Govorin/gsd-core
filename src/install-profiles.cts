@@ -64,6 +64,8 @@ const { composeWorkflow: _composeWorkflow } = workflowFragmentsModule as {
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import installModelOverrideResolver = require('./install-model-override-resolver.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import mnAgentTools = require('./mn-agent-tools.cjs');
 
 // ---------------------------------------------------------------------------
 // Profile definitions
@@ -968,8 +970,9 @@ interface AgentCtx {
  * agent loop in bin/install.js exactly:
  *   1. applyAgentPathRewrites   (4 base ~/.claude/ regexes; skipped for copilot/antigravity)
  *   2. processAttribution       (Co-Authored-By policy)
- *   3. appendAgentTools         (#4032: validated agent_tools grants, before host conversion)
- *   4. converter                (runtime-specific frontmatter/body transform)
+ *   3. appendAgentTools         (#4032: validated agent_tools grants, before host conversion;
+ *      fork: capability-declared grants first, ADR-5210)
+ *   4. converter               (runtime-specific frontmatter/body transform)
  *   5. applyAgentFrontmatterExtensions (#2875 Part 2: effort/disallowedTools,
  *      gated by hostBehaviors.agentFrontmatterExtensions — no-op for a runtime
  *      that declares nothing, e.g. every non-Claude runtime today)
@@ -1027,6 +1030,7 @@ function stageAgentsForRuntimeWithConverter(
     // Resolve cmdNames once per staging call (not per file) for performance.
     const cmdNames = agentCtx ? _readGsdCommandNames() : [];
     const agentTools = installModelOverrideResolver.readGsdEffectiveAgentTools(agentCtx?.projectDir ?? agentCtx?.targetDir ?? null);
+    const capabilityTools = mnAgentTools.readCapabilityAgentTools(agentCtx?.projectDir ?? agentCtx?.targetDir ?? null);
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       if (!entry.name.endsWith('.md')) continue;
@@ -1047,6 +1051,7 @@ function stageAgentsForRuntimeWithConverter(
       content = _composeWorkflow(content, { sourcePath: agentSourcePath });
       const agentName = _deriveAgentName(entry.name);
       const grants = [
+        ...mnAgentTools.grantsForAgent(capabilityTools, agentName),
         ...(agentTools?.['*'] || []),
         ...(agentTools?.[agentName] || []),
       ];

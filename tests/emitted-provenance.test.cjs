@@ -375,7 +375,9 @@ test('#4482 runtime-note-filtered command and skill surfaces declare their conve
 });
 
 test('a rule with no transforms field still returns an empty array, never undefined', () => {
-  const got = attributeEmittedPath('agents/gsd-planner.agent.md', 'copilot');
+  // Fork (ADR-5210): copilot-agent-rename now carries the capability-grant
+  // transforms, so the exemplar is Kimi's subagent rule, which still has none.
+  const got = attributeEmittedPath('agents/subagents/gsd-planner.yaml', 'kimi');
   assert.deepEqual(got.transforms, [], 'absence of transforms must be a stable empty array, not undefined');
 });
 

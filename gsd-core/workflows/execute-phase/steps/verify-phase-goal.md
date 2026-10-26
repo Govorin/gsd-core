@@ -145,6 +145,7 @@ Read these files before verification:
 - {phase_dir}/*-PLAN.md (All plans — understand intent, check must_haves)
 - {phase_dir}/*-SUMMARY.md (All summaries — cross-reference claimed vs actual)
 - {requirements_path} (Requirement traceability)
+- ~/.claude/gsd-core/references/verifier-spec-contract.md (Phase contract: every SPEC `AC-n` is a truth; `truths_unproven` goes in the frontmatter, even at 0)
 ${CONTEXT_WINDOW >= 500000 ? `- {phase_dir}/*-CONTEXT.md (User decisions — verify they were honored)
 - {phase_dir}/*-RESEARCH.md (Known pitfalls — check for traps)
 - Prior VERIFICATION.md files from earlier phases (regression check)

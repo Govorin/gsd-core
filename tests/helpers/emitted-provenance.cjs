@@ -154,6 +154,15 @@ const KIMI_ROOT_AGENT_SRC = 'src/runtime-artifact-layout.cts';
  * diff the output against the raw repo source, confirm which file's absence/presence
  * changes the bytes.
  */
+// Fork (ADR-5210): capability-declared grants are appended to agents' tools: at
+// staging, so the declaration and the module applying it move every listed
+// agent's emitted bytes — the Copilot `.agent.md` rename included — without
+// touching its agents/*.md source.
+const FORK_AGENT_GRANT_SRCS = [
+  'src/mn-agent-tools.cts',
+  'capabilities/mn-code-navigation/capability.json',
+];
+
 const AGENT_TRANSFORM_SRCS = [
   'src/runtime-artifact-conversion.cts',
   'src/install-effort-resolver.cts',
@@ -163,6 +172,7 @@ const AGENT_TRANSFORM_SRCS = [
   // derivation), so a change there moves every emitted agents/*.toml without
   // touching any agents/*.md source.
   'src/codex-agent-toml.cts',
+  ...FORK_AGENT_GRANT_SRCS,
 ];
 
 // #3738: antigravity's global skills pass through the antigravity converter
@@ -358,6 +368,7 @@ const PROVENANCE_RULES = [
     roots: ['agents'],
     pattern: /^([^/]+)\.agent\.md$/,
     sources: (m) => [`agents/${m[1]}.md`],
+    transforms: FORK_AGENT_GRANT_SRCS,
   },
 
   // ── Derived from another repo file ─────────────────────────────────────────

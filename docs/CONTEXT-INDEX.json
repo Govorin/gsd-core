@@ -1,8 +1,9 @@
 {
   "schemaVersion": 1,
-  "count": 321,
+  "count": 322,
   "classes": {
     "ARCH": 1,
+    "CAPABILITY": 1,
     "CI": 2,
     "CONFIG": 5,
     "CONTENT-ROOT": 6,
@@ -33,6 +34,11 @@
       "id": "ARCH.SKILL.improve-codebase.next-candidates",
       "klass": "ARCH",
       "value": "[Workstream Progress Projection Module]"
+    },
+    {
+      "id": "CAPABILITY.AGENT_TOOLS",
+      "klass": "CAPABILITY",
+      "value": "capability.json agentTools {grants: string[], agents: string[]} — read ONLY from the frozen first-party registry (capability-registry.cjs), never the installed overlay; grants go FIRST in the appendAgentTools list (then agent_tools \"*\", then agent_tools.<agent>), before the runtime converter, so each converter's MCP policy is unchanged; a .compact stem gets its agent's grants; a grant already on the line is not added twice; the capability's activationKey gates it (nearest .planning/config.json, then ~/.gsd/defaults.json, then the key's declared default; only false disables); a malformed block contributes nothing; agents/*.md never carries a declared grant (tests/mn-code-navigation.install.test.cjs)"
     },
     {
       "id": "CI.GATE.changeset-lint",

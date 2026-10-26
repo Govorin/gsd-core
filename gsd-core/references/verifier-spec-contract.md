@@ -1,8 +1,10 @@
 # Verifier: SPEC contract and `truths_unproven`
 
-Loaded by `gsd-verifier` on demand: at Step 2a-bis when the phase has a `{phase}-SPEC.md`, and at
-Step 9 when computing the frontmatter. Both rules hold for every phase — they are part of the core
-verification contract, not of an optional capability.
+Handed to `gsd-verifier` through the phase-verification spawn prompt's `<required_reading>`
+(`gsd-core/workflows/execute-phase/steps/verify-phase-goal.md`), so the agent file stays upstream's
+bytes (ADR-5210). Apply the first rule right after Step 2a (roadmap truths) when the phase has a
+`{phase}-SPEC.md`, and the second at Step 9 when computing the frontmatter. Both rules hold for every
+phase — they are part of the core verification contract, not of an optional capability.
 
 ## Step 2a-bis — SPEC Acceptance Criteria as `spec_truths`
 
@@ -27,6 +29,8 @@ Same non-reduction rule as the roadmap contract: plans may ADD truths, never sub
 ```
 truths_unproven: total_truths - verified_truths   # everything not positively proven
 ```
+
+Write it in the VERIFICATION.md frontmatter next to `score` and `behavior_unverified`.
 
 **`truths_unproven` is mandatory and must always be emitted, including when it is `0`.** It is the
 single number a `ship:pre` gate can compare against, and `score` cannot serve that role: `"6/7"` is a

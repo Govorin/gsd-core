@@ -1,7 +1,7 @@
 ---
 name: gsd-mempalace-curator
 description: Ship-time MemPalace curation — writes the session diary, proposes/creates cross-project tunnels, mirrors extract-learnings into the temporal KG, and runs wing-scoped drawer pruning. Spawned at ship:post by the mempalace capability.
-tools: Read, Bash, Grep, Glob, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Bash, Grep, Glob
 color: cyan
 ---
 

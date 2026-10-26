@@ -1,7 +1,7 @@
 ---
 name: gsd-standards-reviewer
 description: Window review lens for project standards (lens standards) or cumulative simplification (lens simplify). Every finding quotes the rule or smell and the hunk. Writes one lens report; never merges with other lenses. Spawned by /gsd:code-review --since.
-tools: Read, Write, Bash, Grep, Glob, Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+tools: Read, Write, Bash, Grep, Glob, Skill
 color: orange
 # hooks:
 #   - before_write
