@@ -949,6 +949,52 @@ attribution against `upstream/next` green.
 `phase-plan-index 118`, `find-phase 118`, `planning inspect` — no key removed or renamed, no value
 type changed; one key added, `smart-entry` `signals.milestone_phases`.
 
+### Code-navigation grants at install time (2026-10-26)
+
+Branch `feat/install-time-agent-tools` from `e5a06ccd7` (tip of `sync/upstream-1.18`). Closes the
+owner decision recorded in the 1.18 sync above with option 1. ADR-5210.
+
+- **What moved.** The fork wrote `mcp__atlas__*`, `mcp__plugin_serena_serena__*`,
+  `mcp__codebase-memory-mcp__*` into the `tools:` line of 63 agent files (37 agents, 26 `.compact`)
+  and into `FORK_CODE_NAV_TOOLS` in `scripts/research-profiles.cjs`. They are now declared once, in
+  `capabilities/mn-code-navigation/capability.json` `agentTools: { grants, agents }`, and appended by
+  `stageAgentsForRuntimeWithConverter` before the converter, ahead of the user's `agent_tools`
+  (`src/mn-agent-tools.cts`). Every `tools:` line of an upstream agent matches upstream again (the
+seven fork-only agents lost the suffix too), and so do
+  `research-profiles.cjs` and the `docs/reference/agents.md` Tools rows. `code_navigation.enabled:
+  false` (project config or `~/.gsd/defaults.json`) followed by a reinstall drops them.
+- **Why a capability and not `agent_tools`.** `agent_tools` is user config: a fresh machine would
+  install without the grants, and the repo would not record which agents need them. Only the frozen
+  first-party registry is read, so ADR-1244 D2 (an overlay never widens a first-party agent) holds.
+- **No runtime list.** The converters already own MCP policy and saw these exact grants before, so
+  the capability is `runtimeCompat: ["*"]` and every runtime's output is unchanged.
+- **Verifier.** `agents/gsd-verifier.md` = upstream bytes (49 109 B, under LARGE 49 152;
+  `agent-size-budget` green). The SPEC-AC / `truths_unproven` contract reaches it through the
+  `<required_reading>` of the spawn prompt in `execute-phase/steps/verify-phase-goal.md`, which
+  the agent's `mandatory-initial-read.md` obliges it to read. Quick and quick-batch spawns are not
+  handed it: only the phase `ship:pre` gate reads `truths_unproven`.
+- **Parity proof.** A full install of all 19 families on `e5a06ccd7` and on the branch: the only
+  model-facing agent whose bytes changed is `gsd-verifier` (the body moved; its `tools:` set is the
+  same). The other changes are the raw corpus `gsd-core/agents/` (now canonical lines), lib,
+  reference, the step file and the manifests. Tool-set mismatches on native agents: 0. (The scripts
+  were `/tmp/gsd-parity/snapshot.cjs` + `compare.cjs`, not committed. The lasting guard is
+  `tests/mn-code-navigation.install.test.cjs`.)
+- **Emitted attribution.** `tests/helpers/emitted-provenance.cjs` names `src/mn-agent-tools.cts`
+  and the capability as agent transforms, for the Copilot `.agent.md` rename too. 43 growth acks
+  for agents back at upstream size are withdrawn with `Emitted-Drift-Ack-Withdraw-Growth` in
+  `61b34b4e8`.
+- **Test edits.** `agent-descriptor-parity` oracle gains the grant step, read from the declaration
+  itself (`capability.json`, not the module). `live-dom-uat` drops the code-navigation allowlist
+  that `cd8f7615c` added, since the canonical executor no longer carries them. The
+  `emitted-provenance` "no transforms" exemplar moves from Copilot's rename rule to Kimi's subagent
+  rule.
+
+**Not done / open:** an upstream rewrite of the `verifier_dispatch` prompt in
+`verify-phase-goal.md` has to keep the contract line (`tests/mn-verifier-contract-pointer.test.cjs`
+fails if it is lost). Upstream's `agent_tools` selector does not match `.compact` stems
+(`deriveAgentName` keeps `.compact`); the capability path handles them, but the upstream gap is
+left alone.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
