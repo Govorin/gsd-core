@@ -21,6 +21,14 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** `gsd_run check mn-wave-solve <phase> [--expand]` */
 export function evaluateMnWaveSolve(input: MnGateInput): GateResult {
@@ -30,7 +38,7 @@ export function evaluateMnWaveSolve(input: MnGateInput): GateResult {
     const analysis = analyzeWaveSolve(input.projectDir, phaseDir, mode);
     if ('unreadable' in analysis) return mnUnreadable(`mn-wave-solve: ${analysis.unreadable}`, { phaseDir, mode });
     if ('cycle' in analysis) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-wave-solve: dependency cycle among ${analysis.cycle.join(', ')} — a cyclic graph has no wave assignment, and inventing one would be worse than none`,
         { phaseDir, mode, cycle: analysis.cycle },
       );

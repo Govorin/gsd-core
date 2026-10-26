@@ -22,12 +22,15 @@
  *
  *   pass          `block: false`, `status: 'pass'`
  *   finding       `block: true`,  `status: 'finding'` — the gate looked and found a defect
- *   unresolvable  `block: true`,  `status: 'unresolvable'` — the gate could not look (no phase, an
- *                 unreadable file, a tool that would not run). The fail-closed half of the old
- *                 scripts' exit 2: "did not check" never reads as "checked and clean". Since the 1.18
- *                 sync it is upstream's typed outcome `unreadable` (#5170, ADR-5057 §4): the verb
- *                 exits 69 (UNAVAILABLE) with this payload, and the dispatcher routes it by the gate's
- *                 `onError` — `halt` for every mn gate — never by its `block`.
+ *   unresolvable  `block: true`,  `status: 'unresolvable'` — the gate could not judge. The fail-closed
+ *                 half of the old scripts' exit 2: "did not check" never reads as "checked and clean".
+ *                 Two outcomes, drawn where upstream's gate-evidence draws them (#5170, ADR-5057 §4):
+ *                 - a state the user fixes — no record yet, a stale one, nothing configured, a base
+ *                   not measured — is a DELIVERED blocking verdict (outcome `block`, exit 0), so the
+ *                   dispatch reaches step 2 and shows the message and its accept path;
+ *                 - a read that failed (EACCES, EIO), a tool that would not run, a phase that cannot
+ *                   be found, a crashed body — outcome `unreadable`: the verb exits 69 (UNAVAILABLE)
+ *                   with this payload, routed by the gate's `onError` (`halt` for every mn gate).
  *
  * Each gate module builds its own three verdicts with `gateVerdict` / `gateUnreadable` over
  * `mnPayload`, so its failing arms are visible in its own file to the positive-control lint (#5204);

@@ -54,6 +54,14 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 export interface DeclaredSignature {
   name: string;
@@ -256,7 +264,7 @@ export function computeContractDrift(phaseDir: string, root: string): GateResult
   const unreadable: string[] = [];
   const files = collectSourceFiles(root, unreadable);
   if (files.length === 0) {
-    return mnUnreadable(`mn-contract-drift: no .ts/.tsx sources under ${root} — cannot verify ${declared.length} declared signature(s)`, {
+    return mnUnresolvedBlock(`mn-contract-drift: no .ts/.tsx sources under ${root} — cannot verify ${declared.length} declared signature(s)`, {
       phaseDir,
       designFile,
       declared: declared.length,

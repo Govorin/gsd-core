@@ -62,8 +62,9 @@ function baseline(dir, args = []) {
 function gate(dir, phaseArg = '3') {
   const result = runNode([TOOLS, 'check', 'mn-baseline', phaseArg, '--raw', '--cwd', dir], { cwd: dir });
   const payload = json(result);
-  const expected = payload.status === 'unresolvable' ? exitCodeFor('UNAVAILABLE') : 0;
-  assert.equal(result.exitCode, expected, `status ${payload.status}: ${result.stdout}${result.stderr}`);
+  // 0 for every delivered verdict (a fixable could-not-judge state included); 69 only for could-not-look.
+  const allowed = payload.status === 'unresolvable' ? [0, exitCodeFor('UNAVAILABLE')] : [0];
+  assert.ok(allowed.includes(result.exitCode), `exit ${result.exitCode} with status ${payload.status}: ${result.stdout}${result.stderr}`);
   return payload;
 }
 

@@ -41,6 +41,14 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** How a baseline is recorded — named in every verdict that needs one. */
 export const ASSERTION_BASELINE_COMMAND = 'gsd_run mn assertion-baseline';
@@ -74,17 +82,17 @@ export function evaluateMnAssertionRatchet(input: MnGateInput, deps: MnAssertion
     const repoRoot = projectRoots(input.projectDir, deps.git).content;
     const read = readAssertionBaseline(repoRoot);
     if (!read.ok) {
-      return mnUnreadable(
-        `mn-assertion-ratchet: ${read.message} — nothing to compare against. Record one with \`${ASSERTION_BASELINE_COMMAND}\`.`,
-        { baselineFile: read.path, baselineProblem: read.reason },
-      );
+      const message = `mn-assertion-ratchet: ${read.message} — nothing to compare against. Record one with \`${ASSERTION_BASELINE_COMMAND}\`.`;
+      const details = { baselineFile: read.path, baselineProblem: read.reason };
+      // No baseline yet is a state the user fixes by recording one; a baseline that cannot be read is not.
+      return read.reason === 'missing' ? mnUnresolvedBlock(message, details) : mnUnreadable(message, details);
     }
     const baselineFile = read.path;
 
     const roots = DEFAULT_ROOTS.map((root) => path.join(repoRoot, root));
     const current = countAssertions(roots);
     if (current.files === 0) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-assertion-ratchet: no spec files found under [${roots.join(', ')}] (repository root ${repoRoot}) — ` +
           'a walk that finds nothing measured nothing.',
         { baselineFile, repoRoot, roots },

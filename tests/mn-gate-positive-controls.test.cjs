@@ -13,7 +13,10 @@
  */
 
 const path = require('node:path');
+const { describe, test } = require('node:test');
+const assert = require('node:assert/strict');
 const { gateControl, put, git } = require('./helpers/gate-positive-control.cjs');
+const { createTempGitProject, cleanup, runGsdTools } = require('./helpers.cjs');
 
 const LIB = path.join(__dirname, '..', 'gsd-core', 'bin', 'lib');
 const verifyGates = require(path.join(LIB, 'verify-gates.cjs'));
@@ -44,29 +47,29 @@ function commitAll(dir, message) {
 }
 
 /** One check result in the recorder's shape. */
-const checkResult = (name, passed) => ({
+const checkResult = (name, passed, status = passed ? 'pass' : 'fail') => ({
   name,
-  status: passed ? 'pass' : 'fail',
+  status,
   passed,
-  exitCode: passed ? 0 : 1,
+  exitCode: status === 'stale' ? null : passed ? 0 : 1,
   durationMs: 1,
-  cause: '',
+  cause: status === 'stale' ? 'not_found' : '',
 });
 
 /** Record `gates:` into the phase's VERIFICATION.md the way `verify gates` does. */
-function recordGates(dir, passed) {
+function recordGates(dir, passed, status) {
   put(dir, `${PHASE}/.keep`, '');
-  const gates = verifyGates.buildGatesFrontmatter([checkResult('tests', passed)], '2026-10-25T00:00:00.000Z');
+  const gates = verifyGates.buildGatesFrontmatter([checkResult('tests', passed, status)], '2026-10-25T00:00:00.000Z');
   verifyGates.recordGates(verifyGates.verificationPathFor(path.join(dir, PHASE)), gates);
 }
 
 /** Configure one check and record its baseline the way `verify baseline` does (digest of this tree). */
-function recordBaseline(dir, passed) {
+function recordBaseline(dir, passed, status) {
   put(dir, '.planning/config.json', JSON.stringify({ workflow: { verify_gates: { tests: 'npm test' } } }));
   put(dir, `${PHASE}/.keep`, '');
   commitAll(dir, 'chore: base');
   const checks = [{ name: 'tests', command: 'npm test' }];
-  const measured = verifyGates.buildGatesFrontmatter([checkResult('tests', passed)], '2026-10-25T00:00:00.000Z');
+  const measured = verifyGates.buildGatesFrontmatter([checkResult('tests', passed, status)], '2026-10-25T00:00:00.000Z');
   const phaseDir = path.join(dir, PHASE);
   verifyGates.recordFrontmatterBlock(baselinePathFor(phaseDir), BASELINE_RECORD_KEY, { ...measured, digest: baselineDigest(dir, checks) }, {
     suffix: '-BASELINE.md',
@@ -365,3 +368,47 @@ gateControl({
   greenScenario: { git: true, setup: architectureDesign(['IThingRepository']), args: [ARCH_PHASE] },
 });
 
+
+// ── A fixable state is a delivered verdict, not "could not look" ────────────────────────────────────
+//
+// The gate hosts (execute-pre-gate-hooks.md, ship.md, wave-post-gate-hooks.md, plan-phase.md) treat a
+// non-zero exit at step 1 as "command error" and never show GATE_RESULT.message. So a state the user
+// fixes — no record, a stale one, a base not measured — must exit 0 with block: true and its remedy in
+// the message (the accept command, for the baseline), and reach step 2. 69 is kept for a read that
+// failed and a phase that cannot be found (tests/mn-gate-dispatch.test.cjs).
+
+const baselineGate = require('../gsd-core/bin/lib/gate-mn-baseline.cjs');
+const verifyGatesGate = require('../gsd-core/bin/lib/gate-mn-verify-gates.cjs');
+const mutationGate = require('../gsd-core/bin/lib/gate-mn-mutation-spot-check.cjs');
+
+const configured = (dir) => put(dir, '.planning/config.json', JSON.stringify({ workflow: { verify_gates: { tests: 'npm test' } } }));
+
+const FIXABLE_STATES = [
+  { verb: 'mn-baseline', state: 'no baseline recorded', setup: (dir) => { configured(dir); put(dir, `${PHASE}/.keep`, ''); }, remedy: baselineGate.recordStep('01') },
+  { verb: 'mn-baseline', state: 'nothing configured to measure', setup: (dir) => put(dir, `${PHASE}/.keep`, ''), remedy: null },
+  { verb: 'mn-baseline', state: 'a baseline of other code', setup: (dir) => { recordBaseline(dir, true); put(dir, 'src/new.ts', 'x\n'); }, remedy: baselineGate.recordStep('01'), expect: { stale: true } },
+  { verb: 'mn-baseline', state: 'a base not measured', setup: (dir) => recordBaseline(dir, false, 'stale'), remedy: baselineGate.acceptHint('01'), expect: { unmeasured: ['tests'] } },
+  { verb: 'mn-verify-gates', state: 'no VERIFICATION.md', setup: (dir) => put(dir, `${PHASE}/.keep`, ''), remedy: verifyGatesGate.recordStep('01') },
+  { verb: 'mn-verify-gates', state: 'no gates: record', setup: (dir) => put(dir, `${PHASE}/01-VERIFICATION.md`, '---\nphase: 01\nstatus: passed\n---\n'), remedy: verifyGatesGate.recordStep('01') },
+  { verb: 'mn-verify-gates', state: 'a check not measured', setup: (dir) => recordGates(dir, false, 'stale'), remedy: null, expect: { unmeasured: ['tests'] } },
+  { verb: 'mn-mutation-spot-check', state: 'no VERIFICATION.md', setup: (dir) => put(dir, `${PHASE}/.keep`, ''), remedy: mutationGate.RUN_STEP },
+  { verb: 'mn-mutation-spot-check', state: 'no mutation: record', setup: (dir) => put(dir, `${PHASE}/01-VERIFICATION.md`, '---\nphase: 01\n---\n'), remedy: mutationGate.RUN_STEP },
+  { verb: 'mn-mutation-spot-check', state: 'a record of other code', setup: (dir) => { recordMutation(dir, MUTATION_STATUS.PASSED); put(dir, 'src/a.ts', 'export const a = 2;\n'); }, remedy: mutationGate.RUN_STEP, expect: { stale: true } },
+];
+
+describe('fork gates: a fixable could-not-judge state is a delivered block with its remedy', () => {
+  for (const c of FIXABLE_STATES) {
+    test(`${c.verb}: ${c.state} exits 0, blocks, and names what to run`, (t) => {
+      const dir = createTempGitProject('gsd-mn-fixable-');
+      t.after(() => cleanup(dir));
+      c.setup(dir);
+      const r = runGsdTools(['check', c.verb, '01', '--raw'], dir);
+      assert.equal(r.exitCode, 0, `a fixable state must reach the host's step 2, not its "command error": ${r.error}`);
+      const payload = JSON.parse(r.output);
+      assert.deepEqual([payload.block, payload.status], [true, 'unresolvable']);
+      assert.equal(typeof payload.message, 'string');
+      if (c.remedy !== null) assert.ok(payload.message.includes(c.remedy), `the message must name ${c.remedy}: ${payload.message}`);
+      for (const [key, value] of Object.entries(c.expect || {})) assert.deepEqual(payload[key], value, key);
+    });
+  }
+});

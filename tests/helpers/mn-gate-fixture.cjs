@@ -61,9 +61,10 @@ function writeWorkflowConfig(projectDir, workflow) {
 
 /**
  * Run `gsd-tools check <verb> <args...> --raw` in `projectDir` and return the parsed payload.
- * A delivered verdict (pass or finding) exits 0. "Could not check" (`status: 'unresolvable'`) is
- * outcome `unreadable` since #5170 and exits 69 (UNAVAILABLE) with the same payload — the dispatcher
- * routes it by `onError`. Any other exit, or a 69 without that status, fails the assertion.
+ * A delivered verdict exits 0: pass, finding, and a fixable could-not-judge state (no record, a stale
+ * one — `status: 'unresolvable'`, block: true, its remedy in the message). A read that failed or a
+ * phase that cannot be found is outcome `unreadable` since #5170 and exits 69 (UNAVAILABLE) with the
+ * same `unresolvable` payload. Any other exit, or a 69 without that status, fails the assertion.
  */
 function runMnCheck(projectDir, verb, args = []) {
   const r = runGsdTools(['check', verb, ...args, '--raw'], projectDir);
@@ -71,7 +72,9 @@ function runMnCheck(projectDir, verb, args = []) {
   const payload = JSON.parse(r.output);
   assert.equal(typeof payload.block, 'boolean', 'the payload must carry block');
   assert.equal(typeof payload.message, 'string', 'the payload must carry message');
-  assert.equal(r.exitCode === UNAVAILABLE_EXIT, payload.status === 'unresolvable', `check ${verb}: exit ${r.exitCode} with status ${payload.status} — only could-not-check exits ${UNAVAILABLE_EXIT}`);
+  if (r.exitCode === UNAVAILABLE_EXIT) {
+    assert.equal(payload.status, 'unresolvable', `check ${verb}: exit ${UNAVAILABLE_EXIT} is could-not-look, got status ${payload.status}`);
+  }
   return payload;
 }
 

@@ -806,8 +806,9 @@ describe('verify gates — the enforce gate tells red from stale', () => {
     const result = runNode([TOOLS, 'check', 'mn-verify-gates', phaseDir, '--raw', '--cwd', dir], { cwd: dir });
     assert.equal(result.outcome, OUTCOME.EXITED, result.stderr);
     const payload = JSON.parse(result.stdout);
-    const expected = payload.status === 'unresolvable' ? exitCodeFor('UNAVAILABLE') : 0;
-    assert.equal(result.exitCode, expected, `status ${payload.status}: ${result.stdout}${result.stderr}`);
+    // 0 for every delivered verdict (a fixable could-not-judge state included); 69 only for could-not-look.
+    const allowed = payload.status === 'unresolvable' ? [0, exitCodeFor('UNAVAILABLE')] : [0];
+    assert.ok(allowed.includes(result.exitCode), `exit ${result.exitCode} with status ${payload.status}: ${result.stdout}${result.stderr}`);
     return payload;
   }
 

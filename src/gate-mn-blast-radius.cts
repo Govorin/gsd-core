@@ -97,6 +97,14 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { listMilestonePhaseDirs } = phaseLocatorMod;
 
 /** The git seam — the resolver's own runner type, so its exit-code reading (1 = "no") holds. */
@@ -248,7 +256,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
   }
   const planFiles = [...scan.allPlanFiles].sort();
   if (planFiles.length === 0) {
-    return mnUnreadable(`mn-blast-radius: no PLAN.md in ${phaseRel} — the phase declared nothing to compare against`, { phaseDir, plans: 0 });
+    return mnUnresolvedBlock(`mn-blast-radius: no PLAN.md in ${phaseRel} — the phase declared nothing to compare against`, { phaseDir, plans: 0 });
   }
 
   const declared = new Map<string, string[]>();
@@ -261,7 +269,7 @@ export function computeBlastRadius(projectDir: string, phaseDir: string, options
     }
   }
   if (declared.size === 0) {
-    return mnUnreadable(
+    return mnUnresolvedBlock(
       `mn-blast-radius: ${planFiles.length} PLAN.md file(s) in ${phaseRel}, none carrying files_modified — ` +
         'refusing to report "no drift" against an empty declaration',
       { phaseDir, plans: planFiles.length, declared: 0 },

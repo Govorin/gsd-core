@@ -41,15 +41,25 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { extractFrontmatter } = frontmatterMod;
 
 const { readChecks, recordedChecks, recordedList, judgeRecordedChecks, describeCheck } = verifyGates;
 
-function recordStep(phaseArg: string): string {
+/** The remedy a missing or stale baseline names: record it. */
+export function recordStep(phaseArg: string): string {
   return `run \`gsd_run verify baseline ${mnPhaseCliArg(phaseArg)}\` (the execute:pre step)`;
 }
 
-function acceptHint(phaseArg: string): string {
+/** The acceptance command a red or unmeasured base offers (execute-pre-gate-hooks.md step 2). */
+export function acceptHint(phaseArg: string): string {
   return `\`gsd_run verify baseline ${mnPhaseCliArg(phaseArg)} --accept "<why this base is acceptable>"\``;
 }
 
@@ -58,13 +68,13 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
   return withMnPhase('mn-baseline', input, ({ phaseDir, phaseArg }) => {
     const config = readChecks(input.projectDir);
     if (!config.ok) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-baseline: workflow.verify_gates is set but cannot be run (${config.problems.join('; ')}) — repair it before measuring a baseline`,
         { phaseDir, problems: config.problems },
       );
     }
     if (config.checks.length === 0) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         'mn-baseline: workflow.verify_gates names no checks, so there is no baseline to measure — name the project\'s checks ' +
           `(gsd_run query config-set workflow.verify_gates '{"tests":"npm test"}') or turn workflow.verify_gates_baseline off`,
         { phaseDir, recorded: false },
@@ -73,14 +83,14 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
 
     const baselinePath = baselinePathFor(phaseDir);
     const recordFile = readTextEvidence(baselinePath);
-    if (recordFile.kind === 'none') return mnUnreadable(`mn-baseline: no ${baselinePath} — ${recordStep(phaseArg)}`, { baselinePath, recorded: false });
+    if (recordFile.kind === 'none') return mnUnresolvedBlock(`mn-baseline: no ${baselinePath} — ${recordStep(phaseArg)}`, { baselinePath, recorded: false });
     if (recordFile.kind === 'unreadable') {
       return mnUnreadable(`mn-baseline: could not read ${baselinePath} (${recordFile.reason})`, { baselinePath, recorded: false, readError: recordFile.reason });
     }
     const text = recordFile.value;
     const raw = (extractFrontmatter(text) as Record<string, unknown>)[BASELINE_RECORD_KEY];
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
-      return mnUnreadable(`mn-baseline: ${baselinePath} carries no baseline: record — ${recordStep(phaseArg)}`, {
+      return mnUnresolvedBlock(`mn-baseline: ${baselinePath} carries no baseline: record — ${recordStep(phaseArg)}`, {
         baselinePath,
         recorded: false,
       });
@@ -89,7 +99,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
     const ranAt = typeof record['ran_at'] === 'string' ? record['ran_at'] : 'undated';
 
     if (record['digest'] !== baselineDigest(input.projectDir, config.checks, git)) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-baseline: the baseline (${ranAt}) was measured on other code or with other checks — ` +
           `the tree outside .planning/ or workflow.verify_gates changed since; ${recordStep(phaseArg)}`,
         { baselinePath, recorded: true, stale: true, ranAt },
@@ -115,7 +125,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
     };
 
     if (checks.length === 0) {
-      return mnUnreadable(`mn-baseline: ${baselinePath} records no checks — ${recordStep(phaseArg)}`, details);
+      return mnUnresolvedBlock(`mn-baseline: ${baselinePath} records no checks — ${recordStep(phaseArg)}`, details);
     }
     const alsoUnmeasured = unmeasured.length > 0 ? ` Not measured either: ${unmeasured.map(describeCheck).join('; ')}.` : '';
     if (red.length > 0) {
@@ -127,7 +137,7 @@ export function evaluateMnBaseline(input: MnGateInput, git?: GitRunner): GateRes
       );
     }
     if (unmeasured.length > 0) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-baseline: the base is unmeasured — ${unmeasured.map(describeCheck).join('; ')}. A check that cannot run is a ` +
           'stale roster, not a red one: repair workflow.verify_gates (or raise the budget of a check that timed out), or ' +
           `accept it knowingly: ${acceptHint(phaseArg)}.`,

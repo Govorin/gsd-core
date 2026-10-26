@@ -36,7 +36,7 @@
  */
 
 import path from 'node:path';
-import { gateUnreadable, gateVerdict } from './gate-verdict.cjs';
+import { gateVerdict } from './gate-verdict.cjs';
 import type { GateResult, GateVerdict } from './gate-verdict.cjs';
 import { MN_GATE_STATUS, mnPayload, withMnPhase } from './gate-mn-support.cjs';
 import type { MnGateInput } from './gate-mn-support.cjs';
@@ -51,9 +51,13 @@ function mnPass(message: string, details: Record<string, unknown> = {}): GateVer
 function mnFinding(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.FINDING, message, details));
 }
-/** Could not look: outcome `unreadable` (exit 69, routed by the gate's `onError`), blocking. */
-function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
-  return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
 const { collectAuditUat } = uatMod;
 
@@ -74,7 +78,7 @@ export function evaluateMnUatOpen(input: MnGateInput): GateResult {
   return withMnPhase('mn-uat-open', { projectDir: input.projectDir, args }, ({ phaseDir }) => {
     const report = collectAuditUat(input.projectDir);
     if (report === null) {
-      return mnUnreadable('mn-uat-open: the project has no phases directory — audit-uat has nothing to read', { phaseDir });
+      return mnUnresolvedBlock('mn-uat-open: the project has no phases directory — audit-uat has nothing to read', { phaseDir });
     }
     const phaseName = path.basename(phaseDir);
     const scoped = allPhases ? report.results : report.results.filter((entry) => entry.phase_dir === phaseName);

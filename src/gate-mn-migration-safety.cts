@@ -60,6 +60,14 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 
 /** The git seam — injected so tests can drive failures without a broken git on the host. */
 export interface MigrationSafetyDeps {
@@ -404,7 +412,7 @@ export function evaluateMnMigrationSafety(input: MnGateInput, deps: MigrationSaf
     const repoRoot = top.trim();
     const base = resolveBase(deps, cwd, parsed.base, notes);
     if (base === null) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         'mn-migration-safety: no comparison base — an empty change list from a base that does not exist is indistinguishable from a clean phase',
         { phaseDir, strict, notes },
       );

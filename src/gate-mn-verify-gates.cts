@@ -37,17 +37,30 @@ function mnFinding(message: string, details: Record<string, unknown> = {}): Gate
 function mnUnreadable(message: string, details: Record<string, unknown> = {}): GateVerdict {
   return gateUnreadable(true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
 }
+/**
+ * Could not judge yet, for a reason the user fixes (no record, a stale one, nothing configured or
+ * measured): a DELIVERED blocking verdict — exit 0, so the gate dispatch shows its message and its
+ * accept path (step 2). `mnUnreadable` (exit 69) is for a read that failed, never for an absence.
+ */
+function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {}): GateVerdict {
+  return gateVerdict('block', true, mnPayload(MN_GATE_STATUS.UNRESOLVABLE, message, details));
+}
 const { extractFrontmatter } = frontmatterMod;
 
 const { verificationPathFor, recordedChecks, judgeRecordedChecks, describeCheck } = verifyGates;
 
+/** The remedy a missing record, or an unmeasured check, names: (re-)record the gates. */
+export function recordStep(phaseArg: string): string {
+  return `run \`gsd_run verify gates ${mnPhaseCliArg(phaseArg)}\` (the verify:pre step) first`;
+}
+
 /** `gsd_run check mn-verify-gates <phase>` */
 export function evaluateMnVerifyGates(input: MnGateInput): GateResult {
   return withMnPhase('mn-verify-gates', input, ({ phaseDir, phaseArg }) => {
-    const runStep = `run \`gsd_run verify gates ${mnPhaseCliArg(phaseArg)}\` (the verify:pre step) first`;
+    const runStep = recordStep(phaseArg);
     const verificationPath = verificationPathFor(phaseDir);
     const recordFile = readTextEvidence(verificationPath);
-    if (recordFile.kind === 'none') return mnUnreadable(`mn-verify-gates: no ${verificationPath} — ${runStep}`, { verificationPath, recorded: false });
+    if (recordFile.kind === 'none') return mnUnresolvedBlock(`mn-verify-gates: no ${verificationPath} — ${runStep}`, { verificationPath, recorded: false });
     if (recordFile.kind === 'unreadable') {
       return mnUnreadable(`mn-verify-gates: could not read ${verificationPath} (${recordFile.reason})`, { verificationPath, recorded: false, readError: recordFile.reason });
     }
@@ -55,7 +68,7 @@ export function evaluateMnVerifyGates(input: MnGateInput): GateResult {
     const raw = (extractFrontmatter(text) as Record<string, unknown>)['gates'];
     if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
       // An absent measurement is not a green one.
-      return mnUnreadable(`mn-verify-gates: ${verificationPath} carries no gates: record — ${runStep}`, {
+      return mnUnresolvedBlock(`mn-verify-gates: ${verificationPath} carries no gates: record — ${runStep}`, {
         verificationPath,
         recorded: false,
       });
@@ -74,7 +87,7 @@ export function evaluateMnVerifyGates(input: MnGateInput): GateResult {
     };
 
     if (checks.length === 0) {
-      return mnUnreadable(`mn-verify-gates: the gates: record in ${verificationPath} names no checks — ${runStep}`, details);
+      return mnUnresolvedBlock(`mn-verify-gates: the gates: record in ${verificationPath} names no checks — ${runStep}`, details);
     }
     const alsoUnmeasured = unmeasured.length > 0 ? ` Not measured either: ${unmeasured.map(describeCheck).join('; ')}.` : '';
     if (judgement.red.length > 0) {
@@ -85,7 +98,7 @@ export function evaluateMnVerifyGates(input: MnGateInput): GateResult {
       );
     }
     if (unmeasured.length > 0) {
-      return mnUnreadable(
+      return mnUnresolvedBlock(
         `mn-verify-gates: ${unmeasured.length} check(s) were not measured — ${unmeasured.map(describeCheck).join('; ')}. ` +
           'A check that cannot run proves nothing either way: repair workflow.verify_gates (or the budget of a check ' +
           'that timed out) and re-record.',
