@@ -688,53 +688,103 @@ describe('end to end from a JSONL fixture', () => {
 // ─── Fingerprints (ADR-5209 §10) ──────────────────────────────────────────────
 
 describe('signal fingerprints: the same friction across sessions and checkouts', () => {
-  const wall = (wt) => `This session is isolated in the worktree ${wt}; cd into another checkout is refused`;
-  /** A session hitting the worktree wall twice, starting from `firstCommand`, inside worktree `wt`. */
-  function session(firstCommand, wt, error = wall(wt)) {
+  const wall = (wt, why = 'but this command changes directory to the shared checkout') => `This session is isolated in the worktree ${wt}, ${why}`;
+  /** A session hitting `error` twice with Bash, starting from `firstCommand`. */
+  function errorSignal(firstCommand, error, opts = {}) {
     const b = builder();
-    b.call('Bash', { command: firstCommand }, { ok: false, text: error });
-    b.call('Bash', { command: 'git status' }, { ok: false, text: error });
-    return signalsOf(run(b), 'repeated-tool-error')[0];
+    b.call(opts.tool ?? 'Bash', opts.tool ? { file_path: firstCommand } : { command: firstCommand }, { ok: false, text: error });
+    b.call(opts.tool ?? 'Bash', opts.tool ? { file_path: opts.second ?? firstCommand } : { command: opts.second ?? 'git status' }, { ok: false, text: error });
+    return signalsOf(rs.computeRetroSignals({ transcript: b.transcript(), projectRoots: opts.roots ?? [] }), 'repeated-tool-error')[0];
   }
+  const fp = (s) => s.fingerprint;
 
   test('the same wall from another first command in another worktree: another id, the same fingerprint', () => {
-    const a = session('cd ~/IdeaProjects/mn-wt-121-12/libs/polyglot && cat x', '~/IdeaProjects/mn/.claude/worktrees/polyglot');
-    const b = session('cd /Users/someone/IdeaProjects/mn && git worktree add -b wt/132 ~/IdeaProjects/mn-wt-132', '/Users/someone/IdeaProjects/mn/.claude/worktrees/other');
+    const a = errorSignal('cd ~/IdeaProjects/mn-wt-121-12/libs/polyglot && cat x', wall('~/IdeaProjects/mn/.claude/worktrees/polyglot-autonomous'));
+    const b = errorSignal('cd /Users/someone/IdeaProjects/mn && git worktree add -b wt/132 ~/IdeaProjects/mn-wt-132', wall('/Users/someone/IdeaProjects/mn/.claude/worktrees/zeta'));
     assert.notEqual(a.id, b.id);
     assert.notEqual(a.key, b.key);
-    assert.match(a.fingerprint, /^repeated-tool-error:[0-9a-f]{10}$/);
-    assert.equal(a.fingerprint, b.fingerprint);
+    assert.match(fp(a), /^repeated-tool-error:[0-9a-f]{10}$/);
+    assert.deepEqual([fp(a), a.fingerprintWeak], [fp(b), false]);
   });
 
-  test('a different error is a different fingerprint, and so is another tool with the same error', () => {
-    const a = session('cd ~/x && ls', '~/wt');
-    const other = session('cd ~/x && ls', '~/wt', 'Permission denied: the file is read-only');
-    assert.notEqual(a.fingerprint, other.fingerprint);
-    const b = builder();
-    b.call('Write', { file_path: '~/x' }, { ok: false, text: wall('~/wt') });
-    b.call('Write', { file_path: '~/y' }, { ok: false, text: wall('~/wt') });
-    assert.notEqual(signalsOf(run(b), 'repeated-tool-error')[0].fingerprint, a.fingerprint);
+  test('the text after the path tells two walls apart', () => {
+    const wt = '~/IdeaProjects/mn/.claude/worktrees/p';
+    assert.notEqual(fp(errorSignal('ls', wall(wt))), fp(errorSignal('ls', wall(wt, 'but this command runs sed with a value computed at runtime'))));
   });
 
-  test('an old bundle\'s key implies the same fingerprint the signal now carries', () => {
-    const a = session('cd ~/IdeaProjects/mn && wc -l notes.md', '~/IdeaProjects/mn/.claude/worktrees/polyglot');
-    assert.equal(rs.signalFingerprint(a.kind, rs.fingerprintBasisFromKey(a.kind, a.key)), a.fingerprint);
+  test('every number is masked alike, whatever its length', () => {
+    assert.equal(fp(errorSignal('ls', 'Request failed after 3 retries on attempt 12')), fp(errorSignal('ls', 'Request failed after 4 retries on attempt 99999')));
+  });
+
+  test('errors that differ past the 90th character are two frictions; past BASIS_MAX they are one', () => {
+    const head = 'Validation failed for the configuration because the schema requires a field that is missing: ';
+    assert.ok(head.length > 90);
+    assert.notEqual(fp(errorSignal('ls', `${head}alpha`)), fp(errorSignal('ls', `${head}omega`)));
+    const long = 'x '.repeat(rs.BASIS_MAX);
+    assert.equal(fp(errorSignal('ls', `${long}alpha`)), fp(errorSignal('ls', `${long}omega`)));
+  });
+
+  test('weak errors are flagged and kept apart by what the masking hid and by the call', () => {
+    const cases = [
+      ['bare exit code, two commands', ['npm test', 'Exit code 1'], ['git push', 'Exit code 1']],
+      ['exit code and a path, two files', ['npm test', 'Exit code 1 /repo/a.spec.ts'], ['npm test', 'Exit code 1 /repo/b.spec.ts']],
+      ['FAIL and a path, two files', ['npm test', 'FAIL /repo/src/a.spec.ts'], ['npm test', 'FAIL /repo/src/b.spec.ts']],
+      ['command failed, two subcommands', ['make', 'Error: Command failed: /usr/bin/git push'], ['make', 'Error: Command failed: /usr/bin/git fetch']],
+      ['file does not exist, two files', ['cat', 'File does not exist. Current working directory: /repo/a.md'], ['cat', 'File does not exist. Current working directory: /repo/b.md']],
+      ['URL, two hosts', ['curl', 'https://registry.example.com/x'], ['curl', 'https://other.example.org/x']],
+    ];
+    for (const [name, [c1, e1], [c2, e2]] of cases) {
+      const a = errorSignal(c1, e1, { second: c1 });
+      const b = errorSignal(c2, e2, { second: c2 });
+      assert.notEqual(fp(a), fp(b), name);
+      if (name !== 'command failed, two subcommands') assert.deepEqual([a.fingerprintWeak, b.fingerprintWeak], [true, true], name);
+    }
+    const strong = errorSignal('ls', wall('~/wt'));
+    assert.equal(strong.fingerprintWeak, false);
+  });
+
+  test('a call is its first command that does something; git is its subcommand', () => {
+    assert.notEqual(rs.shellBasis('cd /a && rm -rf build'), rs.shellBasis('cd /b && git push --force'));
+    assert.equal(rs.shellBasis('cd /a && rm -rf build'), rs.shellBasis('cd ~/elsewhere; rm -rf build'));
+    assert.equal(rs.shellBasis('S=/tmp/x; export P=1 && FOO=bar npm test'), 'npm test');
+    assert.notEqual(rs.shellBasis('git -C /a status'), rs.shellBasis('git -C /b push'));
+    assert.equal(rs.shellBasis('git -C /a -c core.x=1 --no-pager push origin --force'), 'git push --force');
+    assert.equal(rs.shellBasis('cd /a'), 'cd');
+  });
+
+  test('a file tool is the file\'s place and extension', () => {
+    const roots = ['/repo'];
+    assert.notEqual(rs.callBasis('Write', { filePath: '/repo/a.ts' }, roots), rs.callBasis('Write', { filePath: '/etc/hosts' }, roots));
+    assert.equal(rs.callBasis('Write', { filePath: '/repo/a.ts' }, roots), rs.callBasis('Write', { filePath: '/repo/deep/b.ts' }, roots));
+    assert.notEqual(rs.callBasis('Write', { filePath: '/repo/a.ts' }, roots), rs.callBasis('Write', { filePath: '/repo/a.md' }, roots));
+    assert.equal(rs.fileBasis('~/notes.md', roots), 'home .md');
   });
 
   test('a denial is the form of the call refused, not its arguments; a correction has none', () => {
-    const deny = (command) => {
+    const deny = (input, tool = 'Bash') => {
       const b = builder();
-      b.call('Bash', { command }, { ok: false, text: 'Permission to use Bash has been denied', denial: 'permission-rule' });
-      return signalsOf(run(b), 'permission-denial')[0];
+      b.call(tool, input, { ok: false, text: 'Permission to use it has been denied', denial: 'permission-rule' });
+      return signalsOf(rs.computeRetroSignals({ transcript: b.transcript(), projectRoots: ['/repo'] }), 'permission-denial')[0];
     };
-    assert.equal(deny('cd ~/a/b && cat x').fingerprint, deny('cd /Users/q/c; git log').fingerprint);
-    assert.notEqual(deny('cd ~/a/b && cat x').fingerprint, deny('rm -rf ~/a').fingerprint);
+    assert.equal(fp(deny({ command: 'cd ~/a/b && cat x' })), fp(deny({ command: 'cd /Users/q/c; cat y' })));
+    assert.notEqual(fp(deny({ command: 'cd ~/a/b && rm -rf build' })), fp(deny({ command: 'cd ~/a/b && git push --force' })));
+    assert.notEqual(fp(deny({ file_path: '/repo/a.ts' }, 'Write')), fp(deny({ file_path: '/etc/hosts' }, 'Write')));
     const c = builder().prompt('нет, не так');
     assert.equal(signalsOf(run(c), 'user-correction')[0].fingerprint, null);
   });
 
-  test('maskPaths masks ~/…, absolute paths and a cut-off path', () => {
+  test('an old bundle\'s key implies the fingerprint the signal carries when the key was not cut', () => {
+    const a = errorSignal('cd ~/IdeaProjects/mn && wc -l notes.md', 'Permission denied while reading the lock file');
+    const legacy = rs.fingerprintBasisFromKey(a.kind, a.key);
+    assert.equal(rs.signalFingerprint(a.kind, legacy.basis), a.fingerprint);
+  });
+
+  test('maskPaths masks ~/…, absolute and Windows paths, keeps URLs', () => {
     assert.equal(rs.maskPaths('cd ~/IdeaProjects/mn && cat /etc/hosts "/tmp/a b" ~/x…'), 'cd <path> && cat <path> "<path> b" <path>');
-    assert.equal(rs.commandBasis('Bash cd ~/a && cat x'), 'Bash cd <path>');
+    assert.equal(rs.maskPaths('open C:\\Users\\me\\x.ts or see https://example.com/a/b'), 'open <path> or see https://example.com/a/b');
+    assert.equal(rs.maskVolatile('see https://example.com/a/b at 12'), 'see <url> at N');
+    assert.equal(rs.isWeakBasis('Exit code N'), true);
+    assert.equal(rs.isWeakBasis('File does not exist. <path>'), true);
+    assert.equal(rs.isWeakBasis('This session is isolated in the worktree <path>'), false);
   });
 });

@@ -61,8 +61,10 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { tryWithinRootLexical } from './security.cjs';
 import { execGit as execGitSeam } from './shell-command-projection.cjs';
 import type { SpawnResultOutput } from './shell-command-projection.cjs';
 import { excerpt } from './session-transcript.cjs';
@@ -245,6 +247,8 @@ export interface RetroSignal {
    * with no subject (a correction, a compaction). See `signalFingerprint`.
    */
   fingerprint: string | null;
+  /** The basis said nothing specific once masked (`Exit code 1`, a URL, only paths): shown on recurrence, never enforced. */
+  fingerprintWeak: boolean;
   /** Where it happened — the first `MAX_POINTERS` occurrences. */
   pointers: SignalPointer[];
   excerpt: string | null;
@@ -529,6 +533,8 @@ interface Group {
   key: string | null;
   /** What the fingerprint hashes: the group's identity without its scope; the key unless a kind says otherwise. */
   basis: string | null;
+  /** The basis is weak (`isWeakBasis`). */
+  weak?: boolean;
   occurrences: Occurrence[];
   /** Repetition kinds: the threshold; instance kinds: 1. */
   min: number;
@@ -538,7 +544,7 @@ function tptr(ev: TranscriptEvent): SignalPointer {
   return { source: 'transcript', ...ev.ptr };
 }
 
-function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds): Group[] {
+function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds, roots: readonly string[] = []): Group[] {
   const instances: Group[] = [];
   const keyed = new Map<string, Group>();
   const events = transcript.events;
@@ -552,13 +558,13 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
   // while `key` is only its capped display form.
   function keyedHit(
     kind: SignalKind, key: string, min: number, index: number, text: string | null,
-    opts: { identity?: string; crossFile?: boolean; basis?: string } = {},
+    opts: { identity?: string; crossFile?: boolean; basis?: string; weak?: boolean } = {},
   ): void {
     const scope = opts.crossFile ? '' : events[index].ptr.file;
     const id = `${kind}\u0000${scope}\u0000${opts.identity ?? key}`;
     let g = keyed.get(id);
     if (!g) {
-      g = { kind, key, basis: opts.basis ?? key, min, occurrences: [] };
+      g = { kind, key, basis: opts.basis ?? key, weak: opts.weak === true, min, occurrences: [] };
       keyed.set(id, g);
     }
     g.occurrences.push({ index, ptr: tptr(events[index]), text });
@@ -717,7 +723,8 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
         if (!ev.isError) return;
         const subject = use ? `${use.tool} ${normalizeKey(use.input['command'] ?? filePathOf(use) ?? '', 80)}`.trim() : (ev.tool ?? 'tool');
         // A denial is about the kind of call refused, not this call's arguments.
-        const denied = commandBasis(subject);
+        const call = use ? callBasis(use.tool, { command: use.input['command'], filePath: filePathOf(use) }, roots) : (ev.tool ?? 'tool');
+        const denied = call;
         if (ev.denial === 'user-rejected') {
           instance(SIGNAL_KIND.ToolRejected, i, subject, null, denied);
         } else if (ev.denial === 'permission-rule' || ev.denial === 'other') {
@@ -728,10 +735,12 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
           // a path guessed three ways). The key shows the first call.
           const err = errorKey(ev.text);
           const tool = use?.tool ?? ev.tool ?? '';
+          // The error before any cut: a long path must not push the words that name the error off the end.
+          const fb = toolErrorBasis(tool, errorHead(ev.text), call);
           keyedHit(SIGNAL_KIND.RepeatedToolError, `${subject} → ${err}`, t.repeatErrorMin, i, ev.text, {
             identity: `${tool}\u0000${err}`,
-            // The error before any cut: a long path must not push the words that name the error off the end.
-            basis: `${tool}\u0000${errorBasis(errorHead(ev.text))}`,
+            basis: fb.basis ?? undefined,
+            weak: fb.weak,
           });
         }
         if ((ev.tool === 'Agent' || ev.tool === 'Task') && GAPS_FOUND_RE.test(ev.text)) {
@@ -783,7 +792,7 @@ export interface RetroSignalReport {
   signals: RetroSignal[];
   /** Signals past `max_signals`, by id — listed, never dropped silently. */
   /** Signals cut past `retro.max_signals`: enough to cite and to recognise again, no key or text. */
-  omitted: Array<{ id: string; kind: SignalKind; score: number; count: number; fingerprint: string | null }>;
+  omitted: Array<{ id: string; kind: SignalKind; score: number; count: number; fingerprint: string | null; fingerprintWeak: boolean }>;
 }
 
 /** How much session there was to have friction in. */
@@ -847,67 +856,209 @@ function pointerString(p: SignalPointer): string {
   return p.commit;
 }
 
+const URL_RE = /\b[a-z][a-z0-9+.-]*:\/\/[^\s'"`<>)]+/gi;
+const WIN_PATH_RE = /(^|[\s'"`=(:,])[A-Za-z]:\\[^\s'"`);|&]*/g;
+const HOME_PATH_RE = /~\/[^\s'"`);|&]*/g;
+const ABS_PATH_RE = /(^|[\s'"`=(:,])\/[^\s'"`);|&]+/g;
+
 /**
- * Every path in a subject masked to `<path>`: `~/…`, absolute paths, and the
- * home directory. A worktree root, a project root and a temp directory all
- * differ between sessions and checkouts while the friction is the same.
+ * Every path in a text masked to `<path>`: `~/…`, absolute POSIX paths and
+ * Windows paths (`C:\…`). A worktree root, a project root and a temp
+ * directory all differ between sessions and checkouts while the friction is
+ * the same. URLs are left as they are (`maskVolatile` masks them for a
+ * fingerprint).
  */
 export function maskPaths(text: string): string {
+  const urls: string[] = [];
   return text
-    .replace(/~\/[^\s'"`);|&]*/g, '<path>')
-    .replace(/(^|[\s'"`=(:,])\/[^\s'"`);|&]+/g, '$1<path>')
+    .replace(URL_RE, (u) => { urls.push(u); return `\u0001${urls.length - 1}\u0001`; })
+    .replace(HOME_PATH_RE, '<path>')
+    .replace(ABS_PATH_RE, '$1<path>')
+    .replace(WIN_PATH_RE, '$1<path>')
     .replace(/<path>…/g, '<path>')
+    .replace(/\u0001(\d+)\u0001/g, (_m, i: string) => urls[Number(i)])
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-const ERROR_BASIS_MAX = 90;
-const ERROR_BASIS_TAIL = 40;
-
-/**
- * What an error is, apart from where: the error text, paths masked, up to its
- * first path — the error is said before the path in nearly every message
- * ("isolated in the worktree <path>", "ENOENT: …, open <path>") — or, when
- * the path comes first, with a little of what follows ("<path>: Permission
- * denied"); without a path, its first 90 characters. Cutting at the first
- * path is also what makes an old bundle's key, cut at 100 characters before
- * any masking, give the same basis as the full text does now.
- */
-export function errorBasis(errorText: string): string {
-  const m = maskPaths(errorText).replace(/…$/, '');
-  const at = m.indexOf('<path>');
-  if (at < 0) return m.slice(0, ERROR_BASIS_MAX).trim();
-  const before = m.slice(0, at);
-  const tail = before.trim().length < 12 ? m.slice(at + '<path>'.length, at + '<path>'.length + ERROR_BASIS_TAIL) : '';
-  return `${before}<path>${tail}`.trim();
+/** The last segment of a path, for the weak form of a basis (`foo.spec.ts`). */
+function pathName(p: string): string {
+  const parts = p.replace(/…$/, '').split(/[\\/]/).filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : '<path>';
 }
 
-/** A command's form: the tool and the first three words of its first shell segment, paths masked. */
+/**
+ * What changes between sessions masked, for a fingerprint: URLs (`<url>`, or
+ * `<url:host>` with `keepNames`), paths (`<path>`, or their last segment with
+ * `keepNames`), every number (`N`, whatever its length), shell variables
+ * (`$V`). A trailing cut mark is dropped.
+ */
+export function maskVolatile(text: string, opts: { keepNames?: boolean } = {}): string {
+  const keep = opts.keepNames === true;
+  return text
+    .replace(URL_RE, (u) => (keep ? `<url:${(/^[a-z][a-z0-9+.-]*:\/\/([^/\s?#]+)/i.exec(u) ?? ['', '?'])[1]}>` : '<url>'))
+    .replace(HOME_PATH_RE, (m) => (keep ? pathName(m) : '<path>'))
+    .replace(ABS_PATH_RE, (m: string, pre: string) => `${pre}${keep ? pathName(m.slice(pre.length)) : '<path>'}`)
+    .replace(WIN_PATH_RE, (m: string, pre: string) => `${pre}${keep ? pathName(m.slice(pre.length)) : '<path>'}`)
+    .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, '$V')
+    .replace(/\d+/g, 'N')
+    .replace(/<path>…/g, '<path>')
+    .replace(/…$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** A basis is hashed up to this length: errors differing past it are one friction. */
+export const BASIS_MAX = 200;
+
+/** Words that say nothing about which friction it was. */
+const NON_WORDS = new Set([
+  'exit', 'code', 'error', 'errors', 'fail', 'failed', 'failure', 'fatal', 'warning', 'command', 'file', 'files',
+  'does', 'not', 'no', 'such', 'or', 'directory', 'exist', 'exists', 'enoent', 'at', 'in', 'on', 'of', 'the', 'a',
+  'an', 'to', 'is', 'was', 'and', 'with', 'for', 'n', 'v', 'path', 'url', 'current', 'working', 'cwd', 'open',
+  'read', 'write', 'found', 'cannot', 'could', 'unable',
+]);
+
+/**
+ * A weak basis tells nothing about which friction it was once the volatile
+ * parts are masked: a bare `Exit code N`, a URL, or nothing but paths and
+ * filler words (`File does not exist. <path>`, `Error: Command failed:
+ * <path>`). Its fingerprint is kept apart by what the masking hid (file
+ * names, the URL's host, the call), and recurrence shows it without
+ * enforcing anything (ADR-5209 §10).
+ */
+export function isWeakBasis(masked: string): boolean {
+  if (/^Exit code N$/i.test(masked)) return true;
+  if (/<url>/.test(masked)) return true;
+  const words = masked.replace(/<path>|<url>/g, ' ').toLowerCase().split(/[^a-zа-яё]+/i).filter(Boolean);
+  return words.every(w => NON_WORDS.has(w));
+}
+
+/** An error's basis: its masked text, at most `BASIS_MAX` characters. */
+export function errorBasis(errorText: string): string {
+  return maskVolatile(errorText).slice(0, BASIS_MAX).trim();
+}
+
+const CD_RE = /^cd(\s|$)/;
+/** Commands whose first positional argument says what they do (`git push`, `npm test`). */
+const SUBCOMMAND_TOOLS = new Set(['git', 'npm', 'pnpm', 'yarn', 'npx', 'bun', 'bunx', 'docker', 'kubectl', 'gh', 'cargo', 'go', 'make', 'nx', 'gsd-tools', 'gsd_run', 'node']);
+const FORM_WORDS = 3;
+
+/** A command's form: its name, its flags, and for a tool with subcommands its first positional; never plain arguments. */
+function commandForm(words: readonly string[]): string {
+  const out = [words[0]];
+  let positional = SUBCOMMAND_TOOLS.has(path.basename(words[0])) ? 1 : 0;
+  for (const w of words.slice(1)) {
+    if (out.length >= FORM_WORDS) break;
+    if (w.startsWith('-')) out.push(w.split('=')[0]);
+    else if (positional > 0) { out.push(w); positional--; }
+  }
+  return out.join(' ');
+}
+const ASSIGN_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
+const GIT_OPTS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--exec-path', '--config-env']);
+
+/**
+ * A shell command's form: its first command that does something — leading
+ * `cd <dir>` segments, `export`/plain `VAR=…` assignments and assignment
+ * prefixes skipped — as its name, flags and (for a tool with subcommands) the
+ * subcommand, at most three words, volatile parts masked; for `git`, the
+ * subcommand after the global options (`git -C <dir> push` is `git push`).
+ * `cd <p> && rm -rf build` and `cd <q> && git push --force` are two frictions;
+ * `cat a` and `cat b` are one.
+ */
+export function shellBasis(command: string): string {
+  const segments = maskVolatile(command).split(/&&|\|\||;|\|/).map(seg => seg.trim()).filter(Boolean);
+  for (const seg of segments) {
+    let words = seg.split(' ');
+    if (words[0] === 'export') words = words.slice(1);
+    while (words.length > 0 && ASSIGN_RE.test(words[0])) words = words.slice(1);
+    if (words.length === 0 || CD_RE.test(words.join(' '))) continue;
+    if (words[0] === 'git') {
+      let i = 1;
+      while (i < words.length && words[i].startsWith('-')) {
+        const opt = words[i].split('=')[0];
+        i += GIT_OPTS_WITH_VALUE.has(opt) && !words[i].includes('=') ? 2 : 1;
+      }
+      return commandForm(['git', ...words.slice(i)]);
+    }
+    return commandForm(words);
+  }
+  return segments.length > 0 ? 'cd' : '';
+}
+
+const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Read']);
+
+/**
+ * Where a file a tool touched sits, as a fingerprint can say it: `project`
+ * (under one of `roots`, or relative), `home` (under the home directory) or
+ * `outside`, and its extension. `Write <project>/a.ts` and `Write /etc/hosts`
+ * are two frictions.
+ */
+export function fileBasis(filePath: string, roots: readonly string[], homeDir: string = os.homedir()): string {
+  const p = filePath.trim();
+  const ext = path.extname(p.replace(/…$/, '')).toLowerCase() || '(none)';
+  let where = 'outside';
+  const absolute = p.startsWith('/') || /^[A-Za-z]:\\/.test(p);
+  if (p.startsWith('~')) where = 'home';
+  else if (!absolute) where = 'project';
+  else if (roots.some(r => r && tryWithinRootLexical(p, r) !== null)) where = 'project';
+  else if (homeDir && tryWithinRootLexical(p, homeDir) !== null) where = 'home';
+  return `${where} ${ext}`;
+}
+
+/** The form of a call: a shell command's (`shellBasis`), a file tool's place and extension, else the tool. */
+export function callBasis(tool: string, input: { command?: string; filePath?: string | null }, roots: readonly string[] = []): string {
+  if (typeof input.command === 'string' && input.command.trim() !== '') return `${tool} ${shellBasis(input.command)}`.trim();
+  if (input.filePath && FILE_TOOLS.has(tool)) return `${tool} ${fileBasis(input.filePath, roots)}`;
+  return tool;
+}
+
+/** A command's form from a display subject `<tool> <command or path>` (an old bundle's key). */
 export function commandBasis(subject: string): string {
-  const masked = maskPaths(subject);
-  const first = masked.split(/&&|\|\||;|\|/)[0].trim();
-  return first.split(' ').slice(0, 4).join(' ');
+  const at = subject.indexOf(' ');
+  const tool = at < 0 ? subject : subject.slice(0, at);
+  const rest = at < 0 ? '' : subject.slice(at + 1);
+  return FILE_TOOLS.has(tool) ? callBasis(tool, { filePath: rest }) : callBasis(tool, { command: rest });
+}
+
+/** What a fingerprint hashes, and whether it is weak. */
+export interface FingerprintBasis {
+  basis: string | null;
+  weak: boolean;
+}
+
+/**
+ * A repeated tool error's basis: the tool and the masked error; a weak error
+ * keeps what the masking hid (file names, hosts) and adds the call's form, so
+ * `Exit code 1` after `npm test` and after `git push` stay apart.
+ */
+export function toolErrorBasis(tool: string, errorText: string, call: string): FingerprintBasis {
+  const err = errorBasis(errorText);
+  if (!isWeakBasis(err)) return { basis: `${tool}\u0000${err}`, weak: false };
+  return { basis: `${tool}\u0000${maskVolatile(errorText, { keepNames: true }).slice(0, BASIS_MAX)}\u0000${call}`, weak: true };
 }
 
 /**
  * The basis an old bundle's signal implies, for a signal recorded before
- * fingerprints were: its key as `toSignal` built it. A repeated tool error's
- * key is `<subject> → <error>`, and the basis is its tool and error; a denial's
- * is its command form; anything else, its key.
+ * fingerprints were: best effort from its key. A key is cut at 100 characters
+ * before any masking, so an error whose text goes on past a long path does not
+ * give the fingerprint the full text gives now; the fingerprints journaled on
+ * each run (RUNS.json) are what recurrence relies on.
  */
-export function fingerprintBasisFromKey(kind: string, key: string | null): string | null {
-  if (key === null) return null;
+export function fingerprintBasisFromKey(kind: string, key: string | null): FingerprintBasis {
+  if (key === null) return { basis: null, weak: false };
   if (kind === SIGNAL_KIND.RepeatedToolError) {
     const at = key.indexOf(' → ');
-    if (at < 0) return key;
-    const tool = key.slice(0, at).split(' ')[0];
-    return `${tool}\u0000${errorBasis(key.slice(at + 3))}`;
+    if (at < 0) return { basis: key, weak: false };
+    const subject = key.slice(0, at);
+    return toolErrorBasis(subject.split(' ')[0], key.slice(at + 3), commandBasis(subject));
   }
-  if (kind === SIGNAL_KIND.PermissionDenial || kind === SIGNAL_KIND.ToolRejected) return commandBasis(key);
-  return key;
+  if (kind === SIGNAL_KIND.PermissionDenial || kind === SIGNAL_KIND.ToolRejected) return { basis: commandBasis(key), weak: false };
+  return { basis: key, weak: false };
 }
 
-/** `kind:` + 10 hex of sha1 over the kind and the path-masked basis; null without a basis. */
+/** `kind:` + 10 hex of sha1 over the kind and the masked basis; null without a basis. */
 export function signalFingerprint(kind: string, basis: string | null | undefined): string | null {
   if (typeof basis !== 'string') return null;
   const masked = maskPaths(basis);
@@ -955,6 +1106,7 @@ function toSignal(g: Group, events: readonly TranscriptEvent[] | null, t: RetroT
     score,
     key: g.key,
     fingerprint: signalFingerprint(g.kind, g.basis),
+    fingerprintWeak: g.weak === true,
     pointers,
     excerpt: firstText ? excerpt(firstText, t.excerptChars) : null,
     window: first && first.ptr.source === 'transcript' ? windowFor(events, first.index, t.excerptWindow) : null,
@@ -970,6 +1122,8 @@ export interface ComputeRetroSignalsInput {
   thresholds?: Partial<RetroThresholds>;
   /** A degraded-runtime reason (session-transcript `transcriptSupport`), reported as-is. */
   transcriptUnavailable?: string | null;
+  /** The project's roots (the checkout and its main worktree): a file a tool touched there is `project` in a fingerprint. */
+  projectRoots?: readonly string[];
 }
 
 /**
@@ -994,7 +1148,7 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
       if (f.stats.oversizeLines > 0) reasons.push(`${f.file}: ${f.stats.oversizeLines} over-long line(s) skipped`);
       if (f.stats.malformedLines > 0) reasons.push(`${f.file}: ${f.stats.malformedLines} malformed line(s) skipped`);
     }
-    groups.push(...groupsFromTranscript(transcript, thresholds));
+    groups.push(...groupsFromTranscript(transcript, thresholds, input.projectRoots ?? []));
   } else if (input.transcriptUnavailable) {
     transcriptSource = 'degraded';
     reasons.push(input.transcriptUnavailable);
@@ -1047,6 +1201,6 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     scoreByKind,
     countsByKind,
     signals: all.slice(0, thresholds.maxSignals),
-    omitted: all.slice(thresholds.maxSignals).map(s => ({ id: s.id, kind: s.kind, score: s.score, count: s.count, fingerprint: s.fingerprint })),
+    omitted: all.slice(thresholds.maxSignals).map(s => ({ id: s.id, kind: s.kind, score: s.score, count: s.count, fingerprint: s.fingerprint, fingerprintWeak: s.fingerprintWeak })),
   };
 }
