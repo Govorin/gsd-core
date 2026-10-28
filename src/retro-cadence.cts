@@ -130,6 +130,10 @@ export interface RetroRun {
    * Absent on a run journaled before §10.
    */
   signals?: SignalFacts[];
+  /** The runtime and its version the retro's session ran (the transcript's record), as code read it. */
+  host?: { name: string | null; version: string | null };
+  /** The GSD version that ran `retro prepare`, or null. */
+  gsdVersion?: string | null;
 }
 
 /** Signals journaled on one run, at most. */
@@ -172,8 +176,17 @@ function appliedProblems(a: unknown): string[] {
   return problems;
 }
 
+/**
+ * The envelope version written. 2 since ADR-5209 §10 added `signals`,
+ * `applied`, `host` and `gsdVersion` to a run: a gsd-tools from before §10
+ * reads only version 1, so it refuses (journal-invalid, nothing rewritten)
+ * instead of rewriting the journal without the fields it does not know.
+ * Version 1 journals are still read; the next write upgrades them.
+ */
+export const RUNS_JOURNAL_VERSION = 2;
+
 export interface RunsJournal {
-  version: 1;
+  version: typeof RUNS_JOURNAL_VERSION;
   runs: RetroRun[];
 }
 
@@ -191,7 +204,7 @@ export function runsJournalPath(projectRoot: string): string {
 }
 
 function emptyRuns(): RunsJournal {
-  return { version: 1, runs: [] };
+  return { version: RUNS_JOURNAL_VERSION, runs: [] };
 }
 
 function boundedString(v: unknown): v is string {
@@ -208,6 +221,12 @@ export function runProblems(r: Partial<RetroRun> | null | undefined): string[] {
   if (r.milestone !== null && !boundedString(r.milestone)) problems.push(`milestone must be a version or null, got ${JSON.stringify(r.milestone)}`);
   if (!Array.isArray(r.executedPhases) || !r.executedPhases.every(boundedString)) problems.push('executedPhases must be an array of phase numbers');
   if (r.signals !== undefined) problems.push(...runSignalsProblems(r.signals));
+  if (r.host !== undefined) {
+    const h = r.host as { name?: unknown; version?: unknown } | null;
+    const ok = (v: unknown) => v === null || boundedString(v);
+    if (!h || typeof h !== 'object' || !ok(h.name) || !ok(h.version)) problems.push('host must be { name, version }, each a string or null');
+  }
+  if (r.gsdVersion !== undefined && !(r.gsdVersion === null || boundedString(r.gsdVersion))) problems.push('gsdVersion must be a version or null');
   if (r.applied !== undefined) {
     if (!Array.isArray(r.applied)) problems.push('applied must be an array');
     else r.applied.forEach((a, i) => { for (const p of appliedProblems(a)) problems.push(`applied[${i}]: ${p}`); });
@@ -227,8 +246,8 @@ export function parseRunsJournal(text: string): RunsJournalRead {
     return { status: 'invalid', journal: emptyRuns(), problems: [`RUNS.json is not JSON: ${(err as Error).message}`] };
   }
   const obj = parsed as { version?: unknown; runs?: unknown };
-  if (!obj || typeof obj !== 'object' || obj.version !== 1 || !Array.isArray(obj.runs)) {
-    return { status: 'invalid', journal: emptyRuns(), problems: ['RUNS.json must be { "version": 1, "runs": [...] }'] };
+  if (!obj || typeof obj !== 'object' || (obj.version !== 1 && obj.version !== RUNS_JOURNAL_VERSION) || !Array.isArray(obj.runs)) {
+    return { status: 'invalid', journal: emptyRuns(), problems: ['RUNS.json must be { "version": 1 | 2, "runs": [...] }'] };
   }
   const problems: string[] = [];
   const runs: RetroRun[] = [];
@@ -247,9 +266,11 @@ export function parseRunsJournal(text: string): RunsJournalRead {
       executedPhases: [...(r.executedPhases as string[])],
       ...(Array.isArray(r.applied) && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
       ...(Array.isArray(r.signals) ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+      ...(r.host ? { host: { name: r.host.name ?? null, version: r.host.version ?? null } } : {}),
+      ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion ?? null } : {}),
     });
   });
-  return { status: 'ok', journal: { version: 1, runs }, problems };
+  return { status: 'ok', journal: { version: RUNS_JOURNAL_VERSION, runs }, problems };
 }
 
 export function readRunsJournal(projectRoot: string): RunsJournalRead {
@@ -274,8 +295,10 @@ export function formatRunsJournal(journal: RunsJournal): string {
     // Written only when there is one: a journal nothing was applied from keeps its bytes.
     ...(r.applied && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
     ...(r.signals ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+    ...(r.host ? { host: { name: r.host.name, version: r.host.version } } : {}),
+    ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion } : {}),
   }));
-  return `${JSON.stringify({ version: 1, runs }, null, 2)}\n`;
+  return `${JSON.stringify({ version: RUNS_JOURNAL_VERSION, runs }, null, 2)}\n`;
 }
 
 export type RunsEdit = { ok: true; journal: RunsJournal } | { ok: false; reason: string };
@@ -283,7 +306,7 @@ export type RunsEdit = { ok: true; journal: RunsJournal } | { ok: false; reason:
 export function appendRun(journal: RunsJournal, run: RetroRun): RunsEdit {
   const problems = runProblems(run);
   if (problems.length > 0) return { ok: false, reason: problems.join('; ') };
-  return { ok: true, journal: { version: 1, runs: [...journal.runs, run] } };
+  return { ok: true, journal: { version: RUNS_JOURNAL_VERSION, runs: [...journal.runs, run] } };
 }
 
 // ─── Milestone facts ──────────────────────────────────────────────────────────
@@ -479,7 +502,13 @@ export function computeRetroDue(input: {
  * instant; with `signals`, the report's signal facts (at most
  * `MAX_RUN_SIGNALS`, in report order — highest score first).
  */
-export function runFor(stem: string, now: Date, facts: MilestoneFacts, signals?: readonly SignalFacts[]): RetroRun {
+export function runFor(
+  stem: string,
+  now: Date,
+  facts: MilestoneFacts,
+  signals?: readonly SignalFacts[],
+  machine?: { host: { name: string | null; version: string | null }; gsdVersion: string | null },
+): RetroRun {
   return {
     stem,
     at: now.toISOString(),
@@ -487,7 +516,14 @@ export function runFor(stem: string, now: Date, facts: MilestoneFacts, signals?:
     milestone: facts.milestone,
     executedPhases: executedPhaseNumbers(facts),
     ...(signals ? { signals: signals.slice(0, MAX_RUN_SIGNALS).map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+    ...(machine ? { host: { ...machine.host }, gsdVersion: machine.gsdVersion } : {}),
   };
+}
+
+/** The latest run journaled for `stem`, or null. */
+export function runOf(runs: readonly RetroRun[], stem: string): RetroRun | null {
+  for (let i = runs.length - 1; i >= 0; i--) if (runs[i].stem === stem) return runs[i];
+  return null;
 }
 
 /** stem → the signal facts its run journaled (the latest run of a stem wins); runs from before §10 carry none. */
@@ -556,7 +592,7 @@ export function recordApplied(
     const run = runs[index];
     if ((run.applied ?? []).some(a => a.candidate === entry.candidate)) return { recorded: false, already: true, refusal: null, problems: [] };
     const next = runs.map((r, i) => (i === index ? { ...r, applied: [...(r.applied ?? []), entry] } : r));
-    writeTextAtomic(file, formatRunsJournal({ version: 1, runs: next }));
+    writeTextAtomic(file, formatRunsJournal({ version: RUNS_JOURNAL_VERSION, runs: next }));
     return { recorded: true, already: false, refusal: null, problems: [] };
   }, lock);
   return locked.ok ? locked.value : { recorded: false, already: false, refusal: APPLIED_REFUSAL.LOCKED, problems: [locked.reason] };

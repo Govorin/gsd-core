@@ -252,7 +252,7 @@ describe('RUNS.json', () => {
   const run = runAt('2026-10-20T10:00:00.000Z', { executedPhases: ['1', '2'] });
 
   test('absent is an empty history; a recorded run reads back', () => {
-    assert.deepEqual(rc.readRunsJournal(project), { status: 'absent', journal: { version: 1, runs: [] }, problems: [] });
+    assert.deepEqual(rc.readRunsJournal(project), { status: 'absent', journal: { version: rc.RUNS_JOURNAL_VERSION, runs: [] }, problems: [] });
     assert.deepEqual(rc.recordRun(project, run), { recorded: true, problems: [] });
     const read = rc.readRunsJournal(project);
     assert.deepEqual([read.status, read.journal.runs], ['ok', [run]]);
@@ -469,5 +469,31 @@ describe('runs journal the signals a retro saw', () => {
     assert.deepEqual(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS) }), []);
     assert.equal(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS + 1) }).length, 1);
     assert.equal(rc.runProblems({ ...run, signals: [{ id: 'x', fingerprint: 'y', count: -1 }] }).length, 3);
+  });
+});
+
+describe('RUNS.json envelope version', () => {
+  test('a version 1 journal is read and the next write upgrades it to 2; 3 is invalid', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const run = runAt('2026-10-20T10:00:00.000Z');
+    fs.writeFileSync(file, JSON.stringify({ version: 1, runs: [run] }));
+    assert.deepEqual([rc.readRunsJournal(project).status, rc.readRunsJournal(project).journal.runs.length], ['ok', 1]);
+    rc.recordRun(project, runAt('2026-10-21T10:00:00.000Z', { stem: 'RETRO-2026-10-21' }));
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, 2);
+    assert.equal(rc.RUNS_JOURNAL_VERSION, 2);
+    fs.writeFileSync(file, JSON.stringify({ version: 3, runs: [] }));
+    assert.equal(rc.readRunsJournal(project).status, 'invalid');
+  });
+
+  test('a run keeps the runtime and GSD version code read; runOf finds the latest run of a stem', () => {
+    const f = facts({ executed: 0 });
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f, [], { host: { name: 'claude', version: '2.1.310' }, gsdVersion: '1.18.0' });
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    const [back] = rc.readRunsJournal(project).journal.runs;
+    assert.deepEqual([back.host, back.gsdVersion], [{ name: 'claude', version: '2.1.310' }, '1.18.0']);
+    assert.equal(rc.runOf([back], 'RETRO-2026-10-28'), back);
+    assert.equal(rc.runOf([back], 'RETRO-2026-10-29'), null);
+    assert.equal(rc.runProblems({ ...run, host: { name: 5, version: null } }).length, 1);
   });
 });

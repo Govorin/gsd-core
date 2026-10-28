@@ -977,12 +977,54 @@ describe('retro applied and recurring proposals', () => {
     assert.deepEqual(bundle.recurring.items.map((e) => [e.applied, e.appliedBy, e.escalate]), [[true, 'runs', false]]);
   });
 
-  test('a lesson recorded from a candidate counts as applied for that proposal', () => {
+  test('a gsd lesson is waiting for a fix, not applied; once fixed it is applied (and its recurrence a regression)', () => {
     const { prep, bundle } = prepareSession('sess-1', versionedRecords());
     const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
     writeCandidates(prep, [{ id: 'cand-1', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader', signals: [hook], target: 'agents/gsd-retro-analyst.md', change: 'c' }]);
-    assert.equal(retro(['lessons', 'record', '--candidate', 'cand-1'], project).json.outcome, 'created');
-    const later = prepareSession('sess-2', versionedRecords(3)).bundle;
-    assert.deepEqual(later.recurring.items.map((e) => [e.appliedBy, e.escalate]), [['lessons', false]]);
+    const id = retro(['lessons', 'record', '--candidate', 'cand-1'], project).json.lesson.id;
+    const waiting = prepareSession('sess-2', versionedRecords(3)).bundle;
+    assert.deepEqual(waiting.recurring.items.map((e) => [e.applied, e.appliedBy, e.lesson, e.escalate]), [[false, null, { id, status: 'open', layer: 'gsd' }, false]]);
+    retro(['lessons', 'close', '--id', id, '--status', 'fixed', '--fixed-in', '1.0.0'], project);
+    const fixed = prepareSession('sess-3', versionedRecords(3)).bundle;
+    assert.deepEqual(fixed.recurring.items.filter((e) => e.retro === prep.json.stem).map((e) => [e.applied, e.appliedBy, e.lesson.status]), [[true, 'lessons', 'fixed']]);
+  });
+
+  test('--apply reads the stem from the candidate lookup: --pick retro gives it', () => {
+    const { prep } = firstRetro();
+    const res = runGsdTools(['retro', 'candidates', '--id', 'cand-1', '--pick', 'retro'], project, { GSD_RUNTIME: 'claude', GSD_HOME: gsdHome });
+    assert.equal(res.success, true, res.error);
+    assert.equal(res.output.trim(), prep.json.stem);
+  });
+
+  test('without the .work bundle (a new clone): applied records, and lessons record takes evidence from the run', () => {
+    const { prep, bundle } = prepareSession('sess-1', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'medium', layer: 'project', category: 'navigation', title: 'pointer', signals: [hook], target: 'CLAUDE.md', change: 'c' },
+      { id: 'cand-2', severity: 'high', layer: 'host', category: 'environment', title: 'isolation', signals: [hook], target: `claude@${HOST_VERSION}: worktree isolation`, change: 'c' },
+    ]);
+    fs.unlinkSync(path.join(project, prep.json.bundle));
+    const a = retro(['applied', '--candidate', 'cand-1'], project);
+    assert.deepEqual([a.json.recorded, a.json.route], [true, 'capture']);
+    const v = retro(['candidates'], project);
+    assert.deepEqual([v.json.bundle, v.json.valid.map((c) => c.id)], [null, ['cand-2', 'cand-1']]);
+    const rec = retro(['lessons', 'record', '--candidate', 'cand-2'], project);
+    assert.equal(rec.json.outcome, 'created', rec.error);
+    const occ = JSON.parse(fs.readFileSync(lessonsFile(), 'utf8')).lessons[0].occurrences[0];
+    assert.deepEqual([occ.signals, occ.hostVersion, occ.date], [[hook], HOST_VERSION, prep.json.stem.slice(6, 16)]);
+  });
+
+  test('validation trusts the run, not the bundle the analyst can write: a forged host version or recurring list changes nothing', () => {
+    const { prep: first } = firstRetro();
+    const { prep, bundle } = prepareSession('sess-2', versionedRecords(3));
+    const now = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    const forged = { ...bundle, host: { name: 'claude', version: '9.9.9' }, recurring: { items: [], omitted: 0, unreadable: [] } };
+    fs.writeFileSync(path.join(project, prep.json.bundle), JSON.stringify(forged));
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'high', layer: 'host', category: 'environment', title: 'forged', signals: [now, `retro:${first.json.stem}:cand-1`], target: 'claude@9.9.9: x', change: 'c' },
+      { id: 'cand-2', severity: 'high', layer: 'project', category: 'navigation', title: 'uncited', signals: [now], target: 'CLAUDE.md', change: 'c' },
+    ]);
+    const r = retro(['candidates', '--retro', prep.json.stem], project);
+    assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), { 'cand-1': ['host-target-version'], 'cand-2': ['recurring-uncited'] });
   });
 });

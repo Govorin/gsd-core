@@ -349,6 +349,43 @@ describe('validateCandidates: the layer that owns the cause', () => {
     assert.deepEqual(codes(one(cand({ layer: 'host', target: 'claude: x' }), { layer: ctx({ hostName: null }) })), [ra.CANDIDATE_DROP.HOST_UNKNOWN]);
   });
 
+  test('user: a bare ~ or ~/ is no target; the main worktree of a linked one counts as the project', () => {
+    for (const target of ['~', '~/', '~//']) {
+      assert.deepEqual(codes(one(cand({ layer: 'user', target }))), [ra.CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME], target);
+    }
+    const main = path.join(home, 'main-repo');
+    const o = { layer: ctx({ projectRoots: [main] }) };
+    assert.deepEqual(codes(one(cand({ layer: 'user', target: '~/main-repo/CLAUDE.md' }), o)), [ra.CANDIDATE_DROP.USER_TARGET_IN_PROJECT]);
+    assert.equal(one(cand({ layer: 'user', target: '~/main-repo-other/x' }), o).valid.length, 1);
+  });
+
+  test('gsd: a directory of the install is not a target file', () => {
+    assert.deepEqual(codes(one(cand({ layer: 'gsd', target: 'gsd-core/references' }))), [ra.CANDIDATE_DROP.GSD_TARGET_MISSING]);
+  });
+
+  test('gsd and host: no path of this machine in the title or the change (it may be filed upstream)', () => {
+    const base = { layer: 'gsd', target: 'agents/gsd-retro-analyst.md' };
+    for (const [field, text] of [['title', 'refused in ~/IdeaProjects/mn'], ['change', 'call /Users/me/bin/x instead'], ['change', 'see (/tmp/x)']]) {
+      assert.deepEqual(codes(one(cand({ ...base, [field]: text }))), [ra.CANDIDATE_DROP.PRIVATE_PATH], text);
+    }
+    assert.deepEqual(codes(one(cand({ layer: 'host', target: 'claude@2.1.310: x', title: 'see ~/x' }))), [ra.CANDIDATE_DROP.PRIVATE_PATH]);
+    const inside = path.join(gsdRoot, 'agents', 'gsd-retro-analyst.md');
+    assert.equal(one(cand({ ...base, change: `edit ${inside} and gsd-core/references/x.md; 1/2 of calls` })).valid.length, 1, 'a path inside the GSD install and relative paths pass');
+    assert.equal(one(cand({ layer: 'project', change: 'edit ~/.claude/x by hand', target: 'CLAUDE.md' })).valid.length, 1, 'a project candidate is not filed upstream');
+  });
+
+  test('a lesson keeps title and target ≤ 300 and change ≤ 2000: limit, limit+1', () => {
+    const base = { layer: 'gsd', target: 'agents/gsd-retro-analyst.md' };
+    for (const [field, max] of [['title', 300], ['change', 2000]]) {
+      assert.equal(one(cand({ ...base, [field]: 'x'.repeat(max - 1) })).valid.length, 1, `${field} ${max - 1}`);
+      assert.equal(one(cand({ ...base, [field]: 'x'.repeat(max) })).valid.length, 1, `${field} ${max}`);
+      assert.deepEqual(codes(one(cand({ ...base, [field]: 'x'.repeat(max + 1) }))), [ra.CANDIDATE_DROP.FIELD_TOO_LONG], `${field} ${max + 1}`);
+    }
+    assert.deepEqual(codes(one(cand({ layer: 'host', target: `claude@2.1.310: ${'x'.repeat(300)}` }))), [ra.CANDIDATE_DROP.FIELD_TOO_LONG]);
+    assert.equal(one(cand({ layer: 'project', change: 'x'.repeat(5000) })).valid.length, 1, 'a project candidate is not journaled');
+    assert.deepEqual(ra.LESSON_TEXT_MAX, { target: 300, title: 300, change: 2000 });
+  });
+
   test('a retire-check is always project', () => {
     assert.deepEqual(codes(one(cand({ layer: 'gsd', category: 'retire-check', verify: 'x', target: 'agents/gsd-retro-analyst.md' }))), [ra.CANDIDATE_DROP.LAYER_CATEGORY]);
   });
@@ -392,14 +429,30 @@ describe('validateCandidates: the layer that owns the cause', () => {
   });
 });
 
+describe('validateCandidates: a recurring open lesson', () => {
+  test('a candidate whose friction is an open gsd lesson must cite it; a fixed or user one need not', () => {
+    const evidence = { signals: new Set(['hook-block:aaaaaaaaaa']), inventory: new Set(), checks: new Set(), lessons: new Set(['lesson-0123456789']), retros: new Set(['RETRO-2026-10-25:cand-1']) };
+    const opts = (lesson) => ({ projectRoot: project, patchesDir: '.planning/retro/patches/RETRO-2026-10-28', recurring: [{ retro: 'RETRO-2026-10-25', candidate: 'cand-1', signals: ['hook-block:aaaaaaaaaa'], escalate: false, lesson }] });
+    const c = (signals) => ({ version: 2, candidates: [{ id: 'cand-1', severity: 'low', layer: 'project', category: 'navigation', title: 't', change: 'c', signals }] });
+    const open = { id: 'lesson-0123456789', status: 'open', layer: 'gsd' };
+    const without = ['hook-block:aaaaaaaaaa', 'retro:RETRO-2026-10-25:cand-1'];
+    assert.deepEqual(ra.validateCandidates(c(without), evidence, opts(open)).dropped.map((d) => d.codes), [[ra.CANDIDATE_DROP.RECURRING_LESSON_UNCITED]]);
+    assert.equal(ra.validateCandidates(c([...without, 'lesson:lesson-0123456789']), evidence, opts(open)).valid.length, 1);
+    for (const lesson of [{ ...open, status: 'fixed' }, { ...open, layer: 'user' }, null]) {
+      assert.equal(ra.validateCandidates(c(without), evidence, opts(lesson)).valid.length, 1, JSON.stringify(lesson));
+    }
+  });
+});
+
 // ─── Earlier proposals ────────────────────────────────────────────────────────
 
 describe('signalFingerprint', () => {
-  test('the same kind and key across sessions; no key, no fingerprint', () => {
+  test('the same kind and basis across sessions, paths masked; no basis, no fingerprint', () => {
     const a = ra.signalFingerprint('hook-block', 'git stash is disabled');
-    assert.equal(ra.signalFingerprint('hook-block', 'git stash is disabled'), a);
+    assert.equal(ra.signalFingerprint('hook-block', 'git   stash is disabled'), a);
     assert.notEqual(ra.signalFingerprint('permission-denial', 'git stash is disabled'), a);
     assert.match(a, /^hook-block:[0-9a-f]{10}$/);
+    assert.equal(ra.signalFingerprint('hook-block', 'isolated in ~/wt/one'), ra.signalFingerprint('hook-block', 'isolated in /Users/x/wt/two'));
     assert.equal(ra.signalFingerprint('user-correction', null), null);
     assert.equal(ra.signalFingerprint('user-correction', '  '), null);
   });
@@ -414,7 +467,7 @@ describe('recurring proposals', () => {
     if (signals) fs.writeFileSync(path.join(project, p.bundle), JSON.stringify({ report: { signals, omitted: [] } }));
   }
   const old = { id: 'hook-block:1111111111', kind: 'hook-block', key: 'worktree isolation refused git -C', count: 7 };
-  const none = { runs: new Set(), checks: new Set(), lessons: new Set() };
+  const none = { runs: new Set(), checks: new Set(), lessons: new Map() };
 
   test('the same friction in a new session has a new id and is still recognised', () => {
     writeRetro('RETRO-2026-10-25', [{ id: 'cand-1', title: 'pointer in CLAUDE.md', signals: [old.id] }], [old]);
@@ -426,14 +479,32 @@ describe('recurring proposals', () => {
       [['RETRO-2026-10-25', 'cand-1', ['hook-block:2222222222'], 7, 68, false, true]]);
   });
 
-  test('applied (by any journal) never escalates; not grown never escalates', () => {
+  test('applied by runs, checks, a user lesson or a fixed lesson; an open gsd lesson is waiting, not applied', () => {
     writeRetro('RETRO-2026-10-25', [{ id: 'cand-1', title: 't', signals: [old.id] }], [old]);
     const past = ra.readPastProposals(project, null);
-    for (const src of ['runs', 'checks', 'lessons']) {
-      const applied = { ...none, [src]: new Set(['RETRO-2026-10-25:cand-1']) };
-      const [e] = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count: 99 }]), past, applied }).items;
-      assert.deepEqual([e.applied, e.appliedBy, e.escalate], [true, src, false], src);
+    const now = ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count: 99 }]);
+    const key = 'RETRO-2026-10-25:cand-1';
+    const lesson = (layer, status) => new Map([[key, { id: 'lesson-0123456789', layer, status }]]);
+    const cases = [
+      [{ ...none, runs: new Set([key]) }, true, 'runs', false],
+      [{ ...none, checks: new Set([key]) }, true, 'checks', false],
+      [{ ...none, lessons: lesson('user', 'open') }, true, 'lessons', false],
+      [{ ...none, lessons: lesson('gsd', 'fixed') }, true, 'lessons', false],
+      [{ ...none, lessons: lesson('gsd', 'open') }, false, null, false],
+      [{ ...none, lessons: lesson('host', 'wontfix') }, false, null, false],
+      [none, false, null, true],
+    ];
+    for (const [applied, isApplied, by, escalate] of cases) {
+      const [e] = ra.computeRecurring({ current: now, past, applied }).items;
+      assert.deepEqual([e.applied, e.appliedBy, e.escalate], [isApplied, by, escalate], JSON.stringify([...applied.lessons.values()]));
+      assert.deepEqual(e.lesson, applied.lessons.get(key) ?? null);
     }
+    assert.deepEqual([ra.lessonApplied({ layer: 'user', status: 'open' }), ra.lessonApplied({ layer: 'gsd', status: 'open' }), ra.lessonApplied({ layer: 'host', status: 'fixed' })], [true, false, true]);
+  });
+
+  test('not grown never escalates', () => {
+    writeRetro('RETRO-2026-10-25', [{ id: 'cand-1', title: 't', signals: [old.id] }], [old]);
+    const past = ra.readPastProposals(project, null);
     for (const count of [6, 7]) {
       const [e] = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count }]), past, applied: none }).items;
       assert.equal(e.escalate, false, `count ${count} against 7`);

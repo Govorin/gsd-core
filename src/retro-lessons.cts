@@ -36,8 +36,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { withJournalLock, defaultJournalLock, writeTextAtomic, isRetroStem } from './retro-artifacts.cjs';
-import type { JournalLock } from './retro-artifacts.cjs';
+import { withJournalLock, defaultJournalLock, writeTextAtomic, isRetroStem, parseHostTarget, LESSON_TEXT_MAX } from './retro-artifacts.cjs';
+import type { JournalLock, LessonRef } from './retro-artifacts.cjs';
+import { maskPaths } from './retro-signals.cjs';
+import { escapeRegex } from './pattern.cjs';
 
 // ─── Layout ───────────────────────────────────────────────────────────────────
 
@@ -115,7 +117,8 @@ export interface LessonsRead {
 }
 
 export const MAX_OCCURRENCE_SIGNALS = 20;
-const TEXT_MAX = Object.freeze({ target: 300, title: 300, change: 2000, project: 400, version: 64, draft: 12000 });
+// The candidate limits live beside validateCandidates (LESSON_TEXT_MAX), so a candidate too long for a lesson is dropped there.
+const TEXT_MAX = Object.freeze({ ...LESSON_TEXT_MAX, project: 400, version: 64, draft: 12000 });
 const LESSON_ID_RE = /^lesson-[0-9a-f]{10}$/;
 const CANDIDATE_ID_RE = /^cand-[1-9]\d{0,3}$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -242,8 +245,6 @@ export function formatLessonsJournal(journal: LessonsJournal): string {
 
 // ─── Identity ─────────────────────────────────────────────────────────────────
 
-const HOST_VERSION_RE = /^([A-Za-z0-9._-]+)@[^\s:]+/;
-
 /**
  * The part of a target that names the cause, not the moment: no `#anchor`
  * case or spacing, and for a host target no version — the same runtime defect
@@ -251,8 +252,11 @@ const HOST_VERSION_RE = /^([A-Za-z0-9._-]+)@[^\s:]+/;
  */
 export function normalizeLessonTarget(layer: LessonLayer, target: string): string {
   let t = target.trim().replace(/\s+/g, ' ').toLowerCase();
-  if (layer === 'host') t = t.replace(HOST_VERSION_RE, '$1');
-  else {
+  if (layer === 'host') {
+    // `claude@2.1.310 : worktree` and `claude: worktree` are one defect: `<name>: <area>`.
+    const h = parseHostTarget(t);
+    if (h) t = h.area ? `${h.name}: ${h.area}` : h.name;
+  } else {
     const hash = t.indexOf('#');
     if (hash >= 0) t = t.slice(0, hash).trim();
     t = t.replace(/\/{2,}/g, '/');
@@ -265,17 +269,24 @@ export function lessonId(layer: LessonLayer, target: string, title: string): str
   return `lesson-${crypto.createHash('sha256').update(key).digest('hex').slice(0, 10)}`;
 }
 
-/** `a` vs `b` by their `major.minor.patch` prefix; null when either has none. */
+/**
+ * `a` vs `b` by `major.minor.patch`, then a prerelease below its release
+ * (`1.19.0-rc.1 < 1.19.0`; two prereleases compare as text); build metadata
+ * (`+…`) is ignored. Null when either has no `major.minor.patch`.
+ */
 export function compareVersions(a: string, b: string): number | null {
-  const parse = (v: string): number[] | null => {
-    const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(v.trim());
-    return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  const parse = (v: string): { n: number[]; pre: string | null } | null => {
+    const m = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+\S*)?$/.exec(v.trim());
+    return m ? { n: [Number(m[1]), Number(m[2]), Number(m[3])], pre: m[4] ?? null } : null;
   };
   const pa = parse(a);
   const pb = parse(b);
   if (!pa || !pb) return null;
-  for (let i = 0; i < 3; i++) if (pa[i] !== pb[i]) return pa[i] < pb[i] ? -1 : 1;
-  return 0;
+  for (let i = 0; i < 3; i++) if (pa.n[i] !== pb.n[i]) return pa.n[i] < pb.n[i] ? -1 : 1;
+  if (pa.pre === pb.pre) return 0;
+  if (pa.pre === null) return 1;
+  if (pb.pre === null) return -1;
+  return pa.pre < pb.pre ? -1 : 1;
 }
 
 // ─── Edits ────────────────────────────────────────────────────────────────────
@@ -322,7 +333,8 @@ export function recordLesson(journal: LessonsJournal, input: LessonInput, now: D
   if (occBad.length > 0) return { ok: false, reason: occBad.join('; ') };
   const at = now.toISOString();
   const byId = new Map(journal.lessons.map(l => [l.id, l]));
-  const citedHit = input.cited.find(id => byId.has(id));
+  // A cited lesson takes the occurrence only in its own layer: a user stopgap citing a gsd lesson is not that lesson.
+  const citedHit = input.cited.find(id => byId.get(id)?.layer === input.layer);
   const id = citedHit ?? lessonId(input.layer, input.target, input.title);
   const existing = byId.get(id);
   let lesson: Lesson;
@@ -388,36 +400,55 @@ export function projectCount(l: Lesson): number {
 const DRAFT_OCCURRENCES = 10;
 
 /**
+ * Text of a lesson as a public issue may carry it: every path masked, and
+ * every project the lesson occurred in — its path and its name — replaced by
+ * `<project>`.
+ */
+export function maskForDraft(text: string, projects: readonly string[]): string {
+  let t = text;
+  for (const p of projects) {
+    const name = path.basename(p);
+    if (p.length > 1) t = t.split(p).join('<project>');
+    if (name.length >= 2) t = t.replace(new RegExp(`(?<![\\w.-])${escapeRegex(name)}(?![\\w-])`, 'g'), '<project>');
+  }
+  return maskPaths(t);
+}
+
+/**
  * The issue text for a gsd or host lesson: what, the evidence (counts, dates,
- * versions, signal ids — no transcript text), where, the proposal. A project
- * is named by its directory name.
+ * versions, signal ids — no transcript text), where, the proposal. Projects
+ * are numbered, never named, and the title, target and change are masked
+ * (`maskForDraft`).
  */
 export function renderLessonDraft(l: Lesson): string {
   const distinct = (xs: Array<string | null>) => [...new Set(xs.filter((x): x is string => x !== null))];
+  const projects = distinct(l.occurrences.map(o => o.project));
+  const label = (p: string) => `project ${projects.indexOf(p) + 1}`;
+  const mask = (text: string) => maskForDraft(text, projects);
   const dates = l.occurrences.map(o => o.date).sort();
   const gsdVersions = distinct(l.occurrences.map(o => o.gsdVersion));
   const hostVersions = distinct(l.occurrences.map(o => o.hostVersion));
   const where = l.layer === 'gsd' ? 'GSD' : 'the runtime';
   const lines = [
-    `# ${l.title}`,
+    `# ${mask(l.title)}`,
     '',
-    `- Layer: ${l.layer} — \`${l.target}\``,
+    `- Layer: ${l.layer} — \`${mask(l.target)}\``,
     `- Status: ${l.status}${l.fixedIn ? ` (fixedIn ${l.fixedIn})` : ''}${l.regressions > 0 ? `, ${l.regressions} regression(s)` : ''}`,
     `- Seen: ${l.occurrences.length} time(s) in ${projectCount(l)} project(s), ${dates[0] ?? '?'} → ${dates[dates.length - 1] ?? '?'}`,
     `- GSD: ${gsdVersions.join(', ') || 'unknown'} · host: ${hostVersions.join(', ') || 'unknown'}`,
     '',
     '## What happens',
     '',
-    `Session retros traced this friction to ${where} (\`${l.target}\`), not to the repositories they ran in: it recurs in each of them with the same setup.`,
+    `Session retros traced this friction to ${where} (\`${mask(l.target)}\`), not to the repositories they ran in: it recurs in each of them with the same setup.`,
     '',
     '## Evidence',
     '',
-    ...l.occurrences.slice(-DRAFT_OCCURRENCES).map(o => `- ${o.date} · ${path.basename(o.project) || o.project} · ${o.retro} ${o.candidate} · signals: ${o.signals.join(', ') || 'none'}`),
+    ...l.occurrences.slice(-DRAFT_OCCURRENCES).map(o => `- ${o.date} · ${label(o.project)} · ${o.retro} ${o.candidate} · signals: ${o.signals.join(', ') || 'none'}`),
     ...(l.occurrences.length > DRAFT_OCCURRENCES ? [`- … ${l.occurrences.length - DRAFT_OCCURRENCES} earlier occurrence(s)`] : []),
     '',
     '## Proposal',
     '',
-    l.change,
+    mask(l.change),
     '',
   ];
   return lines.join('\n');
@@ -462,10 +493,15 @@ export function bundleLessons(read: LessonsRead, max: number = MAX_BUNDLE_LESSON
   return { status: read.status, reason: null, problems: [], items: kept, omitted: items.length - kept.length };
 }
 
-/** `stem:cand` of every candidate of `project` already journaled as a lesson. */
-export function appliedFromLessons(journal: LessonsJournal, project: string): Set<string> {
-  const out = new Set<string>();
-  for (const l of journal.lessons) for (const o of l.occurrences) if (o.project === project) out.add(`${o.retro}:${o.candidate}`);
+/**
+ * `stem:cand` → the lesson every candidate of `project` was journaled as.
+ * Being journaled is not being applied: see `lessonApplied` (retro-artifacts).
+ */
+export function lessonsByCandidate(journal: LessonsJournal, project: string): Map<string, LessonRef> {
+  const out = new Map<string, LessonRef>();
+  for (const l of journal.lessons) {
+    for (const o of l.occurrences) if (o.project === project) out.set(`${o.retro}:${o.candidate}`, { id: l.id, status: l.status, layer: l.layer });
+  }
   return out;
 }
 
@@ -473,7 +509,7 @@ export function appliedFromLessons(journal: LessonsJournal, project: string): Se
 
 export type LessonsWrite =
   | { ok: true; lesson: Lesson; outcome: RecordOutcome; journal: string; draft: string | null }
-  | { ok: false; reason: typeof LESSONS_INVALID | 'locked' | 'refused'; message: string };
+  | { ok: false; reason: typeof LESSONS_INVALID | 'locked' | 'refused' | 'draft-unwritable'; message: string };
 
 /**
  * Run one read-edit-write of the journal under its lock, and refresh the
@@ -493,8 +529,16 @@ export function editLessons(
     if (!r.ok) return { ok: false, reason: 'refused', message: r.reason };
     const draftFile = r.lesson.draft === null ? null : lessonDraftPath(r.lesson.id, opts.gsdHome);
     if (r.outcome !== RECORD_OUTCOME.DUPLICATE) {
+      // The draft first: a journal that names a lesson whose draft could not
+      // be written would leave the user a lesson with nothing to file.
+      if (draftFile && r.lesson.draft) {
+        try {
+          writeTextAtomic(draftFile, r.lesson.draft);
+        } catch (err) {
+          return { ok: false, reason: 'draft-unwritable', message: `${draftFile} could not be written (${(err as NodeJS.ErrnoException).code ?? (err as Error).message}); the journal was left unchanged` };
+        }
+      }
       writeTextAtomic(file, formatLessonsJournal(r.journal));
-      if (draftFile && r.lesson.draft) writeTextAtomic(draftFile, r.lesson.draft);
     }
     return { ok: true, lesson: r.lesson, outcome: r.outcome, journal: file, draft: draftFile };
   }, opts.lock ?? defaultJournalLock);
@@ -520,17 +564,20 @@ interface WorktreeSafetyModule {
  * root (a linked worktree is the same repository), `~`-folded.
  */
 export function projectKey(cwd: string, homeDir: string = os.homedir()): string {
+  let realHome = homeDir;
+  try { realHome = fs.realpathSync(homeDir); } catch { /* keep the given home */ }
+  return foldHome(mainWorktreeRoot(cwd), realHome);
+}
+
+/** The main worktree's root of the repository `cwd` is in (realpath), or `cwd` outside git. */
+export function mainWorktreeRoot(cwd: string): string {
   let root = cwd;
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const ws = require('./worktree-safety.cjs') as WorktreeSafetyModule;
     root = ws.resolveWorktreeLinkage(cwd).effectiveRoot || cwd;
   } catch { /* not a git repository: the directory itself */ }
-  let real = root;
-  try { real = fs.realpathSync(root); } catch { /* keep the resolved path */ }
-  let realHome = homeDir;
-  try { realHome = fs.realpathSync(homeDir); } catch { /* keep the given home */ }
-  return foldHome(real, realHome);
+  try { return fs.realpathSync(root); } catch { return root; }
 }
 
 interface CapabilityLoaderModule {

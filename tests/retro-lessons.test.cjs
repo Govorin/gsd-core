@@ -134,8 +134,12 @@ describe('recordLesson: identity and dedup', () => {
     assert.match(a, /^lesson-[0-9a-f]{10}$/);
   });
 
-  test('a host lesson is the same lesson on the next runtime version', () => {
-    assert.equal(rl.lessonId('host', 'claude@2.1.310: worktree isolation', 't'), rl.lessonId('host', 'claude@2.1.400: worktree isolation', 't'));
+  test('a host lesson is the same lesson on the next runtime version, whatever the spacing around the colon', () => {
+    const a = rl.lessonId('host', 'claude@2.1.310: worktree isolation', 't');
+    for (const t of ['claude@2.1.400: worktree isolation', 'claude : worktree isolation', 'Claude@2.1.310 :  worktree isolation', 'claude:worktree isolation']) {
+      assert.equal(rl.lessonId('host', t, 't'), a, t);
+    }
+    assert.notEqual(rl.lessonId('host', 'claude: permissions', 't'), a);
   });
 
   test('created, then appended from another project, then a repeat of the same occurrence is a duplicate', () => {
@@ -149,6 +153,12 @@ describe('recordLesson: identity and dedup', () => {
     assert.equal(fs.readFileSync(journalFile(), 'utf8'), before, 'a duplicate rewrites nothing');
     const [lesson] = rl.readLessonsJournal(home).journal.lessons;
     assert.deepEqual([lesson.occurrences.length, rl.projectCount(lesson)], [2, 2]);
+  });
+
+  test('a cited lesson of another layer does not take the occurrence', () => {
+    const g = record(input());
+    const u = record(input({ layer: 'user', target: '~/.claude/settings.json', title: 'stopgap', cited: [g.lesson.id], occurrence: occurrence({ retro: 'RETRO-2026-10-30' }) }));
+    assert.deepEqual([u.outcome, u.lesson.layer, u.lesson.id === g.lesson.id], ['created', 'user', false]);
   });
 
   test('a candidate citing lesson:<id> adds to that lesson even with other words', () => {
@@ -239,6 +249,15 @@ describe('closeLesson', () => {
 });
 
 describe('drafts', () => {
+  test('a draft that cannot be written leaves the journal unchanged and says draft-unwritable', () => {
+    // A file where the drafts directory should be: the draft write fails.
+    fs.mkdirSync(path.dirname(journalFile()), { recursive: true });
+    fs.writeFileSync(path.join(path.dirname(journalFile()), 'drafts'), 'not a directory');
+    const w = record(input());
+    assert.deepEqual([w.ok, w.reason], [false, 'draft-unwritable']);
+    assert.equal(fs.existsSync(journalFile()), false);
+  });
+
   test('a gsd lesson gets an issue draft file; a user lesson none', () => {
     const g = record(input());
     assert.equal(g.draft, rl.lessonDraftPath(g.lesson.id, home));
@@ -247,10 +266,28 @@ describe('drafts', () => {
     assert.deepEqual([u.draft, u.lesson.draft], [null, null]);
   });
 
-  test('the draft names a project by its directory, never its path, and carries no home directory', () => {
-    const r = rl.recordLesson({ version: 1, lessons: [] }, input({ occurrence: occurrence({ project: '~/IdeaProjects/secret-client/app' }) }), NOW);
+  test('the draft numbers projects, never names them, in the evidence', () => {
+    let j = rl.recordLesson({ version: 1, lessons: [] }, input({ occurrence: occurrence({ project: '~/IdeaProjects/secret-client' }) }), NOW).journal;
+    const r = rl.recordLesson(j, input({ occurrence: occurrence({ project: '~/work/other', retro: 'RETRO-2026-10-29' }) }), NOW);
     const evidence = r.lesson.draft.split('\n').filter((l) => l.startsWith('- 2026'));
-    assert.deepEqual(evidence, ['- 2026-10-28 · app · RETRO-2026-10-28 cand-1 · signals: repeated-tool-error:617f086244']);
+    assert.deepEqual(evidence, [
+      '- 2026-10-28 · project 1 · RETRO-2026-10-28 cand-1 · signals: repeated-tool-error:617f086244',
+      '- 2026-10-28 · project 2 · RETRO-2026-10-29 cand-1 · signals: repeated-tool-error:617f086244',
+    ]);
+  });
+
+  test('title, target and change are masked in the draft: paths, the project path and its name', () => {
+    const r = rl.recordLesson({ version: 1, lessons: [] }, input({
+      title: 'secret-client loses its worktree in ~/IdeaProjects/secret-client',
+      change: 'In secret-client run /Users/me/IdeaProjects/secret-client/bin/x instead; see ~/notes.md.',
+      occurrence: occurrence({ project: '~/IdeaProjects/secret-client' }),
+    }), NOW);
+    const d = r.lesson.draft;
+    assert.equal(d.split('\n')[0], '# <project> loses its worktree in <project>');
+    const proposal = d.split('\n## Proposal\n\n')[1].split('\n')[0];
+    assert.equal(proposal, 'In <project> run <path> instead; see <path>');
+    assert.deepEqual(['secret-client', '/Users/', '~/'].filter((x) => d.includes(x)), []);
+    assert.equal(rl.maskForDraft('the mn repo, not column', ['~/IdeaProjects/mn']), 'the <project> repo, not column');
   });
 });
 
@@ -282,19 +319,30 @@ describe('bundleLessons', () => {
     assert.deepEqual([bad.status, bad.reason, bad.items], ['invalid', rl.LESSONS_INVALID, []]);
   });
 
-  test('appliedFromLessons lists stem:cand of one project only', () => {
+  test('lessonsByCandidate maps stem:cand of one project only to its lesson', () => {
     let j = rl.recordLesson({ version: 1, lessons: [] }, input(), NOW).journal;
     j = rl.recordLesson(j, input({ occurrence: occurrence({ project: '~/work/beta', candidate: 'cand-2' }) }), NOW).journal;
-    assert.deepEqual([...rl.appliedFromLessons(j, '~/work/alpha')], ['RETRO-2026-10-28:cand-1']);
+    const m = rl.lessonsByCandidate(j, '~/work/alpha');
+    assert.deepEqual([...m.entries()], [['RETRO-2026-10-28:cand-1', { id: j.lessons[0].id, status: 'open', layer: 'gsd' }]]);
   });
 });
 
 describe('compareVersions', () => {
-  test('major.minor.patch numerically; null without one', () => {
+  test('major.minor.patch numerically; a prerelease below its release; null without one', () => {
     assert.equal(rl.compareVersions('1.10.0', '1.9.9'), 1);
     assert.equal(rl.compareVersions('2.1.310', '2.1.310'), 0);
     assert.equal(rl.compareVersions('v1.2.3', '1.2.4'), -1);
+    assert.equal(rl.compareVersions('1.19.0-rc.1', '1.19.0'), -1);
+    assert.equal(rl.compareVersions('1.19.0', '1.19.0-rc.1'), 1);
+    assert.equal(rl.compareVersions('1.19.0-rc.1', '1.19.0-rc.2'), -1);
+    assert.equal(rl.compareVersions('1.19.0+build.7', '1.19.0'), 0);
     assert.equal(rl.compareVersions('soon', '1.0.0'), null);
+  });
+
+  test('a fix in 1.19.0 recurring on 1.19.0-rc.1 is before the fix', () => {
+    const created = rl.recordLesson({ version: 1, lessons: [] }, input(), NOW);
+    const j = rl.closeLesson(created.journal, created.lesson.id, 'fixed', '1.19.0', NOW).journal;
+    assert.equal(rl.recordLesson(j, input({ occurrence: occurrence({ retro: 'RETRO-2026-11-01', gsdVersion: '1.19.0-rc.1' }) }), NOW).outcome, 'before-fix');
   });
 });
 

@@ -44,7 +44,6 @@
  * different answers.
  */
 
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,6 +51,7 @@ import { retryRenameSync } from './shell-command-projection.cjs';
 import { tryWithinRoot, tryWithinRootLexical, PathAcceptance } from './security.cjs';
 import { formatPointer } from './session-transcript.cjs';
 import type { SessionTranscript, TranscriptPointer } from './session-transcript.cjs';
+import { signalFingerprint, fingerprintBasisFromKey } from './retro-signals.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningWorkspaceModule = require('./planning-workspace.cjs');
 const { planningRoot } = planningWorkspaceModule;
@@ -570,6 +570,9 @@ export const CANDIDATE_DROP = Object.freeze({
   INVALID_RELATED: 'invalid-related',
   RECURRING_UNCITED: 'recurring-uncited',
   RECURRING_NOT_ESCALATED: 'recurring-not-escalated',
+  RECURRING_LESSON_UNCITED: 'recurring-lesson-uncited',
+  PRIVATE_PATH: 'private-path',
+  FIELD_TOO_LONG: 'field-too-long',
 } as const);
 export type CandidateDropCode = typeof CANDIDATE_DROP[keyof typeof CANDIDATE_DROP];
 
@@ -624,6 +627,29 @@ export interface LayerContext {
   hostVersion: string | null;
   /** The user's home directory (`~` in a user target). */
   homeDir: string;
+  /** Further roots of this project a user target must stay out of: the main worktree of a linked one. */
+  projectRoots?: readonly string[];
+}
+
+/** What a lesson keeps of a candidate, at most (retro-lessons' journal limits). */
+export const LESSON_TEXT_MAX = Object.freeze({ target: 300, title: 300, change: 2000 });
+
+const ABSOLUTE_PATH_RE = /(?:^|[\s'"`(=:,])(\/[^\s'"`)]+)/g;
+
+/**
+ * A gsd or host candidate becomes a lesson whose draft a human may paste into
+ * a public issue: its title and change name no path of this machine — no
+ * `~/…`, no absolute path outside the GSD install.
+ */
+function privatePaths(text: string, gsdRoot: string | null): string[] {
+  const found: string[] = [];
+  if (/(?:^|[^\w])~\//.test(text)) found.push('~/…');
+  for (const m of text.matchAll(ABSOLUTE_PATH_RE)) {
+    const p = m[1];
+    if (gsdRoot !== null && tryWithinRootLexical(p, gsdRoot) !== null) continue;
+    found.push(p);
+  }
+  return found;
 }
 
 /** An earlier proposal of this project whose signals came back (the bundle's `recurring[]`). */
@@ -634,6 +660,8 @@ export interface RecurringRef {
   signals: readonly string[];
   /** Not applied and the shared signals grew: a candidate answering it must be `high`. */
   escalate: boolean;
+  /** The lesson it was journaled as; an open one must be cited as `lesson:<id>` when the bundle carried it. */
+  lesson?: LessonRef | null;
 }
 
 export interface ValidCandidate extends RetroCandidate {
@@ -733,14 +761,15 @@ function checkLayerTarget(
   }
   if (layer === 'user') {
     const file = targetFile(target);
-    if (!(file === '~' || file.startsWith('~/'))) {
-      drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: a user target is written from the home directory, ~/…, got ${target}`);
+    const rest = file.startsWith('~/') ? file.slice(2).replace(/^\/+/, '') : '';
+    if (rest === '' || rest === '.') {
+      drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: a user target is a file or setting under the home directory, ~/…, got ${target}`);
       return;
     }
-    const abs = tryWithinRootLexical(file === '~' ? '.' : file.slice(2), ctx.homeDir);
-    if (abs === null) {
+    const abs = tryWithinRootLexical(rest, ctx.homeDir);
+    if (abs === null || abs === path.resolve(ctx.homeDir)) {
       drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: ${target} leaves the home directory`);
-    } else if (tryWithinRootLexical(abs, projectRoot) !== null) {
+    } else if ([projectRoot, ...(ctx.projectRoots ?? [])].some(root => tryWithinRootLexical(abs, root) !== null)) {
       drop(CANDIDATE_DROP.USER_TARGET_IN_PROJECT, `user-target-in-project: ${target} is inside this project; that is a project candidate`);
     }
     return;
@@ -756,8 +785,10 @@ function checkLayerTarget(
       drop(CANDIDATE_DROP.GSD_ROOT_UNKNOWN, 'gsd-root-unknown: the GSD install root is not known, so a gsd target cannot be checked');
       return;
     }
-    if (!fs.existsSync(path.join(ctx.gsdRoot, file))) {
-      drop(CANDIDATE_DROP.GSD_TARGET_MISSING, `gsd-target-missing: ${file} does not exist in the installed GSD`);
+    let isFile = false;
+    try { isFile = fs.statSync(path.join(ctx.gsdRoot, file)).isFile(); } catch { /* missing */ }
+    if (!isFile) {
+      drop(CANDIDATE_DROP.GSD_TARGET_MISSING, `gsd-target-missing: ${file} is not a file in the installed GSD`);
     }
     return;
   }
@@ -868,6 +899,24 @@ export function validateCandidates(
       drop(CANDIDATE_DROP.JUDGEMENT_IN_STEERING_FILE, 'judgement-in-steering-file: a judgement rule goes to the reviewer (agent_skills.*), not to CLAUDE.md/AGENTS.md');
     }
     if (categoryOk && layerOk && layerDeclared) checkLayerTarget(layer, category, target, ctx, opts.projectRoot, drop, notes);
+    if (layerOk && layer !== 'project') {
+      // What the lessons journal keeps (retro-lessons): a longer field would be refused there, after the human chose it.
+      for (const field of ['title', 'change', 'target'] as const) {
+        const v = c[field];
+        if (typeof v === 'string' && v.length > LESSON_TEXT_MAX[field]) {
+          drop(CANDIDATE_DROP.FIELD_TOO_LONG, `field-too-long: a ${layer} candidate's ${field} is at most ${LESSON_TEXT_MAX[field]} characters, got ${v.length}`);
+        }
+      }
+    }
+    if (layerOk && (layer === 'gsd' || layer === 'host')) {
+      for (const field of ['title', 'change'] as const) {
+        const v = c[field];
+        const found = typeof v === 'string' ? privatePaths(v, ctx.gsdRoot) : [];
+        if (found.length > 0) {
+          drop(CANDIDATE_DROP.PRIVATE_PATH, `private-path: a ${layer} lesson's ${field} may be filed upstream, so it names no path of this machine (${found.length} found)`);
+        }
+      }
+    }
     const verify = nullableString(c['verify']);
     // A check is verified where it lands: in this project, or in the user's
     // setup. A gsd or host check is verified in GSD's repository or the
@@ -905,6 +954,10 @@ export function validateCandidates(
       } else if (r.escalate && c['severity'] !== 'high') {
         drop(CANDIDATE_DROP.RECURRING_NOT_ESCALATED, `recurring-not-escalated: ${ref} was not applied and its signals grew, so this candidate is high`);
       }
+      const pending = r.lesson && r.lesson.status === 'open' && !lessonApplied(r.lesson) ? r.lesson : null;
+      if (pending && (evidence.lessons?.has(pending.id) ?? false) && !signals.includes(`lesson:${pending.id}`)) {
+        drop(CANDIDATE_DROP.RECURRING_LESSON_UNCITED, `recurring-lesson-uncited: ${ref} is the open lesson ${pending.id}, waiting for a fix; cite lesson:${pending.id} and keep its layer`);
+      }
     }
     if (reasons.length > 0) {
       dropped.push({ id, reasons, codes });
@@ -935,16 +988,7 @@ export function validateCandidates(
 
 // ─── Earlier proposals ────────────────────────────────────────────────────────
 
-/**
- * What a signal is about, stable across sessions: its kind and key. A signal's
- * `id` also hashes its first pointer (`file:line` of one transcript), so the
- * same friction in another session has another id; the fingerprint is how a
- * retro recognises it. A signal without a key has no subject to recognise.
- */
-export function signalFingerprint(kind: string, key: string | null | undefined): string | null {
-  if (typeof key !== 'string' || key.trim() === '') return null;
-  return `${kind}:${crypto.createHash('sha1').update(`${kind}\u0000${key}`).digest('hex').slice(0, 10)}`;
-}
+export { signalFingerprint };
 
 /** What recurrence reads of one signal: its id in that retro, its fingerprint, its count. */
 export interface SignalFacts {
@@ -954,9 +998,19 @@ export interface SignalFacts {
   count: number;
 }
 
-/** The facts of a report's signals, as `retro prepare` journals them on its run. */
-export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key: string | null; count: number }>): SignalFacts[] {
-  return signals.map(s => ({ id: s.id, fingerprint: signalFingerprint(s.kind, s.key), count: s.count }));
+/**
+ * The facts of report signals, as `retro prepare` journals them on its run:
+ * the fingerprint the signal carries, else (a bundle written before signals
+ * had one) the one its kind and key imply.
+ */
+export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key?: string | null; count?: number; fingerprint?: string | null }>): SignalFacts[] {
+  return signals.map(s => ({
+    id: s.id,
+    fingerprint: typeof s.fingerprint === 'string' || s.fingerprint === null
+      ? s.fingerprint
+      : signalFingerprint(s.kind, fingerprintBasisFromKey(s.kind, s.key ?? null)),
+    count: typeof s.count === 'number' ? s.count : 0,
+  }));
 }
 
 /** A candidate an earlier retro of this project proposed. */
@@ -973,17 +1027,22 @@ export interface PastProposal {
 
 const SIGNAL_REF_RE = /^[a-z][a-z0-9-]{0,40}:[0-9a-f]{6,16}$/;
 
-/** The signals a bundle's report carries (only `signals[]` has keys and counts). */
+/** The signals a bundle's report carries, listed and omitted. */
 export function bundleSignalFacts(bundle: unknown): SignalFacts[] {
-  const report = (bundle as { report?: { signals?: unknown } } | null)?.report;
-  const list = Array.isArray(report?.signals) ? report.signals as Array<Record<string, unknown>> : [];
-  return list
+  const report = (bundle as { report?: { signals?: unknown; omitted?: unknown } } | null)?.report;
+  const list = [
+    ...(Array.isArray(report?.signals) ? report.signals as Array<Record<string, unknown>> : []),
+    ...(Array.isArray(report?.omitted) ? report.omitted as Array<Record<string, unknown>> : []),
+  ];
+  return signalFacts(list
     .filter(s => s && typeof s['id'] === 'string' && typeof s['kind'] === 'string')
     .map(s => ({
       id: s['id'] as string,
-      fingerprint: signalFingerprint(s['kind'] as string, typeof s['key'] === 'string' ? s['key'] : null),
+      kind: s['kind'] as string,
+      key: typeof s['key'] === 'string' ? s['key'] : null,
       count: typeof s['count'] === 'number' ? s['count'] : 0,
-    }));
+      ...(typeof s['fingerprint'] === 'string' || s['fingerprint'] === null ? { fingerprint: s['fingerprint'] } : {}),
+    })));
 }
 
 function readBundleFacts(projectRoot: string, stem: string): SignalFacts[] | null {
@@ -1036,6 +1095,22 @@ export function readPastProposals(projectRoot: string, currentStem: string | nul
 
 export type AppliedSource = 'runs' | 'checks' | 'lessons';
 
+/** The lesson an earlier candidate was journaled as. */
+export interface LessonRef {
+  id: string;
+  status: 'open' | 'fixed' | 'wontfix';
+  layer: 'user' | 'gsd' | 'host';
+}
+
+/**
+ * Whether a lesson means its proposal was applied. A user lesson is recorded
+ * once the user applied the change; a gsd or host lesson only once it is
+ * fixed — until then it is waiting for GSD or the runtime, not applied.
+ */
+export function lessonApplied(l: LessonRef): boolean {
+  return l.layer === 'user' || l.status === 'fixed';
+}
+
 /** An earlier proposal whose signals this retro saw again (the bundle's `recurring.items[]`). */
 export interface RecurringEntry {
   retro: string;
@@ -1044,13 +1119,19 @@ export interface RecurringEntry {
   layer: CandidateLayer;
   /** THIS retro's signal ids that are the same friction (same kind and key). */
   signals: string[];
-  /** Whether a human applied it, and which journal says so. */
+  /** Whether it was applied, and which journal says so (a gsd/host lesson counts only once fixed). */
   applied: boolean;
   appliedBy: AppliedSource | null;
+  /**
+   * The lesson it was journaled as, or null. `open` gsd/host: waiting for a
+   * fix — cite `lesson:<id>`, keep the layer, nothing to escalate; `fixed`:
+   * applied, and recurring means a regression; `wontfix`: decided.
+   */
+  lesson: LessonRef | null;
   /** The matched signals' summed count then and now. */
   countThen: number;
   countNow: number;
-  /** Not applied and grown: a candidate answering it must be `high` (ADR-5209 §10). */
+  /** Not applied, not a lesson, and grown: a candidate answering it must be `high` (ADR-5209 §10). */
   escalate: boolean;
 }
 
@@ -1067,7 +1148,7 @@ export const MAX_RECURRING = 30;
 export function computeRecurring(input: {
   current: readonly SignalFacts[];
   past: readonly PastProposal[];
-  applied: Readonly<Record<AppliedSource, ReadonlySet<string>>>;
+  applied: { runs: ReadonlySet<string>; checks: ReadonlySet<string>; lessons: ReadonlyMap<string, LessonRef> };
   max?: number;
 }): { items: RecurringEntry[]; omitted: number; unreadable: string[] } {
   const now = new Map<string, SignalFacts[]>();
@@ -1087,7 +1168,10 @@ export function computeRecurring(input: {
     const fps = new Set(matchedThen.map(f => f.fingerprint as string));
     const matchedNow = [...fps].flatMap(fp => now.get(fp) ?? []);
     const key = `${p.retro}:${p.candidate}`;
-    const appliedBy = (['runs', 'checks', 'lessons'] as const).find(src => input.applied[src].has(key)) ?? null;
+    const lesson = input.applied.lessons.get(key) ?? null;
+    const appliedBy: AppliedSource | null = input.applied.runs.has(key) ? 'runs'
+      : input.applied.checks.has(key) ? 'checks'
+        : lesson !== null && lessonApplied(lesson) ? 'lessons' : null;
     const countThen = matchedThen.reduce((n, f) => n + f.count, 0);
     const countNow = matchedNow.reduce((n, f) => n + f.count, 0);
     entries.push({
@@ -1098,9 +1182,10 @@ export function computeRecurring(input: {
       signals: [...new Set(matchedNow.map(f => f.id))],
       applied: appliedBy !== null,
       appliedBy,
+      lesson,
       countThen,
       countNow,
-      escalate: appliedBy === null && countNow > countThen,
+      escalate: appliedBy === null && lesson === null && countNow > countThen,
     });
   }
   entries.sort((a, b) => compareRetroStems(b.retro, a.retro) || Number(a.candidate.slice(5)) - Number(b.candidate.slice(5)));
