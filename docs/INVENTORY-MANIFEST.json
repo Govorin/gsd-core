@@ -629,6 +629,7 @@
       "retro-cadence.cjs",
       "retro-command-router.cjs",
       "retro-inventory.cjs",
+      "retro-lessons.cjs",
       "retro-signals.cjs",
       "review-command-router.cjs",
       "review-lane-descriptor.cjs",

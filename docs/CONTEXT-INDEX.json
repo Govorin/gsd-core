@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 322,
+  "count": 330,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -20,7 +20,7 @@
     "PROC": 14,
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
-    "RETRO": 5,
+    "RETRO": 13,
     "RULESET": 62,
     "SEAM": 30,
     "SESSION": 9,
@@ -969,6 +969,46 @@
       "id": "RELEASE-NOTES.WORKFLOW.view",
       "klass": "RELEASE-NOTES",
       "value": "gh release view <tag> --json body --jq .body"
+    },
+    {
+      "id": "RETRO.APPLIED",
+      "klass": "RETRO",
+      "value": "RUNS.json run.applied[{candidate, route, at}] written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)"
+    },
+    {
+      "id": "RETRO.DROP-CODES",
+      "klass": "RETRO",
+      "value": "every dropped candidate carries codes[] parallel to reasons[] from CANDIDATE_DROP (invalid-envelope, invalid-id, duplicate-id, invalid-category, invalid-severity, missing-field, no-signal, unknown-signal, judgement-in-steering-file, missing-verify, patch-outside, patch-missing, missing-layer, invalid-layer, layer-category-mismatch, missing-target, project-target-outside, user-target-outside-home, user-target-in-project, gsd-root-unknown, gsd-target-not-surface, gsd-target-missing, host-unknown, host-target-name, host-target-version, invalid-related, recurring-uncited, recurring-not-escalated); consumers branch on the code, never the sentence"
+    },
+    {
+      "id": "RETRO.LAYER",
+      "klass": "RETRO",
+      "value": "project|user|gsd|host; the owner of a candidate's cause, orthogonal to its category; the analyst's repeatability test (would it recur unchanged in another repository with the same GSD install and runtime?) yes → not project; a project stopgap is a second candidate linked by related; candidates file version 2 requires layer, version 1 (or none) without one reads as project and is not checked by layer"
+    },
+    {
+      "id": "RETRO.LAYER.target",
+      "klass": "RETRO",
+      "value": "project inside the project root (no ~, absolute or ..); user ~/… under the home dir and outside the project; gsd a path under gsd-core/ agents/gsd- hooks/gsd- commands/gsd/ skills/gsd- that exists under the install root resolved by the running gsd-tools (gsd-core/bin/lib/../../..), never the bundle's; host <runtime>@<version>[: <area>] equal to the bundle's host.name/host.version (the transcript record's version field), without a version only when it is null and then note host-version-unknown; retire-check is always project; verify required for mechanical/retire-check of project and user only"
+    },
+    {
+      "id": "RETRO.LESSONS-JOURNAL",
+      "klass": "RETRO",
+      "value": "${GSD_HOME||homedir()}/.gsd/lessons/LESSONS.json {version:1, lessons:[{id lesson-<10hex of layer+normalised target (no #anchor; host without @version)+title>, layer user|gsd|host, target, title, change, status open|fixed|wontfix, fixedIn, regressions, createdAt, updatedAt, occurrences[{project (main worktree root, ~-folded), retro, candidate, date, signals ≤20 signal ids, gsdVersion, hostVersion}], draft (gsd/host issue text, also drafts/<id>.md)}]}; edits hold .LESSONS.lock (withJournalLock); one malformed lesson makes the whole journal invalid: reads answer lessons-invalid, edits fail with retro_lessons_invalid, never rewritten; tests isolate GSD_HOME"
+    },
+    {
+      "id": "RETRO.LESSONS.record",
+      "klass": "RETRO",
+      "value": "a candidate citing lesson:<id> adds to that lesson, else to the lesson with its hash, else a new one; same project+retro+candidate twice = duplicate (nothing written); a fixed lesson recurring → open, regressions+1 (regression) unless the occurrence's version (gsd: GSD, host: runtime) is known older than fixedIn (before-fix); unknown version reopens; wontfix keeps its status"
+    },
+    {
+      "id": "RETRO.RECURRING",
+      "klass": "RETRO",
+      "value": "earlier RETRO-*.json candidates whose signal fingerprint (kind+key, sha1, 10 hex; signal ids hash the first pointer and differ across sessions) matches this retro's signals, read through the old bundle in .work/ (gone → unreadable, never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons, countThen, countNow, escalate = not applied and countNow > countThen}; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)"
+    },
+    {
+      "id": "RETRO.ROUTE",
+      "klass": "RETRO",
+      "value": "project → quick|capture by category; user → shown, nothing edited, retro lessons record after the user's explicit yes; gsd|host → retro lessons record (project untouched, issue draft, nothing sent); quick/capture after the change landed → retro applied"
     },
     {
       "id": "RETRO.RUNS-JOURNAL",
