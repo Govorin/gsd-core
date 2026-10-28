@@ -162,6 +162,12 @@
 //   honours. fork:secret-guard-grep-pattern's own cost: with an `-e` or
 //   `-f` injected that way, a pattern word holding a `\`-split secret path
 //   (`grep "config\.env"`) is read as a file on Windows and not denied.
+//   Also open, and the reason a lexical guard is not the boundary: dotfile
+//   globbing switched on inside the same command (`shopt -s dotglob`,
+//   `GLOBIGNORE=…`, `setopt globdots`) is not tracked, so `*env` stays
+//   allowed after it; a zsh group that starts an argument word
+//   (`cat (.env|x)`) is still split as a subshell opener. An OS-level read
+//   deny (the runtime's sandbox) is the place for a hard guarantee.
 //
 // A second, unrelated contract is enforced on the Bash leg because this is the
 // one hook that already parses EVERY Bash command (#5214): a Bash command that
