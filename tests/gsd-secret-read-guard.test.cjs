@@ -1352,6 +1352,80 @@ describe('mn fork: file options, the command word and leading assignments (fork:
   }
 });
 
+// Final review of fork:secret-guard-grep-pattern. `file -D` (macOS) and
+// `file -d` (GNU) print the bytes each magic test read — the file's lines;
+// an assignment is recognised by the tokenizer, not by the unquoted text, so
+// `"X"=/bin/cat .env` (a command word reaching `cat` through a directory
+// named `X=`) is a command; and brace words, globs and glued glob groups
+// (zsh `.e(nv|x)` — zsh is the shell Claude Code runs on macOS — and bash
+// extglob) are unrolled and judged like the Grep arm's globs. Every block row
+// here was allowed by the `next` hook and by 84a39bd4b.
+describe('mn fork: file debug, quoted assignments and expansions (fork:secret-guard-grep-pattern)', () => {
+  const CAT = '/../../../../../../../../../../bin/cat';
+  for (const [cmd, blockedPath] of [
+    ['file -D .env', '.env'],
+    ['file -bD .env', '.env'],
+    ['file -d .env', '.env'],
+    ['X=1 file -D .env', '.env'],
+    [`mkdir -p X=; "X"=${CAT} .env`, '.env'],
+    [`"X"=${CAT} .env`, '.env'],
+    [`\\X=${CAT} .env`, '.env'],
+    [`X"="${CAT} .env`, '.env'],
+    [`'X'=${CAT} .env`, '.env'],
+    ['"X"=$Y ls .env', '.env'],
+    ['cat .e{n,}v', '.e{n,}v'],
+    ['cat {x,.env}', '{x,.env}'],
+    ['{cat,.env}', '{cat,.env}'],
+    ['{ls,.env} x', '{ls,.env}'],
+    ['timeout {1,cat,.env}', '{1,cat,.env}'],
+    ['sudo -u {root,cat,.env}', '{root,cat,.env}'],
+    ['nice -n {5,cat,.env}', '{5,cat,.env}'],
+    ['cp x {.env,y}', '{.env,y}'],
+    ['cat .en[v]', '.en[v]'],
+    ['cat .en["v"]', '.en[v]'],
+    ['cat .en[v"]"', '.en[v]'],
+    ['cat .e*', '.e*'],
+    ['cat < .e*', '.e*'],
+    ['cat .e(nv|x)', '.e(nv|x)'],
+    ['shopt -s extglob\ncat @(.env)', '@(.env)'],
+    ['cat +(.env)', '+(.env)'],
+    ['cat *(.env)', '*(.env)'],
+    ['cat .e!(x)', '.e!(x)'],
+  ]) {
+    test(`now denied: ${JSON.stringify(cmd)}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: blockedPath });
+    });
+  }
+
+  test('a brace word past the alternative budget is denied as glob-too-complex', () => {
+    // 2^7 = 128 alternatives, over the 64 the Grep arm allows.
+    const word = '{a,b}'.repeat(7);
+    const cmd = `cat ${word}`;
+    assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', code: 'glob-too-complex', path: word });
+  });
+
+  for (const cmd of [
+    '[ -f .env ]',
+    '[[ -f .env ]]',
+    'cp {} .env',
+    'find . -exec cat {} +',
+    'X=$Y ls .env',
+    'X=$Y cp .env.example .env',
+    'ls .env*',
+    'ls {a,.env}',
+    'file -c .env',
+    'file -z .env',
+    'cat src/*.ts',
+    'cat *',
+    'f(){ cat README.md; }; f',
+    'cat {a,b}.md',
+  ]) {
+    test(`still allowed: ${JSON.stringify(cmd)}`, () => {
+      assertAllowed(runHook(bash(cmd)), cmd);
+    });
+  }
+});
+
 // #5214: the debug session manager is told to spawn gsd-debugger with
 // Agent(run_in_background=false), but on a real 1.15.0 run it routed around that
 // literal and shelled out to `claude --agent gsd-debugger` through Bash with
@@ -1666,20 +1740,27 @@ describe('gsd-secret-read-guard: bundled short-flag clusters (#5046)', () => {
     assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: '-S.env' });
   });
 
-  // Expansion forms inside a cluster are the pre-existing glob / shell-expansion
-  // class: the unbundled equivalent is allowed too. Asserted as a pair per
-  // form, so a clustered form that becomes stricter or looser than the plain
-  // one shows up as a divergence.
-  for (const [clustered, plain] of [
-    ['grep -if.env* pat f', 'grep .env* f'],
-    ['grep -if.en? pat f', 'grep .en? f'],
-    ['grep -if.env~ pat f', 'grep .env~ f'],
-    ['grep -if$(echo .env) pat f', 'grep $(echo .env) f'],
-    ['grep -if{.env,x} pat f', 'grep {.env,x} f'],
+  // Expansion forms inside a cluster get the verdict of their unbundled form.
+  // Asserted as a pair per form, so a clustered form that becomes stricter or
+  // looser than the plain one shows up as a divergence. Globs and braces were
+  // the shell-expansion gap until fork:secret-guard-grep-pattern taught the
+  // scan to unroll them (both forms now denied); `~` and a substitution are
+  // still the documented gap (both forms allowed).
+  for (const [clustered, plain, blocked] of [
+    ['grep -if.env* pat f', 'grep .env* f', true],
+    ['grep -if.en? pat f', 'grep .en? f', true],
+    ['grep -if.env~ pat f', 'grep .env~ f', false],
+    ['grep -if$(echo .env) pat f', 'grep $(echo .env) f', false],
+    ['grep -if{.env,x} pat f', 'grep {.env,x} f', true],
   ]) {
     test(`expansion form matches its unbundled form: ${clustered}`, () => {
-      assertAllowed(runHook(bash(clustered)), clustered);
-      assertAllowed(runHook(bash(plain)), plain);
+      if (blocked) {
+        assertBlocked(runHook(bash(clustered)), clustered, { tool: 'Bash', path: clustered.split(' ')[1] });
+        assertBlocked(runHook(bash(plain)), plain, { tool: 'Bash', path: plain.split(' ')[1] });
+      } else {
+        assertAllowed(runHook(bash(clustered)), clustered);
+        assertAllowed(runHook(bash(plain)), plain);
+      }
     });
   }
 

@@ -94,6 +94,17 @@
 //   GREP_OPTIONS check is needed: an `-e`/`-f` that variable injects turns
 //   the pattern word into a file, and a secret name in that word is denied
 //   by the POSIX reading too.
+//   Words bash expands itself are unrolled before any of the above
+//   (scanExpansionWords): each brace alternative (`cat .e{n,}v`,
+//   `{cat,.env}`, `timeout {1,cat,.env}`; past 64 alternatives
+//   `glob-too-complex`), each glued glob group in both its zsh and bash
+//   extglob reading (`cat .e(nv|x)`, `cat @(.env)`), and each glob, judged by
+//   the Grep arm's globAltSelectsSecret (`cat .en[v]`, `cat < .e*`) — with no
+//   leading-dot exemption, since a zsh with GLOB_DOTS matches `?envx` to
+//   `.envx`. Only the operands of a non-reading command with a clean command
+//   part are spared (`ls .env*`). A `VAR=value` word counts as an assignment
+//   only as the tokenizer reads it — unquoted, unescaped name and `=` — so
+//   `"X"=/bin/cat .env` is a command word, as it is to bash and zsh.
 //   A git global option the walker does not know also keeps the #5045 `-c`
 //   scan running over every later word (see walkGitGlobals).
 //   A shell interpreter (bash/sh/zsh/dash/ksh/su) has its script scanned
@@ -113,8 +124,12 @@
 //
 // Documented gaps (none are statically resolvable by a hook, and Claude
 // Code's own 2.1.259 Bash-side enforcement does not resolve them either):
-//   `$VAR` indirection (`bash -c "$TEST_CMD"`, `cat "$F"`), shell globs
-//   (`cat .e*`), interpreter one-liners (`python -c "open('.env')"`), a piped
+//   `$VAR` indirection (`bash -c "$TEST_CMD"`, `cat "$F"`, an `IFS` that
+//   splits a bare `$X` into a command), the shell expansions the scan does not
+//   unroll (a pure wildcard that reaches dotfiles under bash `dotglob` or zsh
+//   `GLOB_DOTS`/`(D)` — `cat *`; a brace sequence `.e{n..n}v`; ANSI-C
+//   escapes `$'\x2eenv'`; zsh `^`/`~`/`#` extended-glob operators),
+//   interpreter one-liners (`python -c "open('.env')"`), a piped
 //   script from a non-echo source (`cat gen.sh | bash`, `curl … | sh`), reads
 //   inside scripts the agent executes, and `glob: '*'` reaching a
 //   NON-gitignored `.env`, and a wrapper (or wrapper option taking a
@@ -222,11 +237,15 @@ const NON_READING_COMMANDS = new Set([
 
 // fork:secret-guard-grep-pattern (review): the `file` options that only
 // change how a file is classified (macOS file-5.41 `man file`, GNU file 5.x).
-// Any other option — `-f`/`--files-from`, `-m`/`-M`/`--magic-file`,
-// `-F`/`--separator`, `-e`, `-P`, `-C`, an `--opt=value` — keeps the segment
-// checked, as does a substitution in any of its words (`X=-f; file "$X" .env`).
+// Each was run on macOS file-5.41 against a marker file and printed none of
+// its contents. Any other option — `-f`/`--files-from`, `-m`/`-M`/
+// `--magic-file`, `-F`/`--separator`, `-e`, `-P`, `-C`, the debug options
+// `-D` (macOS: prints each magic test with the bytes it read, so the file's
+// lines) and `-d` (GNU: the same debug output), an `--opt=value` — keeps the
+// segment checked, as does a substitution in any of its words
+// (`X=-f; file "$X" .env`).
 const FILE_CLASSIFY_FLAGS = new Set([
-  '-b', '--brief', '-c', '--checking-printout', '-d', '-D', '-E', '-h', '--no-dereference', '-i', '-I',
+  '-b', '--brief', '-c', '--checking-printout', '-E', '-h', '--no-dereference', '-i', '-I',
   '--mime', '--mime-type', '--mime-encoding', '-k', '--keep-going', '-l', '--list', '-L', '--dereference',
   '-n', '--no-buffer', '-N', '--no-pad', '-0', '--print0', '-p', '--preserve-date', '-r', '--raw',
   '-s', '--special-files', '-S', '--no-sandbox', '-v', '--version', '-z', '--uncompress', '-Z',
@@ -706,9 +725,21 @@ function tokenize(str) {
   // which word sits where, are unknown to the scan. Single-quoted text never
   // sets it.
   let expands = false;
+  // The parts of `expands` the scan expands itself (scanExpansionWords): an
+  // unquoted glob (`*`, `?`, a closed `[…]`) and a brace expansion (`{…}`
+  // holding a `,` or `..`).
+  let globbed = false;
+  let brace = false;
+  let group = false; // a glued `(…)` glob group (zsh alternation, bash extglob)
   let bracketOpen = false; // an unquoted `[` seen in this word
   let braceOpen = false; // an unquoted `{` seen in this word
-  let braceHasSep = false; // and an unquoted `,` or `.` after it
+  let braceHasSep = false; // and an unquoted `,` or `..` after it
+  // A `VAR=value` assignment as bash sees one: the `=` is unquoted and the
+  // text before it is a bare name with no quote, escape or substitution
+  // (`"X"=v`, `\X=v` and `X"="v` are command words, not assignments).
+  let assign = false;
+  let assignDecided = false;
+  let escaped = false;
   let hasWord = false;
   let seg = 0;
   let heredocs = [];
@@ -722,14 +753,20 @@ function tokenize(str) {
       heredocs.push({ tag: buf, quoted: quoted !== 'none', stripTabs: expectTag.stripTabs, seg });
       expectTag = null;
     } else {
-      tokens.push({ kind: 'word', text: buf, quoted, expands, seg });
+      tokens.push({ kind: 'word', text: buf, quoted, expands, globbed, brace, group, assign, seg });
     }
     buf = '';
     quoted = 'none';
     expands = false;
+    globbed = false;
+    brace = false;
+    group = false;
     bracketOpen = false;
     braceOpen = false;
     braceHasSep = false;
+    assign = false;
+    assignDecided = false;
+    escaped = false;
     hasWord = false;
   };
   // The operator text ends segment `seg`; pass 2 reads it to tell `a | bash`
@@ -752,6 +789,9 @@ function tokenize(str) {
       if (quoted === 'none') quoted = 'single';
       const j = str.indexOf("'", i + 1);
       const end = j === -1 ? str.length : j;
+      // A quoted `]` still closes an unquoted `[` for the scan (`.en[v"]"`):
+      // reading it as a glob can only add a denial.
+      if (bracketOpen && str.slice(i + 1, end).includes(']')) expands = globbed = true;
       buf += str.slice(i + 1, end);
       i = end + 1;
       continue;
@@ -783,6 +823,7 @@ function tokenize(str) {
           i = e + 1;
           continue;
         }
+        if (c === ']' && bracketOpen) expands = globbed = true;
         buf += c;
         i++;
       }
@@ -793,6 +834,7 @@ function tokenize(str) {
     if (ch === '\\') {
       if (str[i + 1] === '\n') { i += 2; continue; } // line continuation
       hasWord = true;
+      escaped = true;
       if (i + 1 < str.length) buf += str[i + 1];
       i += 2;
       continue;
@@ -940,6 +982,23 @@ function tokenize(str) {
       sep(text);
       continue;
     }
+    // A `(` glued to a word with a one-word group behind it is a glob group:
+    // zsh alternation (`.e(nv|x)`, on by default — and zsh is the shell Claude
+    // Code runs on macOS) or a bash extglob (`@(.env)`, `!(x)`). It stays in
+    // the word for scanExpansionWords; `f()` and a group holding a space or
+    // an operator keep the old split, and a `$( )` inside is still scanned.
+    if (ch === '(' && hasWord && !expectTag && str[i + 1] !== ')') {
+      const e = findParenClose(str, i + 1);
+      const inner = str.slice(i + 1, e);
+      if (e < str.length && !/[\s;&<>]/.test(inner)) {
+        collectSubstitutions(inner, nested);
+        buf += `(${inner})`;
+        expands = globbed = group = true;
+        i = e + 1;
+        continue;
+      }
+    }
+
     if (ch === '(' || ch === ')') {
       sep(ch);
       i++;
@@ -954,12 +1013,17 @@ function tokenize(str) {
     hasWord = true;
     // `[` and `{` alone are literal (`[ -f x ]`, `find -exec cat {} +`): a
     // bracket glob needs its `]`, a brace expansion a `,` or `..` and its `}`.
-    if (ch === '$' || ch === '*' || ch === '?') expands = true;
+    if (ch === '=' && !assignDecided) {
+      assignDecided = true;
+      assign = quoted === 'none' && !escaped && !expands && /^[A-Za-z_][A-Za-z0-9_]*\+?$/.test(buf);
+    }
+    if (ch === '$') expands = true;
+    else if (ch === '*' || ch === '?') expands = globbed = true;
     else if (ch === '[') bracketOpen = true;
-    else if (ch === ']' && bracketOpen) expands = true;
+    else if (ch === ']' && bracketOpen) expands = globbed = true;
     else if (ch === '{') braceOpen = true;
-    else if ((ch === ',' || ch === '.') && braceOpen) braceHasSep = true;
-    else if (ch === '}' && braceHasSep) expands = true;
+    else if (braceOpen && (ch === ',' || (ch === '.' && buf.endsWith('.')))) braceHasSep = true;
+    else if (ch === '}' && braceHasSep) expands = brace = true;
     buf += ch;
     i++;
   }
@@ -1052,7 +1116,9 @@ function skipWrapperArgs(words, start, spec) {
 // `timeout -s KILL 5`, `nice -n 5`, …), or null when nothing but prefixes remain.
 function resolveCommand(words) {
   let idx = 0;
-  while (idx < words.length && ASSIGNMENT_RE.test(words[idx].text)) idx++;
+  // `assign` is the tokenizer's reading, not the text: `"X"=/bin/cat .env` runs a
+  // command word (a path through a directory named `X=`), not an assignment.
+  while (idx < words.length && words[idx].assign) idx++;
   while (idx < words.length) {
     const spec = WRAPPERS.get(lastSegment(words[idx].text).toLowerCase());
     if (!spec) break;
@@ -1183,6 +1249,113 @@ function envFileValueIndices(operands) {
 function isListedFlag(text, flags) {
   if (text.startsWith('--')) return flags.has(text);
   return /^-[A-Za-z]+$/.test(text) && [...text.slice(1)].every((ch) => flags.has(`-${ch}`));
+}
+
+// fork:secret-guard-grep-pattern (final review): words bash expands itself.
+// A brace word is unrolled with the Grep arm's expandBraces (same 64
+// alternative budget; past it the command is denied `glob-too-complex`) and
+// each alternative is judged like an operand (`cat .e{n,}v`, `{cat,.env}`,
+// `timeout {1,cat,.env}`). A glob word is judged by the Grep arm's
+// globAltSelectsSecret on its last segment (`cat .en[v]`, `cat .e*`) —
+// without a leading-dot exemption, since zsh with GLOB_DOTS (seen on the
+// owner's machine) matches `?envx` to `.envx`; a pure wildcard (`cat *`)
+// stays allowed, as on the Grep arm. Every word counts — the command word,
+// wrapper words, operands — except leading assignments (bash expands neither
+// in them) and the operands of a non-reading command whose command part
+// holds no substitution (`ls .env*` is an existence check).
+// Returns the word, `{ code: 'glob-too-complex', path }`, or null.
+function scanExpansionWords(words, cmd) {
+  let lead = 0;
+  while (lead < words.length && words[lead].assign) lead++;
+  const opStart = cmd ? words.length - cmd.operands.length : words.length;
+  const commandExpands = words.slice(lead, opStart).some((w) => w.expands);
+  const skipOperands = cmd !== null && !commandExpands && isNonReading(cmd.base, cmd.operands);
+  for (let k = lead; k < words.length; k++) {
+    if (skipOperands && k >= opStart) continue;
+    const hit = expansionNamesSecret(words[k]);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+// Unrolls a word's glued `(a|b)` glob groups into the patterns either shell
+// may read: zsh takes `op(a|b)` as the character `op` (a wildcard for `*`/`?`)
+// followed by an alternation; bash extglob takes `@(…)`/`+(…)` as one of the
+// alternatives, `?(…)`/`*(…)` as optional and `!(…)` as anything (`*`). The
+// union of both readings is returned, or null past MAX_GLOB_ALTERNATIVES.
+const GLOB_GROUP_OPS = '@+*?!';
+function expandGlobGroups(text) {
+  const open = text.indexOf('(');
+  if (open === -1) return [text];
+  let depth = 0;
+  let close = -1;
+  const bars = [];
+  for (let i = open; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) { close = i; break; }
+    } else if (ch === '|' && depth === 1) bars.push(i);
+  }
+  if (close === -1) return [text];
+  const op = open > 0 && GLOB_GROUP_OPS.includes(text[open - 1]) ? text[open - 1] : '';
+  const pre = text.slice(0, open - op.length);
+  const post = text.slice(close + 1);
+  const parts = [];
+  let start = open + 1;
+  for (const b of bars) {
+    parts.push(text.slice(start, b));
+    start = b + 1;
+  }
+  parts.push(text.slice(start, close));
+  const middles = new Set();
+  for (const p of parts) {
+    middles.add(op + p);
+    if (op !== '!') middles.add(p);
+  }
+  if (op === '*' || op === '?') middles.add('');
+  if (op === '!') middles.add('*');
+  const out = [];
+  for (const m of middles) {
+    const rest = expandGlobGroups(pre + m + post);
+    if (rest === null) return null;
+    for (const r of rest) {
+      out.push(r);
+      if (out.length > MAX_GLOB_ALTERNATIVES) return null;
+    }
+  }
+  return out;
+}
+
+// One word's brace alternatives / glob judged as in scanExpansionWords.
+function expansionNamesSecret(w) {
+  if (!w.brace && !w.globbed) return null;
+  let alts = w.group ? expandGlobGroups(w.text) : [w.text];
+  if (alts !== null && w.brace) {
+    const braced = [];
+    for (const a of alts) {
+      const expanded = expandBraces(a);
+      if (expanded === null || braced.length + expanded.length > MAX_GLOB_ALTERNATIVES) {
+        alts = null;
+        break;
+      }
+      braced.push(...expanded);
+    }
+    if (alts !== null) alts = braced;
+  }
+  if (alts === null) return { code: 'glob-too-complex', path: w.text };
+  for (const alt of alts) {
+    if (operandNamesSecret(alt)) return w.text;
+    // The same value stripping as for names (`--opt=`, a short cluster), so
+    // `grep -if.env* p f` is judged like `grep .env* f`.
+    if (w.globbed && operandNamesSecret(alt, globSelectsSecret)) return w.text;
+  }
+  return null;
+}
+
+function globSelectsSecret(v) {
+  return /[*?[]/.test(v) && globAltSelectsSecret(lastSegment(v).toLowerCase());
 }
 
 // True when the segment's command prints only names (NON_READING_COMMANDS).
@@ -1370,8 +1543,13 @@ function findSecretRead(command, depth) {
         if (target && target.kind === 'word') {
           k++;
           if (t.text.endsWith('<<<')) hereStrings.push(target.text); // stdin data for a shell
-          // Input redirects are reads regardless of the command's exemption.
+          // Input redirects are reads regardless of the command's exemption,
+          // a glob in one included (`cat < .e*` reads the one match).
           else if (t.read && namesSecret(target.text)) return target.text;
+          else if (t.read) {
+            const hit = expansionNamesSecret(target);
+            if (hit) return hit;
+          }
         }
         continue;
       }
@@ -1380,6 +1558,10 @@ function findSecretRead(command, depth) {
     if (!words.length) continue;
 
     const cmd = resolveCommand(words);
+    // Before the `!cmd` skip: `timeout {1,cat,.env}` leaves no command word
+    // to the resolver, yet bash runs `timeout 1 cat .env`.
+    const expansionHit = scanExpansionWords(words, cmd);
+    if (expansionHit) return expansionHit;
     if (!cmd) continue;
     const { base, operands } = cmd;
     const heredocs = heredocsBySeg.get(s) || [];
@@ -1436,7 +1618,7 @@ function findSecretRead(command, depth) {
     // (`ROOT="$PWD" ls .env`), and a `$( )` in one is scanned as its own
     // command. An assignment given to `env` is an argument and does count.
     let lead = 0;
-    while (lead < words.length && ASSIGNMENT_RE.test(words[lead].text)) lead++;
+    while (lead < words.length && words[lead].assign) lead++;
     const prefixExpands = words.slice(lead, words.length - operands.length).some((w) => w.expands);
     const segmentExpands = prefixExpands || operands.some((w) => w.expands);
 
@@ -1630,7 +1812,8 @@ function reasonFor(code, tool, target) {
       'cannot be checked for secret-file reads. Split it into smaller commands.';
   }
   if (code === 'glob-too-complex') {
-    return `Secret read guard: the Grep glob '${target}' expands to more than ${MAX_GLOB_ALTERNATIVES} ` +
+    const what = tool === 'Grep' ? 'Grep glob' : 'brace expansion';
+    return `Secret read guard: the ${what} '${target}' expands to more than ${MAX_GLOB_ALTERNATIVES} ` +
       'alternatives and cannot be checked for secret-file matches. Use a narrower glob.';
   }
   if (code === 'debugger-cli-spawn') {
@@ -1789,6 +1972,9 @@ process.stdin.on('end', () => {
     if (command === '') allow(undefined);
     if (command.length > MAX_COMMAND_LENGTH) emitBlock('command-too-large', tool, '');
     const hit = findSecretRead(command, 0) || findSecretReadUnderOtherReadings(command);
+    // A hit is the offending word, or `{ code, path }` for a brace word past
+    // the alternative budget (scanExpansionWords).
+    if (hit !== null && typeof hit === 'object') emitBlock(hit.code, tool, hit.path);
     if (hit !== null) emitBlock('secret-read', tool, hit);
     const spawn = findDebuggerCliSpawn(command, 0);
     if (spawn !== null) emitBlock('debugger-cli-spawn', tool, spawn);
