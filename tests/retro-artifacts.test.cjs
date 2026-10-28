@@ -470,7 +470,7 @@ describe('validateCandidates: private paths and real paths', () => {
     fs.writeFileSync(path.join(gsd, 'agents', 'gsd-x.md'), 'x');
     const v = (change) => ra.validateCandidates({ version: 2, candidates: [{ id: 'cand-1', severity: 'low', layer: 'gsd', category: 'environment', title: 't', change, signals: ['hook-block:aaaaaaaaaa'], target: 'agents/gsd-x.md' }] }, evidence,
       { projectRoot: project, patchesDir: 'p', layer: { gsdRoot: gsd, hostName: 'claude', hostVersion: null, homeDir: os.homedir() } });
-    for (const ok of ['see https://code.claude.com/docs/en/hooks', 'set it in ~/.claude/settings.json', 'or ~/.gsd/defaults.json and ~/.config/x']) {
+    for (const ok of ['see https://code.claude.com/en/hooks', 'set it in ~/.claude/settings.json', 'or ~/.gsd/defaults.json and ~/.config/x']) {
       assert.equal(v(ok).valid.length, 1, ok);
     }
     assert.deepEqual(v('in ~/IdeaProjects/mn').dropped.map((d) => d.codes), [[ra.CANDIDATE_DROP.PRIVATE_PATH]]);
