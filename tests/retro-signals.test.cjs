@@ -684,3 +684,57 @@ describe('end to end from a JSONL fixture', () => {
     assert.equal(err.pointers[0].file, 'sess-e2e.jsonl');
   });
 });
+
+// ─── Fingerprints (ADR-5209 §10) ──────────────────────────────────────────────
+
+describe('signal fingerprints: the same friction across sessions and checkouts', () => {
+  const wall = (wt) => `This session is isolated in the worktree ${wt}; cd into another checkout is refused`;
+  /** A session hitting the worktree wall twice, starting from `firstCommand`, inside worktree `wt`. */
+  function session(firstCommand, wt, error = wall(wt)) {
+    const b = builder();
+    b.call('Bash', { command: firstCommand }, { ok: false, text: error });
+    b.call('Bash', { command: 'git status' }, { ok: false, text: error });
+    return signalsOf(run(b), 'repeated-tool-error')[0];
+  }
+
+  test('the same wall from another first command in another worktree: another id, the same fingerprint', () => {
+    const a = session('cd ~/IdeaProjects/mn-wt-121-12/libs/polyglot && cat x', '~/IdeaProjects/mn/.claude/worktrees/polyglot');
+    const b = session('cd /Users/someone/IdeaProjects/mn && git worktree add -b wt/132 ~/IdeaProjects/mn-wt-132', '/Users/someone/IdeaProjects/mn/.claude/worktrees/other');
+    assert.notEqual(a.id, b.id);
+    assert.notEqual(a.key, b.key);
+    assert.match(a.fingerprint, /^repeated-tool-error:[0-9a-f]{10}$/);
+    assert.equal(a.fingerprint, b.fingerprint);
+  });
+
+  test('a different error is a different fingerprint, and so is another tool with the same error', () => {
+    const a = session('cd ~/x && ls', '~/wt');
+    const other = session('cd ~/x && ls', '~/wt', 'Permission denied: the file is read-only');
+    assert.notEqual(a.fingerprint, other.fingerprint);
+    const b = builder();
+    b.call('Write', { file_path: '~/x' }, { ok: false, text: wall('~/wt') });
+    b.call('Write', { file_path: '~/y' }, { ok: false, text: wall('~/wt') });
+    assert.notEqual(signalsOf(run(b), 'repeated-tool-error')[0].fingerprint, a.fingerprint);
+  });
+
+  test('an old bundle\'s key implies the same fingerprint the signal now carries', () => {
+    const a = session('cd ~/IdeaProjects/mn && wc -l notes.md', '~/IdeaProjects/mn/.claude/worktrees/polyglot');
+    assert.equal(rs.signalFingerprint(a.kind, rs.fingerprintBasisFromKey(a.kind, a.key)), a.fingerprint);
+  });
+
+  test('a denial is the form of the call refused, not its arguments; a correction has none', () => {
+    const deny = (command) => {
+      const b = builder();
+      b.call('Bash', { command }, { ok: false, text: 'Permission to use Bash has been denied', denial: 'permission-rule' });
+      return signalsOf(run(b), 'permission-denial')[0];
+    };
+    assert.equal(deny('cd ~/a/b && cat x').fingerprint, deny('cd /Users/q/c; git log').fingerprint);
+    assert.notEqual(deny('cd ~/a/b && cat x').fingerprint, deny('rm -rf ~/a').fingerprint);
+    const c = builder().prompt('нет, не так');
+    assert.equal(signalsOf(run(c), 'user-correction')[0].fingerprint, null);
+  });
+
+  test('maskPaths masks ~/…, absolute paths and a cut-off path', () => {
+    assert.equal(rs.maskPaths('cd ~/IdeaProjects/mn && cat /etc/hosts "/tmp/a b" ~/x…'), 'cd <path> && cat <path> "<path> b" <path>');
+    assert.equal(rs.commandBasis('Bash cd ~/a && cat x'), 'Bash cd <path>');
+  });
+});

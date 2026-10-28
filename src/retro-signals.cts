@@ -238,6 +238,13 @@ export interface RetroSignal {
   score: number;
   /** Normalized, redacted subject: a command, a file, a hook. */
   key: string | null;
+  /**
+   * What the signal is about, stable across sessions and checkouts: the kind
+   * and the group's identity (a repeated tool error is its tool and error, not
+   * the first command that hit it) with every path masked. Null for a signal
+   * with no subject (a correction, a compaction). See `signalFingerprint`.
+   */
+  fingerprint: string | null;
   /** Where it happened — the first `MAX_POINTERS` occurrences. */
   pointers: SignalPointer[];
   excerpt: string | null;
@@ -492,10 +499,19 @@ function hookMessageKey(text: string): string {
   return excerpt(words.join(' '), 80);
 }
 
-function errorKey(text: string): string {
+/** An error's first line, with the next one after a bare `Exit code N`. */
+function errorLine(text: string): string {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const head = lines[0] && /^Exit code \d+$/.test(lines[0]) && lines[1] ? `${lines[0]} ${lines[1]}` : (lines[0] ?? '');
-  return normalizeKey(head, 100);
+  return lines[0] && /^Exit code \d+$/.test(lines[0]) && lines[1] ? `${lines[0]} ${lines[1]}` : (lines[0] ?? '');
+}
+
+/** The error line normalized and redacted, not cut (the fingerprint's input). */
+function errorHead(text: string): string {
+  return normalizeKey(errorLine(text), 100_000);
+}
+
+function errorKey(text: string): string {
+  return normalizeKey(errorLine(text), 100);
 }
 
 function filePathOf(ev: Extract<TranscriptEvent, { kind: 'tool-use' }>): string | null {
@@ -511,6 +527,8 @@ interface Occurrence {
 interface Group {
   kind: SignalKind;
   key: string | null;
+  /** What the fingerprint hashes: the group's identity without its scope; the key unless a kind says otherwise. */
+  basis: string | null;
   occurrences: Occurrence[];
   /** Repetition kinds: the threshold; instance kinds: 1. */
   min: number;
@@ -525,8 +543,8 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
   const keyed = new Map<string, Group>();
   const events = transcript.events;
 
-  function instance(kind: SignalKind, index: number, key: string | null, text: string | null): void {
-    instances.push({ kind, key, min: 1, occurrences: [{ index, ptr: tptr(events[index]), text }] });
+  function instance(kind: SignalKind, index: number, key: string | null, text: string | null, basis: string | null = key): void {
+    instances.push({ kind, key, basis, min: 1, occurrences: [{ index, ptr: tptr(events[index]), text }] });
   }
   // A repetition is "the same thing again in the same context": groups are
   // scoped to one transcript file (the main session or one subagent) unless
@@ -534,13 +552,13 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
   // while `key` is only its capped display form.
   function keyedHit(
     kind: SignalKind, key: string, min: number, index: number, text: string | null,
-    opts: { identity?: string; crossFile?: boolean } = {},
+    opts: { identity?: string; crossFile?: boolean; basis?: string } = {},
   ): void {
     const scope = opts.crossFile ? '' : events[index].ptr.file;
     const id = `${kind}\u0000${scope}\u0000${opts.identity ?? key}`;
     let g = keyed.get(id);
     if (!g) {
-      g = { kind, key, min, occurrences: [] };
+      g = { kind, key, basis: opts.basis ?? key, min, occurrences: [] };
       keyed.set(id, g);
     }
     g.occurrences.push({ index, ptr: tptr(events[index]), text });
@@ -574,7 +592,8 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
     const run = s.streak;
     if (run && run.length >= t.navStreakMin) {
       instances.push({
-        kind: SIGNAL_KIND.NavStreak, key: `${run.length} navigation calls in a row`, min: 1,
+        // The streak's length is this session's; the friction (searching instead of knowing where) is not.
+        kind: SIGNAL_KIND.NavStreak, key: `${run.length} navigation calls in a row`, basis: 'navigation streak', min: 1,
         occurrences: [{ index: run.start, ptr: tptr(events[run.start]), text: null }, { index: run.last, ptr: tptr(events[run.last]), text: null }],
       });
     }
@@ -697,17 +716,22 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
         }
         if (!ev.isError) return;
         const subject = use ? `${use.tool} ${normalizeKey(use.input['command'] ?? filePathOf(use) ?? '', 80)}`.trim() : (ev.tool ?? 'tool');
+        // A denial is about the kind of call refused, not this call's arguments.
+        const denied = commandBasis(subject);
         if (ev.denial === 'user-rejected') {
-          instance(SIGNAL_KIND.ToolRejected, i, subject, null);
+          instance(SIGNAL_KIND.ToolRejected, i, subject, null, denied);
         } else if (ev.denial === 'permission-rule' || ev.denial === 'other') {
-          instance(SIGNAL_KIND.PermissionDenial, i, subject, ev.text);
+          instance(SIGNAL_KIND.PermissionDenial, i, subject, ev.text, denied);
         } else if (ev.blockedBy === null && ev.denial === null) {
           // The same wall hit again: one tool, one error, whatever the
           // arguments were (a test command re-run with a different filter,
           // a path guessed three ways). The key shows the first call.
           const err = errorKey(ev.text);
+          const tool = use?.tool ?? ev.tool ?? '';
           keyedHit(SIGNAL_KIND.RepeatedToolError, `${subject} → ${err}`, t.repeatErrorMin, i, ev.text, {
-            identity: `${use?.tool ?? ev.tool ?? ''}\u0000${err}`,
+            identity: `${tool}\u0000${err}`,
+            // The error before any cut: a long path must not push the words that name the error off the end.
+            basis: `${tool}\u0000${errorBasis(errorHead(ev.text))}`,
           });
         }
         if ((ev.tool === 'Agent' || ev.tool === 'Task') && GAPS_FOUND_RE.test(ev.text)) {
@@ -729,7 +753,7 @@ function groupsFromTranscript(transcript: SessionTranscript, t: RetroThresholds)
   for (const s of states.values()) closeStreak(s);
   for (const { path: p, run } of maxRuns.values()) {
     if (run.length < t.rereadMin) continue;
-    instances.push({ kind: SIGNAL_KIND.Reread, key: excerpt(p, 120), min: t.rereadMin, occurrences: run });
+    instances.push({ kind: SIGNAL_KIND.Reread, key: excerpt(p, 120), basis: excerpt(p, 120), min: t.rereadMin, occurrences: run });
   }
   return [...instances, ...[...keyed.values()].filter(g => g.occurrences.length >= g.min)];
 }
@@ -758,7 +782,8 @@ export interface RetroSignalReport {
   countsByKind: Partial<Record<SignalKind, number>>;
   signals: RetroSignal[];
   /** Signals past `max_signals`, by id — listed, never dropped silently. */
-  omitted: Array<{ id: string; kind: SignalKind; score: number }>;
+  /** Signals cut past `retro.max_signals`: enough to cite and to recognise again, no key or text. */
+  omitted: Array<{ id: string; kind: SignalKind; score: number; count: number; fingerprint: string | null }>;
 }
 
 /** How much session there was to have friction in. */
@@ -822,6 +847,74 @@ function pointerString(p: SignalPointer): string {
   return p.commit;
 }
 
+/**
+ * Every path in a subject masked to `<path>`: `~/…`, absolute paths, and the
+ * home directory. A worktree root, a project root and a temp directory all
+ * differ between sessions and checkouts while the friction is the same.
+ */
+export function maskPaths(text: string): string {
+  return text
+    .replace(/~\/[^\s'"`);|&]*/g, '<path>')
+    .replace(/(^|[\s'"`=(:,])\/[^\s'"`);|&]+/g, '$1<path>')
+    .replace(/<path>…/g, '<path>')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+const ERROR_BASIS_MAX = 90;
+const ERROR_BASIS_TAIL = 40;
+
+/**
+ * What an error is, apart from where: the error text, paths masked, up to its
+ * first path — the error is said before the path in nearly every message
+ * ("isolated in the worktree <path>", "ENOENT: …, open <path>") — or, when
+ * the path comes first, with a little of what follows ("<path>: Permission
+ * denied"); without a path, its first 90 characters. Cutting at the first
+ * path is also what makes an old bundle's key, cut at 100 characters before
+ * any masking, give the same basis as the full text does now.
+ */
+export function errorBasis(errorText: string): string {
+  const m = maskPaths(errorText).replace(/…$/, '');
+  const at = m.indexOf('<path>');
+  if (at < 0) return m.slice(0, ERROR_BASIS_MAX).trim();
+  const before = m.slice(0, at);
+  const tail = before.trim().length < 12 ? m.slice(at + '<path>'.length, at + '<path>'.length + ERROR_BASIS_TAIL) : '';
+  return `${before}<path>${tail}`.trim();
+}
+
+/** A command's form: the tool and the first three words of its first shell segment, paths masked. */
+export function commandBasis(subject: string): string {
+  const masked = maskPaths(subject);
+  const first = masked.split(/&&|\|\||;|\|/)[0].trim();
+  return first.split(' ').slice(0, 4).join(' ');
+}
+
+/**
+ * The basis an old bundle's signal implies, for a signal recorded before
+ * fingerprints were: its key as `toSignal` built it. A repeated tool error's
+ * key is `<subject> → <error>`, and the basis is its tool and error; a denial's
+ * is its command form; anything else, its key.
+ */
+export function fingerprintBasisFromKey(kind: string, key: string | null): string | null {
+  if (key === null) return null;
+  if (kind === SIGNAL_KIND.RepeatedToolError) {
+    const at = key.indexOf(' → ');
+    if (at < 0) return key;
+    const tool = key.slice(0, at).split(' ')[0];
+    return `${tool}\u0000${errorBasis(key.slice(at + 3))}`;
+  }
+  if (kind === SIGNAL_KIND.PermissionDenial || kind === SIGNAL_KIND.ToolRejected) return commandBasis(key);
+  return key;
+}
+
+/** `kind:` + 10 hex of sha1 over the kind and the path-masked basis; null without a basis. */
+export function signalFingerprint(kind: string, basis: string | null | undefined): string | null {
+  if (typeof basis !== 'string') return null;
+  const masked = maskPaths(basis);
+  if (masked === '') return null;
+  return `${kind}:${crypto.createHash('sha1').update(`${kind}\u0000${masked}`).digest('hex').slice(0, 10)}`;
+}
+
 function signalId(kind: SignalKind, key: string | null, first: SignalPointer | undefined): string {
   const h = crypto.createHash('sha1').update(`${kind}\u0000${key ?? ''}\u0000${first ? pointerString(first) : ''}`).digest('hex');
   return `${kind}:${h.slice(0, 10)}`;
@@ -861,6 +954,7 @@ function toSignal(g: Group, events: readonly TranscriptEvent[] | null, t: RetroT
     count,
     score,
     key: g.key,
+    fingerprint: signalFingerprint(g.kind, g.basis),
     pointers,
     excerpt: firstText ? excerpt(firstText, t.excerptChars) : null,
     window: first && first.ptr.source === 'transcript' ? windowFor(events, first.index, t.excerptWindow) : null,
@@ -911,7 +1005,7 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     planningSource = input.planning.status === 'ok' ? 'read' : input.planning.status === 'degraded' ? 'degraded' : 'absent';
     if (input.planning.status === 'degraded' && input.planning.reason) reasons.push(input.planning.reason);
     for (const f of input.planning.findings) {
-      groups.push({ kind: SIGNAL_KIND.GapsFound, key: f.file, min: 1, occurrences: [{ index: -1, ptr: { source: 'artifact', file: f.file, line: f.line }, text: f.excerpt }] });
+      groups.push({ kind: SIGNAL_KIND.GapsFound, key: f.file, basis: f.file, min: 1, occurrences: [{ index: -1, ptr: { source: 'artifact', file: f.file, line: f.line }, text: f.excerpt }] });
     }
   }
 
@@ -920,7 +1014,7 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     gitSource = input.git.status === 'ok' ? 'read' : 'degraded';
     if (input.git.reason) reasons.push(input.git.reason);
     for (const r of input.git.reverts) {
-      groups.push({ kind: SIGNAL_KIND.Revert, key: normalizeKey(r.subject), min: 1, occurrences: [{ index: -1, ptr: { source: 'git', commit: r.commit, timestamp: r.timestamp }, text: r.subject }] });
+      groups.push({ kind: SIGNAL_KIND.Revert, key: normalizeKey(r.subject), basis: normalizeKey(r.subject), min: 1, occurrences: [{ index: -1, ptr: { source: 'git', commit: r.commit, timestamp: r.timestamp }, text: r.subject }] });
     }
   }
 
@@ -953,6 +1047,6 @@ export function computeRetroSignals(input: ComputeRetroSignalsInput): RetroSigna
     scoreByKind,
     countsByKind,
     signals: all.slice(0, thresholds.maxSignals),
-    omitted: all.slice(thresholds.maxSignals).map(s => ({ id: s.id, kind: s.kind, score: s.score })),
+    omitted: all.slice(thresholds.maxSignals).map(s => ({ id: s.id, kind: s.kind, score: s.score, count: s.count, fingerprint: s.fingerprint })),
   };
 }
