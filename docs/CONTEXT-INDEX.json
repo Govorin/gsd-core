@@ -973,7 +973,7 @@
     {
       "id": "RETRO.APPLIED",
       "klass": "RETRO",
-      "value": "RUNS.json run.applied[{candidate, route, at}] written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)"
+      "value": "RUNS.json run.applied[{candidate, route, at}] (beside run.signals, both absent on runs from before ADR-5209 §10) written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)"
     },
     {
       "id": "RETRO.DROP-CODES",
@@ -1003,7 +1003,7 @@
     {
       "id": "RETRO.RECURRING",
       "klass": "RETRO",
-      "value": "earlier RETRO-*.json candidates whose signal fingerprint (kind+key, sha1, 10 hex; signal ids hash the first pointer and differ across sessions) matches this retro's signals, read through the old bundle in .work/ (gone → unreadable, never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons, countThen, countNow, escalate = not applied and countNow > countThen}; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)"
+      "value": "earlier RETRO-*.json candidates whose signal fingerprint (kind+key, sha1, 10 hex; signal ids hash the first pointer and differ across sessions) matches this retro's signals, read through the old retro's run in RUNS.json (signals[{id, fingerprint, count}], ≤100, written by retro prepare — the .work/ bundle does not survive a clone or a new worktree), else its bundle, else unreadable (never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons, countThen, countNow, escalate = not applied and countNow > countThen}; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)"
     },
     {
       "id": "RETRO.ROUTE",
