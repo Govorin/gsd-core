@@ -26,7 +26,7 @@ If the prompt contains a `<required_reading>` block, you MUST use the `Read` too
   - `checks` — the accepted-checks journal with each check's state; `removal-candidate` means it has not fired for `staleDays`.
   - `gsd` — `root` (the installed GSD: the directory holding `gsd-core/`) and `version`. `host` — `name` (the runtime) and `version` (from the transcript; `null` when it recorded none).
   - `lessons` — causes earlier retros traced outside their project, in any repository: `items[]` (`id`, `layer`, `target`, `title`, `status` open | fixed | wontfix, `fixedIn`, `occurrences`, `projects`). `status: invalid` means the journal could not be read; say so in the report.
-  - `recurring` — this project's earlier candidates whose friction came back: `items[]` (`retro`, `candidate`, `title`, `layer`, `signals` — this session's ids for the same friction, `applied`, `appliedBy`, `countThen`, `countNow`, `escalate`), and `unreadable` (earlier retros that could not be compared).
+  - `recurring` — this project's earlier candidates whose friction came back: `items[]` (`retro`, `candidate`, `title`, `layer`, `signals` — this session's ids for the same friction, `applied`, `appliedBy`, `lesson` — `{id, status, layer}` when it was journaled as a lesson, `countThen`, `countNow`, `escalate`), and `unreadable` (earlier retros that could not be compared).
   - `evidence` — **the only refs a candidate may cite**: signal ids, `inventory:<kind>:<subject>`, check ids (cite those as `check:<id>`), lesson ids (as `lesson:<id>`) and recurring proposals (`<stem>:<cand>`, cited as `retro:<stem>:<cand>`).
 - `<report>`, `<candidates>`, `<patches>` — the paths you write.
 </input>
@@ -60,7 +60,9 @@ The category says what kind of change; the **layer** says whose files it lands i
 
 A cause outside the project may still need a stopgap here: write it as a second, `project` candidate, and link the two with `related` both ways.
 
-**Lessons.** When a signal is a `lessons` item recurring, cite `lesson:<id>` in the candidate's `signals` and keep its layer. A `fixed` lesson that recurs is a regression: say so, with `fixedIn` and the versions in the bundle. A `wontfix` lesson is not proposed again; name it under "Not proposed".
+**Lessons.** When a signal is a `lessons` item recurring, cite `lesson:<id>` in the candidate's `signals` and keep its layer. A `wontfix` lesson is not proposed again; name it under "Not proposed".
+
+**Public text.** A `gsd` or `host` candidate becomes a lesson whose draft the user may file upstream. Its `title`, `change` and `target` name no path of this machine (no `~/…`, no absolute path), no project or repository name, and quote nothing from the session — say what GSD or the runtime does, in general terms. Code drops a candidate with such a path (`private-path`).
 </layers>
 
 <process>
@@ -68,7 +70,11 @@ A cause outside the project may still need a stopgap here: write it as a second,
 
 **2. Take the signals in score order.** For each one, read its `contexts` lines and decide what went wrong in one sentence. Several signals often share one cause; one candidate may cite them all. Then apply the repeatability test (`<layers>`) to the cause and pick its layer.
 
-**2a. Read `recurring` before proposing.** Every item gets a line under "Proposed before" in the report. Any candidate whose signals include an item's `signals` must cite `retro:<stem>:<cand>`. Not applied and `escalate: true` (the friction grew) — the candidate is `severity: high` and says the earlier proposal was not acted on. Applied and recurring — that change did not work: propose a different one (often a different layer), never the same one again.
+**2a. Read `recurring` before proposing.** Every item gets a line under "Proposed before" in the report. A candidate that shares **any** signal id with an item's `signals` must cite `retro:<stem>:<cand>`. Then exactly one of four cases:
+- **Waiting for a fix** — `lesson.status: open` in layer `gsd` or `host`: the cause is journaled and not fixed yet. Cite `lesson:<id>` too, keep the lesson's layer, and do not propose something else for it; a project stopgap is still a `related` candidate.
+- **Regression** — `lesson.status: fixed` (`applied: true`, `appliedBy: lessons`): the fix did not hold. Say so with the lesson's `fixedIn` and the bundle's versions, cite `lesson:<id>`, keep the layer.
+- **Applied and recurring** — `applied: true` otherwise: that change did not work. Propose a different one (often in another layer), never the same one again.
+- **Not applied** — `applied: false` and no lesson: say it was not acted on; with `escalate: true` (the friction grew) the candidate is `severity: high`.
 
 **3. Check what already exists before proposing anything.** Look in `inventory` first, then confirm in the tree with `Grep`/`Read` (an ESLint rule under `eslint-rules/`, a hook in `.claude/settings.json`, a gate in a `capability.json`). For a `gsd` candidate, confirm the target under `gsd.root`. An existing, wired check that should have fired and did not is the finding — say why it did not fire. An existing check that nothing runs is a wiring candidate, not a new check.
 
@@ -110,7 +116,7 @@ A cause outside the project may still need a stopgap here: write it as a second,
 - `related` lists the ids of this retro's candidates answering the same cause in another layer, or `[]`.
 - `existing` names what the inventory already has here, or `null`.
 - `target` is the file or setting the change lands in. A `judgement` target that is a CLAUDE.md/AGENTS.md is dropped.
-- `verify` is required for `mechanical` and `retire-check`.
+- `verify` is required for `mechanical` and `retire-check` candidates of layer `project` and `user`; for `gsd` and `host` it is optional.
 
 **`<report>`** (markdown, for the human):
 
@@ -155,6 +161,7 @@ report: {report path}
 - Never write a candidate without a ref from `bundle.evidence`.
 - Never put a judgement rule in CLAUDE.md or AGENTS.md. Never answer a mechanical problem with prose.
 - Never quote transcript text beyond the excerpts and context lines in the bundle. Never write a secret, a token, or an absolute home-directory path.
+- Never run `gsd-tools retro lessons record|close`, `retro applied` or `retro checks record|retire`: journaling what was applied is the human's step (`/gsd:retro --apply`), never the analyst's (ADR-5209 §5).
 - Never open a session transcript (`~/.claude/projects/…`) or any session file. The bundle is the whole of your view of the session. Reading files under `gsd.root` to confirm a `gsd` target is allowed.
 - Never write a `project` candidate for a cause that fails the repeatability test without also writing the candidate of the layer that owns it.
 </prohibitions>

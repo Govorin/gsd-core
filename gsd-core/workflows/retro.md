@@ -25,6 +25,8 @@ Read the `<arguments>` block:
 - `--lessons` (optionally `--layer user|gsd|host` and `--status open|fixed|wontfix`, kept as `LAYER` and `STATUS`) — go to `show_lessons` and stop there.
 
 Anything else is a usage error: show the command's `argument-hint` and stop.
+
+`--apply`, `--checks` and `--lessons` skip `prepare`, whose bash block is where `gsd_run` gets defined: run that resolver line (`@gsd-core/references/gsd-run-resolver.md`) once before the step's first `gsd_run`.
 </step>
 
 <step name="prepare">
@@ -120,9 +122,10 @@ A human chose a candidate. Route it; never apply it from here.
 
 ```bash
 CAND=$(gsd_run retro candidates --id "${CAND_ID}" ${RETRO_STEM:+--retro "$RETRO_STEM"})
+STEM=$(gsd_run retro candidates --id "${CAND_ID}" ${RETRO_STEM:+--retro "$RETRO_STEM"} --pick retro)
 ```
 
-A usage error (dropped or unknown id) → show it and stop.
+A usage error (dropped or unknown id) → show it and stop. `STEM` is the retro the candidate belongs to (the newest when no `--retro` was given); every command below passes it.
 
 The route follows the candidate's `layer` (ADR-5209 §10):
 
