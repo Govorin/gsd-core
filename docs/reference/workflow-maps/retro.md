@@ -2,9 +2,9 @@
 
 # retro
 
-Источник: `gsd-core/workflows/retro.md`. Единицы: 8 шагов `<step>`. Спавнов: 2 (агенты: `gsd-retro-analyst`, `gsd-finding-refuter`). Точки цикла: нет.
+Источник: `gsd-core/workflows/retro.md`. Единицы: 9 шагов `<step>`. Спавнов: 2 (агенты: `gsd-retro-analyst`, `gsd-finding-refuter`). Точки цикла: нет.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 2; не называют реальный шаг и не рисуются — **0**; названы по имени шага и нарисованы пунктиром `goto` — 2.
+> **Переходы в прозе** (фразы «перейди к …»): всего 3; не называют реальный шаг и не рисуются — **0**; названы по имени шага и нарисованы пунктиром `goto` — 3.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -22,6 +22,7 @@ flowchart TB
   u_step_refute["refute"]
   u_step_present["present"]
   u_step_apply_candidate["apply_candidate"]
+  u_step_show_lessons["show_lessons"]
   u_step_show_checks["show_checks"]
   wf_root --> u_step_parse_arguments
   u_step_parse_arguments --> u_step_prepare
@@ -30,9 +31,11 @@ flowchart TB
   u_step_validate --> u_step_refute
   u_step_refute --> u_step_present
   u_step_present --> u_step_apply_candidate
-  u_step_apply_candidate --> u_step_show_checks
+  u_step_apply_candidate --> u_step_show_lessons
+  u_step_show_lessons --> u_step_show_checks
   u_step_parse_arguments -.->|"goto"| u_step_apply_candidate
   u_step_parse_arguments -.->|"goto"| u_step_show_checks
+  u_step_parse_arguments -.->|"goto"| u_step_show_lessons
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555
   classDef conditional fill:#fff8e1,stroke:#b28704
@@ -80,7 +83,8 @@ flowchart LR
 | 5 | `refute` | step |  | `gsd-finding-refuter` |  |  |
 | 6 | `present` | step |  |  |  |  |
 | 7 | `apply_candidate` | step |  |  |  |  |
-| 8 | `show_checks` | step |  |  |  |  |
+| 8 | `show_lessons` | step |  |  |  |  |
+| 9 | `show_checks` | step |  |  |  |  |
 
 ## Дефекты
 

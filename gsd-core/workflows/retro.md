@@ -22,8 +22,11 @@ Read the `<arguments>` block:
 - `--session <id>` / `--last` (default: newest session), `--since <12h|7d|2w|YYYY-MM-DD|ISO instant>` (an ISO instant carries its offset, `2026-10-20T10:00:00.000Z` — the form a scheduled retro passes) and `--ws <name>` (the workstream whose schedule this retro restarts) — passed to `retro prepare` unchanged: set `SELECTION_ARGS` to them, one array element per word (`SELECTION_ARGS=(--session abc --since 7d --ws auth)`, or `SELECTION_ARGS=()` when none).
 - `--apply <cand-id>` (optionally `--retro <stem>`) — go to `apply_candidate` and stop there.
 - `--checks` — go to `show_checks` and stop there.
+- `--lessons` (optionally `--layer user|gsd|host` and `--status open|fixed|wontfix`, kept as `LAYER` and `STATUS`) — go to `show_lessons` and stop there.
 
 Anything else is a usage error: show the command's `argument-hint` and stop.
+
+`--apply`, `--checks` and `--lessons` skip `prepare`, whose bash block is where `gsd_run` gets defined: run that resolver line (`@gsd-core/references/gsd-run-resolver.md`) once before the step's first `gsd_run`.
 </step>
 
 <step name="prepare">
@@ -39,6 +42,8 @@ PREP=$(gsd_run retro prepare "${SELECTION_ARGS[@]}")
 - `signals`, `inventoryFindings` and `removalCandidates` all `0` → print "Nothing to retro: no friction signals, no missing or unwired checks, no stale checks." and stop. A model pass with no evidence can only invent advice.
 - `status: "degraded"` → keep going, and tell the user which sources were not read (the bundle's `report.reasons`). On a runtime other than Claude Code the retro works from git, `.planning` and the inventory only.
 - `suggest: false` with signals present → say the friction score is below `retro.signal_threshold` and continue: the user asked for this retro explicitly.
+
+`lessons.reason: "lessons-invalid"` → tell the user the cross-repository lessons journal (`~/.gsd/lessons/LESSONS.json`) cannot be read and continue without it. `recurring` counts this project's earlier candidates whose friction came back; the analyst reports on each.
 
 `prepare` also journals this retro in `.planning/retro/RUNS.json` (`run` in `PREP`): the schedule (`retro.cadence_phases`, every 2 executed phases by default, `0` off; `retro.at_milestone_start`) counts from it whatever the analyst finds, so "Nothing to retro" still restarts the count. `run.recorded: false` → show `run.problems` and continue.
 
@@ -73,17 +78,17 @@ Wait for `## RETRO COMPLETE`. If the agent returns without it, report the failur
 </step>
 
 <step name="validate">
-Every candidate must cite evidence the bundle carried, a judgement rule must not target a steering file, and a mechanical candidate must carry a `verify` command. Code checks this, not the orchestrator:
+Every candidate must cite evidence the bundle carried, a judgement rule must not target a steering file, a mechanical candidate must carry a `verify` command, its target must fit its `layer` (a `gsd` file must exist in the installed GSD, a `host` target must name the runtime and version the session ran, a `user` target sits under `~` outside the project), and a candidate whose friction an earlier proposal already answered must cite it. Code checks this, not the orchestrator:
 
 ```bash
 CANDS=$(gsd_run retro candidates --retro "${STEM}")
 ```
 
-`valid` survives; `dropped` lists each removed candidate with its reasons. Never re-add a dropped candidate.
+`valid` survives, each with its `layer` and `route`; `dropped` lists each removed candidate with its `reasons` and their `codes`. Never re-add a dropped candidate.
 </step>
 
 <step name="refute">
-For the `valid` candidates whose category is `mechanical` or `retire-check`, spawn `gsd-finding-refuter` in `retro` mode. It confirms each cited pointer is real and runs each `verify` command: a proposed check must **fire on the incident and stay silent on clean code**.
+For the `valid` candidates whose `route` is `quick` (a `mechanical` or `retire-check` candidate of this project), spawn `gsd-finding-refuter` in `retro` mode. It confirms each cited pointer is real and runs each `verify` command: a proposed check must **fire on the incident and stay silent on clean code**.
 
 ```
 Agent(subagent_type="gsd-finding-refuter", prompt=<<
@@ -105,10 +110,11 @@ A candidate the refuter marks REFUTED is shown with its evidence under "Refuted"
 Show, in this order:
 
 1. The header: session, friction score and threshold, status, and any degraded reasons.
-2. The surviving candidates by severity: `id · severity · category — title`, the route (`quick` or `capture`), the target, and the verify command.
-3. Dropped and refuted candidates, one line each with the reason.
-4. The paths: report, candidates, patches.
-5. "Nothing has been applied. To act on one: `/gsd:retro --apply <cand-id>`."
+2. The surviving candidates by severity: `id · severity · category · layer — title`, the route (`quick`, `capture`, `user`, `lesson`), the target, the verify command, `related` ids, and any `notes` (`host-version-unknown`: the runtime version was not recorded).
+3. "Proposed before": each `recurring` item from the bundle — applied or not, `countThen → countNow`, escalated or not.
+4. Dropped and refuted candidates, one line each with the reason.
+5. The paths: report, candidates, patches.
+6. "Nothing has been applied. To act on one: `/gsd:retro --apply <cand-id>`."
 </step>
 
 <step name="apply_candidate">
@@ -116,12 +122,27 @@ A human chose a candidate. Route it; never apply it from here.
 
 ```bash
 CAND=$(gsd_run retro candidates --id "${CAND_ID}" ${RETRO_STEM:+--retro "$RETRO_STEM"})
+STEM=$(gsd_run retro candidates --id "${CAND_ID}" ${RETRO_STEM:+--retro "$RETRO_STEM"} --pick retro)
 ```
 
-A usage error (dropped or unknown id) → show it and stop.
+A usage error (dropped or unknown id) → show it and stop. `STEM` is the retro the candidate belongs to (the newest when no `--retro` was given); every command below passes it.
 
-- `route: "quick"` (`mechanical`, `retire-check`) → `Skill(skill="gsd-quick", args="<title>: <change>. Target: <target>. Patch: <patch or none>. Done when: <verify> fails on the incident and passes on clean code.")`.
-- `route: "capture"` (`judgement`, `navigation`, `environment`, `steering`) → `Skill(skill="gsd-capture", args="<title>: <change> (target: <target>; from <report>)")`.
+The route follows the candidate's `layer` (ADR-5209 §10):
+
+- `route: "quick"` (a `project` `mechanical` or `retire-check`) → `Skill(skill="gsd-quick", args="<title>: <change>. Target: <target>. Patch: <patch or none>. Done when: <verify> fails on the incident and passes on clean code.")`.
+- `route: "capture"` (a `project` `judgement`, `navigation`, `environment`, `steering`) → `Skill(skill="gsd-capture", args="<title>: <change> (target: <target>; from <report>)")`.
+- `route: "user"` (the user's own setup, outside the project) → show the target, the change and the patch, and say the retro edits no file of theirs. Ask (AskUserQuestion; under `TEXT_MODE` a plain-text yes/no) whether they applied it. Only on an explicit yes: `gsd_run retro lessons record --retro "${STEM}" --candidate "${CAND_ID}"`, so the next retro in any repository knows.
+- `route: "lesson"` (`gsd`, `host`) → `LESSON=$(gsd_run retro lessons record --retro "${STEM}" --candidate "${CAND_ID}")`. The project is not touched. Show `outcome` (`created`, `appended`, `duplicate`; `regression` — a fixed lesson came back: say so first), the lesson id, `journal` and `draft` (the issue text; filing it is the user's call — nothing is sent). A `retro_lessons_invalid` error → show it: the journal must be fixed or moved first.
+
+Then name the candidate's `related` ids: a project stopgap for a lesson, or the lesson behind a stopgap, is applied with its own `--apply`.
+
+After `/gsd:quick` or `/gsd:capture` returns with the change made, journal that it was applied, so a later retro that sees the same friction can tell an ignored proposal from one that did not work:
+
+```bash
+gsd_run retro applied --retro "${STEM}" --candidate "${CAND_ID}"
+```
+
+`recorded: false` with a `refusal` (`no-run`, `journal-invalid`, `locked`) → show its `problems`.
 
 After `/gsd:quick` lands a `mechanical` check, ask the user (AskUserQuestion; when `TEXT_MODE` is active — `--text` in the arguments or `workflow.text_mode: true` — ask the same yes/no as a plain-text question instead) whether to journal it, so a check that stops firing becomes a removal candidate later. On yes, with the literal the check prints when it fires:
 
@@ -130,6 +151,14 @@ gsd_run retro checks record --id "${CHECK_ID}" --kind "${KIND}" --match "${MATCH
 ```
 
 After `/gsd:quick` removes a `retire-check` candidate's check, retire its entry: `gsd_run retro checks retire --id "${CHECK_ID}"`.
+</step>
+
+<step name="show_lessons">
+```bash
+gsd_run retro lessons ${LAYER:+--layer "$LAYER"} ${STATUS:+--status "$STATUS"}
+```
+
+`status: "invalid"` → say the journal cannot be read (`problems`) and stop. Otherwise show each lesson: `id · layer · status — title`, the target, occurrences and projects, `fixedIn`, regressions, and for `gsd`/`host` the draft path (`~/.gsd/lessons/drafts/<id>.md`). Closing is the user's call: `gsd_run retro lessons close --id <id> --status fixed|wontfix [--fixed-in <version>]`.
 </step>
 
 <step name="show_checks">
@@ -145,5 +174,5 @@ Show each journaled check with its state (`fired`, `silent`, `removal-candidate`
 <success_criteria>
 - [ ] The analyst ran only when the deterministic pass found evidence
 - [ ] Every presented candidate passed `retro candidates`; dropped ones are listed with reasons
-- [ ] No project file was changed by the retro itself; `--apply` routed through `/gsd:quick` or `/gsd:capture`
+- [ ] No project file was changed by the retro itself; `--apply` routed a project candidate through `/gsd:quick` or `/gsd:capture`, a gsd or host one to the lessons journal, and a user one only after the user's yes
 </success_criteria>

@@ -294,6 +294,7 @@ module.exports = {
   "tests/require-userprofile-with-home.rule.test.cjs",
   "tests/response-language-coverage.test.cjs",
   "tests/retired-artifact-cleanup.test.cjs",
+  "tests/retro-artifacts.test.cjs",
   "tests/review-build-prompt-optional-sections.test.cjs",
   "tests/review-command-router.test.cjs",
   "tests/review-default-reviewers-config.test.cjs",

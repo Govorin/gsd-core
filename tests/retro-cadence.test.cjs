@@ -252,7 +252,7 @@ describe('RUNS.json', () => {
   const run = runAt('2026-10-20T10:00:00.000Z', { executedPhases: ['1', '2'] });
 
   test('absent is an empty history; a recorded run reads back', () => {
-    assert.deepEqual(rc.readRunsJournal(project), { status: 'absent', journal: { version: 1, runs: [] }, problems: [] });
+    assert.deepEqual(rc.readRunsJournal(project), { status: 'absent', journal: { version: rc.RUNS_JOURNAL_VERSION, runs: [] }, problems: [] });
     assert.deepEqual(rc.recordRun(project, run), { recorded: true, problems: [] });
     const read = rc.readRunsJournal(project);
     assert.deepEqual([read.status, read.journal.runs], ['ok', [run]]);
@@ -391,5 +391,165 @@ describe('readMilestoneFacts', () => {
     executePhase(1);
     const r = rc.runFor('RETRO-2026-10-25', new Date('2026-10-25T09:30:00Z'), rc.readMilestoneFacts(project));
     assert.deepEqual(r, { stem: 'RETRO-2026-10-25', at: '2026-10-25T09:30:00.000Z', planningDir: '.planning', milestone: 'v1.2', executedPhases: ['1'] });
+  });
+});
+
+// ─── Applied candidates (ADR-5209 §10) ────────────────────────────────────────
+
+describe('recordApplied: what a human applied, on the retro\'s run', () => {
+  const run = runAt('2026-10-25T10:00:00.000Z', { stem: 'RETRO-2026-10-25' });
+  const entry = (over = {}) => ({ candidate: 'cand-1', route: 'capture', at: '2026-10-26T09:00:00.000Z', ...over });
+  const freeLock = { acquire: () => ({}), release: () => {} };
+
+  test('recorded once on the run of that stem; a second time is already, unchanged', () => {
+    rc.recordRun(project, run);
+    assert.deepEqual(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock), { recorded: true, already: false, refusal: null, problems: [] });
+    const before = fs.readFileSync(rc.runsJournalPath(project), 'utf8');
+    assert.deepEqual(rc.recordApplied(project, 'RETRO-2026-10-25', entry({ at: '2026-10-27T09:00:00.000Z' }), freeLock).already, true);
+    assert.equal(fs.readFileSync(rc.runsJournalPath(project), 'utf8'), before);
+    const [r] = rc.readRunsJournal(project).journal.runs;
+    assert.deepEqual(r.applied, [entry()]);
+    assert.deepEqual([...rc.appliedFromRuns([r])], ['RETRO-2026-10-25:cand-1']);
+  });
+
+  test('the schedule still reads the run the same way', () => {
+    rc.recordRun(project, run);
+    rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock);
+    const r = rc.readRunsJournal(project);
+    assert.deepEqual([r.status, r.problems, r.journal.runs[0].executedPhases], ['ok', [], []]);
+  });
+
+  test('a journal nothing was applied from keeps its bytes (no applied key)', () => {
+    rc.recordRun(project, run);
+    const parsed = JSON.parse(fs.readFileSync(rc.runsJournalPath(project), 'utf8'));
+    assert.equal('applied' in parsed.runs[0], false);
+  });
+
+  test('no run of that stem, an invalid journal, a busy lock, a malformed entry: typed refusal, nothing written', () => {
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock).refusal, rc.APPLIED_REFUSAL.NO_RUN);
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ nope');
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock).refusal, rc.APPLIED_REFUSAL.JOURNAL_INVALID);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{ nope');
+    fs.unlinkSync(file);
+    rc.recordRun(project, run);
+    const busy = { acquire: () => null, release: () => {} };
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), busy).refusal, rc.APPLIED_REFUSAL.LOCKED);
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry({ route: 'somewhere' }), freeLock).refusal, rc.APPLIED_REFUSAL.INVALID);
+    assert.equal(rc.readRunsJournal(project).journal.runs[0].applied, undefined);
+  });
+
+  test('a run whose applied entry is malformed makes the journal fail closed', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: 1, runs: [{ ...run, applied: [{ candidate: 'x', route: 'quick', at: 'now' }] }] }));
+    const r = rc.readRunsJournal(project);
+    assert.deepEqual([r.journal.runs.length, r.problems.length], [0, 1]);
+  });
+});
+
+describe('runs journal the signals a retro saw', () => {
+  const sig = (i) => ({ id: `hook-block:${String(i).padStart(10, '0')}`, fingerprint: `hook-block:${String(i).padStart(10, 'f')}`, count: 1 });
+  const sigs = (n) => Array.from({ length: n }, (_, i) => sig(i));
+
+  test('runFor keeps at most MAX_RUN_SIGNALS facts: limit-1, limit, limit+1', () => {
+    const f = facts({ executed: 0 });
+    for (const [n, kept] of [[rc.MAX_RUN_SIGNALS - 1, rc.MAX_RUN_SIGNALS - 1], [rc.MAX_RUN_SIGNALS, rc.MAX_RUN_SIGNALS], [rc.MAX_RUN_SIGNALS + 1, rc.MAX_RUN_SIGNALS]]) {
+      assert.equal(rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f, sigs(n)).signals.length, kept, `${n} signals`);
+    }
+    assert.equal('signals' in rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f), false);
+  });
+
+  test('recorded and read back; journaledSignals maps stem to them; over the limit is malformed', () => {
+    const run = { ...runAt('2026-10-28T10:00:00.000Z', { stem: 'RETRO-2026-10-28' }), signals: sigs(2) };
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    const read = rc.readRunsJournal(project);
+    assert.deepEqual(rc.journaledSignals(read.journal.runs).get('RETRO-2026-10-28'), sigs(2));
+    assert.deepEqual(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS) }), []);
+    assert.equal(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS + 1) }).length, 1);
+    assert.equal(rc.runProblems({ ...run, signals: [{ id: 'x', fingerprint: 'y', count: -1 }] }).length, 3);
+  });
+});
+
+describe('RUNS.json envelope version', () => {
+  test('a version 1 journal is read and the next write upgrades it to 2; 3 is invalid', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const run = runAt('2026-10-20T10:00:00.000Z');
+    fs.writeFileSync(file, JSON.stringify({ version: 1, runs: [run] }));
+    assert.deepEqual([rc.readRunsJournal(project).status, rc.readRunsJournal(project).journal.runs.length], ['ok', 1]);
+    rc.recordRun(project, runAt('2026-10-21T10:00:00.000Z', { stem: 'RETRO-2026-10-21' }));
+    assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).version, 2);
+    assert.equal(rc.RUNS_JOURNAL_VERSION, 2);
+    fs.writeFileSync(file, JSON.stringify({ version: 3, runs: [] }));
+    assert.equal(rc.readRunsJournal(project).status, 'invalid');
+  });
+
+  test('a run keeps the runtime and GSD version code read; runOf finds the latest run of a stem', () => {
+    const f = facts({ executed: 0 });
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f, [], { host: { name: 'claude', version: '2.1.310' }, gsdVersion: '1.18.0' });
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    const [back] = rc.readRunsJournal(project).journal.runs;
+    assert.deepEqual([back.host, back.gsdVersion], [{ name: 'claude', version: '2.1.310' }, '1.18.0']);
+    assert.equal(rc.runOf([back], 'RETRO-2026-10-28'), back);
+    assert.equal(rc.runOf([back], 'RETRO-2026-10-29'), null);
+    assert.equal(rc.runProblems({ ...run, host: { name: 5, version: null } }).length, 1);
+  });
+});
+
+describe('RUNS.json from a newer GSD, and the run snapshot', () => {
+  test('a newer version is invalid with newer: true; the schedule says journal-newer; applied refuses as journal-newer', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: rc.RUNS_JOURNAL_VERSION + 1, runs: [] }));
+    const read = rc.readRunsJournal(project);
+    assert.deepEqual([read.status, read.newer], ['invalid', true]);
+    assert.equal(due({ facts: facts({ executed: 3 }), runs: [], journalProblems: read.problems, journalNewer: true }).reason, 'journal-newer');
+    assert.equal(due({ facts: facts({ executed: 3 }), runs: [], journalProblems: ['broken'] }).reason, 'journal-invalid');
+    const free = { acquire: () => ({}), release: () => {} };
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-20', { candidate: 'cand-1', route: 'quick', at: '2026-10-21T00:00:00.000Z' }, free).refusal, rc.APPLIED_REFUSAL.JOURNAL_NEWER);
+  });
+
+  test('a snapshot round-trips; a malformed one makes the run malformed; lists are capped at MAX_SNAPSHOT_ITEMS', () => {
+    const snap = { inventory: ['inventory:missing-guardrail:ci'], checks: ['no-stash'], lessons: ['lesson-0123456789'], recurring: [{ retro: 'RETRO-2026-10-20', candidate: 'cand-1', signals: ['hook-block:aaaaaaaaaa'], escalate: true, weak: false, lesson: null }] };
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, snap);
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    assert.deepEqual(rc.readRunsJournal(project).journal.runs[0].snapshot, snap);
+    assert.equal(rc.runProblems({ ...run, snapshot: { ...snap, lessons: ['nope'] } }).length, 1);
+    const many = (n) => Array.from({ length: n }, (_, i) => `inventory:x:${i}`);
+    for (const [n, kept] of [[rc.MAX_SNAPSHOT_ITEMS - 1, rc.MAX_SNAPSHOT_ITEMS - 1], [rc.MAX_SNAPSHOT_ITEMS, rc.MAX_SNAPSHOT_ITEMS], [rc.MAX_SNAPSHOT_ITEMS + 1, rc.MAX_SNAPSHOT_ITEMS]]) {
+      assert.equal(rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, { ...snap, inventory: many(n) }).snapshot.inventory.length, kept, `${n}`);
+    }
+  });
+});
+
+describe('the run snapshot: limits and refs that cannot be journaled', () => {
+  const base = { inventory: [], checks: [], lessons: [], recurring: [] };
+  const mk = (snap) => rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, snap);
+  test('a ref over MAX_SNAPSHOT_REF is left out at write and the run stays valid: limit, limit+1', () => {
+    const at = `inventory:x:${'a'.repeat(rc.MAX_SNAPSHOT_REF - 'inventory:x:'.length)}`;
+    const over = `${at}b`;
+    const run = mk({ ...base, inventory: [at, over], lessons: ['lesson-0123456789', 'not-a-lesson'] });
+    assert.deepEqual([run.snapshot.inventory, run.snapshot.lessons], [[at], ['lesson-0123456789']]);
+    assert.deepEqual(rc.runProblems(run), []);
+  });
+
+  test('recurring holds at most MAX_RECURRING entries, each at most MAX_RECURRING_SIGNALS ids: limit-1, limit, limit+1', () => {
+    const ra = require('../gsd-core/bin/lib/retro-artifacts.cjs');
+    const entry = (n) => ({ retro: 'RETRO-2026-10-20', candidate: 'cand-1', signals: Array.from({ length: n }, (_, i) => `hook-block:${String(i).padStart(10, '0')}`), escalate: false, weak: false, lesson: null });
+    for (const n of [ra.MAX_RECURRING - 1, ra.MAX_RECURRING, ra.MAX_RECURRING + 1]) {
+      assert.equal(mk({ ...base, recurring: Array.from({ length: n }, () => entry(1)) }).snapshot.recurring.length, Math.min(n, ra.MAX_RECURRING), `${n} entries`);
+    }
+    for (const n of [ra.MAX_RECURRING_SIGNALS - 1, ra.MAX_RECURRING_SIGNALS, ra.MAX_RECURRING_SIGNALS + 1]) {
+      assert.equal(mk({ ...base, recurring: [entry(n)] }).snapshot.recurring[0].signals.length, Math.min(n, ra.MAX_RECURRING_SIGNALS), `${n} signals`);
+    }
+    assert.equal(rc.runProblems({ ...mk(base), snapshot: { ...base, recurring: [entry(ra.MAX_RECURRING_SIGNALS + 1)] } }).length, 1);
+  });
+
+  test('a weak signal keeps its flag in the journal', () => {
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [{ id: 'hook-block:0000000001', fingerprint: 'hook-block:abcabcabca', count: 1, weak: true }]);
+    rc.recordRun(project, run);
+    assert.equal(rc.readRunsJournal(project).journal.runs[0].signals[0].weak, true);
   });
 });

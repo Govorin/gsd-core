@@ -659,7 +659,7 @@ The commands above cover the most common day-to-day flows. Every command listed 
 
 - **`/gsd:health [--repair] [--only CODES] [--context]`** — Diagnose planning directory health and optionally repair issues (`--only W031` limits a repair to the listed codes).
 - **`/gsd:forensics [problem description]`** — Post-mortem investigation for failed GSD workflows; diagnoses what went wrong.
-- **`/gsd:retro [--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD] [--apply <cand-id> [--retro <stem>]] [--checks]`** — Session retro: environment changes (checks, reviewer rules, settings) tied to friction signals; applies nothing.
+- **`/gsd:retro [--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD] [--apply <cand-id> [--retro <stem>]] [--checks] [--lessons [--layer user|gsd|host] [--status open|fixed|wontfix]]`** — Session retro: environment changes (checks, reviewer rules, settings) tied to friction signals, each attributed to the layer that owns its cause (project, user, gsd, host); applies nothing. `--lessons` shows the cross-repository lessons journal.
 - **`/gsd:undo --last N | --phase NN | --plan NN-MM`** — Safe git revert. Roll back phase or plan commits using the phase manifest with dependency checks.
 - **`/gsd:docs-update [--force] [--verify-only]`** — Generate or update project documentation verified against the codebase.
 - **`/gsd:extract-learnings <phase>`** — Extract decisions, lessons, patterns, and surprises from completed phase artifacts.

@@ -16,6 +16,9 @@
  *   prepare     the analyst's input bundle + this retro's artifact paths
  *   candidates  validate the analyst's candidates against that bundle
  *   checks      the accepted-checks journal: status | record | retire
+ *   applied     journal that a human applied a candidate (on its retro's run)
+ *   lessons     the cross-repository lessons journal (retro-lessons):
+ *               list | record | close (ADR-5209 §10)
  *
  * Arg indexing:
  *   args[0] = 'retro'      (family — matched by dispatchCapabilityCommand)
@@ -33,6 +36,7 @@
 
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import io = require('./io.cjs');
@@ -87,8 +91,14 @@ import {
   withJournalLock,
   journalLockPath,
   defaultJournalLock,
+  readPastProposals,
+  computeRecurring,
+  signalFacts,
+  appliedFromChecks,
+  citedLessons,
+  compareRetroStems,
 } from './retro-artifacts.cjs';
-import type { ChecksStatus, CheckKind, RetroPaths, JournalLock } from './retro-artifacts.cjs';
+import type { ChecksStatus, CheckKind, RetroPaths, JournalLock, CandidateValidation, LayerContext, RecurringRef, SignalFacts } from './retro-artifacts.cjs';
 import {
   RETRO_TRIGGER,
   resolveCadenceConfig,
@@ -98,8 +108,30 @@ import {
   computeRetroDue,
   recordRun,
   runFor,
+  recordApplied,
+  appliedFromRuns,
+  journaledSignals,
+  runOf,
 } from './retro-cadence.cjs';
-import type { CadenceConfig, RetroDue, RetroTrigger } from './retro-cadence.cjs';
+import {
+  readLessonsJournal,
+  bundleLessons,
+  lessonsByCandidate,
+  mainWorktreeRoot,
+  recordLesson,
+  closeLesson,
+  editLessons,
+  projectKey,
+  resolveGsdInstall,
+  foldHome,
+  projectCount,
+  lessonsJournalPath,
+  LESSON_LAYERS,
+  LESSON_STATUSES,
+  LESSONS_INVALID,
+} from './retro-lessons.cjs';
+import type { LessonLayer, LessonStatus, LessonsWrite, LessonsJournal } from './retro-lessons.cjs';
+import type { CadenceConfig, RetroDue, RetroTrigger, RetroRun } from './retro-cadence.cjs';
 
 const { output, ERROR_REASON, formatDiagnosticToken, getJsonErrorMode } = io;
 const { ExitError } = cliExit;
@@ -186,6 +218,7 @@ function scheduleFor(cwd: string, cfg: RetroConfig): RetroDue {
     facts: readMilestoneFacts(cwd),
     runs: runs.journal.runs,
     journalProblems: runs.problems,
+    journalNewer: runs.newer === true,
     config: cfg.cadence,
     active: cfg.active,
     mode: cfg.mode,
@@ -210,7 +243,7 @@ type RetroDecisionKind = 'skip' | 'suggest' | 'auto';
 
 interface RetroDecision {
   decision: RetroDecisionKind;
-  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached' | 'milestone-start' | 'cadence-reached' | 'journal-invalid';
+  reason: 'capability-disabled' | 'retro-auto-off' | 'below-threshold' | 'threshold-reached' | 'milestone-start' | 'cadence-reached' | 'journal-invalid' | 'journal-newer';
   /** What made the retro worth proposing: friction, or one of the schedules; null on skip. */
   trigger: RetroTrigger | null;
   /** Every trigger that fired (the threshold and the schedule), whatever the mode. */
@@ -311,6 +344,10 @@ function decideRetro(input: {
     const command = args === '' ? slash : `${slash} ${args}`;
     const message = input.mode === 'suggest' ? `This session struggled (friction ${r.score} >= ${r.threshold}): run ${command}` : null;
     return answer(input.mode, 'threshold-reached', RETRO_TRIGGER.SIGNALS, command, message, { skill: 'retro', args });
+  }
+  if (schedule && schedule.reason === 'journal-newer') {
+    const message = `Retro schedule paused: ${schedule.journal} was written by a newer GSD than this one. Update GSD; the journal is fine and is left as it is.`;
+    return answer('suggest', 'journal-newer', null, null, message, null);
   }
   if (schedule && schedule.reason === 'journal-invalid') {
     const why = schedule.problems.find(p => p.includes('RUNS.json')) ?? 'it cannot be read';
@@ -478,6 +515,7 @@ async function gatherSignals(cwd: string, sel: Selection, pick: SessionPick, cfg
     git,
     config: cfg.thresholdConfig,
     transcriptUnavailable: transcript ? null : pick.unavailable,
+    projectRoots: [cwd, mainWorktreeRoot(cwd)],
   });
   report.reasons.unshift(...cfg.problems);
   return { report, transcript };
@@ -550,8 +588,10 @@ interface Env {
   cwd: string;
   raw: boolean;
   now: Date;
-  /** The journals' lock (CHECKS.json edits); a test seam, production uses the shared primitive. */
+  /** The journals' lock (CHECKS.json and RUNS.json edits); a test seam, production uses the shared primitive. */
   journalLock: JournalLock;
+  /** The lessons journal's lock (`~/.gsd/lessons/.LESSONS.lock`); a test seam. */
+  lessonsLock: JournalLock;
 }
 
 const STAGE_USAGE = 'Usage: gsd-tools retro stage [signals] [--phase N|--milestone <v>] [--session <id>|--last] [--sessions-dir <dir>]';
@@ -639,26 +679,58 @@ function handlePrepare(env: Env): Invalid | undefined {
     const inventory = inventoryFor(env.cwd);
     const checks = await gatherChecksStatus(env.cwd, sel.sessionsDir, cfg, env.now, DEFAULT_MAX_SESSIONS);
     const paths = nextRetroPaths(env.cwd, env.now.toISOString().slice(0, 10));
+    const runtime = resolveRuntime(env.cwd);
+    const gsd = resolveGsdInstall();
+    // What the session's earlier and cross-repository history says (ADR-5209
+    // §10): lessons from every repository, and this project's earlier
+    // proposals whose signals came back, with whether each was applied.
+    const lessonsRead = readLessonsJournal();
+    const lessons = bundleLessons(lessonsRead);
+    // Listed and omitted: anything the analyst may cite is journaled, so it can be recognised later.
+    const current = signalFacts([...report.signals, ...report.omitted]);
+    const runsRead = readRunsJournal(env.cwd);
+    const recurring = recurringFor(env.cwd, paths.stem, current, runsRead.journal.runs, lessonsRead.journal);
+    const host = { name: runtime, version: transcript?.hostVersion ?? null };
     const bundle = {
-      version: 1,
+      version: 2,
       stem: paths.stem,
       createdAt: env.now.toISOString(),
-      runtime: resolveRuntime(env.cwd),
+      runtime,
       paths: { report: paths.report, candidates: paths.candidates, patches: paths.patches },
+      gsd,
+      host,
       report,
       contexts: signalContexts(report, transcript, report.thresholds.excerptWindow, report.thresholds.excerptChars),
       inventory,
       checks,
+      lessons,
+      recurring,
       evidence: {
         signals: [...report.signals.map(s => s.id), ...report.omitted.map(s => s.id)],
         inventory: inventoryRefs(inventory.findings),
         checks: checks ? checks.removalCandidates : [],
+        lessons: lessons.items.map(l => l.id),
+        retros: recurring.items.map(r => `${r.retro}:${r.candidate}`),
       },
     };
     writeBundle(env.cwd, paths, bundle);
     // A retro is held from here on, whatever the analyst finds: the schedule
     // counts from this run (retro-cadence, `.planning/retro/RUNS.json`).
-    const run = recordRun(env.cwd, runFor(paths.stem, env.now, readMilestoneFacts(env.cwd)));
+    // What the analyst is shown, journaled before it runs: validation holds the retro to it (ADR-5209 §10).
+    const snapshot = {
+      inventory: bundle.evidence.inventory,
+      checks: bundle.evidence.checks,
+      lessons: bundle.evidence.lessons,
+      recurring: recurring.items.map(r => ({
+        retro: r.retro,
+        candidate: r.candidate,
+        signals: r.signals.filter(id => !r.weakSignals.includes(id)),
+        escalate: r.escalate,
+        weak: r.weak,
+        lesson: r.lesson,
+      })),
+    };
+    const run = recordRun(env.cwd, runFor(paths.stem, env.now, readMilestoneFacts(env.cwd), current, { host, gsdVersion: gsd.version }, snapshot));
     output({
       stem: paths.stem,
       bundle: paths.bundle,
@@ -674,6 +746,8 @@ function handlePrepare(env: Env): Invalid | undefined {
       omitted: report.omitted.length,
       inventoryFindings: inventory.findings.length,
       removalCandidates: checks ? checks.removalCandidates.length : 0,
+      lessons: { status: lessons.status, reason: lessons.reason, count: lessons.items.length, problems: lessons.problems },
+      recurring: recurring.items.length,
       run: { journal: runsJournalRelPath(env.cwd), recorded: run.recorded, problems: run.problems },
     }, env.raw);
   };
@@ -691,6 +765,115 @@ function readJsonFile(abs: string): { ok: true; value: unknown } | { ok: false; 
   }
 }
 
+interface BundleView {
+  evidence?: { signals?: string[]; inventory?: string[]; checks?: string[]; lessons?: string[]; retros?: string[] };
+  report?: unknown;
+}
+
+interface ValidatedRetro {
+  stem: string;
+  paths: RetroPaths;
+  bundleOk: boolean;
+  /** The retro's run in RUNS.json, or null (not journaled, or the journal cannot be read). */
+  run: RetroRun | null;
+  /** The signal ids this retro may be cited by (the bundle's evidence, else its run's signals). */
+  evidenceSignals: ReadonlySet<string>;
+  problems: string[];
+  result: CandidateValidation;
+}
+
+function stringOrNull(v: unknown): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+/** Earlier retros of the project compared with this one, from the journals as they stand now. */
+function recurringFor(cwd: string, stem: string, current: readonly SignalFacts[], runs: readonly RetroRun[], lessons: LessonsJournal): ReturnType<typeof computeRecurring> {
+  const past = readPastProposals(cwd, stem, journaledSignals(runs)).filter(p => compareRetroStems(p.retro, stem) < 0);
+  return computeRecurring({
+    current,
+    past,
+    applied: {
+      runs: appliedFromRuns(runs),
+      checks: appliedFromChecks(readChecksJournal(cwd).journal),
+      lessons: lessonsByCandidate(lessons, projectKey(cwd)),
+    },
+  });
+}
+
+/**
+ * Read one retro's candidates and validate them. Only what code wrote before
+ * the analyst ran, or what code can read now, is trusted — the bundle sits in
+ * the project and the analyst can write: the runtime and its version come
+ * from the retro's run in RUNS.json, the earlier proposals are recomputed
+ * from RUNS.json, CHECKS.json and the lessons journal, the lessons from the
+ * journal, and the GSD install root from the `gsd-tools` that runs. The
+ * bundle gives the evidence ids the analyst was shown (signals listed and
+ * omitted, inventory findings, removal candidates); without it, the run's
+ * journaled signals stand in for the signal ids.
+ */
+function loadValidatedRetro(cwd: string, stemArg: string | null, usage: string): ValidatedRetro | Invalid {
+  const stem = stemArg ?? latestRetroStem(cwd);
+  if (stem === null) return makeInvalidArgs('--retro', `no retro candidates under .planning/retro/. ${usage}`, ERROR_REASON.USAGE);
+  let paths: RetroPaths;
+  try {
+    paths = retroPathsFor(cwd, stem);
+  } catch {
+    return makeInvalidArgs('--retro', `${formatDiagnosticToken(stem)} is not a retro stem. ${usage}`, ERROR_REASON.USAGE);
+  }
+  const candidates = readJsonFile(path.join(cwd, paths.candidates));
+  if (!candidates.ok) return makeInvalidArgs('--retro', `cannot read ${paths.candidates}: ${candidates.reason}`, ERROR_REASON.USAGE);
+  const read = readJsonFile(path.join(cwd, paths.bundle));
+  const bundle: BundleView = read.ok && read.value && typeof read.value === 'object' ? read.value : {};
+  const ev = bundle.evidence ?? {};
+  const runsRead = readRunsJournal(cwd);
+  const run = runOf(runsRead.journal.runs, stem);
+  const problems: string[] = [];
+  let evidenceSignals: Set<string>;
+  if (read.ok) {
+    evidenceSignals = new Set(ev.signals ?? []);
+  } else {
+    evidenceSignals = new Set((run?.signals ?? []).map(f => f.id));
+    problems.push(run?.signals
+      ? `bundle ${paths.bundle} unreadable: ${read.reason}; signal evidence from its run in ${runsJournalRelPath(cwd)}, inventory and check evidence unavailable`
+      // Neither the bundle nor a journaled run: no evidence can be checked, so every candidate is dropped as unknown-signal — said, not hidden.
+      : `bundle ${paths.bundle} unreadable: ${read.reason}, and no run with signals in ${runsJournalRelPath(cwd)}`);
+  }
+  // The snapshot `prepare` journaled before the analyst ran is what the retro
+  // is held to — never the journals as they stand now, which move as other
+  // candidates are applied. A cited lesson must still exist. A run without a
+  // snapshot (journaled before it existed) binds nothing by recurrence.
+  const snapshot = run?.snapshot ?? null;
+  const existingLessons = new Set(readLessonsJournal().journal.lessons.map(l => l.id));
+  const shownLessons = snapshot ? snapshot.lessons : (bundle.evidence?.lessons ?? []);
+  const refs: RecurringRef[] = (snapshot?.recurring ?? []).map(r => ({ retro: r.retro, candidate: r.candidate, signals: r.signals, escalate: r.escalate, lesson: r.lesson, weak: r.weak }));
+  const layer: LayerContext = {
+    gsdRoot: resolveGsdInstall().root,
+    hostName: stringOrNull(run?.host?.name),
+    hostVersion: stringOrNull(run?.host?.version),
+    homeDir: os.homedir(),
+    projectRoots: [mainWorktreeRoot(cwd)],
+  };
+  const result = validateCandidates(candidates.value, {
+    signals: evidenceSignals,
+    // One trust boundary: the snapshot when the run has one, the bundle only for a run journaled before it.
+    inventory: new Set(snapshot ? snapshot.inventory : (ev.inventory ?? [])),
+    checks: new Set(snapshot ? snapshot.checks : (ev.checks ?? [])),
+    lessons: new Set(shownLessons.filter(id => existingLessons.has(id))),
+    retros: new Set(snapshot ? snapshot.recurring.map(r => `${r.retro}:${r.candidate}`) : (bundle.evidence?.retros ?? [])),
+  }, { projectRoot: cwd, patchesDir: paths.patches, layer, recurring: refs });
+  return { stem, paths, bundleOk: read.ok, run, evidenceSignals, problems, result };
+}
+
+/** The valid candidate `id` of a validated retro, or the usage error saying why it is not one. */
+function pickCandidate(v: ValidatedRetro, id: string, flag: string): CandidateValidation['valid'][number] | Invalid {
+  const hit = v.result.valid.find(c => c.id === id);
+  if (hit) return hit;
+  const dropped = v.result.dropped.find(d => d.id === id);
+  return makeInvalidArgs(flag, dropped
+    ? `${formatDiagnosticToken(id)} was dropped: ${dropped.reasons.join('; ')}`
+    : `no candidate ${formatDiagnosticToken(id)} in ${v.paths.candidates}`, ERROR_REASON.USAGE);
+}
+
 function handleCandidates(env: Env): Invalid | undefined {
   const stemArg = flagValue(env.args, '--retro', CANDIDATES_USAGE);
   if (isInvalid(stemArg)) return stemArg;
@@ -701,43 +884,164 @@ function handleCandidates(env: Env): Invalid | undefined {
     output(disabledResponse(), env.raw);
     return undefined;
   }
-  const stem = stemArg ?? latestRetroStem(env.cwd);
-  if (stem === null) return makeInvalidArgs('--retro', `no retro candidates under .planning/retro/. ${CANDIDATES_USAGE}`, ERROR_REASON.USAGE);
-  let paths: RetroPaths;
-  try {
-    paths = retroPathsFor(env.cwd, stem);
-  } catch {
-    return makeInvalidArgs('--retro', `${formatDiagnosticToken(stem)} is not a retro stem. ${CANDIDATES_USAGE}`, ERROR_REASON.USAGE);
-  }
-  const candidates = readJsonFile(path.join(env.cwd, paths.candidates));
-  if (!candidates.ok) return makeInvalidArgs('--retro', `cannot read ${paths.candidates}: ${candidates.reason}`, ERROR_REASON.USAGE);
-  const bundle = readJsonFile(path.join(env.cwd, paths.bundle));
-  const ev = bundle.ok ? (bundle.value as { evidence?: { signals?: string[]; inventory?: string[]; checks?: string[] } }).evidence ?? {} : {};
-  const result = validateCandidates(candidates.value, {
-    signals: new Set(ev.signals ?? []),
-    inventory: new Set(ev.inventory ?? []),
-    checks: new Set(ev.checks ?? []),
-  }, { projectRoot: env.cwd, patchesDir: paths.patches });
+  const v = loadValidatedRetro(env.cwd, stemArg, CANDIDATES_USAGE);
+  if (isInvalid(v)) return v;
   if (idArg !== null) {
-    const hit = result.valid.find(c => c.id === idArg);
-    if (!hit) {
-      const dropped = result.dropped.find(d => d.id === idArg);
-      return makeInvalidArgs('--id', dropped
-        ? `${formatDiagnosticToken(idArg)} was dropped: ${dropped.reasons.join('; ')}`
-        : `no candidate ${formatDiagnosticToken(idArg)} in ${paths.candidates}`, ERROR_REASON.USAGE);
-    }
-    output({ retro: stem, report: paths.report, candidate: hit }, env.raw);
+    const hit = pickCandidate(v, idArg, '--id');
+    if (isInvalid(hit)) return hit;
+    output({ retro: v.stem, report: v.paths.report, candidate: hit }, env.raw);
     return undefined;
   }
   output({
-    retro: stem,
-    report: paths.report,
-    bundle: bundle.ok ? paths.bundle : null,
-    // Without the bundle no evidence can be checked, so every candidate is dropped as unknown-signal — said, not hidden.
-    problems: bundle.ok ? [] : [`bundle ${paths.bundle} unreadable: ${bundle.reason}`],
-    valid: result.valid,
-    dropped: result.dropped,
+    retro: v.stem,
+    report: v.paths.report,
+    bundle: v.bundleOk ? v.paths.bundle : null,
+    version: v.result.version,
+    problems: v.problems,
+    valid: v.result.valid,
+    dropped: v.result.dropped,
   }, env.raw);
+  return undefined;
+}
+
+const APPLIED_USAGE = 'Usage: gsd-tools retro applied --candidate <cand-n> [--retro <RETRO-YYYY-MM-DD[-n]>]';
+
+/**
+ * `retro applied`: a human routed a candidate (`/gsd-retro --apply`) and the
+ * change landed. Journaled on that retro's run in RUNS.json, so a later retro
+ * that sees the same signals knows the proposal was applied and did not work,
+ * rather than ignored. A refusal (no run, journal invalid, lock) is an answer
+ * with its typed `refusal`, never a silent success.
+ */
+function handleApplied(env: Env): Invalid | undefined {
+  const stemArg = flagValue(env.args, '--retro', APPLIED_USAGE);
+  if (isInvalid(stemArg)) return stemArg;
+  const cand = flagValue(env.args, '--candidate', APPLIED_USAGE);
+  if (isInvalid(cand)) return cand;
+  if (cand === null) return makeInvalidArgs('--candidate', `--candidate is required. ${APPLIED_USAGE}`, ERROR_REASON.USAGE);
+  const cfg = readRetroConfig(env.cwd);
+  if (!cfg.active) {
+    output(disabledResponse(), env.raw);
+    return undefined;
+  }
+  // The candidate must be one validation keeps — against the retro's own
+  // snapshot, which its run carries, so a missing .work/ bundle (a new clone,
+  // a new worktree) does not stop it.
+  const v = loadValidatedRetro(env.cwd, stemArg, APPLIED_USAGE);
+  if (isInvalid(v)) return v;
+  const hit = pickCandidate(v, cand, '--candidate');
+  if (isInvalid(hit)) return hit;
+  const r = recordApplied(env.cwd, v.stem, { candidate: hit.id, route: hit.route, at: env.now.toISOString() }, env.journalLock);
+  output({ retro: v.stem, candidate: hit.id, route: hit.route, journal: runsJournalRelPath(env.cwd), ...r }, env.raw);
+  return undefined;
+}
+
+// ─── Lessons ──────────────────────────────────────────────────────────────────
+
+const LESSONS_USAGE = 'Usage: gsd-tools retro lessons [list] [--layer user|gsd|host] [--status open|fixed|wontfix] [--json] | record --candidate <cand-n> [--retro <stem>] | close --id <lesson-id> --status fixed|wontfix [--fixed-in <version>]';
+
+function lessonsFailure(w: Extract<LessonsWrite, { ok: false }>): Invalid {
+  // A journal that cannot be read whole has its own wire reason: a caller
+  // branches on it (fix or move the file) rather than on the message.
+  return makeInvalidArgs('lessons', w.message, w.reason === LESSONS_INVALID ? ERROR_REASON.RETRO_LESSONS_INVALID : ERROR_REASON.USAGE);
+}
+
+function lessonSummary(w: Extract<LessonsWrite, { ok: true }>, action: string): Record<string, unknown> {
+  return {
+    action,
+    outcome: w.outcome,
+    lesson: {
+      id: w.lesson.id,
+      layer: w.lesson.layer,
+      target: w.lesson.target,
+      title: w.lesson.title,
+      status: w.lesson.status,
+      fixedIn: w.lesson.fixedIn,
+      regressions: w.lesson.regressions,
+      occurrences: w.lesson.occurrences.length,
+      projects: projectCount(w.lesson),
+    },
+    journal: foldHome(w.journal),
+    draft: w.draft === null ? null : foldHome(w.draft),
+  };
+}
+
+function handleLessons(env: Env): Invalid | undefined {
+  const action = env.args[2] && !env.args[2].startsWith('--') ? env.args[2] : 'list';
+  if (!['list', 'record', 'close'].includes(action)) {
+    return makeInvalidArgs('action', `unknown lessons action ${formatDiagnosticToken(action)}. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+  }
+  const cfg = readRetroConfig(env.cwd);
+  if (!cfg.active) {
+    output(disabledResponse(), env.raw);
+    return undefined;
+  }
+  if (action === 'list') {
+    const layer = flagValue(env.args, '--layer', LESSONS_USAGE);
+    if (isInvalid(layer)) return layer;
+    if (layer !== null && !(LESSON_LAYERS as readonly string[]).includes(layer)) {
+      return makeInvalidArgs('--layer', `--layer must be one of ${LESSON_LAYERS.join(', ')}. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+    }
+    const status = flagValue(env.args, '--status', LESSONS_USAGE);
+    if (isInvalid(status)) return status;
+    if (status !== null && !(LESSON_STATUSES as readonly string[]).includes(status)) {
+      return makeInvalidArgs('--status', `--status must be one of ${LESSON_STATUSES.join(', ')}. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+    }
+    // Read-only, one stable shape: an unreadable journal is an answer (`lessons-invalid`), as `retro due` reports its own.
+    const read = readLessonsJournal();
+    const lessons = read.journal.lessons
+      .filter(l => (layer === null || l.layer === (layer as LessonLayer)) && (status === null || l.status === (status as LessonStatus)))
+      .map(l => ({ ...l, projects: projectCount(l) }));
+    output({ journal: foldHome(lessonsJournalPath()), status: read.status, reason: read.reason, problems: read.problems, lessons }, env.raw);
+    return undefined;
+  }
+  if (action === 'close') {
+    const id = flagValue(env.args, '--id', LESSONS_USAGE);
+    if (isInvalid(id)) return id;
+    const status = flagValue(env.args, '--status', LESSONS_USAGE);
+    if (isInvalid(status)) return status;
+    const fixedIn = flagValue(env.args, '--fixed-in', LESSONS_USAGE);
+    if (isInvalid(fixedIn)) return fixedIn;
+    if (id === null || (status !== 'fixed' && status !== 'wontfix')) {
+      return makeInvalidArgs('--id', `close needs --id and --status fixed|wontfix. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+    }
+    const w = editLessons(j => closeLesson(j, id, status, fixedIn, env.now), { lock: env.lessonsLock });
+    if (!w.ok) return lessonsFailure(w);
+    output(lessonSummary(w, 'close'), env.raw);
+    return undefined;
+  }
+  const stemArg = flagValue(env.args, '--retro', LESSONS_USAGE);
+  if (isInvalid(stemArg)) return stemArg;
+  const cand = flagValue(env.args, '--candidate', LESSONS_USAGE);
+  if (isInvalid(cand)) return cand;
+  if (cand === null) return makeInvalidArgs('--candidate', `record needs --candidate. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+  const v = loadValidatedRetro(env.cwd, stemArg, LESSONS_USAGE);
+  if (isInvalid(v)) return v;
+  const hit = pickCandidate(v, cand, '--candidate');
+  if (isInvalid(hit)) return hit;
+  if (hit.layer === 'project') {
+    return makeInvalidArgs('--candidate', `${hit.id} is a project candidate: it lands in this repository through /gsd-quick or /gsd-capture, not in the lessons journal. ${LESSONS_USAGE}`, ERROR_REASON.USAGE);
+  }
+  const w = editLessons(j => recordLesson(j, {
+    layer: hit.layer as LessonLayer,
+    target: hit.target as string,
+    title: hit.title,
+    change: hit.change,
+    cited: citedLessons(hit.signals),
+    occurrence: {
+      project: projectKey(env.cwd),
+      retro: v.stem,
+      candidate: hit.id,
+      // When the friction happened: the retro's date, not the day it was recorded.
+      date: v.stem.slice('RETRO-'.length, 'RETRO-'.length + 10),
+      // Signal ids only — never transcript text (ADR-5209 §3).
+      signals: hit.signals.filter(s => v.evidenceSignals.has(s)),
+      gsdVersion: v.run?.gsdVersion ?? resolveGsdInstall().version,
+      hostVersion: stringOrNull(v.run?.host?.version),
+    },
+  }, env.now), { lock: env.lessonsLock });
+  if (!w.ok) return lessonsFailure(w);
+  output({ ...lessonSummary(w, 'record'), retro: v.stem, candidate: hit.id }, env.raw);
   return undefined;
 }
 
@@ -818,20 +1122,29 @@ interface RouteRetroCommandOptions {
   _now?: () => Date;
   /** Test seam: the journal lock. Production callers omit it. */
   _journalLock?: JournalLock;
+  /** Test seam: the lessons journal lock. Production callers omit it. */
+  _lessonsLock?: JournalLock;
 }
 
-function routeRetroCommand({ args, cwd, raw, error, _now, _journalLock }: RouteRetroCommandOptions): void {
-  const env: Env = { args, cwd, raw, now: (_now ?? (() => new Date()))(), journalLock: _journalLock ?? defaultJournalLock };
+function routeRetroCommand({ args, cwd, raw, error, _now, _journalLock, _lessonsLock }: RouteRetroCommandOptions): void {
+  const env: Env = {
+    args, cwd, raw,
+    now: (_now ?? (() => new Date()))(),
+    journalLock: _journalLock ?? defaultJournalLock,
+    lessonsLock: _lessonsLock ?? defaultJournalLock,
+  };
   routeHubCommandFamily({
     family: 'retro',
     args,
     // Alphabetical for a stable unknown-subcommand message.
-    subcommands: ['candidates', 'checks', 'due', 'inventory', 'prepare', 'signals', 'stage'],
+    subcommands: ['applied', 'candidates', 'checks', 'due', 'inventory', 'lessons', 'prepare', 'signals', 'stage'],
     handlers: {
+      applied: () => handleApplied(env),
       candidates: () => handleCandidates(env),
       checks: () => handleChecks(env),
       due: () => handleDue(env),
       inventory: () => handleInventory(env),
+      lessons: () => handleLessons(env),
       prepare: () => handlePrepare(env),
       signals: () => handleSignals(env),
       // A loop-point command step is `retro stage --phase N` (`--milestone v`

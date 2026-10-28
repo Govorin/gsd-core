@@ -21,9 +21,12 @@ const WS = 'foo';
 
 let project;
 let sessions;
+let gsdHome;
 beforeEach(() => {
   project = createTempGitProject('gsd-retro-ws-');
   sessions = createTempDir('gsd-retro-ws-sessions-');
+  // prepare reads the lessons journal ($GSD_HOME/.gsd/lessons): never the real one.
+  gsdHome = createTempDir('gsd-retro-ws-home-');
   // The workstream has a planned milestone; the root has no roadmap at all.
   const wsDir = path.join(project, '.planning', 'workstreams', WS);
   fs.mkdirSync(wsDir, { recursive: true });
@@ -39,10 +42,11 @@ beforeEach(() => {
 afterEach(() => {
   cleanup(project);
   cleanup(sessions);
+  cleanup(gsdHome);
 });
 
 function retro(args, env = {}) {
-  const res = runGsdTools(['retro', ...args], project, { GSD_RUNTIME: 'claude', ...env });
+  const res = runGsdTools(['retro', ...args], project, { GSD_RUNTIME: 'claude', GSD_HOME: gsdHome, ...env });
   assert.equal(res.success, true, res.error);
   return JSON.parse(res.output);
 }
