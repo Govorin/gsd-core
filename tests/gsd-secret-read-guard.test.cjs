@@ -1426,6 +1426,63 @@ describe('mn fork: file debug, quoted assignments and expansions (fork:secret-gu
   }
 });
 
+// Review of 358410be4: zsh BARE_GLOB_QUAL is on by default, so a trailing
+// `(…)` is a glob qualifier and `cat .env(N)` prints `.env` — the glob-group
+// unroll must keep the word without its group (`next` denied these by
+// accident of the old `(` split). Brace sequences (`.e{n..n}v`) expand in bash
+// and zsh. And a Bash glob reaches a dotfile only through a literal leading
+// `.`: with bash and zsh defaults `cat *.*` and `cat *` never read `.env`,
+// while `cat .*rc` can (dotglob / GLOB_DOTS is the documented gap; the `(D)`
+// qualifier is unrolled).
+describe('mn fork: zsh glob qualifiers, brace sequences and leading dots (fork:secret-guard-grep-pattern)', () => {
+  for (const [cmd, blockedPath] of [
+    ['cat .env(N)', '.env(N)'],
+    ['cat .env(D)', '.env(D)'],
+    ['cat .env(.)', '.env(.)'],
+    ['cat .env(r)', '.env(r)'],
+    ['cat .env(om)', '.env(om)'],
+    ['cat .env(:a)', '.env(:a)'],
+    ['cat .env(-.)', '.env(-.)'],
+    ['cat .env(x)', '.env(x)'],
+    ['cat <.env(N)', '.env(N)'],
+    ['grep KEY .env(N)', '.env(N)'],
+    ['cat .secrets(N)', '.secrets(N)'],
+    ['cat .env.local(N)', '.env.local(N)'],
+    ['cat .e{n..n}v', '.e{n..n}v'],
+    ['cat .e{m..o}v', '.e{m..o}v'],
+    ['cat .env{,}(N)', '.env{,}(N)'],
+    ['cat *(D)', '*(D)'],
+    ['cat .*rc', '.*rc'],
+    ['cat .e(nv|$(echo x))', '.e(nv|$(echo x))'],
+  ]) {
+    test(`now denied: ${JSON.stringify(cmd)}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: blockedPath });
+    });
+  }
+
+  for (const cmd of [
+    'cat *.*',
+    'cat *',
+    'cat ????',
+    'wc -l *',
+    'ls -la .??*',
+    'echo {1..5}',
+    'for i in {1..100}; do echo $i; done',
+    'cat x{1..2}.env',
+    'cat {a..c}.md',
+  ]) {
+    test(`still allowed: ${JSON.stringify(cmd)}`, () => {
+      assertAllowed(runHook(bash(cmd)), cmd);
+    });
+  }
+
+  // The Grep tool's glob (ripgrep syntax) has no sequence expressions, so the
+  // Grep arm keeps reading `{n..n}` as one literal alternative.
+  test('the Grep arm does not unroll a brace sequence', () => {
+    assertAllowed(runHook(grep({ glob: '.e{n..n}v' })), 'Grep glob .e{n..n}v');
+  });
+});
+
 // #5214: the debug session manager is told to spawn gsd-debugger with
 // Agent(run_in_background=false), but on a real 1.15.0 run it routed around that
 // literal and shelled out to `claude --agent gsd-debugger` through Bash with

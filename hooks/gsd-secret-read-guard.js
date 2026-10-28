@@ -96,12 +96,17 @@
 //   by the POSIX reading too.
 //   Words bash expands itself are unrolled before any of the above
 //   (scanExpansionWords): each brace alternative (`cat .e{n,}v`,
-//   `{cat,.env}`, `timeout {1,cat,.env}`; past 64 alternatives
-//   `glob-too-complex`), each glued glob group in both its zsh and bash
-//   extglob reading (`cat .e(nv|x)`, `cat @(.env)`), and each glob, judged by
-//   the Grep arm's globAltSelectsSecret (`cat .en[v]`, `cat < .e*`) — with no
-//   leading-dot exemption, since a zsh with GLOB_DOTS matches `?envx` to
-//   `.envx`. Only the operands of a non-reading command with a clean command
+//   `{cat,.env}`, `timeout {1,cat,.env}`, the sequence `.e{m..o}v`; past 64
+//   alternatives `glob-too-complex`), each glued `(…)` group in its zsh
+//   alternation, zsh glob-qualifier (BARE_GLOB_QUAL is on by default:
+//   `cat .env(N)` reads `.env`) and bash extglob readings (`cat .e(nv|x)`,
+//   `cat @(.env)`), and each glob, judged by the Grep arm's
+//   globAltSelectsSecret (`cat .en[v]`, `cat < .e*`, `cat .*rc`) — but only
+//   when its last segment starts with a literal `.`: with bash and zsh
+//   defaults `*`, `?` and `[…]` never match a leading dot, so `cat *.*` and
+//   `cat *` cannot reach `.env` (dotglob / GLOB_DOTS is a documented gap; a
+//   `(D)` qualifier is unrolled to a leading-dot glob). Only the operands of
+//   a non-reading command with a clean command
 //   part are spared (`ls .env*`). A `VAR=value` word counts as an assignment
 //   only as the tokenizer reads it — unquoted, unescaped name and `=` — so
 //   `"X"=/bin/cat .env` is a command word, as it is to bash and zsh.
@@ -126,9 +131,9 @@
 // Code's own 2.1.259 Bash-side enforcement does not resolve them either):
 //   `$VAR` indirection (`bash -c "$TEST_CMD"`, `cat "$F"`, an `IFS` that
 //   splits a bare `$X` into a command), the shell expansions the scan does not
-//   unroll (a pure wildcard that reaches dotfiles under bash `dotglob` or zsh
-//   `GLOB_DOTS`/`(D)` — `cat *`; a brace sequence `.e{n..n}v`; ANSI-C
-//   escapes `$'\x2eenv'`; zsh `^`/`~`/`#` extended-glob operators),
+//   unroll (a glob that reaches dotfiles because bash `dotglob` or zsh
+//   `GLOB_DOTS` is set beforehand — `cat *`, `cat *.*`; ANSI-C escapes
+//   `$'\x2eenv'`; zsh `^`/`~`/`#` extended-glob operators),
 //   interpreter one-liners (`python -c "open('.env')"`), a piped
 //   script from a non-echo source (`cat gen.sh | bash`, `curl … | sh`), reads
 //   inside scripts the agent executes, and `glob: '*'` reaching a
@@ -442,7 +447,27 @@ function namesSecretPosix(tok) {
 // Expand `{a,b,…}` (nested allowed) into the list of alternatives, or null
 // when the list would exceed MAX_GLOB_ALTERNATIVES. Malformed braces are
 // treated literally.
-function expandBraces(glob) {
+// The members of a bash/zsh sequence expression's body (`m..o`, `a..k..2`,
+// `1..100`), or null when the body is not one.
+function braceSequence(inner) {
+  if (/^[+-]?\d+\.\.[+-]?\d+(\.\.[+-]?\d+)?$/.test(inner)) return ['0'];
+  const m = /^([A-Za-z])\.\.([A-Za-z])(?:\.\.([+-]?\d+))?$/.exec(inner);
+  if (!m) return null;
+  const from = m[1].charCodeAt(0);
+  const to = m[2].charCodeAt(0);
+  const step = Math.max(1, Math.abs(Number(m[3] || 1)));
+  const dir = from <= to ? 1 : -1;
+  const out = [];
+  for (let c = from; dir > 0 ? c <= to : c >= to; c += dir * step) out.push(String.fromCharCode(c));
+  return out;
+}
+
+// `sequences` (the Bash arm only — a Grep glob has no sequence syntax) also
+// unrolls bash/zsh sequence expressions: a letter range `{a..e[..step]}` per
+// character, and a numeric range `{1..100}` as the single representative
+// `0`, since digits never decide whether a name is a secret and a loop like
+// `{1..100}` must not exhaust the alternative budget.
+function expandBraces(glob, sequences = false) {
   const open = glob.indexOf('{');
   if (open === -1) return [glob];
   let depth = 0;
@@ -467,9 +492,14 @@ function expandBraces(glob) {
     start = c - open;
   }
   parts.push(inner.slice(start));
+  if (sequences && commas.length === 0) {
+    const seq = braceSequence(inner);
+    if (seq !== null) parts.splice(0, parts.length, ...seq);
+  }
+  if (parts.length > MAX_GLOB_ALTERNATIVES) return null;
   const out = [];
   for (const part of parts) {
-    const expanded = expandBraces(pre + part + post);
+    const expanded = expandBraces(pre + part + post, sequences);
     if (expanded === null) return null;
     for (const alt of expanded) {
       out.push(alt);
@@ -687,6 +717,25 @@ function consumeHeredocBodies(str, i, tags) {
     if (!terminated) break;
   }
   return { bodies, end: i };
+}
+
+// `text` with its `$( )` and backtick spans cut out, so a space inside one
+// (`.e(nv|$(echo x))`) does not stop a glob group from being one word.
+function withoutSubstitutions(text) {
+  let out = '';
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] === '$' && text[i + 1] === '(') {
+      i = findParenClose(text, i + 2) + 1;
+    } else if (text[i] === '`') {
+      const j = text.indexOf('`', i + 1);
+      i = j === -1 ? text.length : j + 1;
+    } else {
+      out += text[i];
+      i++;
+    }
+  }
+  return out;
 }
 
 // `$( )` and backtick spans inside an unquoted heredoc body.
@@ -990,7 +1039,7 @@ function tokenize(str) {
     if (ch === '(' && hasWord && !expectTag && str[i + 1] !== ')') {
       const e = findParenClose(str, i + 1);
       const inner = str.slice(i + 1, e);
-      if (e < str.length && !/[\s;&<>]/.test(inner)) {
+      if (e < str.length && !/[\s;&<>]/.test(withoutSubstitutions(inner))) {
         collectSubstitutions(inner, nested);
         buf += `(${inner})`;
         expands = globbed = group = true;
@@ -1252,14 +1301,13 @@ function isListedFlag(text, flags) {
 }
 
 // fork:secret-guard-grep-pattern (final review): words bash expands itself.
-// A brace word is unrolled with the Grep arm's expandBraces (same 64
-// alternative budget; past it the command is denied `glob-too-complex`) and
-// each alternative is judged like an operand (`cat .e{n,}v`, `{cat,.env}`,
-// `timeout {1,cat,.env}`). A glob word is judged by the Grep arm's
-// globAltSelectsSecret on its last segment (`cat .en[v]`, `cat .e*`) —
-// without a leading-dot exemption, since zsh with GLOB_DOTS (seen on the
-// owner's machine) matches `?envx` to `.envx`; a pure wildcard (`cat *`)
-// stays allowed, as on the Grep arm. Every word counts — the command word,
+// A brace word is unrolled with the Grep arm's expandBraces plus sequence
+// expressions (same 64 alternative budget; past it the command is denied
+// `glob-too-complex`), a glued `(…)` group with expandGlobGroups, and each
+// alternative is judged like an operand (`cat .e{n,}v`, `{cat,.env}`,
+// `timeout {1,cat,.env}`, `cat .env(N)`). A glob word is judged by
+// globSelectsSecret (`cat .en[v]`, `cat .e*`; not `cat *.*`, which bash and
+// zsh keep off dotfiles by default). Every word counts — the command word,
 // wrapper words, operands — except leading assignments (bash expands neither
 // in them) and the operands of a non-reading command whose command part
 // holds no substitution (`ls .env*` is an existence check).
@@ -1316,9 +1364,21 @@ function expandGlobGroups(text) {
   }
   if (op === '*' || op === '?') middles.add('');
   if (op === '!') middles.add('*');
+  // zsh BARE_GLOB_QUAL (on by default): a trailing `(…)` is a glob QUALIFIER
+  // (`.env(N)`, `(.)`, `(om)`, `(:a)`), so the word without the group, with or
+  // without the operator character, is a reading too. A `D` qualifier also
+  // matches dotfiles, so its glob gets a leading-dot twin (`*(D)` → `.*`).
+  middles.add('');
+  middles.add(op);
+  const variants = [...middles].map((m) => pre + m + post);
+  if (parts.some((p) => p.includes('D'))) {
+    const bare = pre + op + post;
+    const cut = bare.lastIndexOf('/') + 1;
+    variants.push(`${bare.slice(0, cut)}.${bare.slice(cut)}`);
+  }
   const out = [];
-  for (const m of middles) {
-    const rest = expandGlobGroups(pre + m + post);
+  for (const variant of new Set(variants)) {
+    const rest = expandGlobGroups(variant);
     if (rest === null) return null;
     for (const r of rest) {
       out.push(r);
@@ -1335,7 +1395,7 @@ function expansionNamesSecret(w) {
   if (alts !== null && w.brace) {
     const braced = [];
     for (const a of alts) {
-      const expanded = expandBraces(a);
+      const expanded = expandBraces(a, true);
       if (expanded === null || braced.length + expanded.length > MAX_GLOB_ALTERNATIVES) {
         alts = null;
         break;
@@ -1354,8 +1414,18 @@ function expansionNamesSecret(w) {
   return null;
 }
 
+// A Bash glob that can select a secret name. Unlike the Grep arm, a segment
+// that does not START with a literal `.` is never a match: bash and zsh both
+// keep a leading dot out of `*`, `?` and `[…]` unless dotglob / GLOB_DOTS is
+// set (checked in `zsh -f` and with this machine's startup files), so `cat
+// *.*` and `cat *` cannot reach `.env`, while `cat .e*` and `cat .*rc` can.
+// The dotglob / GLOB_DOTS options are a documented gap; the zsh `(D)`
+// qualifier, which turns dot matching on per glob, is unrolled by
+// expandGlobGroups into a leading-dot twin instead.
 function globSelectsSecret(v) {
-  return /[*?[]/.test(v) && globAltSelectsSecret(lastSegment(v).toLowerCase());
+  if (!/[*?[]/.test(v)) return false;
+  const segment = lastSegment(v).toLowerCase();
+  return segment.startsWith('.') && globAltSelectsSecret(segment);
 }
 
 // True when the segment's command prints only names (NON_READING_COMMANDS).
