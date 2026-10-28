@@ -42,7 +42,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { retroDir, writeTextAtomic, isRetroStem, withJournalLock, journalLockPath, defaultJournalLock } from './retro-artifacts.cjs';
-import type { JournalLock } from './retro-artifacts.cjs';
+import type { JournalLock, SignalFacts } from './retro-artifacts.cjs';
 import { DISK_STATUS } from './phase-status.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 import planningWorkspaceModule = require('./planning-workspace.cjs');
@@ -123,6 +123,30 @@ export interface RetroRun {
    * (ADR-5209 §10). Absent when nothing was applied.
    */
   applied?: AppliedCandidate[];
+  /**
+   * The signals this retro saw, as ids, fingerprints (kind + key, hashed) and
+   * counts — no key, no text. A later retro recognises recurring friction
+   * from them after this retro's `.work/` bundle is gone (ADR-5209 §10).
+   * Absent on a run journaled before §10.
+   */
+  signals?: SignalFacts[];
+}
+
+/** Signals journaled on one run, at most. */
+export const MAX_RUN_SIGNALS = 100;
+const RUN_SIGNAL_RE = /^[a-z][a-z0-9-]{0,40}:[0-9a-f]{6,16}$/;
+
+function runSignalsProblems(v: unknown): string[] {
+  if (!Array.isArray(v)) return ['signals must be an array'];
+  if (v.length > MAX_RUN_SIGNALS) return [`signals holds at most ${MAX_RUN_SIGNALS} entries, got ${v.length}`];
+  const problems: string[] = [];
+  v.forEach((raw: unknown, i: number) => {
+    const f = (raw && typeof raw === 'object' ? raw : {}) as Partial<SignalFacts>;
+    if (typeof f.id !== 'string' || !RUN_SIGNAL_RE.test(f.id)) problems.push(`signals[${i}]: id must be a signal id`);
+    if (!(f.fingerprint === null || (typeof f.fingerprint === 'string' && RUN_SIGNAL_RE.test(f.fingerprint)))) problems.push(`signals[${i}]: fingerprint must be a fingerprint or null`);
+    if (typeof f.count !== 'number' || !Number.isInteger(f.count) || f.count < 0) problems.push(`signals[${i}]: count must be a non-negative integer`);
+  });
+  return problems;
 }
 
 /** One candidate of a retro a human routed with `/gsd-retro --apply`. */
@@ -183,6 +207,7 @@ export function runProblems(r: Partial<RetroRun> | null | undefined): string[] {
   if (!boundedString(r.planningDir)) problems.push(`planningDir must be a non-empty path, got ${JSON.stringify(r.planningDir)}`);
   if (r.milestone !== null && !boundedString(r.milestone)) problems.push(`milestone must be a version or null, got ${JSON.stringify(r.milestone)}`);
   if (!Array.isArray(r.executedPhases) || !r.executedPhases.every(boundedString)) problems.push('executedPhases must be an array of phase numbers');
+  if (r.signals !== undefined) problems.push(...runSignalsProblems(r.signals));
   if (r.applied !== undefined) {
     if (!Array.isArray(r.applied)) problems.push('applied must be an array');
     else r.applied.forEach((a, i) => { for (const p of appliedProblems(a)) problems.push(`applied[${i}]: ${p}`); });
@@ -221,6 +246,7 @@ export function parseRunsJournal(text: string): RunsJournalRead {
       milestone: r.milestone ?? null,
       executedPhases: [...(r.executedPhases as string[])],
       ...(Array.isArray(r.applied) && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
+      ...(Array.isArray(r.signals) ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
     });
   });
   return { status: 'ok', journal: { version: 1, runs }, problems };
@@ -247,6 +273,7 @@ export function formatRunsJournal(journal: RunsJournal): string {
     executedPhases: [...r.executedPhases],
     // Written only when there is one: a journal nothing was applied from keeps its bytes.
     ...(r.applied && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
+    ...(r.signals ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
   }));
   return `${JSON.stringify({ version: 1, runs }, null, 2)}\n`;
 }
@@ -447,15 +474,27 @@ export function computeRetroDue(input: {
   };
 }
 
-/** The run `retro prepare` journals for a retro with this stem, at this instant. */
-export function runFor(stem: string, now: Date, facts: MilestoneFacts): RetroRun {
+/**
+ * The run `retro prepare` journals for a retro with this stem, at this
+ * instant; with `signals`, the report's signal facts (at most
+ * `MAX_RUN_SIGNALS`, in report order — highest score first).
+ */
+export function runFor(stem: string, now: Date, facts: MilestoneFacts, signals?: readonly SignalFacts[]): RetroRun {
   return {
     stem,
     at: now.toISOString(),
     planningDir: facts.planningDir,
     milestone: facts.milestone,
     executedPhases: executedPhaseNumbers(facts),
+    ...(signals ? { signals: signals.slice(0, MAX_RUN_SIGNALS).map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
   };
+}
+
+/** stem → the signal facts its run journaled (the latest run of a stem wins); runs from before §10 carry none. */
+export function journaledSignals(runs: readonly RetroRun[]): Map<string, SignalFacts[]> {
+  const out = new Map<string, SignalFacts[]>();
+  for (const r of runs) if (r.signals) out.set(r.stem, r.signals);
+  return out;
 }
 
 /**

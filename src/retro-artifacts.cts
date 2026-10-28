@@ -946,12 +946,17 @@ export function signalFingerprint(kind: string, key: string | null | undefined):
   return `${kind}:${crypto.createHash('sha1').update(`${kind}\u0000${key}`).digest('hex').slice(0, 10)}`;
 }
 
-/** The part of a bundle signal recurrence reads. */
+/** What recurrence reads of one signal: its id in that retro, its fingerprint, its count. */
 export interface SignalFacts {
   id: string;
-  kind: string;
-  key: string | null;
+  /** `signalFingerprint(kind, key)`; null for a signal without a key. */
+  fingerprint: string | null;
   count: number;
+}
+
+/** The facts of a report's signals, as `retro prepare` journals them on its run. */
+export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key: string | null; count: number }>): SignalFacts[] {
+  return signals.map(s => ({ id: s.id, fingerprint: signalFingerprint(s.kind, s.key), count: s.count }));
 }
 
 /** A candidate an earlier retro of this project proposed. */
@@ -962,7 +967,7 @@ export interface PastProposal {
   layer: CandidateLayer;
   /** The signal ids it cited. */
   signals: string[];
-  /** Those signals as that retro's bundle recorded them; null when the bundle is gone. */
+  /** Those signals as that retro recorded them (its run in RUNS.json, else its bundle); null when neither has them. */
   facts: SignalFacts[] | null;
 }
 
@@ -974,7 +979,11 @@ export function bundleSignalFacts(bundle: unknown): SignalFacts[] {
   const list = Array.isArray(report?.signals) ? report.signals as Array<Record<string, unknown>> : [];
   return list
     .filter(s => s && typeof s['id'] === 'string' && typeof s['kind'] === 'string')
-    .map(s => ({ id: s['id'] as string, kind: s['kind'] as string, key: typeof s['key'] === 'string' ? s['key'] : null, count: typeof s['count'] === 'number' ? s['count'] : 0 }));
+    .map(s => ({
+      id: s['id'] as string,
+      fingerprint: signalFingerprint(s['kind'] as string, typeof s['key'] === 'string' ? s['key'] : null),
+      count: typeof s['count'] === 'number' ? s['count'] : 0,
+    }));
 }
 
 function readBundleFacts(projectRoot: string, stem: string): SignalFacts[] | null {
@@ -988,10 +997,12 @@ function readBundleFacts(projectRoot: string, stem: string): SignalFacts[] | nul
 /**
  * The candidates of every earlier retro on disk (not `currentStem`), read as
  * written: an unreadable file contributes nothing, a candidate without a
- * layer is `project`. What their signals were about comes from that retro's
- * bundle under `.work/`, which stays on the machine that ran it.
+ * layer is `project`. What their signals were about comes first from that
+ * retro's run (`journaled`: stem → its signal facts, from RUNS.json, which is
+ * committed and survives a clone or a new worktree), else from its bundle
+ * under `.work/`, which only the machine and checkout that ran it keeps.
  */
-export function readPastProposals(projectRoot: string, currentStem: string | null): PastProposal[] {
+export function readPastProposals(projectRoot: string, currentStem: string | null, journaled: ReadonlyMap<string, readonly SignalFacts[]> = new Map()): PastProposal[] {
   const out: PastProposal[] = [];
   for (const stem of retroStemsOnDisk(projectRoot)) {
     if (stem === currentStem) continue;
@@ -1008,7 +1019,7 @@ export function readPastProposals(projectRoot: string, currentStem: string | nul
       if (typeof c['id'] !== 'string' || !CANDIDATE_ID_RE.test(c['id'])) continue;
       const signals = Array.isArray(c['signals']) ? (c['signals'] as unknown[]).filter((s): s is string => typeof s === 'string' && SIGNAL_REF_RE.test(s)) : [];
       if (signals.length === 0) continue;
-      if (facts === undefined) facts = readBundleFacts(projectRoot, stem);
+      if (facts === undefined) facts = journaled.has(stem) ? [...(journaled.get(stem) as readonly SignalFacts[])] : readBundleFacts(projectRoot, stem);
       const layer = typeof c['layer'] === 'string' && (CANDIDATE_LAYERS as readonly string[]).includes(c['layer']) ? c['layer'] as CandidateLayer : 'project';
       out.push({
         retro: stem,
@@ -1049,8 +1060,9 @@ export const MAX_RECURRING = 30;
  * Compare this retro's signals with the earlier proposals. Code decides what
  * recurred (same signal fingerprint: kind and key) and whether it was applied
  * (`stem:cand` in the runs, checks or lessons journal); the analyst says what
- * that means. An earlier retro whose bundle is gone cannot be compared and is
- * named in `unreadable`. Newest retro first, at most `max`.
+ * that means. An earlier retro with neither a journaled run carrying its
+ * signals nor a bundle cannot be compared and is named in `unreadable`.
+ * Newest retro first, at most `max`.
  */
 export function computeRecurring(input: {
   current: readonly SignalFacts[];
@@ -1060,9 +1072,8 @@ export function computeRecurring(input: {
 }): { items: RecurringEntry[]; omitted: number; unreadable: string[] } {
   const now = new Map<string, SignalFacts[]>();
   for (const s of input.current) {
-    const fp = signalFingerprint(s.kind, s.key);
-    if (fp === null) continue;
-    now.set(fp, [...(now.get(fp) ?? []), s]);
+    if (s.fingerprint === null) continue;
+    now.set(s.fingerprint, [...(now.get(s.fingerprint) ?? []), s]);
   }
   const entries: RecurringEntry[] = [];
   const unreadable = new Set<string>();
@@ -1071,9 +1082,9 @@ export function computeRecurring(input: {
       unreadable.add(p.retro);
       continue;
     }
-    const matchedThen = p.facts.filter(f => { const fp = signalFingerprint(f.kind, f.key); return fp !== null && now.has(fp); });
+    const matchedThen = p.facts.filter(f => f.fingerprint !== null && now.has(f.fingerprint));
     if (matchedThen.length === 0) continue;
-    const fps = new Set(matchedThen.map(f => signalFingerprint(f.kind, f.key) as string));
+    const fps = new Set(matchedThen.map(f => f.fingerprint as string));
     const matchedNow = [...fps].flatMap(fp => now.get(fp) ?? []);
     const key = `${p.retro}:${p.candidate}`;
     const appliedBy = (['runs', 'checks', 'lessons'] as const).find(src => input.applied[src].has(key)) ?? null;

@@ -93,6 +93,7 @@ import {
   defaultJournalLock,
   readPastProposals,
   computeRecurring,
+  signalFacts,
   appliedFromChecks,
   citedLessons,
 } from './retro-artifacts.cjs';
@@ -108,6 +109,7 @@ import {
   runFor,
   recordApplied,
   appliedFromRuns,
+  journaledSignals,
 } from './retro-cadence.cjs';
 import {
   readLessonsJournal,
@@ -675,11 +677,13 @@ function handlePrepare(env: Env): Invalid | undefined {
     // proposals whose signals came back, with whether each was applied.
     const lessonsRead = readLessonsJournal();
     const lessons = bundleLessons(lessonsRead);
+    const current = signalFacts(report.signals);
+    const runsRead = readRunsJournal(env.cwd);
     const recurring = computeRecurring({
-      current: report.signals.map(s => ({ id: s.id, kind: s.kind, key: s.key, count: s.count })),
-      past: readPastProposals(env.cwd, paths.stem),
+      current,
+      past: readPastProposals(env.cwd, paths.stem, journaledSignals(runsRead.journal.runs)),
       applied: {
-        runs: appliedFromRuns(readRunsJournal(env.cwd).journal.runs),
+        runs: appliedFromRuns(runsRead.journal.runs),
         checks: appliedFromChecks(readChecksJournal(env.cwd).journal),
         lessons: appliedFromLessons(lessonsRead.journal, projectKey(env.cwd)),
       },
@@ -709,7 +713,7 @@ function handlePrepare(env: Env): Invalid | undefined {
     writeBundle(env.cwd, paths, bundle);
     // A retro is held from here on, whatever the analyst finds: the schedule
     // counts from this run (retro-cadence, `.planning/retro/RUNS.json`).
-    const run = recordRun(env.cwd, runFor(paths.stem, env.now, readMilestoneFacts(env.cwd)));
+    const run = recordRun(env.cwd, runFor(paths.stem, env.now, readMilestoneFacts(env.cwd), current));
     output({
       stem: paths.stem,
       bundle: paths.bundle,

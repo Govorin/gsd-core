@@ -421,7 +421,7 @@ describe('recurring proposals', () => {
     const past = ra.readPastProposals(project, 'RETRO-2026-10-28');
     assert.deepEqual(past.map((p) => [p.retro, p.candidate, p.layer]), [['RETRO-2026-10-25', 'cand-1', 'project']]);
     const now = { ...old, id: 'hook-block:2222222222', count: 68 };
-    const r = ra.computeRecurring({ current: [now], past, applied: none });
+    const r = ra.computeRecurring({ current: ra.signalFacts([now]), past, applied: none });
     assert.deepEqual(r.items.map((e) => [e.retro, e.candidate, e.signals, e.countThen, e.countNow, e.applied, e.escalate]),
       [['RETRO-2026-10-25', 'cand-1', ['hook-block:2222222222'], 7, 68, false, true]]);
   });
@@ -431,21 +431,21 @@ describe('recurring proposals', () => {
     const past = ra.readPastProposals(project, null);
     for (const src of ['runs', 'checks', 'lessons']) {
       const applied = { ...none, [src]: new Set(['RETRO-2026-10-25:cand-1']) };
-      const [e] = ra.computeRecurring({ current: [{ ...old, id: 'hook-block:3333333333', count: 99 }], past, applied }).items;
+      const [e] = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count: 99 }]), past, applied }).items;
       assert.deepEqual([e.applied, e.appliedBy, e.escalate], [true, src, false], src);
     }
     for (const count of [6, 7]) {
-      const [e] = ra.computeRecurring({ current: [{ ...old, id: 'hook-block:3333333333', count }], past, applied: none }).items;
+      const [e] = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count }]), past, applied: none }).items;
       assert.equal(e.escalate, false, `count ${count} against 7`);
     }
-    const [grown] = ra.computeRecurring({ current: [{ ...old, id: 'hook-block:3333333333', count: 8 }], past, applied: none }).items;
+    const [grown] = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:3333333333', count: 8 }]), past, applied: none }).items;
     assert.equal(grown.escalate, true, 'count 8 against 7');
   });
 
   test('other friction does not recur; a retro whose bundle is gone is named, not guessed', () => {
     writeRetro('RETRO-2026-10-20', [{ id: 'cand-1', title: 't', signals: [old.id] }], null);
     writeRetro('RETRO-2026-10-25', [{ id: 'cand-1', title: 't', signals: [old.id] }], [old]);
-    const r = ra.computeRecurring({ current: [{ ...old, key: 'something else' }], past: ra.readPastProposals(project, null), applied: none });
+    const r = ra.computeRecurring({ current: ra.signalFacts([{ ...old, key: 'something else' }]), past: ra.readPastProposals(project, null), applied: none });
     assert.deepEqual([r.items, r.unreadable], [[], ['RETRO-2026-10-20']]);
   });
 
@@ -455,11 +455,21 @@ describe('recurring proposals', () => {
       const candidates = Array.from({ length: n }, (_, i) => ({ id: `cand-${i + 1}`, title: 't', signals: [old.id] }));
       writeRetro('RETRO-2026-10-25', candidates, [old]);
       writeRetro('RETRO-2026-10-28', [{ id: 'cand-1', title: 'me', signals: [old.id] }], [old]);
-      const r = ra.computeRecurring({ current: [old], past: ra.readPastProposals(project, 'RETRO-2026-10-28'), applied: none, max });
+      const r = ra.computeRecurring({ current: ra.signalFacts([old]), past: ra.readPastProposals(project, 'RETRO-2026-10-28'), applied: none, max });
       assert.deepEqual([r.items.length, r.omitted], [Math.min(n, max), Math.max(0, n - max)], `${n} proposals`);
       assert.equal(r.items.every((e) => e.retro === 'RETRO-2026-10-25'), true);
     }
     assert.equal(ra.MAX_RECURRING, 30);
+  });
+
+  test('a retro whose bundle is gone is still compared through the signals its run journaled', () => {
+    writeRetro('RETRO-2026-10-25', [{ id: 'cand-1', title: 't', signals: [old.id] }], null);
+    const journaled = new Map([['RETRO-2026-10-25', ra.signalFacts([old])]]);
+    const r = ra.computeRecurring({ current: ra.signalFacts([{ ...old, id: 'hook-block:4444444444', count: 9 }]), past: ra.readPastProposals(project, null, journaled), applied: none });
+    assert.deepEqual([r.items.map((e) => [e.countThen, e.countNow, e.escalate]), r.unreadable], [[[7, 9, true]], []]);
+    const facts = ra.signalFacts([old, { id: 'user-correction:5555555555', kind: 'user-correction', key: null, count: 1 }]);
+    assert.deepEqual(facts.map((f) => [f.id, f.fingerprint === null, f.count]), [[old.id, false, 7], ['user-correction:5555555555', true, 1]]);
+    assert.equal(JSON.stringify(facts).includes(old.key), false, 'a fingerprint never carries the key');
   });
 
   test('a past candidate written before layers is project; with one it keeps it', () => {

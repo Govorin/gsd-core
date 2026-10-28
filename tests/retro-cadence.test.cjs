@@ -448,3 +448,26 @@ describe('recordApplied: what a human applied, on the retro\'s run', () => {
     assert.deepEqual([r.journal.runs.length, r.problems.length], [0, 1]);
   });
 });
+
+describe('runs journal the signals a retro saw', () => {
+  const sig = (i) => ({ id: `hook-block:${String(i).padStart(10, '0')}`, fingerprint: `hook-block:${String(i).padStart(10, 'f')}`, count: 1 });
+  const sigs = (n) => Array.from({ length: n }, (_, i) => sig(i));
+
+  test('runFor keeps at most MAX_RUN_SIGNALS facts: limit-1, limit, limit+1', () => {
+    const f = facts({ executed: 0 });
+    for (const [n, kept] of [[rc.MAX_RUN_SIGNALS - 1, rc.MAX_RUN_SIGNALS - 1], [rc.MAX_RUN_SIGNALS, rc.MAX_RUN_SIGNALS], [rc.MAX_RUN_SIGNALS + 1, rc.MAX_RUN_SIGNALS]]) {
+      assert.equal(rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f, sigs(n)).signals.length, kept, `${n} signals`);
+    }
+    assert.equal('signals' in rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), f), false);
+  });
+
+  test('recorded and read back; journaledSignals maps stem to them; over the limit is malformed', () => {
+    const run = { ...runAt('2026-10-28T10:00:00.000Z', { stem: 'RETRO-2026-10-28' }), signals: sigs(2) };
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    const read = rc.readRunsJournal(project);
+    assert.deepEqual(rc.journaledSignals(read.journal.runs).get('RETRO-2026-10-28'), sigs(2));
+    assert.deepEqual(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS) }), []);
+    assert.equal(rc.runProblems({ ...run, signals: sigs(rc.MAX_RUN_SIGNALS + 1) }).length, 1);
+    assert.equal(rc.runProblems({ ...run, signals: [{ id: 'x', fingerprint: 'y', count: -1 }] }).length, 3);
+  });
+});

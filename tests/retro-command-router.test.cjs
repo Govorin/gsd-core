@@ -960,6 +960,16 @@ describe('retro applied and recurring proposals', () => {
     assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), { 'cand-1': ['recurring-uncited'], 'cand-2': ['recurring-not-escalated'] });
   });
 
+  test('the first retro\'s .work bundle gone (a new clone or worktree): RUNS.json still carries its signals', () => {
+    const { prep: first } = firstRetro();
+    const run = JSON.parse(fs.readFileSync(path.join(project, '.planning', 'retro', 'RUNS.json'), 'utf8')).runs.find((r) => r.stem === first.json.stem);
+    assert.ok(run.signals.length > 0);
+    assert.deepEqual(Object.keys(run.signals[0]).sort(), ['count', 'fingerprint', 'id'], 'ids, hashes and counts — no key, no text');
+    fs.unlinkSync(path.join(project, first.json.bundle));
+    const { bundle } = prepareSession('sess-2', versionedRecords(3));
+    assert.deepEqual([bundle.recurring.items.map((e) => [e.retro, e.escalate]), bundle.recurring.unreadable], [[[first.json.stem, true]], []]);
+  });
+
   test('an applied proposal that recurs is applied, not escalated: the change did not work', () => {
     firstRetro();
     retro(['applied', '--candidate', 'cand-1'], project);
