@@ -1298,6 +1298,60 @@ describe('mn fork: a substitution withdraws the name-only positions (fork:secret
   }
 });
 
+// Second review of fork:secret-guard-grep-pattern: holes that `next` has too.
+// `file` was non-reading with any option, but `-f`/`--files-from` and
+// `-m`/`-M`/`--magic-file` read a file and print its rejected lines; a
+// substitution in the command word itself (`$X/ls`) can change the command;
+// and a leading `VAR=value` assignment is neither split nor globbed by bash,
+// so it must not withdraw an exemption.
+describe('mn fork: file options, the command word and leading assignments (fork:secret-guard-grep-pattern)', () => {
+  for (const [cmd, blockedPath] of [
+    ['file -f .env', '.env'],
+    ['file --files-from .env', '.env'],
+    ['file -bf .env', '.env'],
+    ['file -m .env x', '.env'],
+    ['file -M .env x', '.env'],
+    ['file --magic-file=.env x', '--magic-file=.env'],
+    ['X=-f; file "$X" .env', '.env'],
+    ['file .env -f list', '.env'],
+    ['echo .env | xargs file -f', '.env'],
+    ["X='cat /bin'; $X/ls .env", '.env'],
+    ["X='cat /bin'; $X/cp x .env", '.env'],
+    ["X='cat /bin'; $X/rm .env", '.env'],
+    ['$X/git ls-files .env', '.env'],
+    ['$X/docker run --env-file .env img', '.env'],
+    ["X='cat /usr/bin'; $X/grep \"\\.env\"", '\\.env'],
+    ['env X=$Y ls .env', '.env'],
+  ]) {
+    test(`now denied: ${cmd}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: blockedPath });
+    });
+  }
+
+  for (const cmd of [
+    'file .env',
+    'file -b .env',
+    'file --mime-type -L .env',
+    'file -- .env',
+    'echo .env | xargs file',
+    '[ -f .env ]',
+    '[ -f "$ROOT/.env" ]',
+    'test -f .env',
+    'stat -f %N .env',
+    'touch -r .env x',
+    'ls -l .env',
+    'realpath .env',
+    'ROOT="$PWD" ls .env',
+    'FOO=$(date) git ls-files .env',
+    'X=$Y cp .env.example .env',
+    'find . -name x -exec ls {} +',
+  ]) {
+    test(`still allowed: ${cmd}`, () => {
+      assertAllowed(runHook(bash(cmd)), cmd);
+    });
+  }
+});
+
 // #5214: the debug session manager is told to spawn gsd-debugger with
 // Agent(run_in_background=false), but on a real 1.15.0 run it routed around that
 // literal and shelled out to `claude --agent gsd-debugger` through Bash with

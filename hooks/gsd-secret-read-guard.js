@@ -61,7 +61,9 @@
 //   see WRAPPERS, #5627); a closed set of
 //   NON-READING commands (test/[/ls/stat/rm/touch/echo/…) exempts that
 //   segment's operands — `[ -f .env ]` and `ls .env*` are existence checks
-//   GSD's own agents run — while `cp`/`mv`/`ln`/`git` are deliberately NOT
+//   GSD's own agents run; `file` only with its classify options, since
+//   `file -f .env` / `file -m .env x` print the file's lines (see
+//   FILE_CLASSIFY_FLAGS) — while `cp`/`mv`/`ln`/`git` are deliberately NOT
 //   exempt (`cp .env x && cat x` launders the name; `git show HEAD:.env`
 //   reads). Narrower carve-outs exempt single operand POSITIONS that are
 //   names, never contents, and keep checking the rest of the segment: the
@@ -70,9 +72,11 @@
 //   destination of a one-source `cp`/`mv` (#4856). These carve-outs fail
 //   closed: an option they do not list withdraws them from the segment, and
 //   so does a substitution or unquoted glob/brace in ANY word of the segment,
-//   wrapper words included (`timeout {1,cat} cp x .env` runs `cat`), which
-//   also withdraws the non-reading exemption when it sits before the command
-//   word (`timeout {1,cat} ls .env`).
+//   wrapper words and the command word included (`timeout {1,cat} cp x .env`
+//   runs `cat`), which also withdraws the non-reading exemption when it sits
+//   in a wrapper word or the command word (`timeout {1,cat} ls .env`,
+//   `X='cat /bin'; $X/ls .env`). Leading `VAR=value` assignments never count:
+//   bash neither splits nor globs their value (`ROOT="$PWD" ls .env`).
 //   One position is checked more loosely instead of skipped: the PATTERN of
 //   `grep`/`egrep`/`fgrep` — the first positional word, or each `-e` value
 //   (fork:secret-guard-grep-pattern) — is judged on its POSIX `/` segments
@@ -207,10 +211,26 @@ const WRAPPERS = new Map([
 ]);
 
 // Commands whose ordinary operands are file NAMES, never file CONTENTS. A
-// closed set on purpose: anything not listed is assumed to read.
+// closed set on purpose: anything not listed is assumed to read. `file` is
+// non-reading only with the options in FILE_CLASSIFY_FLAGS (see
+// isNonReading): its `-f`/`--files-from` reads a list of names and
+// `-m`/`-M`/`--magic-file` a magic file, and both echo the lines they reject.
 const NON_READING_COMMANDS = new Set([
   'test', '[', '[[', 'ls', 'stat', 'touch', 'rm', 'chmod', 'chown', 'mkdir',
   'basename', 'dirname', 'realpath', 'file', 'echo', 'printf',
+]);
+
+// fork:secret-guard-grep-pattern (review): the `file` options that only
+// change how a file is classified (macOS file-5.41 `man file`, GNU file 5.x).
+// Any other option — `-f`/`--files-from`, `-m`/`-M`/`--magic-file`,
+// `-F`/`--separator`, `-e`, `-P`, `-C`, an `--opt=value` — keeps the segment
+// checked, as does a substitution in any of its words (`X=-f; file "$X" .env`).
+const FILE_CLASSIFY_FLAGS = new Set([
+  '-b', '--brief', '-c', '--checking-printout', '-d', '-D', '-E', '-h', '--no-dereference', '-i', '-I',
+  '--mime', '--mime-type', '--mime-encoding', '-k', '--keep-going', '-l', '--list', '-L', '--dereference',
+  '-n', '--no-buffer', '-N', '--no-pad', '-0', '--print0', '-p', '--preserve-date', '-r', '--raw',
+  '-s', '--special-files', '-S', '--no-sandbox', '-v', '--version', '-z', '--uncompress', '-Z',
+  '--uncompress-noreport', '--exclude-quiet', '--extension', '--help',
 ]);
 
 // #4639: container runtimes take `--env-file <file>` — the runtime opens the
@@ -686,6 +706,9 @@ function tokenize(str) {
   // which word sits where, are unknown to the scan. Single-quoted text never
   // sets it.
   let expands = false;
+  let bracketOpen = false; // an unquoted `[` seen in this word
+  let braceOpen = false; // an unquoted `{` seen in this word
+  let braceHasSep = false; // and an unquoted `,` or `.` after it
   let hasWord = false;
   let seg = 0;
   let heredocs = [];
@@ -704,6 +727,9 @@ function tokenize(str) {
     buf = '';
     quoted = 'none';
     expands = false;
+    bracketOpen = false;
+    braceOpen = false;
+    braceHasSep = false;
     hasWord = false;
   };
   // The operator text ends segment `seg`; pass 2 reads it to tell `a | bash`
@@ -926,7 +952,14 @@ function tokenize(str) {
     }
 
     hasWord = true;
-    if ('$*?[{'.includes(ch)) expands = true;
+    // `[` and `{` alone are literal (`[ -f x ]`, `find -exec cat {} +`): a
+    // bracket glob needs its `]`, a brace expansion a `,` or `..` and its `}`.
+    if (ch === '$' || ch === '*' || ch === '?') expands = true;
+    else if (ch === '[') bracketOpen = true;
+    else if (ch === ']' && bracketOpen) expands = true;
+    else if (ch === '{') braceOpen = true;
+    else if ((ch === ',' || ch === '.') && braceOpen) braceHasSep = true;
+    else if (ch === '}' && braceHasSep) expands = true;
     buf += ch;
     i++;
   }
@@ -1150,6 +1183,23 @@ function envFileValueIndices(operands) {
 function isListedFlag(text, flags) {
   if (text.startsWith('--')) return flags.has(text);
   return /^-[A-Za-z]+$/.test(text) && [...text.slice(1)].every((ch) => flags.has(`-${ch}`));
+}
+
+// True when the segment's command prints only names (NON_READING_COMMANDS).
+// `file` qualifies only with FILE_CLASSIFY_FLAGS options and no substitution
+// in its operands; `file` permutes options, so one after an operand counts.
+function isNonReading(base, operands) {
+  if (!NON_READING_COMMANDS.has(base)) return false;
+  if (base !== 'file') return true;
+  let endOfOptions = false;
+  for (const w of operands) {
+    if (w.expands) return false;
+    const t = w.text;
+    if (endOfOptions || !t.startsWith('-') || t === '-') continue;
+    if (t === '--') endOfOptions = true;
+    else if (!isListedFlag(t, FILE_CLASSIFY_FLAGS)) return false;
+  }
+  return true;
 }
 
 // Walks git's global options (see GIT_GLOBAL_VALUE_OPTIONS). `sub` is the
@@ -1378,13 +1428,19 @@ function findSecretRead(command, depth) {
     }
 
     // A substitution or unquoted glob/brace can change the run-time words, so
-    // the positions below are only trusted without one. Before the command
-    // word (wrapper options, assignments) it can even change WHICH command
-    // runs: `timeout {1,cat} ls .env` runs `timeout 1 cat ls .env`.
-    const prefixExpands = words.slice(0, words.length - operands.length - 1).some((w) => w.expands);
+    // the positions below are only trusted without one. In a wrapper word or
+    // the command word itself it can even change WHICH command runs:
+    // `timeout {1,cat} ls .env` runs `timeout 1 cat ls .env`, and
+    // `X='cat /bin'; $X/ls .env` runs `cat /bin/ls .env`. Leading `VAR=value`
+    // assignments are not counted: bash neither splits nor globs their value
+    // (`ROOT="$PWD" ls .env`), and a `$( )` in one is scanned as its own
+    // command. An assignment given to `env` is an argument and does count.
+    let lead = 0;
+    while (lead < words.length && ASSIGNMENT_RE.test(words[lead].text)) lead++;
+    const prefixExpands = words.slice(lead, words.length - operands.length).some((w) => w.expands);
     const segmentExpands = prefixExpands || operands.some((w) => w.expands);
 
-    if (NON_READING_COMMANDS.has(base) && !prefixExpands) continue;
+    if (!prefixExpands && isNonReading(base, operands)) continue;
 
     // Name-only positions (#4639, #4856) skip the check; a grep pattern
     // position is checked without the Windows `\` split
@@ -1545,7 +1601,7 @@ function scanXargsPipe(operands, s, bySeg, sepAfter, depth) {
     if (hit) return hit;
   }
   if (argFile) return null; // stdin replaced by a file — no pipeline inference
-  if (NON_READING_COMMANDS.has(subBase)) return null;
+  if (isNonReading(subBase, operands.slice(subIdx + 1))) return null;
 
   const { op, prevSeg } = precedingOp(s, bySeg, sepAfter);
   if (op !== '|' && op !== '|&') return null;
