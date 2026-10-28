@@ -23,9 +23,11 @@
  *      here-strings, commit messages and heredoc bodies pass.
  *   5. Kimi vocabulary (ReadFile / Grep / Shell, `path`) is normalized.
  *   6. Fail-open crash policy: malformed / non-object payloads exit 0.
- *   7. Name-only positions (#4639, #4856, fork:secret-guard-grep-pattern):
- *      the container `--env-file` value, git pathspecs, a cp/mv destination
- *      and a grep/egrep/fgrep PATTERN pass; every other operand is checked.
+ *   7. Name-only positions (#4639, #4856): the container `--env-file` value,
+ *      git pathspecs and a cp/mv destination pass; every other operand is
+ *      checked, and a substitution in the segment withdraws them all.
+ *      A grep/egrep/fgrep PATTERN is judged by its POSIX name only
+ *      (fork:secret-guard-grep-pattern): `"^\.env"` passes, `.env` does not.
  *
  * Every assertion reads typed fields off the stdout JSON (code, path, tool)
  * — never a regex over the reason prose (CONTRIBUTING.md).
@@ -1030,103 +1032,146 @@ describe('gsd-secret-read-guard: name-only git pathspecs and copy destinations (
 });
 
 // mn fork (fork:secret-guard-grep-pattern): grep matches its PATTERN against
-// what it reads and never opens it. The guard read the pattern as a file
-// operand, and `lastSegment` cuts at a backslash, so the transcript command
+// what it reads and never opens it. The guard judged the pattern as a file
+// name, and `lastSegment` splits at a Windows `\`, so the transcript command
 // `/bin/ls -a | grep -i "^\.env"` was denied as a read of `.env`. The pattern
-// position — the first positional word, or each `-e`/`--regexp` value — is
-// now name-only; an `-f`/`--file` value, every file operand and every input
-// redirect are still checked, and any doubt about which word is the pattern
-// restores the old verdict.
+// position — the first positional word, or each `-e`/`--regexp` value before
+// any positional — is now judged on its POSIX `/` segments only: a regex such
+// as `^\.env` passes, a bare `.env` there is still denied. Every other
+// operand, an `-f` value and every input redirect keep the full check, and
+// any doubt about which word is the pattern (an unknown option, a
+// substitution anywhere in the segment) restores the full check everywhere.
 //
 // The option vocabulary below is written from GNU grep 3.x and macOS
-// (FreeBSD 2.6.0) grep, never read back from the hook's tables.
-describe('mn fork: grep pattern is a name-only position (fork:secret-guard-grep-pattern)', () => {
+// (FreeBSD 2.6.0) grep, never read back from the hook's tables. Every block
+// row in the review list was also blocked by the hook on `next`, so they pin
+// that the rework loosens nothing (a regression guard, not new denials).
+describe('mn fork: grep pattern checked by its POSIX name (fork:secret-guard-grep-pattern)', () => {
   for (const cmd of [
     '/bin/ls -a | grep -i "^\\.env"',
     'ls -la | grep "^\\.env"',
+    'ls -a | grep ^\\\\.env',
     'grep -n "\\.env" README.md',
-    'grep -e .env README.md',
-    'grep --regexp=.env README.md',
-    'grep --regexp .env README.md',
-    'grep -ie .env README.md',
-    'grep -ie.env README.md',
-    'grep -m 5 .env README.md',
-    'grep -- .env README.md',
     "egrep '\\.env' a.txt",
-    'fgrep -e .env -e .secrets a.txt',
-    '/usr/bin/grep .env a.txt',
-    'grep -rn .env src/',
-    'grep -n .env -i a.txt',
-    'grep --color=always -C2 .env a.txt',
-    'grep --context=3 .env a.txt',
+    "grep -e '^\\.env' README.md",
+    "grep --regexp='\\.env\\.local' a.txt",
+    "grep --regexp '\\.env' a.txt",
+    "grep -ie '\\.secrets' a.txt",
+    "grep -ie'\\.env' a.txt",
+    "grep -- '\\.env' README.md",
+    "/usr/bin/grep -rn '\\.env' src/",
+    "fgrep -e '\\.env' -e '\\.secrets' a.txt",
+    "grep -n '\\.env' -i a.txt",
+    "grep --color=always -C2 '\\.env' a.txt",
+    "grep --context=3 '\\.env' a.txt",
     'bash -c \'grep -i "^\\.env" README.md\'',
   ]) {
-    test(`the pattern is not read as a file: ${cmd}`, () => {
+    test(`a backslash regex in the pattern slot is allowed: ${cmd}`, () => {
       assertAllowed(runHook(bash(cmd)), cmd);
     });
   }
 
   // Cluster boundary: a value option ends the cluster, taking the rest of it
   // (`-m5`) or, when it is the last letter, the next word (`-im 5`).
-  for (const cmd of ['grep -m5 .env a.txt', 'grep -im 5 .env a.txt', 'grep -2 .env a.txt', 'grep -10n .env a.txt']) {
-    test(`cluster boundary: ${cmd} leaves .env the pattern`, () => {
+  for (const cmd of ["grep -m5 '\\.env' a.txt", "grep -im 5 '\\.env' a.txt", "grep -2 '\\.env' a.txt", "grep -10n '\\.env' a.txt"]) {
+    test(`cluster boundary: ${cmd} leaves the regex in the pattern slot`, () => {
       assertAllowed(runHook(bash(cmd)), cmd);
     });
   }
 
-  // [command, the word the block must name]. A file operand, an `-f` value,
-  // an option value and an input redirect stay reads; `-e`/`-f` anywhere
-  // (GNU and macOS grep permute options) means there is no positional pattern.
+  // Stated cost: a bare secret name is a secret name on POSIX too, so it is
+  // denied in the pattern slot as before, even though grep would not open it.
+  for (const [cmd, blockedPath] of [
+    ['grep -e .env README.md', '.env'],
+    ['grep .env a.txt', '.env'],
+    ['grep -r .env', '.env'],
+    ['grep --regexp=.env a.txt', '--regexp=.env'],
+    ['grep -ie.env a.txt', '-ie.env'],
+    ['grep -- .secrets a.txt', '.secrets'],
+  ]) {
+    test(`a bare secret name in the pattern slot is still denied: ${cmd}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: blockedPath });
+    });
+  }
+
+  // [command, the word the block must name]. A file operand (with the Windows
+  // `\` split), an `-f` value, an option value and an input redirect stay
+  // reads; `-e`/`-f` anywhere (GNU and macOS grep permute options) means
+  // there is no positional pattern.
   for (const [cmd, blockedPath] of [
     ['grep KEY .env', '.env'],
     ['grep -i KEY .env.local', '.env.local'],
+    ["grep KEY 'config\\.env'", 'config\\.env'],
     ['grep -e KEY .env', '.env'],
-    ['grep -e x .env', '.env'],
+    ["grep -e x 'C:\\proj\\.env'", 'C:\\proj\\.env'],
     ['grep -f .env a.txt', '.env'],
     ['grep --file=.env a.txt', '--file=.env'],
     ['grep --file .env a.txt', '.env'],
-    ['grep .env .env', '.env'],
+    ["grep '\\.env' .env", '.env'],
     ['grep KEY -- .env', '.env'],
-    ['grep .env -e x a.txt', '.env'],
+    ["grep 'config\\.env' -e x a.txt", 'config\\.env'],
     ['grep --include=.env -r KEY .', '--include=.env'],
     ['grep "^\\.env" < .env', '.env'],
     ['cat .env | grep KEY', '.env'],
     ['grep -A .env a.txt', '.env'],
     // `f` takes the rest of the cluster (`m`) as its file, so `.env` is a file too.
-    ['grep -fm .env a.txt', '.env'],
+    ["grep -fm 'x\\.env' a.txt", 'x\\.env'],
   ]) {
-    test(`a file operand stays a read: ${cmd}`, () => {
+    test(`a file operand keeps the full check: ${cmd}`, () => {
       assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: blockedPath });
     });
   }
 
   // Fail-closed rows: the hook cannot tell which word is the pattern, so the
-  // exemption is withdrawn and `.env` is checked as before.
+  // POSIX-only check is withdrawn and `\.env` is judged with the `\` split.
   for (const [cmd, why] of [
-    ['grep --unknown-opt .env a.txt', 'an unlisted long option'],
-    ['grep -X .env a.txt', 'an unlisted short option (GNU: a matcher taking a value)'],
-    ['grep --reg .env a.txt', 'an abbreviation (`--reg` is `--regexp` to getopt_long)'],
-    ['grep -n .env a.txt --frobnicate', 'an unlisted option after the pattern'],
-    ['grep --context 5 .env a.txt', 'a bare --context (macOS: optional value, so 5 is the pattern)'],
-    ['grep pat -e .env', 'an -e after a positional (POSIXLY_CORRECT reads it as a file)'],
-    ['GREP_OPTIONS=-e grep .env a.txt', 'GREP_OPTIONS (macOS grep prepends its words)'],
-    ['export GREP_"OPTIONS"="-e x"; grep .env', 'GREP_OPTIONS behind quoting'],
-    ['grep -m 1$(printf " -f") .env x', 'an unquoted substitution that splits into an option'],
-    ['grep .env $X', 'an unquoted variable after the pattern'],
-    ['grep .env.{a,b}', 'a brace that expands into a pattern and a file'],
-    ['grep -e x -e .env.{a,b}', 'a brace in an -e value'],
-    ['grep -i% .env a.txt', 'a cluster character outside the tables'],
+    ["grep --unknown-opt '\\.env' a.txt", 'an unlisted long option'],
+    ["grep -X '\\.env' a.txt", 'an unlisted short option (GNU: a matcher taking a value)'],
+    ["grep --reg '\\.env' a.txt", 'an abbreviation (`--reg` is `--regexp` to getopt_long)'],
+    ["grep -n '\\.env' a.txt --frobnicate", 'an unlisted option after the pattern'],
+    ["grep -i% '\\.env' a.txt", 'a cluster character outside the tables'],
+    ["grep --context 5 '\\.env' a.txt", 'a bare --context (macOS: optional value, so 5 is the pattern)'],
+    ["grep pat -e '\\.env'", 'an -e after a positional (POSIXLY_CORRECT reads it as a file)'],
+    ['grep -n "\\.env" "$F"', 'a substitution inside double quotes'],
+    ["grep '\\.env' $X", 'an unquoted variable'],
+    ["grep '\\.env' *.md", 'an unquoted glob'],
+    ["timeout {1,2} grep '\\.env' a.txt", 'a brace in a wrapper word'],
   ]) {
-    test(`fails closed on ${why}: ${cmd}`, () => {
-      const out = assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash' });
-      assert.ok(cmd.split(/[\s|;]+/).includes(out.path), `${cmd}: the block must name a word of the command, got ${out.path}`);
+    test(`the full check returns on ${why}: ${cmd}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: '\\.env' });
     });
   }
 
-  // Only grep/egrep/fgrep: other searchers and `git grep` keep the old verdict.
-  for (const cmd of ['rg .env a.txt', 'ag .env a.txt', 'git grep .env', 'zgrep .env a.txt']) {
-    test(`not a grep base, still checked: ${cmd}`, () => {
+  // The review's false-pass list (each blocked by the `next` hook too): quoted
+  // substitutions that become `-e` at run time, substitutions in wrapper words
+  // that change the command, GREP_OPTIONS spelled at run time, and a shadowed
+  // command word. A bare `.env` is a secret on the POSIX reading, so every one
+  // stays denied whatever the option parse concluded.
+  for (const cmd of [
+    'X=-eKEY; grep .env "$X"',
+    'grep .env "$(printf %s -eKEY)"',
+    'set -- -e KEY; grep .env "$@"',
+    'a=(-e KEY); grep .env "${a[@]}"',
+    'bash -c \'X=-eKEY; grep .env "$X"\'',
+    'timeout {1,cat} grep .env',
+    'nice -n {5,cat} grep .env',
+    'sudo -u {root,cat} grep .env',
+    'env -u {X,cat} grep .env',
+    "T='1 cat'; timeout $T grep .env",
+    'export $(printf GREP_%s OPTIONS)=-eKEY; grep .env',
+    'export "$(echo R1JFUF9PUFRJT05T | base64 -d)=-eKEY"; grep .env',
+    'grep(){ cat "$@"; }; grep .env',
+    './grep .env',
+  ]) {
+    test(`review false-pass stays denied: ${cmd}`, () => {
       assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: '.env' });
+    });
+  }
+
+  // Only grep/egrep/fgrep: other searchers and `git grep` keep the full check.
+  for (const cmd of ["rg '\\.env' a.txt", "ag '\\.env' a.txt", "git grep '\\.env'", "zgrep '\\.env' a.txt"]) {
+    test(`not a grep base, full check: ${cmd}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: '\\.env' });
     });
   }
 
@@ -1138,48 +1183,119 @@ describe('mn fork: grep pattern is a name-only position (fork:secret-guard-grep-
     fc.constantFrom('--ignore-case', '--line-number', '--recursive', '--count', '--color', '--fixed-strings', '--with-filename'),
   );
   const BENIGN_FILE = fc.constantFrom('README.md', 'src/', 'a.txt', 'notes/env.md');
-  const PATTERN = fc.oneof(SECRET, fc.constantFrom('KEY', '^\\.env', 'API_TOKEN'));
-  // Insert each option at a random position of `words` (never in front of it:
-  // the caller prepends anything that must stay first).
+  // A pattern as the shell text an agent writes and the word the hook sees:
+  // regexes that name a secret only through the Windows `\` split (each one
+  // is denied by the full check, so the properties below are not vacuous).
+  const BACKSLASH_REGEX = fc.constantFrom(
+    { shell: "'\\.env'", word: '\\.env' },
+    { shell: "'^\\.env'", word: '^\\.env' },
+    { shell: '"\\.secrets"', word: '\\.secrets' },
+    { shell: "'x\\.env.local'", word: 'x\\.env.local' },
+    { shell: "'config/x\\.env.production'", word: 'config/x\\.env.production' },
+    { shell: "'\\.ENV'", word: '\\.ENV' },
+  );
+  const BENIGN_PATTERN = fc.oneof(BACKSLASH_REGEX, fc.constantFrom({ shell: 'KEY', word: 'KEY' }, { shell: 'API_TOKEN', word: 'API_TOKEN' }));
+  // How a pattern reaches grep: positional, after `--`, or as an `-e` value.
+  // Each form returns the words and the word that holds the pattern.
+  const PATTERN_FORM = fc.constantFrom(
+    (p) => ({ words: [p], at: p }),
+    (p) => ({ words: ['--', p], at: p, endsOptions: true }),
+    (p) => ({ words: ['-e', p], at: p }),
+    (p) => ({ words: [`-e${p}`], at: `-e${p}` }),
+    (p) => ({ words: [`--regexp=${p}`], at: `--regexp=${p}` }),
+    (p) => ({ words: ['-ie', p], at: p }),
+  );
+  // Insert each option at a random position of `words`.
   const interleave = (words, options, positions) => {
     const out = [...words];
     options.forEach((o, n) => out.splice(positions[n] % (out.length + 1), 0, o));
     return out;
   };
+  // grep, options, the pattern form, then the files with the remaining
+  // options among them (none after a `--`, which ends the options).
+  const grepCommand = (base, options, positions, form, files) => {
+    const tail = form.endsOptions ? files : interleave(files, options.slice(1), positions);
+    return [base, ...options.slice(0, 1), ...form.words, ...tail].join(' ');
+  };
 
-  test('property: a secret file operand after the pattern is blocked, whatever no-value options surround it', () => {
+  test('property: a secret file operand is blocked, whatever pattern and no-value options surround it', () => {
     fc.assert(fc.property(
-      GREP_BASE, PATTERN, fc.array(BENIGN_FILE, { maxLength: 2 }), SECRET, fc.nat(),
+      GREP_BASE, BENIGN_PATTERN, PATTERN_FORM, fc.array(BENIGN_FILE, { maxLength: 2 }), SECRET, fc.nat(),
       fc.array(NO_VALUE_OPTION, { maxLength: 4 }), fc.array(fc.nat(), { minLength: 4, maxLength: 4 }),
-      (base, pattern, benign, secret, at, options, positions) => {
+      (base, pattern, formOf, benign, secret, at, options, positions) => {
         const files = [...benign];
         files.splice(at % (files.length + 1), 0, secret);
-        // Options go anywhere after the pattern (permutation), or before it.
-        const tail = interleave(files, options.slice(1), positions);
-        const words = [base, ...options.slice(0, 1), pattern, ...tail];
-        const cmd = words.join(' ');
+        const cmd = grepCommand(base, options, positions, formOf(pattern.shell), files);
         assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: secret });
       },
     ), PROPERTY_RUNS);
   });
 
-  test('property: a secret that is only the pattern is allowed, positional or -e, among no-value options', () => {
-    // `-e` forms must precede every file (see the POSIXLY_CORRECT row above);
-    // a `--` before a positional pattern ends the options, so none follow it.
-    const regexpForm = fc.constantFrom((s) => ['-e', s], (s) => [`-e${s}`], (s) => [`--regexp=${s}`], (s) => ['--regexp', s], (s) => ['-ie', s]);
+  test('property: a backslash regex that only the Windows split reads as a secret is allowed in the pattern slot', () => {
     fc.assert(fc.property(
-      GREP_BASE, SECRET, fc.array(BENIGN_FILE, { maxLength: 2 }), fc.array(NO_VALUE_OPTION, { maxLength: 3 }),
-      fc.array(fc.nat(), { minLength: 3, maxLength: 3 }), fc.oneof(fc.constant(null), regexpForm), fc.boolean(),
-      (base, secret, files, options, positions, regexp, dashDash) => {
-        let words;
-        if (regexp) words = [...options.slice(0, 1), ...regexp(secret), ...interleave(files, options.slice(1), positions)];
-        else if (dashDash) words = [...options, '--', secret, ...files];
-        else words = [...options.slice(0, 1), secret, ...interleave(files, options.slice(1), positions)];
-        const cmd = [base, ...words].join(' ');
+      GREP_BASE, BACKSLASH_REGEX, PATTERN_FORM, fc.array(BENIGN_FILE, { maxLength: 2 }),
+      fc.array(NO_VALUE_OPTION, { maxLength: 3 }), fc.array(fc.nat(), { minLength: 3, maxLength: 3 }),
+      (base, pattern, formOf, files, options, positions) => {
+        const cmd = grepCommand(base, options, positions, formOf(pattern.shell), files);
         assertAllowed(runHook(bash(cmd)), cmd);
       },
     ), PROPERTY_RUNS);
   });
+
+  test('property: a bare secret name in the pattern slot is still blocked', () => {
+    fc.assert(fc.property(
+      GREP_BASE, SECRET, PATTERN_FORM, fc.array(BENIGN_FILE, { maxLength: 2 }),
+      fc.array(NO_VALUE_OPTION, { maxLength: 3 }), fc.array(fc.nat(), { minLength: 3, maxLength: 3 }),
+      (base, secret, formOf, files, options, positions) => {
+        const form = formOf(secret);
+        const cmd = grepCommand(base, options, positions, form, files);
+        assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: form.at });
+      },
+    ), PROPERTY_RUNS);
+  });
+
+  test('property: a substitution anywhere in the segment restores the Windows split on the pattern', () => {
+    const SUBSTITUTION = fc.constantFrom('"$X"', '$X', '"$(pwd)/a.txt"', '`pwd`', '{a,b}.txt', '*.md', '"${a[@]}"');
+    fc.assert(fc.property(
+      GREP_BASE, BACKSLASH_REGEX, PATTERN_FORM, fc.array(BENIGN_FILE, { maxLength: 2 }), SUBSTITUTION, fc.boolean(),
+      (base, pattern, formOf, files, substitution, inWrapper) => {
+        const form = formOf(pattern.shell);
+        const grepWords = [base, ...form.words, ...files];
+        const words = inWrapper ? ['timeout', substitution, ...grepWords] : [...grepWords, substitution];
+        const cmd = words.join(' ');
+        // The pattern word as the hook sees it, inside an `-e`/`--regexp` word or alone.
+        const expectedPath = form.at === pattern.shell ? pattern.word : form.at.replace(pattern.shell, pattern.word);
+        assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: expectedPath });
+      },
+    ), PROPERTY_RUNS);
+  });
+});
+
+// Boy-scout fix riding on fork:secret-guard-grep-pattern: a substitution or an
+// unquoted glob/brace in the segment withdraws the #4639 / #4856 name-only
+// positions, and one BEFORE the command word also withdraws the non-reading
+// exemption, because it can change which command runs. Both shapes were
+// allowed by the `next` hook (the review's probe), and both read `.env`.
+describe('mn fork: a substitution withdraws the name-only positions (fork:secret-guard-grep-pattern)', () => {
+  for (const cmd of [
+    'timeout {1,cat} cp x .env',
+    'timeout {1,cat} ls .env',
+    "T='1 cat'; timeout $T ls .env",
+    'cp "$@" .env',
+    'nice -n {5,cat} git ls-files .env',
+  ]) {
+    test(`now denied: ${cmd}`, () => {
+      assertBlocked(runHook(bash(cmd)), cmd, { tool: 'Bash', path: '.env' });
+    });
+  }
+
+  // A substitution among the OPERANDS of a non-reading command cannot change
+  // the command, so existence checks keep working.
+  for (const cmd of ['ls .env*', '[ -f "$ROOT/.env" ]', 'test -f "$DIR"/.env && echo yes', 'cp .env.example .env', 'git ls-files .env']) {
+    test(`still allowed: ${cmd}`, () => {
+      assertAllowed(runHook(bash(cmd)), cmd);
+    });
+  }
 });
 
 // #5214: the debug session manager is told to spawn gsd-debugger with

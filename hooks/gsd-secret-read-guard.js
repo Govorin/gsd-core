@@ -66,12 +66,30 @@
 //   reads). Narrower carve-outs exempt single operand POSITIONS that are
 //   names, never contents, and keep checking the rest of the segment: the
 //   `--env-file` value under a container runtime (#4639), the pathspecs of
-//   `git check-ignore` / `git ls-files` / `git rm --cached`, the
-//   destination of a one-source `cp`/`mv` (#4856), and the PATTERN of
+//   `git check-ignore` / `git ls-files` / `git rm --cached`, and the
+//   destination of a one-source `cp`/`mv` (#4856). These carve-outs fail
+//   closed: an option they do not list withdraws them from the segment, and
+//   so does a substitution or unquoted glob/brace in ANY word of the segment,
+//   wrapper words included (`timeout {1,cat} cp x .env` runs `cat`), which
+//   also withdraws the non-reading exemption when it sits before the command
+//   word (`timeout {1,cat} ls .env`).
+//   One position is checked more loosely instead of skipped: the PATTERN of
 //   `grep`/`egrep`/`fgrep` — the first positional word, or each `-e` value
-//   (fork:secret-guard-grep-pattern; an `-f` value is a file and stays
-//   checked). These carve-outs fail closed: an option they do not list
-//   withdraws them from the segment.
+//   (fork:secret-guard-grep-pattern) — is judged on its POSIX `/` segments
+//   only, without the Windows `\` split, because grep matches it and never
+//   opens it: `ls -a | grep -i "^\.env"` and `grep -n "\.env" f` pass, while
+//   a bare `.env` there is still denied (`grep -e .env README.md` is a
+//   stated false positive, kept so that a misparse — the pattern taken to be
+//   a file — can only ever let a `\`-bearing word through). An `-f` value
+//   and every other operand get the full check. The looser check is
+//   withdrawn on an option outside its tables, a bare `--context` (optional
+//   value on macOS, required on GNU), a value option with no value, an `-e`
+//   after a positional (POSIXLY_CORRECT reads it as a file), and a
+//   substitution anywhere in the segment, so the Windows reading
+//   (`grep x config\.env` shifted onto the pattern slot) returns. No
+//   GREP_OPTIONS check is needed: an `-e`/`-f` that variable injects turns
+//   the pattern word into a file, and a secret name in that word is denied
+//   by the POSIX reading too.
 //   A git global option the walker does not know also keeps the #5045 `-c`
 //   scan running over every later word (see walkGitGlobals).
 //   A shell interpreter (bash/sh/zsh/dash/ksh/su) has its script scanned
@@ -111,19 +129,15 @@
 //   onto a secret name (`ln -s .env.example l && mv l .env`), so a later
 //   edit of `.env` lands in the link target — a write redirection, the
 //   out-of-scope write class, not a read.)
-//   fork:secret-guard-grep-pattern adds a third. A grep pattern that spells a
-//   secret name (`grep -n "\.env" README.md`, `ls -a | grep "^\.env"`) is no
-//   longer denied: grep never opens it, and the name check had been reading
-//   the quoted `^\.env` as `.env` because `lastSegment` cuts at the
-//   backslash. The cost is the recursive form with no file operand:
-//   `grep -r .env` searches the working directory, a `.env` in it included,
-//   exactly as `grep -r KEY` always could — the recursive-search gap is not
-//   new, the pattern just no longer happens to trip it. The carve-out is
-//   withdrawn (the old verdict returns) on an option outside its tables, a
-//   bare `--context` (optional value on macOS, required on GNU), an unquoted
-//   expansion in any of the grep's words, or a GREP_OPTIONS mention in the
-//   command; a GREP_OPTIONS already exported by the user's environment
-//   (macOS grep still honours it) is invisible here, the `$VAR` class above.
+//   Two more gaps hold for every command, not only the carve-outs: a command
+//   word shadowed by a shell function, an alias or a local file
+//   (`grep(){ cat "$@"; }; grep x`, `alias ls=cat`, `./ls .env`) is judged
+//   by its name, not by what runs; and an environment variable set before the
+//   command — by the user's shell startup files (`~/.zshenv`) or an earlier
+//   session — is invisible, e.g. a GREP_OPTIONS that macOS grep still
+//   honours. fork:secret-guard-grep-pattern's own cost: with an `-e` or
+//   `-f` injected that way, a pattern word holding a `\`-split secret path
+//   (`grep "config\.env"`) is read as a file on Windows and not denied.
 //
 // A second, unrelated contract is enforced on the Bash leg because this is the
 // one hook that already parses EVERY Bash command (#5214): a Bash command that
@@ -275,11 +289,12 @@ const GIT_GLOBAL_FLAGS = new Set([
 const COPY_NAME_ONLY_FLAGS = new Set(['-f', '--force', '-i', '--interactive', '-n', '--no-clobber', '-v', '--verbose']);
 
 // fork:secret-guard-grep-pattern: grep matches its PATTERN against what it
-// reads and never opens it, so the pattern word is a name, not contents
-// (`ls -a | grep -i "^\.env"`). The vocabulary below is GNU grep 3.x and the
-// FreeBSD grep 2.6.0 that ships as macOS /usr/bin/grep, checked against both.
-// An option outside it withdraws the exemption from the segment, so an
-// unknown option can never be what decides which word is the pattern.
+// reads and never opens it, so the pattern word gets the POSIX-only name
+// check (`ls -a | grep -i "^\.env"`; see grepPatternIndices). The vocabulary
+// below is GNU grep 3.x and the FreeBSD grep 2.6.0 that ships as macOS
+// /usr/bin/grep, checked against both. An option outside it returns the
+// segment to the full check, so an unknown option can never be what decides
+// which word is the pattern.
 const GREP_COMMANDS = new Set(['grep', 'egrep', 'fgrep']);
 // Short options whose value is the rest of the cluster (`-m5`) or the next word.
 const GREP_SHORT_VALUE_OPTIONS = new Set([...'ABCDdefm']);
@@ -287,7 +302,7 @@ const GREP_SHORT_VALUE_OPTIONS = new Set([...'ABCDdefm']);
 const GREP_SHORT_FLAGS = new Set([...'EFGPabchHiIlLnoqrRsTUuvVwxyzZJOpS']);
 // Long options whose bare form takes the next word as the value. `--context`
 // is not here: its value is optional on macOS (`--context 5 f` greps for `5`)
-// and required on GNU, so the bare form withdraws the exemption.
+// and required on GNU, so the bare form returns the segment to the full check.
 const GREP_LONG_VALUE_OPTIONS = new Set([
   '--regexp', '--file', '--max-count', '--after-context', '--before-context', '--devices',
   '--directories', '--binary-files', '--label', '--include', '--exclude', '--exclude-dir',
@@ -361,6 +376,24 @@ function namesSecret(tok) {
   if (isSecretBasename(lastSegment(lower))) return true;
   const colon = lower.lastIndexOf(':');
   return colon !== -1 && isSecretBasename(lastSegment(lower.slice(colon + 1)));
+}
+
+// Last `/`-separated segment: the POSIX reading, where `\` is an ordinary
+// character of the name.
+function posixLastSegment(tok) {
+  const s = tok.replace(/\/+$/, '');
+  return s.slice(s.lastIndexOf('/') + 1);
+}
+
+// namesSecret without the Windows `\` split (fork:secret-guard-grep-pattern),
+// for a grep pattern position: `^\.env` and `\.env` are regexes, and on POSIX
+// not the names of a secret file, while a bare `.env` still is.
+function namesSecretPosix(tok) {
+  if (typeof tok !== 'string' || tok === '') return false;
+  const lower = tok.toLowerCase();
+  if (isSecretBasename(posixLastSegment(lower))) return true;
+  const colon = lower.lastIndexOf(':');
+  return colon !== -1 && isSecretBasename(posixLastSegment(lower.slice(colon + 1)));
 }
 
 // ---------------------------------------------------------------------------
@@ -489,14 +522,6 @@ function classifyGrepGlob(glob) {
 //    `(`: kept as a reading so nothing the guard denied before is allowed now.
 let heredocBodiesSkippedInSpans = true;
 let heredocTagsAsWords = true;
-
-// fork:secret-guard-grep-pattern: true when the Bash command mentions
-// GREP_OPTIONS in any quoting (`GREP_"OPTIONS"`, `GREP_\OPTIONS`). macOS grep
-// still prepends that variable's words to its arguments, so an `-e`/`-f`
-// set there turns the word the hook reads as the pattern into a file
-// operand; the grep-pattern exemption is then withdrawn for the whole
-// command. Set once per Bash call, before the scan.
-let grepOptionsInCommand = false;
 
 // Index of the `)` closing a `$(` / `<(` / `>(` opened just before `i`, or
 // str.length when unterminated. Quote- and heredoc-aware so a `)` inside a
@@ -654,9 +679,12 @@ function tokenize(str) {
   const nested = [];
   let buf = '';
   let quoted = 'none';
-  // fork:secret-guard-grep-pattern: the word holds an UNQUOTED expansion
-  // (`$X`, `${X}`, `$( )`, backticks, a glob or brace character), so bash may
-  // split it into several words or replace it with file names.
+  // fork:secret-guard-grep-pattern: the word holds a substitution or an
+  // unquoted glob/brace — `$X`, `${X}`, `$( )` or backticks, bare or inside
+  // double quotes (`"$@"`, `"${a[@]}"` and a bare `$X` can each become several
+  // words), or `*?[{` outside quotes — so its run-time words, and with them
+  // which word sits where, are unknown to the scan. Single-quoted text never
+  // sets it.
   let expands = false;
   let hasWord = false;
   let seg = 0;
@@ -714,6 +742,7 @@ function tokenize(str) {
           i += 2;
           continue;
         }
+        if (c === '$') expands = true;
         if (c === '$' && str[i + 1] === '(') {
           const e = findParenClose(str, i + 2);
           nested.push(str.slice(i + 2, e));
@@ -721,6 +750,7 @@ function tokenize(str) {
           continue;
         }
         if (c === '`') {
+          expands = true;
           const j = str.indexOf('`', i + 1);
           const e = j === -1 ? str.length : j;
           nested.push(str.slice(i + 1, e));
@@ -920,21 +950,22 @@ const CLUSTER_FLAG_CHAR_RE = /[A-Za-z0-9]/;
 // than base and costs a fixed number of `namesSecret` calls (at most three,
 // whatever the word's length). The option run also swallows a value's leading
 // letters and digits, so `-fapp.env` is denied although `cat app.env` is not:
-// a fail-safe false positive, pinned in tests.
-function operandNamesSecret(text) {
+// a fail-safe false positive, pinned in tests. `names` is the name predicate:
+// namesSecret, or namesSecretPosix at a grep pattern position.
+function operandNamesSecret(text, names = namesSecret) {
   let v = text;
   if (v.startsWith('@')) v = v.slice(1);
   if (v.startsWith('--')) {
     const eq = v.indexOf('=');
     if (eq !== -1) v = v.slice(eq + 1);
-    return namesSecret(v);
+    return names(v);
   }
-  if (!/^-[^-]./.test(v)) return namesSecret(v);
-  if (namesSecret(v.slice(2))) return true;
+  if (!/^-[^-]./.test(v)) return names(v);
+  if (names(v.slice(2))) return true;
   let end = 1;
   while (end < v.length && CLUSTER_FLAG_CHAR_RE.test(v[end])) end++;
-  if (end > 2 && namesSecret(v.slice(end))) return true;
-  return v[end] === '=' && namesSecret(v.slice(end + 1));
+  if (end > 2 && names(v.slice(end))) return true;
+  return v[end] === '=' && names(v.slice(end + 1));
 }
 
 const ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
@@ -1022,31 +1053,31 @@ function scanGitConfig(operands, depth) {
 }
 
 // Operand indices the segment's command consumes as a NAME, never as
-// CONTENTS (#4639, #4856, fork:secret-guard-grep-pattern). Only these
-// positions skip the operand check; every other operand is still checked, so
-// a carve-out cannot launder a read elsewhere in the segment.
+// CONTENTS (#4639, #4856). Only these positions skip the operand check;
+// every other operand is still checked, so a carve-out cannot launder a read
+// elsewhere in the segment. The caller withdraws them all when a word of the
+// segment holds a substitution (see findSecretRead).
 function nameOnlyOperandIndices(base, operands) {
   if (CONTAINER_RUNTIMES.has(base)) return envFileValueIndices(operands);
   if (base === 'git') return gitPathspecIndices(operands);
   if (base === 'cp' || base === 'mv') return copyDestinationIndices(operands);
-  if (GREP_COMMANDS.has(base)) return grepPatternIndices(operands);
   return new Set();
 }
 
-// fork:secret-guard-grep-pattern: the pattern operands of grep/egrep/fgrep.
-// With an `-e`/`--regexp` or `-f`/`--file` anywhere there is no positional
-// pattern, and only the `-e`/`--regexp` values are exempt (an `-f` value is a
-// file grep reads). Without them the first positional word is the pattern;
-// after `--` it is the next word. GNU and macOS grep permute options, so an
-// option may follow the pattern; under POSIXLY_CORRECT a word after the first
-// positional is an operand instead, so an `-e` value is exempt only when it
-// precedes every positional — the one reading both orders agree on. Fails
-// closed (nothing exempt) on an option outside the GREP_* tables, a value
-// option with no value word, an unquoted expansion in any operand (word
-// splitting, a glob or a brace can move the pattern onto a file), or a
-// GREP_OPTIONS mention in the command.
+// fork:secret-guard-grep-pattern: the pattern operands of grep/egrep/fgrep,
+// which the caller checks with namesSecretPosix instead of namesSecret — not
+// skipped, so a misparse that takes a file for the pattern can let through
+// only a word whose Windows `\` reading names a secret. With an
+// `-e`/`--regexp` or `-f`/`--file` anywhere there is no positional pattern,
+// and only the `-e`/`--regexp` values are patterns (an `-f` value is a file
+// grep reads). Without them the first positional word is the pattern; after
+// `--` it is the next word. GNU and macOS grep permute options, so an option
+// may follow the pattern; under POSIXLY_CORRECT a word after the first
+// positional is an operand instead, so an `-e` value counts only when it
+// precedes every positional — the one reading both orders agree on. Returns
+// nothing (the full check everywhere) on an option outside the GREP_* tables
+// or a value option with no value word.
 function grepPatternIndices(operands) {
-  if (grepOptionsInCommand || operands.some((w) => w.expands)) return new Set();
   const regexpValues = [];
   let patternOption = false;
   let firstPositional = -1;
@@ -1346,12 +1377,25 @@ function findSecretRead(command, depth) {
       if (hit) return hit;
     }
 
-    if (NON_READING_COMMANDS.has(base)) continue;
+    // A substitution or unquoted glob/brace can change the run-time words, so
+    // the positions below are only trusted without one. Before the command
+    // word (wrapper options, assignments) it can even change WHICH command
+    // runs: `timeout {1,cat} ls .env` runs `timeout 1 cat ls .env`.
+    const prefixExpands = words.slice(0, words.length - operands.length - 1).some((w) => w.expands);
+    const segmentExpands = prefixExpands || operands.some((w) => w.expands);
 
-    const nameOnly = nameOnlyOperandIndices(base, operands);
+    if (NON_READING_COMMANDS.has(base) && !prefixExpands) continue;
+
+    // Name-only positions (#4639, #4856) skip the check; a grep pattern
+    // position is checked without the Windows `\` split
+    // (fork:secret-guard-grep-pattern). Both are withdrawn by a substitution
+    // anywhere in the segment (`timeout {1,cat} cp x .env`).
+    const nameOnly = segmentExpands ? new Set() : nameOnlyOperandIndices(base, operands);
+    const posixOnly = segmentExpands || !GREP_COMMANDS.has(base) ? new Set() : grepPatternIndices(operands);
     for (let k = 0; k < operands.length; k++) {
       if (nameOnly.has(k)) continue;
-      if (operandNamesSecret(operands[k].text)) return operands[k].text;
+      const names = posixOnly.has(k) ? namesSecretPosix : namesSecret;
+      if (operandNamesSecret(operands[k].text, names)) return operands[k].text;
     }
   }
   return null;
@@ -1688,8 +1732,6 @@ process.stdin.on('end', () => {
     const command = typeof data.tool_input.command === 'string' ? data.tool_input.command : '';
     if (command === '') allow(undefined);
     if (command.length > MAX_COMMAND_LENGTH) emitBlock('command-too-large', tool, '');
-    // Letters and `_` only, so no quoting or escaping can split the name.
-    grepOptionsInCommand = command.replace(/[^A-Za-z_]/g, '').includes('GREP_OPTIONS');
     const hit = findSecretRead(command, 0) || findSecretReadUnderOtherReadings(command);
     if (hit !== null) emitBlock('secret-read', tool, hit);
     const spawn = findDebuggerCliSpawn(command, 0);
