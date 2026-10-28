@@ -1028,3 +1028,59 @@ describe('retro applied and recurring proposals', () => {
     assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), { 'cand-1': ['host-target-version'], 'cand-2': ['recurring-uncited'] });
   });
 });
+
+describe('a retro is held to what prepare showed the analyst (ADR-5209 §10)', () => {
+  test('a lesson recorded after R2 was prepared does not drop R2\'s candidate (N1)', () => {
+    // R1: a gsd candidate for the hook block.
+    const { prep: r1, bundle: b1 } = prepareSession('sess-1', versionedRecords());
+    const hook1 = b1.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(r1, [{ id: 'cand-1', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader', signals: [hook1], target: 'agents/gsd-retro-analyst.md', change: 'c' }]);
+    // R2, prepared while R1 cand-1 is not a lesson yet: the analyst cites retro:R1:cand-1.
+    const { prep: r2, bundle: b2 } = prepareSession('sess-2', versionedRecords(3));
+    const hook2 = b2.report.signals.find((s) => s.kind === 'hook-block').id;
+    assert.deepEqual(b2.recurring.items.map((e) => [e.retro, e.lesson]), [[r1.json.stem, null]]);
+    writeCandidates(r2, [
+      { id: 'cand-1', severity: 'low', layer: 'project', category: 'navigation', title: 'pointer', signals: [hook2], target: 'CLAUDE.md', change: 'c' },
+      { id: 'cand-2', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader again', signals: [hook2, `retro:${r1.json.stem}:cand-1`], target: 'agents/gsd-retro-analyst.md', change: 'c' },
+    ]);
+    // Then the human applies R1 cand-1: it becomes an open gsd lesson.
+    assert.equal(retro(['lessons', 'record', '--retro', r1.json.stem, '--candidate', 'cand-1'], project).json.outcome, 'created');
+    // R2 cand-2 stays valid: R2 is held to its own snapshot, where no lesson existed.
+    const r = retro(['candidates', '--retro', r2.json.stem], project);
+    assert.deepEqual(r.json.valid.map((c) => c.id), ['cand-2']);
+    assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), { 'cand-1': ['recurring-uncited'] });
+    const rec = retro(['lessons', 'record', '--retro', r2.json.stem, '--candidate', 'cand-2'], project);
+    assert.equal(rec.success, true, rec.error);
+  });
+
+  test('the run journals the snapshot; without the bundle, inventory refs still count and a dropped candidate is not applied', () => {
+    const { prep, bundle } = prepareSession('sess-1', versionedRecords());
+    const run = JSON.parse(fs.readFileSync(path.join(project, '.planning', 'retro', 'RUNS.json'), 'utf8')).runs.find((x) => x.stem === prep.json.stem);
+    assert.deepEqual(Object.keys(run.snapshot).sort(), ['checks', 'inventory', 'lessons', 'recurring']);
+    assert.deepEqual(run.snapshot.inventory, bundle.evidence.inventory);
+    const inv = bundle.evidence.inventory[0];
+    assert.ok(inv, 'the fixture project has an inventory finding');
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'low', layer: 'project', category: 'environment', title: 'wire it', signals: [inv], change: 'c' },
+      { id: 'cand-2', severity: 'low', layer: 'project', category: 'mechanical', title: 'no verify', signals: [inv], change: 'c' },
+    ]);
+    fs.unlinkSync(path.join(project, prep.json.bundle));
+    assert.deepEqual(retro(['applied', '--candidate', 'cand-1'], project).json.recorded, true);
+    assert.equal(retro(['applied', '--candidate', 'cand-2'], project).reason, 'usage', 'missing-verify: not applied');
+  });
+});
+
+describe('a RUNS.json from a newer GSD', () => {
+  test('the stage says journal-newer, not journal-invalid, and nothing is rewritten', () => {
+    writeMilestone(3);
+    const file = path.join(project, '.planning', 'retro', 'RUNS.json');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: 3, runs: [] }));
+    const due = retro(['due'], project);
+    assert.equal(due.json.reason, 'journal-newer');
+    writeSession(sessions, project, 'sess-s', smoothRecords());
+    const stage = retro(['stage', '--sessions-dir', sessions], project);
+    assert.deepEqual([stage.json.decision, stage.json.reason, stage.json.next], ['suggest', 'journal-newer', null]);
+    assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ version: 3, runs: [] }));
+  });
+});

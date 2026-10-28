@@ -288,6 +288,15 @@ describe('drafts', () => {
     assert.equal(proposal, 'In <project> run <path> instead; see <path>');
     assert.deepEqual(['secret-client', '/Users/', '~/'].filter((x) => d.includes(x)), []);
     assert.equal(rl.maskForDraft('the mn repo, not column', ['~/IdeaProjects/mn']), 'the <project> repo, not column');
+    const projects = ['~/IdeaProjects/mn', '~/x/core', '~/x/claude', '~/x/gsd-core'];
+    const cases = [
+      ['mn-wt-121-12 lost its branch', '<project>-wt lost its branch'],
+      ['apps/polyglot/api fails in libs/billing', 'apps/<app>/api fails in libs/<app>'],
+      ['run claude@2.1.310 in core-utils and score', 'run claude@2.1.310 in core-utils and score'],
+      ['the gsd-core repo and (core)', 'the <project> repo and (<project>)'],
+      ['open C:\\Users\\me\\x.ts', 'open <path>'],
+    ];
+    for (const [text, want] of cases) assert.equal(rl.maskForDraft(text, projects), want, text);
   });
 });
 
@@ -336,6 +345,9 @@ describe('compareVersions', () => {
     assert.equal(rl.compareVersions('1.19.0', '1.19.0-rc.1'), 1);
     assert.equal(rl.compareVersions('1.19.0-rc.1', '1.19.0-rc.2'), -1);
     assert.equal(rl.compareVersions('1.19.0+build.7', '1.19.0'), 0);
+    assert.equal(rl.compareVersions('1.0.0-rc.10', '1.0.0-rc.9'), 1, 'numeric identifiers as numbers');
+    assert.equal(rl.compareVersions('1.0.0-alpha', '1.0.0-alpha.1'), -1, 'fewer identifiers sort first');
+    assert.equal(rl.compareVersions('1.0.0-1', '1.0.0-alpha'), -1, 'numeric below alphanumeric');
     assert.equal(rl.compareVersions('soon', '1.0.0'), null);
   });
 

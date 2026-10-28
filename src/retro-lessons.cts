@@ -286,7 +286,25 @@ export function compareVersions(a: string, b: string): number | null {
   if (pa.pre === pb.pre) return 0;
   if (pa.pre === null) return 1;
   if (pb.pre === null) return -1;
-  return pa.pre < pb.pre ? -1 : 1;
+  // semver §11: dot-separated identifiers left to right; numeric ones as
+  // numbers and below alphanumeric ones; a shorter list below a longer one.
+  const ia = pa.pre.split('.');
+  const ib = pb.pre.split('.');
+  for (let i = 0; i < Math.max(ia.length, ib.length); i++) {
+    if (i >= ia.length) return -1;
+    if (i >= ib.length) return 1;
+    const na = /^\d+$/.test(ia[i]);
+    const nb = /^\d+$/.test(ib[i]);
+    if (na && nb) {
+      const d = Number(ia[i]) - Number(ib[i]);
+      if (d !== 0) return d < 0 ? -1 : 1;
+    } else if (na !== nb) {
+      return na ? -1 : 1;
+    } else if (ia[i] !== ib[i]) {
+      return ia[i] < ib[i] ? -1 : 1;
+    }
+  }
+  return 0;
 }
 
 // ─── Edits ────────────────────────────────────────────────────────────────────
@@ -399,19 +417,28 @@ export function projectCount(l: Lesson): number {
 
 const DRAFT_OCCURRENCES = 10;
 
+const SUBPROJECT_RE = /\b(apps|packages|libs|services|modules|projects)\/[A-Za-z0-9_.-]+/g;
+
 /**
- * Text of a lesson as a public issue may carry it: every path masked, and
- * every project the lesson occurred in — its path and its name — replaced by
- * `<project>`.
+ * Text of a lesson as a public issue may carry it: every path masked
+ * (`~/…`, absolute, Windows); a monorepo's sub-projects (`apps/<app>`); and
+ * every project the lesson occurred in — its path, its worktrees
+ * (`<name>-wt-…`) and its name — replaced by `<project>`. A name is replaced
+ * only as a whole token (spaces, quotes, slashes, brackets around it), so
+ * `core` in `gsd-core`, `api` in `rapid` and `claude` in `claude@2.1.310` stay.
  */
 export function maskForDraft(text: string, projects: readonly string[]): string {
   let t = text;
   for (const p of projects) {
     const name = path.basename(p);
     if (p.length > 1) t = t.split(p).join('<project>');
-    if (name.length >= 2) t = t.replace(new RegExp(`(?<![\\w.-])${escapeRegex(name)}(?![\\w-])`, 'g'), '<project>');
+    if (name.length >= 2) {
+      const n = escapeRegex(name);
+      t = t.replace(new RegExp(`(^|[\\s'"\`(\\[/])${n}-wt(?:-[A-Za-z0-9_.]+)*(?=$|[\\s'"\`)\\]/.,;:])`, 'g'), '$1<project>-wt');
+      t = t.replace(new RegExp(`(^|[\\s'"\`(\\[/])${n}(?=$|[\\s'"\`)\\]/,;:]|\\.(?:\\s|$))`, 'g'), '$1<project>');
+    }
   }
-  return maskPaths(t);
+  return maskPaths(t.replace(SUBPROJECT_RE, '$1/<app>'));
 }
 
 /**

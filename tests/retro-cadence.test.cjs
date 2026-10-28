@@ -497,3 +497,29 @@ describe('RUNS.json envelope version', () => {
     assert.equal(rc.runProblems({ ...run, host: { name: 5, version: null } }).length, 1);
   });
 });
+
+describe('RUNS.json from a newer GSD, and the run snapshot', () => {
+  test('a newer version is invalid with newer: true; the schedule says journal-newer; applied refuses as journal-newer', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: rc.RUNS_JOURNAL_VERSION + 1, runs: [] }));
+    const read = rc.readRunsJournal(project);
+    assert.deepEqual([read.status, read.newer], ['invalid', true]);
+    assert.equal(due({ facts: facts({ executed: 3 }), runs: [], journalProblems: read.problems, journalNewer: true }).reason, 'journal-newer');
+    assert.equal(due({ facts: facts({ executed: 3 }), runs: [], journalProblems: ['broken'] }).reason, 'journal-invalid');
+    const free = { acquire: () => ({}), release: () => {} };
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-20', { candidate: 'cand-1', route: 'quick', at: '2026-10-21T00:00:00.000Z' }, free).refusal, rc.APPLIED_REFUSAL.JOURNAL_NEWER);
+  });
+
+  test('a snapshot round-trips; a malformed one makes the run malformed; lists are capped at MAX_SNAPSHOT_ITEMS', () => {
+    const snap = { inventory: ['inventory:missing-guardrail:ci'], checks: ['no-stash'], lessons: ['lesson-0123456789'], recurring: [{ retro: 'RETRO-2026-10-20', candidate: 'cand-1', signals: ['hook-block:aaaaaaaaaa'], escalate: true, weak: false, lesson: null }] };
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, snap);
+    assert.equal(rc.recordRun(project, run).recorded, true);
+    assert.deepEqual(rc.readRunsJournal(project).journal.runs[0].snapshot, snap);
+    assert.equal(rc.runProblems({ ...run, snapshot: { ...snap, lessons: ['nope'] } }).length, 1);
+    const many = (n) => Array.from({ length: n }, (_, i) => `inventory:x:${i}`);
+    for (const [n, kept] of [[rc.MAX_SNAPSHOT_ITEMS - 1, rc.MAX_SNAPSHOT_ITEMS - 1], [rc.MAX_SNAPSHOT_ITEMS, rc.MAX_SNAPSHOT_ITEMS], [rc.MAX_SNAPSHOT_ITEMS + 1, rc.MAX_SNAPSHOT_ITEMS]]) {
+      assert.equal(rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, { ...snap, inventory: many(n) }).snapshot.inventory.length, kept, `${n}`);
+    }
+  });
+});

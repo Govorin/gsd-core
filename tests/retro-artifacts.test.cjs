@@ -12,6 +12,7 @@ const { test, describe, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { createTempProject, cleanup } = require('./helpers.cjs');
 
 const ra = require('../gsd-core/bin/lib/retro-artifacts.cjs');
@@ -441,6 +442,52 @@ describe('validateCandidates: a recurring open lesson', () => {
     for (const lesson of [{ ...open, status: 'fixed' }, { ...open, layer: 'user' }, null]) {
       assert.equal(ra.validateCandidates(c(without), evidence, opts(lesson)).valid.length, 1, JSON.stringify(lesson));
     }
+  });
+});
+
+describe('validateCandidates: weak recurrences bind nothing', () => {
+  test('a weak entry neither demands the retro ref nor high', () => {
+    const evidence = { signals: new Set(['repeated-tool-error:aaaaaaaaaa']), inventory: new Set(), checks: new Set() };
+    const recurring = [{ retro: 'RETRO-2026-10-25', candidate: 'cand-1', signals: ['repeated-tool-error:aaaaaaaaaa'], escalate: true, weak: true }];
+    const c = { version: 2, candidates: [{ id: 'cand-1', severity: 'low', layer: 'project', category: 'navigation', title: 't', change: 'c', signals: ['repeated-tool-error:aaaaaaaaaa'] }] };
+    assert.equal(ra.validateCandidates(c, evidence, { projectRoot: project, patchesDir: 'p', recurring }).valid.length, 1);
+    const strong = [{ ...recurring[0], weak: false }];
+    assert.deepEqual(ra.validateCandidates(c, evidence, { projectRoot: project, patchesDir: 'p', recurring: strong }).dropped.map((d) => d.codes), [[ra.CANDIDATE_DROP.RECURRING_UNCITED]]);
+  });
+
+  test('computeRecurring marks an entry matched only by weak fingerprints, and never escalates it', () => {
+    const p = { retro: 'RETRO-2026-10-25', candidate: 'cand-1', title: 't', layer: 'project', signals: ['x:1111111111'], facts: [{ id: 'x:1111111111', fingerprint: 'repeated-tool-error:abcabcabca', count: 1, weak: true }] };
+    const [e] = ra.computeRecurring({ current: [{ id: 'x:2222222222', fingerprint: 'repeated-tool-error:abcabcabca', count: 9, weak: true }], past: [p], applied: { runs: new Set(), checks: new Set(), lessons: new Map() } }).items;
+    assert.deepEqual([e.weak, e.escalate, e.weakSignals, e.signals], [true, false, ['x:2222222222'], ['x:2222222222']]);
+  });
+});
+
+describe('validateCandidates: private paths and real paths', () => {
+  test('a URL and a tool\'s config directory under ~ are not private', () => {
+    const evidence = { signals: new Set(['hook-block:aaaaaaaaaa']), inventory: new Set(), checks: new Set() };
+    const gsd = createTempProject('gsd-retro-install-');
+    fs.mkdirSync(path.join(gsd, 'agents'), { recursive: true });
+    fs.writeFileSync(path.join(gsd, 'agents', 'gsd-x.md'), 'x');
+    const v = (change) => ra.validateCandidates({ version: 2, candidates: [{ id: 'cand-1', severity: 'low', layer: 'gsd', category: 'environment', title: 't', change, signals: ['hook-block:aaaaaaaaaa'], target: 'agents/gsd-x.md' }] }, evidence,
+      { projectRoot: project, patchesDir: 'p', layer: { gsdRoot: gsd, hostName: 'claude', hostVersion: null, homeDir: os.homedir() } });
+    for (const ok of ['see https://code.claude.com/docs/en/hooks', 'set it in ~/.claude/settings.json', 'or ~/.gsd/defaults.json and ~/.config/x']) {
+      assert.equal(v(ok).valid.length, 1, ok);
+    }
+    assert.deepEqual(v('in ~/IdeaProjects/mn').dropped.map((d) => d.codes), [[ra.CANDIDATE_DROP.PRIVATE_PATH]]);
+    cleanup(gsd);
+  });
+
+  test('a user target through a symlinked home is still inside the project', (t) => {
+    const real = createTempProject('gsd-retro-realhome-');
+    const proj = path.join(real, 'proj');
+    fs.mkdirSync(proj);
+    const link = path.join(createTempProject('gsd-retro-linkhome-'), 'home');
+    fs.symlinkSync(real, link);
+    t.after(() => { cleanup(real); cleanup(path.dirname(link)); });
+    const r = ra.validateCandidates({ version: 2, candidates: [{ id: 'cand-1', severity: 'low', layer: 'user', category: 'environment', title: 't', change: 'c', signals: ['hook-block:aaaaaaaaaa'], target: '~/proj/CLAUDE.md' }] },
+      { signals: new Set(['hook-block:aaaaaaaaaa']), inventory: new Set(), checks: new Set() },
+      { projectRoot: proj, patchesDir: 'p', layer: { gsdRoot: null, hostName: null, hostVersion: null, homeDir: link } });
+    assert.deepEqual(r.dropped.map((d) => d.codes), [[ra.CANDIDATE_DROP.USER_TARGET_IN_PROJECT]]);
   });
 });
 

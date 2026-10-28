@@ -42,7 +42,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { retroDir, writeTextAtomic, isRetroStem, withJournalLock, journalLockPath, defaultJournalLock } from './retro-artifacts.cjs';
-import type { JournalLock, SignalFacts } from './retro-artifacts.cjs';
+import type { JournalLock, SignalFacts, LessonRef } from './retro-artifacts.cjs';
 import { DISK_STATUS } from './phase-status.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 import planningWorkspaceModule = require('./planning-workspace.cjs');
@@ -134,6 +134,81 @@ export interface RetroRun {
   host?: { name: string | null; version: string | null };
   /** The GSD version that ran `retro prepare`, or null. */
   gsdVersion?: string | null;
+  /**
+   * What the analyst was shown besides signals, as `retro prepare` journaled
+   * it before spawning the analyst: the evidence refs and the earlier
+   * proposals. Validation holds a retro to this snapshot, never to the
+   * journals as they stand later (ADR-5209 §10).
+   */
+  snapshot?: RunSnapshot;
+}
+
+/** An earlier proposal as the analyst saw it (`retro-artifacts` RecurringRef). */
+export interface RunRecurring {
+  retro: string;
+  candidate: string;
+  /** This retro's signal ids matched by a strong fingerprint. */
+  signals: string[];
+  escalate: boolean;
+  weak: boolean;
+  lesson: LessonRef | null;
+}
+
+export interface RunSnapshot {
+  /** `inventory:<kind>:<subject>` refs. */
+  inventory: string[];
+  /** Check ids (cited as `check:<id>`). */
+  checks: string[];
+  /** Lesson ids (cited as `lesson:<id>`). */
+  lessons: string[];
+  recurring: RunRecurring[];
+}
+
+/** Entries of each snapshot list, at most. */
+export const MAX_SNAPSHOT_ITEMS = 200;
+const LESSON_ID_RE = /^lesson-[0-9a-f]{10}$/;
+const RETRO_STEM_LIKE = /^RETRO-\d{4}-\d{2}-\d{2}(?:-[1-9]\d{0,3})?$/;
+
+function snapshotProblems(v: unknown): string[] {
+  if (!v || typeof v !== 'object') return ['snapshot must be an object'];
+  const sn = v as Partial<RunSnapshot>;
+  const problems: string[] = [];
+  const list = (name: 'inventory' | 'checks' | 'lessons', ok: (x: string) => boolean) => {
+    const xs = sn[name] as unknown;
+    if (!Array.isArray(xs) || xs.length > MAX_SNAPSHOT_ITEMS || !xs.every(x => typeof x === 'string' && x.length <= MAX_FIELD * 2 && ok(x))) {
+      problems.push(`snapshot.${name} must be at most ${MAX_SNAPSHOT_ITEMS} refs`);
+    }
+  };
+  list('inventory', x => x.startsWith('inventory:'));
+  list('checks', x => x.length > 0);
+  list('lessons', x => LESSON_ID_RE.test(x));
+  if (!Array.isArray(sn.recurring) || sn.recurring.length > MAX_SNAPSHOT_ITEMS) {
+    problems.push(`snapshot.recurring must be at most ${MAX_SNAPSHOT_ITEMS} entries`);
+  } else {
+    sn.recurring.forEach((r: unknown, i: number) => {
+      const e = (r && typeof r === 'object' ? r : {}) as Partial<RunRecurring>;
+      const lessonOk = e.lesson === null || (!!e.lesson && typeof e.lesson === 'object' && LESSON_ID_RE.test(String(e.lesson.id))
+        && ['open', 'fixed', 'wontfix'].includes(String(e.lesson.status)) && ['user', 'gsd', 'host'].includes(String(e.lesson.layer)));
+      if (typeof e.retro !== 'string' || !RETRO_STEM_LIKE.test(e.retro) || typeof e.candidate !== 'string' || !APPLIED_CANDIDATE_RE.test(e.candidate)
+        || !Array.isArray(e.signals) || !e.signals.every(x => typeof x === 'string' && RUN_SIGNAL_RE.test(x))
+        || typeof e.escalate !== 'boolean' || typeof e.weak !== 'boolean' || !lessonOk) {
+        problems.push(`snapshot.recurring[${i}] is malformed`);
+      }
+    });
+  }
+  return problems;
+}
+
+function copySnapshot(sn: RunSnapshot): RunSnapshot {
+  return {
+    inventory: [...sn.inventory],
+    checks: [...sn.checks],
+    lessons: [...sn.lessons],
+    recurring: sn.recurring.map(r => ({
+      retro: r.retro, candidate: r.candidate, signals: [...r.signals], escalate: r.escalate, weak: r.weak,
+      lesson: r.lesson ? { id: r.lesson.id, status: r.lesson.status, layer: r.lesson.layer } : null,
+    })),
+  };
 }
 
 /** Signals journaled on one run, at most. */
@@ -194,6 +269,11 @@ export interface RunsJournalRead {
   status: 'ok' | 'absent' | 'invalid';
   journal: RunsJournal;
   problems: string[];
+  /**
+   * The journal is a version this gsd-tools does not know (written by a newer
+   * GSD): invalid here too, but the remedy is updating GSD, not the file.
+   */
+  newer?: boolean;
 }
 
 const ISO_INSTANT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
@@ -227,6 +307,7 @@ export function runProblems(r: Partial<RetroRun> | null | undefined): string[] {
     if (!h || typeof h !== 'object' || !ok(h.name) || !ok(h.version)) problems.push('host must be { name, version }, each a string or null');
   }
   if (r.gsdVersion !== undefined && !(r.gsdVersion === null || boundedString(r.gsdVersion))) problems.push('gsdVersion must be a version or null');
+  if (r.snapshot !== undefined) problems.push(...snapshotProblems(r.snapshot));
   if (r.applied !== undefined) {
     if (!Array.isArray(r.applied)) problems.push('applied must be an array');
     else r.applied.forEach((a, i) => { for (const p of appliedProblems(a)) problems.push(`applied[${i}]: ${p}`); });
@@ -246,6 +327,9 @@ export function parseRunsJournal(text: string): RunsJournalRead {
     return { status: 'invalid', journal: emptyRuns(), problems: [`RUNS.json is not JSON: ${(err as Error).message}`] };
   }
   const obj = parsed as { version?: unknown; runs?: unknown };
+  if (obj && typeof obj === 'object' && typeof obj.version === 'number' && Number.isInteger(obj.version) && obj.version > RUNS_JOURNAL_VERSION) {
+    return { status: 'invalid', journal: emptyRuns(), newer: true, problems: [`RUNS.json is version ${obj.version}, written by a newer GSD; this one reads up to ${RUNS_JOURNAL_VERSION} — update GSD`] };
+  }
   if (!obj || typeof obj !== 'object' || (obj.version !== 1 && obj.version !== RUNS_JOURNAL_VERSION) || !Array.isArray(obj.runs)) {
     return { status: 'invalid', journal: emptyRuns(), problems: ['RUNS.json must be { "version": 1 | 2, "runs": [...] }'] };
   }
@@ -268,6 +352,7 @@ export function parseRunsJournal(text: string): RunsJournalRead {
       ...(Array.isArray(r.signals) ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
       ...(r.host ? { host: { name: r.host.name ?? null, version: r.host.version ?? null } } : {}),
       ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion ?? null } : {}),
+      ...(r.snapshot ? { snapshot: copySnapshot(r.snapshot) } : {}),
     });
   });
   return { status: 'ok', journal: { version: RUNS_JOURNAL_VERSION, runs }, problems };
@@ -297,6 +382,7 @@ export function formatRunsJournal(journal: RunsJournal): string {
     ...(r.signals ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
     ...(r.host ? { host: { name: r.host.name, version: r.host.version } } : {}),
     ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion } : {}),
+    ...(r.snapshot ? { snapshot: copySnapshot(r.snapshot) } : {}),
   }));
   return `${JSON.stringify({ version: RUNS_JOURNAL_VERSION, runs }, null, 2)}\n`;
 }
@@ -382,6 +468,7 @@ export type RetroDueReason =
   | 'no-roadmap'
   | 'milestone-shipped'
   | 'journal-invalid'
+  | 'journal-newer'
   | 'milestone-start'
   | 'cadence-reached'
   | 'not-due';
@@ -438,6 +525,8 @@ export function computeRetroDue(input: {
   mode: 'suggest' | 'auto' | 'off';
   /** Why the runs journal could not be read whole; empty when it could. */
   journalProblems?: readonly string[];
+  /** The journal is a newer version than this gsd-tools reads: the reason is `journal-newer`. */
+  journalNewer?: boolean;
   latestReport?: string | null;
   journal?: string;
   problems?: string[];
@@ -470,7 +559,7 @@ export function computeRetroDue(input: {
   else if (input.mode === 'off') reason = 'retro-auto-off';
   else if (!facts.roadmap) reason = 'no-roadmap';
   else if (facts.shipped) reason = 'milestone-shipped';
-  else if (!countable && scheduled) reason = 'journal-invalid';
+  else if (!countable && scheduled) reason = input.journalNewer === true ? 'journal-newer' : 'journal-invalid';
   else if (triggers.length > 0) reason = triggers[0] === RETRO_TRIGGER.MILESTONE_START ? 'milestone-start' : 'cadence-reached';
   else reason = 'not-due';
   const due = reason === 'milestone-start' || reason === 'cadence-reached';
@@ -508,6 +597,7 @@ export function runFor(
   facts: MilestoneFacts,
   signals?: readonly SignalFacts[],
   machine?: { host: { name: string | null; version: string | null }; gsdVersion: string | null },
+  snapshot?: RunSnapshot,
 ): RetroRun {
   return {
     stem,
@@ -517,6 +607,14 @@ export function runFor(
     executedPhases: executedPhaseNumbers(facts),
     ...(signals ? { signals: signals.slice(0, MAX_RUN_SIGNALS).map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
     ...(machine ? { host: { ...machine.host }, gsdVersion: machine.gsdVersion } : {}),
+    ...(snapshot ? {
+      snapshot: copySnapshot({
+        inventory: snapshot.inventory.slice(0, MAX_SNAPSHOT_ITEMS),
+        checks: snapshot.checks.slice(0, MAX_SNAPSHOT_ITEMS),
+        lessons: snapshot.lessons.slice(0, MAX_SNAPSHOT_ITEMS),
+        recurring: snapshot.recurring.slice(0, MAX_SNAPSHOT_ITEMS),
+      }),
+    } : {}),
   };
 }
 
@@ -559,6 +657,7 @@ export function recordRun(projectRoot: string, run: RetroRun, lock: JournalLock 
 /** Why `recordApplied` wrote nothing. */
 export const APPLIED_REFUSAL = Object.freeze({
   JOURNAL_INVALID: 'journal-invalid',
+  JOURNAL_NEWER: 'journal-newer',
   NO_RUN: 'no-run',
   LOCKED: 'locked',
   INVALID: 'invalid',
@@ -584,7 +683,7 @@ export function recordApplied(
   const locked = withJournalLock(journalLockPath(projectRoot, file), () => {
     const read = readRunsJournal(projectRoot);
     if (read.status === 'invalid' || read.problems.length > 0) {
-      return { recorded: false, already: false, refusal: APPLIED_REFUSAL.JOURNAL_INVALID, problems: [...read.problems, `${posixRel(projectRoot, file)} left unchanged`] };
+      return { recorded: false, already: false, refusal: read.newer ? APPLIED_REFUSAL.JOURNAL_NEWER : APPLIED_REFUSAL.JOURNAL_INVALID, problems: [...read.problems, `${posixRel(projectRoot, file)} left unchanged`] };
     }
     const runs = read.journal.runs;
     const index = runs.map(r => r.stem).lastIndexOf(stem);

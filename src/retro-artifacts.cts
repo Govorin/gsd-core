@@ -631,6 +631,22 @@ export interface LayerContext {
   projectRoots?: readonly string[];
 }
 
+/** `p` as a real path where it exists, its deepest existing ancestor's real path plus the rest otherwise. */
+function realOr(p: string): string {
+  let head = path.resolve(p);
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      return path.join(fs.realpathSync(head), ...tail);
+    } catch {
+      const parent = path.dirname(head);
+      if (parent === head) return path.resolve(p);
+      tail.unshift(path.basename(head));
+      head = parent;
+    }
+  }
+}
+
 /** What a lesson keeps of a candidate, at most (retro-lessons' journal limits). */
 export const LESSON_TEXT_MAX = Object.freeze({ target: 300, title: 300, change: 2000 });
 
@@ -643,8 +659,13 @@ const ABSOLUTE_PATH_RE = /(?:^|[\s'"`(=:,])(\/[^\s'"`)]+)/g;
  */
 function privatePaths(text: string, gsdRoot: string | null): string[] {
   const found: string[] = [];
-  if (/(?:^|[^\w])~\//.test(text)) found.push('~/…');
-  for (const m of text.matchAll(ABSOLUTE_PATH_RE)) {
+  // A URL is not a path of this machine, and a tool's config directory
+  // under ~ (~/.claude/…, ~/.gsd/…, ~/.config/…) is the same on every one.
+  const plain = text.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, ' ');
+  for (const m of plain.matchAll(/(?:^|[^\w])(~\/\S*)/g)) {
+    if (!/^~\/\.[A-Za-z0-9_-]+(?:\/|$)/.test(m[1])) found.push(m[1]);
+  }
+  for (const m of plain.matchAll(ABSOLUTE_PATH_RE)) {
     const p = m[1];
     if (gsdRoot !== null && tryWithinRootLexical(p, gsdRoot) !== null) continue;
     found.push(p);
@@ -656,10 +677,12 @@ function privatePaths(text: string, gsdRoot: string | null): string[] {
 export interface RecurringRef {
   retro: string;
   candidate: string;
-  /** The signal ids it shares with this retro. */
+  /** The signal ids it shares with this retro by a strong fingerprint: only these bind a candidate. */
   signals: readonly string[];
   /** Not applied and the shared signals grew: a candidate answering it must be `high`. */
   escalate: boolean;
+  /** Matched by weak fingerprints only: shown to the analyst, binding nothing. */
+  weak?: boolean;
   /** The lesson it was journaled as; an open one must be cited as `lesson:<id>` when the bundle carried it. */
   lesson?: LessonRef | null;
 }
@@ -766,10 +789,13 @@ function checkLayerTarget(
       drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: a user target is a file or setting under the home directory, ~/…, got ${target}`);
       return;
     }
-    const abs = tryWithinRootLexical(rest, ctx.homeDir);
-    if (abs === null || abs === path.resolve(ctx.homeDir)) {
+    // Compared as real paths: a home or a project reached through a symlink
+    // (/var → /private/var, a linked home) is still the same directory.
+    const home = realOr(ctx.homeDir);
+    const abs = tryWithinRootLexical(rest, home);
+    if (abs === null || abs === path.resolve(home)) {
       drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: ${target} leaves the home directory`);
-    } else if ([projectRoot, ...(ctx.projectRoots ?? [])].some(root => tryWithinRootLexical(abs, root) !== null)) {
+    } else if ([projectRoot, ...(ctx.projectRoots ?? [])].map(realOr).some(root => tryWithinRootLexical(realOr(abs), root) !== null)) {
       drop(CANDIDATE_DROP.USER_TARGET_IN_PROJECT, `user-target-in-project: ${target} is inside this project; that is a project candidate`);
     }
     return;
@@ -947,7 +973,8 @@ export function validateCandidates(
       }
     }
     for (const r of recurring) {
-      if (!r.signals.some(s => signals.includes(s))) continue;
+      // A weak match (`Exit code 1`, a bare path) is the analyst's to judge, never a reason to drop.
+      if (r.weak === true || !r.signals.some(s => signals.includes(s))) continue;
       const ref = `retro:${r.retro}:${r.candidate}`;
       if (!signals.includes(ref)) {
         drop(CANDIDATE_DROP.RECURRING_UNCITED, `recurring-uncited: its signals came back from ${r.retro} ${r.candidate}; cite ${ref} and say what became of it`);
@@ -993,9 +1020,11 @@ export { signalFingerprint };
 /** What recurrence reads of one signal: its id in that retro, its fingerprint, its count. */
 export interface SignalFacts {
   id: string;
-  /** `signalFingerprint(kind, key)`; null for a signal without a key. */
+  /** The signal's fingerprint (retro-signals); null for a signal without a subject. */
   fingerprint: string | null;
   count: number;
+  /** A weak fingerprint (retro-signals `isWeakBasis`): recognised, shown, never enforced. Absent = false. */
+  weak?: boolean;
 }
 
 /**
@@ -1003,14 +1032,18 @@ export interface SignalFacts {
  * the fingerprint the signal carries, else (a bundle written before signals
  * had one) the one its kind and key imply.
  */
-export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key?: string | null; count?: number; fingerprint?: string | null }>): SignalFacts[] {
-  return signals.map(s => ({
-    id: s.id,
-    fingerprint: typeof s.fingerprint === 'string' || s.fingerprint === null
-      ? s.fingerprint
-      : signalFingerprint(s.kind, fingerprintBasisFromKey(s.kind, s.key ?? null)),
-    count: typeof s.count === 'number' ? s.count : 0,
-  }));
+export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key?: string | null; count?: number; fingerprint?: string | null; fingerprintWeak?: boolean }>): SignalFacts[] {
+  return signals.map(s => {
+    const carried = typeof s.fingerprint === 'string' || s.fingerprint === null;
+    const legacy = carried ? null : fingerprintBasisFromKey(s.kind, s.key ?? null);
+    const weak = carried ? s.fingerprintWeak === true : (legacy?.weak ?? false);
+    return {
+      id: s.id,
+      fingerprint: carried ? (s.fingerprint as string | null) : signalFingerprint(s.kind, legacy?.basis ?? null),
+      count: typeof s.count === 'number' ? s.count : 0,
+      ...(weak ? { weak: true } : {}),
+    };
+  });
 }
 
 /** A candidate an earlier retro of this project proposed. */
@@ -1041,7 +1074,7 @@ export function bundleSignalFacts(bundle: unknown): SignalFacts[] {
       kind: s['kind'] as string,
       key: typeof s['key'] === 'string' ? s['key'] : null,
       count: typeof s['count'] === 'number' ? s['count'] : 0,
-      ...(typeof s['fingerprint'] === 'string' || s['fingerprint'] === null ? { fingerprint: s['fingerprint'] } : {}),
+      ...(typeof s['fingerprint'] === 'string' || s['fingerprint'] === null ? { fingerprint: s['fingerprint'], fingerprintWeak: s['fingerprintWeak'] === true } : {}),
     })));
 }
 
@@ -1131,15 +1164,19 @@ export interface RecurringEntry {
   /** The matched signals' summed count then and now. */
   countThen: number;
   countNow: number;
-  /** Not applied, not a lesson, and grown: a candidate answering it must be `high` (ADR-5209 §10). */
+  /** Not applied, not a lesson, and grown by its strong matches: a candidate answering it must be `high` (ADR-5209 §10). */
   escalate: boolean;
+  /** This retro's ids matched only by a weak fingerprint (part of `signals`). */
+  weakSignals: string[];
+  /** Every match is weak: shown, and binding no candidate. */
+  weak: boolean;
 }
 
 export const MAX_RECURRING = 30;
 
 /**
  * Compare this retro's signals with the earlier proposals. Code decides what
- * recurred (same signal fingerprint: kind and key) and whether it was applied
+ * recurred (same signal fingerprint; a weak one is shown and binds nothing) and whether it was applied
  * (`stem:cand` in the runs, checks or lessons journal); the analyst says what
  * that means. An earlier retro with neither a journaled run carrying its
  * signals nor a bundle cannot be compared and is named in `unreadable`.
@@ -1172,8 +1209,12 @@ export function computeRecurring(input: {
     const appliedBy: AppliedSource | null = input.applied.runs.has(key) ? 'runs'
       : input.applied.checks.has(key) ? 'checks'
         : lesson !== null && lessonApplied(lesson) ? 'lessons' : null;
+    const weakFp = new Set([...matchedThen, ...matchedNow].filter(f => f.weak === true).map(f => f.fingerprint as string));
+    const strongThen = matchedThen.filter(f => !weakFp.has(f.fingerprint as string));
+    const strongNow = matchedNow.filter(f => !weakFp.has(f.fingerprint as string));
     const countThen = matchedThen.reduce((n, f) => n + f.count, 0);
     const countNow = matchedNow.reduce((n, f) => n + f.count, 0);
+    const grew = strongNow.reduce((n, f) => n + f.count, 0) > strongThen.reduce((n, f) => n + f.count, 0);
     entries.push({
       retro: p.retro,
       candidate: p.candidate,
@@ -1185,7 +1226,9 @@ export function computeRecurring(input: {
       lesson,
       countThen,
       countNow,
-      escalate: appliedBy === null && lesson === null && countNow > countThen,
+      escalate: appliedBy === null && lesson === null && strongNow.length > 0 && grew,
+      weakSignals: [...new Set(matchedNow.filter(f => weakFp.has(f.fingerprint as string)).map(f => f.id))],
+      weak: strongNow.length === 0,
     });
   }
   entries.sort((a, b) => compareRetroStems(b.retro, a.retro) || Number(a.candidate.slice(5)) - Number(b.candidate.slice(5)));
