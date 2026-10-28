@@ -1161,7 +1161,7 @@
     {
       "id": "RETRO.APPLIED",
       "klass": "RETRO",
-      "value": "RUNS.json (envelope version 2, v1 still read) run.applied[{candidate, route, at}] beside run.signals (listed + omitted, ≤100), run.host {name, version} and run.gsdVersion — validation's source for the runtime, never the bundle; retro applied needs only the candidate in RETRO-*.json and a run written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)",
+      "value": "RUNS.json run.applied[{candidate, route, at}], written by retro applied under .RUNS.lock for a candidate validation keeps (against its run's snapshot, so a missing .work/ bundle does not stop it); absent when empty; beside it on the run: signals (listed + omitted, ≤100), host {name, version}, gsdVersion and snapshot {inventory, checks, lessons, recurring} — what prepare showed the analyst, the only thing a retro is validated against (a cited lesson must still exist); a run without a snapshot binds nothing by recurrence; refusal no-run|journal-invalid|journal-newer|locked|invalid is an answer, not an error",
       "line": 693
     },
     {
@@ -1173,7 +1173,7 @@
     {
       "id": "RETRO.FINGERPRINT",
       "klass": "RETRO",
-      "value": "signal.fingerprint computed in retro-signals from the group identity, paths masked to <path>: repeated-tool-error = tool + error up to its first path; permission-denial/tool-rejected = tool + first words of the first shell segment; nav-streak = one; no subject = null; an old bundle's key gives the same (fingerprintBasisFromKey); signal ids hash the first pointer and differ across sessions",
+      "value": "signal.fingerprint (+ fingerprintWeak) computed in retro-signals from the group identity, volatile parts masked (paths incl. Windows → <path>, URLs → <url>, every number → N, $VARS → $V; basis cut at BASIS_MAX 200): repeated-tool-error = tool + masked error; permission-denial/tool-rejected = callBasis (shell: first command that does something — cd and VAR= skipped — as name, flags and a subcommand for git/npm/…; git after its global options; file tools: project|home|outside + extension); nav-streak = one; no subject = null; weak = Exit code N, a URL, or only paths and filler words — kept apart by file names, host and the call, shown on recurrence, never enforced; an old bundle's key gives a best-effort basis (fingerprintBasisFromKey), not guaranteed equal; signal ids hash the first pointer and differ across sessions",
       "line": 691
     },
     {
@@ -1203,7 +1203,7 @@
     {
       "id": "RETRO.RECURRING",
       "klass": "RETRO",
-      "value": "earlier RETRO-*.json candidates whose signal fingerprint matches this retro's signals, read through the old retro's run in RUNS.json (signals[{id, fingerprint, count}], ≤100, written by retro prepare — the .work/ bundle does not survive a clone or a new worktree), else its bundle, else unreadable (never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons (a lesson counts only for user or once fixed), lesson {id,status,layer}|null, countThen, countNow, escalate = not applied, no lesson, countNow > countThen}; recomputed at validation from the journals, never read back from the bundle; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)",
+      "value": "earlier RETRO-*.json candidates whose signal fingerprint matches this retro's signals, read through the old retro's run in RUNS.json (signals[{id, fingerprint, count}], ≤100, written by retro prepare — the .work/ bundle does not survive a clone or a new worktree), else its bundle, else unreadable (never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons (a lesson counts only for user or once fixed), lesson {id,status,layer}|null, countThen, countNow, escalate = not applied, no lesson, countNow > countThen}; journaled on the run as snapshot.recurring at prepare and validated against that, never recomputed later nor read back from the bundle; a weak entry (every match weak) binds nothing; newest first, ≤30; a candidate sharing a strong-matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)",
       "line": 692
     },
     {
@@ -1215,7 +1215,7 @@
     {
       "id": "RETRO.RUNS-JOURNAL",
       "klass": "RETRO",
-      "value": ".planning/retro/RUNS.json {version:1, runs:[{stem, at (ISO UTC), planningDir, milestone, executedPhases}]}; written by retro prepare (a retro is held when its deterministic pass runs, even when the analyst finds nothing); never inferred from RETRO stems (date-only) or mtimes; an invalid or partly malformed journal is never rewritten and fails closed on read (reason journal-invalid, counts and lastRetro null, baseline unknown; the stage answers suggest with a warning message, no command, no next); the read-append-write holds .planning/retro/.RUNS.lock (capability-lock, injectable JournalLock seam)",
+      "value": ".planning/retro/RUNS.json {version:2 (written; 1 still read; higher → journal-newer, update GSD), runs:[{stem, at (ISO UTC), planningDir, milestone, executedPhases, and since ADR-5209 §10 signals, host, gsdVersion, snapshot, applied}]}; written by retro prepare (a retro is held when its deterministic pass runs, even when the analyst finds nothing); never inferred from RETRO stems (date-only) or mtimes; an invalid or partly malformed journal is never rewritten and fails closed on read (reason journal-invalid, counts and lastRetro null, baseline unknown; the stage answers suggest with a warning message, no command, no next); the read-append-write holds .planning/retro/.RUNS.lock (capability-lock, injectable JournalLock seam)",
       "line": 680
     },
     {
