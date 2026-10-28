@@ -2,7 +2,7 @@
 type: prompt
 name: gsd:retro
 description: Session retro — propose environment changes (checks, reviewer rules, settings) from friction signals
-argument-hint: "[--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD|<ISO instant>] [--ws <name>] [--apply <cand-id> [--retro <stem>]] [--checks]"
+argument-hint: "[--session <id>|--last] [--since 12h|7d|2w|YYYY-MM-DD|<ISO instant>] [--ws <name>] [--apply <cand-id> [--retro <stem>]] [--checks] [--lessons [--layer user|gsd|host] [--status open|fixed|wontfix]]"
 allowed-tools:
   - Read
   - Bash
@@ -32,8 +32,10 @@ Output: `.planning/retro/RETRO-<date>.md` (report), `.planning/retro/RETRO-<date
 
 <context>
 - Claude Code transcripts are read locally and read-only; only redacted excerpts leave the reader (ADR-5209). Other runtimes get a degraded retro from git and `.planning` only, and are told so.
-- `--apply <cand-id>` sends a mechanical candidate to `/gsd:quick` and anything else to `/gsd:capture`.
+- Every candidate names the layer that owns its cause: `project`, `user` (the user's own setup), `gsd` (GSD's shipped surface) or `host` (the runtime).
+- `--apply <cand-id>` sends a project mechanical candidate to `/gsd:quick` and any other project candidate to `/gsd:capture`; a gsd or host candidate becomes a lesson in `~/.gsd/lessons/LESSONS.json` with an issue draft; a user candidate is shown, and journaled once the user says they applied it.
 - `--checks` shows the accepted-checks journal (`.planning/retro/CHECKS.json`) and the checks that have stopped firing.
+- `--lessons` shows the lessons journal: causes retros traced outside the project, from every repository.
 </context>
 
 <process>
