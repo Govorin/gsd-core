@@ -956,7 +956,7 @@ const FORM_WORDS = 3;
  * A command's form: its name, its flags, and for a tool with subcommands its
  * first positional — for an interpreter, the file name of its script (from
  * `named`, the same words with paths cut to their last segment), so `node
- * ~/.claude/gsd-core/bin/gsd-tools.cjs` and `node /tmp/evil.js` are two
+ * <install>/gsd-core/bin/gsd-tools.cjs` and `node /tmp/evil.js` are two
  * frictions; never plain arguments.
  */
 function commandForm(words: readonly string[], named: readonly string[] = words): string {
