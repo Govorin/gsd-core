@@ -1,0 +1,5 @@
+---
+type: Added
+pr: 0
+---
+**Retro candidates name the layer that owns their cause, and retros remember** — every `/gsd-retro` candidate now carries a `layer`: `project`, `user` (your own setup outside any repository), `gsd` (GSD's shipped surface) or `host` (the runtime), and code checks its target against it (a `gsd` file must exist in the installed GSD, a `host` target names the runtime and version the session ran). Causes outside the project go to a lessons journal shared by every repository, `~/.gsd/lessons/LESSONS.json`, with an issue draft for `gsd` and `host` lessons (nothing is sent) and regression detection for fixed lessons; `gsd-tools retro lessons [record|close]` and `/gsd-retro --lessons` manage it. A retro now sees which of the project's earlier proposals recurred, whether each was applied (`gsd-tools retro applied`), and requires a `high` answer when an ignored one grew. Dropped candidates carry typed `codes`; candidates files without a layer still read as `project` (ADR-5209 §10).
