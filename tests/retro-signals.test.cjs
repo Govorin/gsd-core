@@ -788,3 +788,52 @@ describe('signal fingerprints: the same friction across sessions and checkouts',
     assert.equal(rs.isWeakBasis('This session is isolated in the worktree <path>'), false);
   });
 });
+
+// ─── Legacy fingerprints: a retro recorded before §10 (ADR-5209 §10) ─────────
+
+describe('legacy fingerprints: an old bundle\'s key against a new session\'s full text', () => {
+  // Verbatim from the polyglot bundle of 2026-10-28 (RETRO-2026-10-28.bundle.json): the key as it was
+  // written, cut at 100 characters before any masking, and the excerpt of the same refusal.
+  const OLD_KEY = 'Bash cd ~/IdeaProjects/mn && wc -l apps/polyglot/.planning/notes/RESUME-orchestratio… → This session is isolated in the worktree ~/IdeaProjects/mn/.claude/worktrees/polyglot-autonomous, b…';
+  const FULL = (wt) => `This session is isolated in the worktree ${wt}, but this command changes directory to the shared checkout (~/IdeaProjects/mn). Run it inside the worktree instead.`;
+  function newSession(firstCommand, wt) {
+    const b = builder();
+    b.call('Bash', { command: firstCommand }, { ok: false, text: FULL(wt) });
+    b.call('Bash', { command: 'git status' }, { ok: false, text: FULL(wt) });
+    return signalsOf(run(b), 'repeated-tool-error')[0];
+  }
+
+  test('the same wall, another worktree and first command, full text: its key\'s legacy fingerprint equals the old key\'s', () => {
+    const old = rs.legacyFingerprint('repeated-tool-error', OLD_KEY);
+    for (const wt of ['/Users/someone/IdeaProjects/mn/.claude/worktrees/zeta', '~/IdeaProjects/mn/.claude/worktrees/polyglot-autonomous', '/home/a/very/long/path/to/a/checkout/of/mn/.claude/worktrees/feature-with-a-long-name']) {
+      const now = newSession('cd ~/IdeaProjects/other-wt-9/x && git status', wt);
+      assert.equal(rs.legacyFingerprint(now.kind, now.key).fingerprint, old.fingerprint, wt);
+      assert.notEqual(now.fingerprint, old.fingerprint, 'a full-text fingerprint never equals a legacy one');
+    }
+    assert.equal(old.weak, false);
+  });
+
+  test('another wall is another legacy fingerprint', () => {
+    const now = newSession('ls', '/x/wt');
+    const other = rs.legacyFingerprint('repeated-tool-error', 'Bash ls → Permission denied: the file is read-only');
+    assert.notEqual(rs.legacyFingerprint(now.kind, now.key).fingerprint, other.fingerprint);
+  });
+});
+
+describe('fingerprint details: numbers and interpreters', () => {
+  test('standalone numbers are masked; identifiers and three-digit statuses keep their digits', () => {
+    assert.equal(rs.maskVolatile('line 12 col 3, attempt 99'), 'line N col N, attempt N');
+    assert.equal(rs.maskVolatile('TS2304 E11000 ES2022'), 'TS2304 E11000 ES2022');
+    assert.equal(rs.maskVolatile('HTTP 404 Not Found / status: 500'), 'HTTP 404 Not Found / status: 500');
+    assert.notEqual(rs.errorBasis('request failed: status 404'), rs.errorBasis('request failed: status 500'));
+    assert.equal(rs.errorBasis('failed at line 12'), rs.errorBasis('failed at line 13'));
+    assert.equal(rs.isWeakBasis('Exit code 128'), true);
+  });
+
+  test('an interpreter is its script\'s file name', () => {
+    assert.notEqual(rs.shellBasis('node ~/.claude/gsd-core/bin/gsd-tools.cjs init'), rs.shellBasis('node /tmp/evil.js'));
+    assert.equal(rs.shellBasis('node ~/.claude/gsd-core/bin/gsd-tools.cjs init'), rs.shellBasis('node /other/install/gsd-core/bin/gsd-tools.cjs query'));
+    assert.notEqual(rs.shellBasis('bash a.sh'), rs.shellBasis('bash b.sh'));
+    assert.equal(rs.shellBasis('cd /x && python3 -u /a/run.py --fast'), 'python3 -u run.py');
+  });
+});

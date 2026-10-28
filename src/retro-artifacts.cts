@@ -51,7 +51,7 @@ import { retryRenameSync } from './shell-command-projection.cjs';
 import { tryWithinRoot, tryWithinRootLexical, PathAcceptance } from './security.cjs';
 import { formatPointer } from './session-transcript.cjs';
 import type { SessionTranscript, TranscriptPointer } from './session-transcript.cjs';
-import { signalFingerprint, fingerprintBasisFromKey } from './retro-signals.cjs';
+import { signalFingerprint, legacyFingerprint } from './retro-signals.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningWorkspaceModule = require('./planning-workspace.cjs');
 const { planningRoot } = planningWorkspaceModule;
@@ -1025,6 +1025,14 @@ export interface SignalFacts {
   count: number;
   /** A weak fingerprint (retro-signals `isWeakBasis`): recognised, shown, never enforced. Absent = false. */
   weak?: boolean;
+  /**
+   * `fingerprint` is the legacy one, built from the signal's display key (an
+   * old bundle written before fingerprints): it is matched only against the
+   * current signals' `legacyFingerprint`.
+   */
+  legacy?: boolean;
+  /** For a current signal with a key: its legacy fingerprint, for comparison with an old retro's legacy facts. */
+  legacyFingerprint?: string | null;
 }
 
 /**
@@ -1035,13 +1043,18 @@ export interface SignalFacts {
 export function signalFacts(signals: ReadonlyArray<{ id: string; kind: string; key?: string | null; count?: number; fingerprint?: string | null; fingerprintWeak?: boolean }>): SignalFacts[] {
   return signals.map(s => {
     const carried = typeof s.fingerprint === 'string' || s.fingerprint === null;
-    const legacy = carried ? null : fingerprintBasisFromKey(s.kind, s.key ?? null);
-    const weak = carried ? s.fingerprintWeak === true : (legacy?.weak ?? false);
+    const key = typeof s.key === 'string' ? s.key : null;
+    const old = key !== null ? legacyFingerprint(s.kind, key) : { fingerprint: null, weak: false };
+    if (!carried) {
+      // Written before fingerprints: only the key is known, so the fact is legacy.
+      return { id: s.id, fingerprint: old.fingerprint, count: typeof s.count === 'number' ? s.count : 0, legacy: true, ...(old.weak ? { weak: true } : {}) };
+    }
     return {
       id: s.id,
-      fingerprint: carried ? (s.fingerprint as string | null) : signalFingerprint(s.kind, legacy?.basis ?? null),
+      fingerprint: s.fingerprint as string | null,
       count: typeof s.count === 'number' ? s.count : 0,
-      ...(weak ? { weak: true } : {}),
+      ...(s.fingerprintWeak === true ? { weak: true } : {}),
+      ...(key !== null ? { legacyFingerprint: old.fingerprint } : {}),
     };
   });
 }
@@ -1173,6 +1186,8 @@ export interface RecurringEntry {
 }
 
 export const MAX_RECURRING = 30;
+/** This retro's signal ids listed on one recurring entry, at most (as a lesson occurrence keeps). */
+export const MAX_RECURRING_SIGNALS = 20;
 
 /**
  * Compare this retro's signals with the earlier proposals. Code decides what
@@ -1188,11 +1203,21 @@ export function computeRecurring(input: {
   applied: { runs: ReadonlySet<string>; checks: ReadonlySet<string>; lessons: ReadonlyMap<string, LessonRef> };
   max?: number;
 }): { items: RecurringEntry[]; omitted: number; unreadable: string[] } {
+  // Two namespaces: a full-text fingerprint, and the legacy one an old
+  // retro's facts were built with from display keys (`SignalFacts.legacy`).
   const now = new Map<string, SignalFacts[]>();
+  const nowLegacy = new Map<string, SignalFacts[]>();
+  const add = (m: Map<string, SignalFacts[]>, fp: string | null | undefined, s: SignalFacts) => {
+    if (fp) m.set(fp, [...(m.get(fp) ?? []), s]);
+  };
   for (const s of input.current) {
-    if (s.fingerprint === null) continue;
-    now.set(s.fingerprint, [...(now.get(s.fingerprint) ?? []), s]);
+    if (s.legacy === true) add(nowLegacy, s.fingerprint, s);
+    else {
+      add(now, s.fingerprint, s);
+      add(nowLegacy, s.legacyFingerprint, s);
+    }
   }
+  const lookup = (f: SignalFacts) => (f.legacy === true ? nowLegacy : now).get(f.fingerprint as string);
   const entries: RecurringEntry[] = [];
   const unreadable = new Set<string>();
   for (const p of input.past) {
@@ -1200,34 +1225,41 @@ export function computeRecurring(input: {
       unreadable.add(p.retro);
       continue;
     }
-    const matchedThen = p.facts.filter(f => f.fingerprint !== null && now.has(f.fingerprint));
+    const matchedThen = p.facts.filter(f => f.fingerprint !== null && lookup(f) !== undefined);
     if (matchedThen.length === 0) continue;
-    const fps = new Set(matchedThen.map(f => f.fingerprint as string));
-    const matchedNow = [...fps].flatMap(fp => now.get(fp) ?? []);
+    const matchedNow = [...new Set(matchedThen.flatMap(f => lookup(f) ?? []))];
     const key = `${p.retro}:${p.candidate}`;
     const lesson = input.applied.lessons.get(key) ?? null;
     const appliedBy: AppliedSource | null = input.applied.runs.has(key) ? 'runs'
       : input.applied.checks.has(key) ? 'checks'
         : lesson !== null && lessonApplied(lesson) ? 'lessons' : null;
-    const weakFp = new Set([...matchedThen, ...matchedNow].filter(f => f.weak === true).map(f => f.fingerprint as string));
-    const strongThen = matchedThen.filter(f => !weakFp.has(f.fingerprint as string));
-    const strongNow = matchedNow.filter(f => !weakFp.has(f.fingerprint as string));
+    // A match is weak when either side of it is weak.
+    const weakNow = new Set<SignalFacts>();
+    const weakThen = new Set<SignalFacts>();
+    for (const f of matchedThen) {
+      const hits = lookup(f) ?? [];
+      if (f.weak === true || hits.some(h => h.weak === true)) { weakThen.add(f); for (const h of hits) weakNow.add(h); }
+    }
+    for (const h of matchedNow) if (h.weak === true) weakNow.add(h);
+    const strongThen = matchedThen.filter(f => !weakThen.has(f));
+    const strongNow = matchedNow.filter(f => !weakNow.has(f));
     const countThen = matchedThen.reduce((n, f) => n + f.count, 0);
     const countNow = matchedNow.reduce((n, f) => n + f.count, 0);
+    const ids = [...new Set(matchedNow.map(f => f.id))].slice(0, MAX_RECURRING_SIGNALS);
     const grew = strongNow.reduce((n, f) => n + f.count, 0) > strongThen.reduce((n, f) => n + f.count, 0);
     entries.push({
       retro: p.retro,
       candidate: p.candidate,
       title: p.title,
       layer: p.layer,
-      signals: [...new Set(matchedNow.map(f => f.id))],
+      signals: ids,
       applied: appliedBy !== null,
       appliedBy,
       lesson,
       countThen,
       countNow,
       escalate: appliedBy === null && lesson === null && strongNow.length > 0 && grew,
-      weakSignals: [...new Set(matchedNow.filter(f => weakFp.has(f.fingerprint as string)).map(f => f.id))],
+      weakSignals: ids.filter(id => matchedNow.some(f => f.id === id && weakNow.has(f))),
       weak: strongNow.length === 0,
     });
   }

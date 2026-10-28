@@ -491,6 +491,48 @@ describe('validateCandidates: private paths and real paths', () => {
   });
 });
 
+describe('recurring: an old retro recorded before fingerprints, a new session with full text', () => {
+  const rs = require('../gsd-core/bin/lib/retro-signals.cjs');
+  // Verbatim keys of the polyglot bundle of 2026-10-28, cut at 100 characters before masking.
+  const OLD = [
+    { id: 'repeated-tool-error:2a6c9c9d0e', kind: 'repeated-tool-error', count: 10, key: 'Bash cd ~/IdeaProjects/mn-wt-121-12/libs/polyglot && cat > types/src/lib/ai/ai-route… → This session is isolated in the worktree ~/IdeaProjects/mn/.claude/worktrees/polyglot-autonomous, b…' },
+    { id: 'repeated-tool-error:3b7d0d0e1f', kind: 'repeated-tool-error', count: 9, key: 'Bash cd ~/IdeaProjects/mn && wc -l apps/polyglot/.planning/notes/RESUME-orchestratio… → This session is isolated in the worktree ~/IdeaProjects/mn/.claude/worktrees/polyglot-autonomous, b…' },
+  ];
+  test('the old bundle\'s legacy facts match the new full-text signals; nothing else does', () => {
+    const p = ra.retroPathsFor(project, 'RETRO-2026-10-28');
+    fs.mkdirSync(path.join(project, path.dirname(p.bundle)), { recursive: true });
+    fs.writeFileSync(path.join(project, p.candidates), JSON.stringify({ version: 1, candidates: [{ id: 'cand-1', title: 't', signals: OLD.map((s) => s.id) }] }));
+    fs.writeFileSync(path.join(project, p.bundle), JSON.stringify({ report: { signals: OLD, omitted: [] } }));
+    const past = ra.readPastProposals(project, 'RETRO-2026-11-02');
+    assert.deepEqual(past[0].facts.map((f) => f.legacy), [true, true]);
+    const ev = [];
+    let line = 0;
+    const ptr = () => ({ session: 's', file: 'm', line: ++line, uuid: `u${line}`, timestamp: null });
+    const full = 'This session is isolated in the worktree /Users/x/IdeaProjects/mn/.claude/worktrees/zeta, but this command runs sed with a value computed at runtime (the variable $S). Use a literal path.';
+    for (const [k, cmd] of ['cd ~/a && sed -i "s/$S/x/" f', 'git status', 'ls'].entries()) {
+      ev.push({ kind: 'tool-use', ptr: ptr(), toolUseId: `t${k}`, tool: 'Bash', input: { command: cmd } });
+      ev.push({ kind: 'tool-result', ptr: ptr(), toolUseId: `t${k}`, tool: 'Bash', isError: true, text: full, blockedBy: null, denial: null });
+    }
+    const report = rs.computeRetroSignals({ transcript: { status: 'ok', events: ev, files: [], toolResults: { count: 0, bytes: 0 } } });
+    const current = ra.signalFacts(report.signals);
+    const r = ra.computeRecurring({ current, past, applied: { runs: new Set(), checks: new Set(), lessons: new Map() } });
+    assert.deepEqual(r.items.map((e) => [e.retro, e.candidate, e.signals.length, e.countThen, e.countNow, e.weak]), [['RETRO-2026-10-28', 'cand-1', 1, 19, 3, false]]);
+    // A current fact never matches a legacy one by its full-text fingerprint.
+    const fullOnly = current.map(({ legacyFingerprint: _drop, ...f }) => f);
+    assert.deepEqual(ra.computeRecurring({ current: fullOnly, past, applied: { runs: new Set(), checks: new Set(), lessons: new Map() } }).items, []);
+  });
+
+  test('a recurring entry lists at most MAX_RECURRING_SIGNALS ids: limit-1, limit, limit+1', () => {
+    const past = [{ retro: 'RETRO-2026-10-25', candidate: 'cand-1', title: 't', layer: 'project', signals: ['x:0000000001'], facts: [{ id: 'x:0000000001', fingerprint: 'hook-block:abcabcabca', count: 1 }] }];
+    for (const n of [ra.MAX_RECURRING_SIGNALS - 1, ra.MAX_RECURRING_SIGNALS, ra.MAX_RECURRING_SIGNALS + 1]) {
+      const current = Array.from({ length: n }, (_, i) => ({ id: `hook-block:${String(i).padStart(10, '0')}`, fingerprint: 'hook-block:abcabcabca', count: 1 }));
+      const [e] = ra.computeRecurring({ current, past, applied: { runs: new Set(), checks: new Set(), lessons: new Map() } }).items;
+      assert.equal(e.signals.length, Math.min(n, ra.MAX_RECURRING_SIGNALS), `${n}`);
+    }
+    assert.equal(ra.MAX_RECURRING_SIGNALS, 20);
+  });
+});
+
 // ─── Earlier proposals ────────────────────────────────────────────────────────
 
 describe('signalFingerprint', () => {

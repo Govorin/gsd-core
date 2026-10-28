@@ -901,7 +901,13 @@ export function maskVolatile(text: string, opts: { keepNames?: boolean } = {}): 
     .replace(ABS_PATH_RE, (m: string, pre: string) => `${pre}${keep ? pathName(m.slice(pre.length)) : '<path>'}`)
     .replace(WIN_PATH_RE, (m: string, pre: string) => `${pre}${keep ? pathName(m.slice(pre.length)) : '<path>'}`)
     .replace(/\$\{?[A-Za-z_][A-Za-z0-9_]*\}?/g, '$V')
-    .replace(/\d+/g, 'N')
+    // A standalone number is volatile (a line, a count, a pid); digits inside
+    // an identifier are not (TS2304, E11000, ES2022). A status — three digits
+    // after status/code/HTTP — keeps its value: 404 and 500 are two frictions,
+    // line 12 and line 13 are one.
+    .replace(/\b(status|code|HTTP(?:\/[\d.]+)?)(\s*[:=]?\s*)([1-5]\d\d)\b/gi, '$1$2\u0002$3')
+    .replace(/(^|[^\w\u0002])\d+(?:\.\d+)*(?![\w])/g, '$1N')
+    .replace(/\u0002/g, '')
     .replace(/<path>…/g, '<path>')
     .replace(/…$/, '')
     .replace(/\s+/g, ' ')
@@ -928,7 +934,7 @@ const NON_WORDS = new Set([
  * enforcing anything (ADR-5209 §10).
  */
 export function isWeakBasis(masked: string): boolean {
-  if (/^Exit code N$/i.test(masked)) return true;
+  if (/^Exit code (?:N|\d+)$/i.test(masked)) return true;
   if (/<url>/.test(masked)) return true;
   const words = masked.replace(/<path>|<url>/g, ' ').toLowerCase().split(/[^a-zа-яё]+/i).filter(Boolean);
   return words.every(w => NON_WORDS.has(w));
@@ -941,17 +947,28 @@ export function errorBasis(errorText: string): string {
 
 const CD_RE = /^cd(\s|$)/;
 /** Commands whose first positional argument says what they do (`git push`, `npm test`). */
-const SUBCOMMAND_TOOLS = new Set(['git', 'npm', 'pnpm', 'yarn', 'npx', 'bun', 'bunx', 'docker', 'kubectl', 'gh', 'cargo', 'go', 'make', 'nx', 'gsd-tools', 'gsd_run', 'node']);
+const SUBCOMMAND_TOOLS = new Set(['git', 'npm', 'pnpm', 'yarn', 'npx', 'bun', 'bunx', 'docker', 'kubectl', 'gh', 'cargo', 'go', 'make', 'nx', 'gsd-tools', 'gsd_run']);
+/** Interpreters: their first positional is the script they run — its file name says what runs. */
+const INTERPRETERS = new Set(['node', 'bash', 'sh', 'zsh', 'dash', 'python', 'python3', 'deno', 'ruby', 'perl', 'php', 'tsx', 'ts-node']);
 const FORM_WORDS = 3;
 
-/** A command's form: its name, its flags, and for a tool with subcommands its first positional; never plain arguments. */
-function commandForm(words: readonly string[]): string {
+/**
+ * A command's form: its name, its flags, and for a tool with subcommands its
+ * first positional — for an interpreter, the file name of its script (from
+ * `named`, the same words with paths cut to their last segment), so `node
+ * ~/.claude/gsd-core/bin/gsd-tools.cjs` and `node /tmp/evil.js` are two
+ * frictions; never plain arguments.
+ */
+function commandForm(words: readonly string[], named: readonly string[] = words): string {
+  const name = path.basename(words[0]);
   const out = [words[0]];
-  let positional = SUBCOMMAND_TOOLS.has(path.basename(words[0])) ? 1 : 0;
-  for (const w of words.slice(1)) {
+  const interpreter = INTERPRETERS.has(name);
+  let positional = SUBCOMMAND_TOOLS.has(name) || interpreter ? 1 : 0;
+  for (let i = 1; i < words.length; i++) {
+    const w = words[i];
     if (out.length >= FORM_WORDS) break;
     if (w.startsWith('-')) out.push(w.split('=')[0]);
-    else if (positional > 0) { out.push(w); positional--; }
+    else if (positional > 0) { out.push(interpreter ? (named[i] ?? w) : w); positional--; }
   }
   return out.join(' ');
 }
@@ -968,11 +985,16 @@ const GIT_OPTS_WITH_VALUE = new Set(['-C', '-c', '--git-dir', '--work-tree', '--
  * `cat a` and `cat b` are one.
  */
 export function shellBasis(command: string): string {
-  const segments = maskVolatile(command).split(/&&|\|\||;|\|/).map(seg => seg.trim()).filter(Boolean);
-  for (const seg of segments) {
+  const split = (t: string) => t.split(/&&|\|\||;|\|/).map(seg => seg.trim()).filter(Boolean);
+  const segments = split(maskVolatile(command));
+  // The same command with each path cut to its last segment instead of <path>: one token per path, so the words align.
+  const namedSegments = split(maskVolatile(command, { keepNames: true }));
+  for (const [si, seg] of segments.entries()) {
     let words = seg.split(' ');
-    if (words[0] === 'export') words = words.slice(1);
-    while (words.length > 0 && ASSIGN_RE.test(words[0])) words = words.slice(1);
+    let named = (namedSegments[si] ?? seg).split(' ');
+    if (named.length !== words.length) named = words;
+    if (words[0] === 'export') { words = words.slice(1); named = named.slice(1); }
+    while (words.length > 0 && ASSIGN_RE.test(words[0])) { words = words.slice(1); named = named.slice(1); }
     if (words.length === 0 || CD_RE.test(words.join(' '))) continue;
     if (words[0] === 'git') {
       let i = 1;
@@ -982,7 +1004,7 @@ export function shellBasis(command: string): string {
       }
       return commandForm(['git', ...words.slice(i)]);
     }
-    return commandForm(words);
+    return commandForm(words, named);
   }
   return segments.length > 0 ? 'cd' : '';
 }
@@ -1040,11 +1062,15 @@ export function toolErrorBasis(tool: string, errorText: string, call: string): F
 }
 
 /**
- * The basis an old bundle's signal implies, for a signal recorded before
- * fingerprints were: best effort from its key. A key is cut at 100 characters
- * before any masking, so an error whose text goes on past a long path does not
- * give the fingerprint the full text gives now; the fingerprints journaled on
- * each run (RUNS.json) are what recurrence relies on.
+ * The LEGACY basis of a signal, from its display key: how a retro recorded
+ * before fingerprints existed (ADR-5209 §10) is recognised. It can never be
+ * compared with a fingerprint of the full text — a key's error was cut at 100
+ * characters before any masking — so recurrence compares it with the legacy
+ * basis of the current signal's key (`legacyFingerprint`), never with its
+ * fingerprint. Two keys of the same error cut at different points (a longer
+ * or shorter worktree path) agree only up to the error's first path, so a
+ * repeated tool error's legacy basis is its masked error up to and including
+ * that path; a weak one adds the call's form.
  */
 export function fingerprintBasisFromKey(kind: string, key: string | null): FingerprintBasis {
   if (key === null) return { basis: null, weak: false };
@@ -1052,10 +1078,21 @@ export function fingerprintBasisFromKey(kind: string, key: string | null): Finge
     const at = key.indexOf(' → ');
     if (at < 0) return { basis: key, weak: false };
     const subject = key.slice(0, at);
-    return toolErrorBasis(subject.split(' ')[0], key.slice(at + 3), commandBasis(subject));
+    const tool = subject.split(' ')[0];
+    const masked = maskVolatile(key.slice(at + 3));
+    const p = masked.indexOf('<path>');
+    const head = (p >= 0 ? masked.slice(0, p + '<path>'.length) : masked).trim();
+    if (isWeakBasis(head)) return { basis: `${tool}\u0000${head}\u0000${commandBasis(subject)}`, weak: true };
+    return { basis: `${tool}\u0000${head}`, weak: false };
   }
   if (kind === SIGNAL_KIND.PermissionDenial || kind === SIGNAL_KIND.ToolRejected) return { basis: commandBasis(key), weak: false };
   return { basis: key, weak: false };
+}
+
+/** The legacy fingerprint of a signal's key (`fingerprintBasisFromKey`), prefixed so it never equals a full-text one. */
+export function legacyFingerprint(kind: string, key: string | null): { fingerprint: string | null; weak: boolean } {
+  const b = fingerprintBasisFromKey(kind, key);
+  return { fingerprint: signalFingerprint(kind, b.basis === null ? null : `legacy\u0000${b.basis}`), weak: b.weak };
 }
 
 /** `kind:` + 10 hex of sha1 over the kind and the masked basis; null without a basis. */
