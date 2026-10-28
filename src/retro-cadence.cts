@@ -41,7 +41,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { retroDir, writeTextAtomic, isRetroStem, withJournalLock, journalLockPath, defaultJournalLock } from './retro-artifacts.cjs';
+import { retroDir, writeTextAtomic, isRetroStem, withJournalLock, journalLockPath, defaultJournalLock, MAX_RECURRING, MAX_RECURRING_SIGNALS } from './retro-artifacts.cjs';
 import type { JournalLock, SignalFacts, LessonRef } from './retro-artifacts.cjs';
 import { DISK_STATUS } from './phase-status.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
@@ -164,8 +164,12 @@ export interface RunSnapshot {
   recurring: RunRecurring[];
 }
 
-/** Entries of each snapshot list, at most. */
+/** Entries of each snapshot ref list, at most; `recurring` holds at most `MAX_RECURRING` (retro-artifacts). */
 export const MAX_SNAPSHOT_ITEMS = 200;
+/** A snapshot ref longer than this is left out when the run is written, never journaled to make the run invalid. */
+export const MAX_SNAPSHOT_REF = 400;
+const SNAPSHOT_RECURRING_MAX = MAX_RECURRING;
+const SNAPSHOT_RECURRING_SIGNALS_MAX = MAX_RECURRING_SIGNALS;
 const LESSON_ID_RE = /^lesson-[0-9a-f]{10}$/;
 const RETRO_STEM_LIKE = /^RETRO-\d{4}-\d{2}-\d{2}(?:-[1-9]\d{0,3})?$/;
 
@@ -175,22 +179,22 @@ function snapshotProblems(v: unknown): string[] {
   const problems: string[] = [];
   const list = (name: 'inventory' | 'checks' | 'lessons', ok: (x: string) => boolean) => {
     const xs = sn[name] as unknown;
-    if (!Array.isArray(xs) || xs.length > MAX_SNAPSHOT_ITEMS || !xs.every(x => typeof x === 'string' && x.length <= MAX_FIELD * 2 && ok(x))) {
+    if (!Array.isArray(xs) || xs.length > MAX_SNAPSHOT_ITEMS || !xs.every(x => typeof x === 'string' && x.length <= MAX_SNAPSHOT_REF && ok(x))) {
       problems.push(`snapshot.${name} must be at most ${MAX_SNAPSHOT_ITEMS} refs`);
     }
   };
   list('inventory', x => x.startsWith('inventory:'));
   list('checks', x => x.length > 0);
   list('lessons', x => LESSON_ID_RE.test(x));
-  if (!Array.isArray(sn.recurring) || sn.recurring.length > MAX_SNAPSHOT_ITEMS) {
-    problems.push(`snapshot.recurring must be at most ${MAX_SNAPSHOT_ITEMS} entries`);
+  if (!Array.isArray(sn.recurring) || sn.recurring.length > SNAPSHOT_RECURRING_MAX) {
+    problems.push(`snapshot.recurring must be at most ${SNAPSHOT_RECURRING_MAX} entries`);
   } else {
     sn.recurring.forEach((r: unknown, i: number) => {
       const e = (r && typeof r === 'object' ? r : {}) as Partial<RunRecurring>;
       const lessonOk = e.lesson === null || (!!e.lesson && typeof e.lesson === 'object' && LESSON_ID_RE.test(String(e.lesson.id))
         && ['open', 'fixed', 'wontfix'].includes(String(e.lesson.status)) && ['user', 'gsd', 'host'].includes(String(e.lesson.layer)));
       if (typeof e.retro !== 'string' || !RETRO_STEM_LIKE.test(e.retro) || typeof e.candidate !== 'string' || !APPLIED_CANDIDATE_RE.test(e.candidate)
-        || !Array.isArray(e.signals) || !e.signals.every(x => typeof x === 'string' && RUN_SIGNAL_RE.test(x))
+        || !Array.isArray(e.signals) || e.signals.length > SNAPSHOT_RECURRING_SIGNALS_MAX || !e.signals.every(x => typeof x === 'string' && RUN_SIGNAL_RE.test(x))
         || typeof e.escalate !== 'boolean' || typeof e.weak !== 'boolean' || !lessonOk) {
         problems.push(`snapshot.recurring[${i}] is malformed`);
       }
@@ -224,6 +228,7 @@ function runSignalsProblems(v: unknown): string[] {
     if (typeof f.id !== 'string' || !RUN_SIGNAL_RE.test(f.id)) problems.push(`signals[${i}]: id must be a signal id`);
     if (!(f.fingerprint === null || (typeof f.fingerprint === 'string' && RUN_SIGNAL_RE.test(f.fingerprint)))) problems.push(`signals[${i}]: fingerprint must be a fingerprint or null`);
     if (typeof f.count !== 'number' || !Number.isInteger(f.count) || f.count < 0) problems.push(`signals[${i}]: count must be a non-negative integer`);
+    if (f.weak !== undefined && typeof f.weak !== 'boolean') problems.push(`signals[${i}]: weak must be a boolean`);
   });
   return problems;
 }
@@ -349,7 +354,7 @@ export function parseRunsJournal(text: string): RunsJournalRead {
       milestone: r.milestone ?? null,
       executedPhases: [...(r.executedPhases as string[])],
       ...(Array.isArray(r.applied) && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
-      ...(Array.isArray(r.signals) ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+      ...(Array.isArray(r.signals) ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count, ...(f.weak === true ? { weak: true } : {}) })) } : {}),
       ...(r.host ? { host: { name: r.host.name ?? null, version: r.host.version ?? null } } : {}),
       ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion ?? null } : {}),
       ...(r.snapshot ? { snapshot: copySnapshot(r.snapshot) } : {}),
@@ -379,7 +384,7 @@ export function formatRunsJournal(journal: RunsJournal): string {
     executedPhases: [...r.executedPhases],
     // Written only when there is one: a journal nothing was applied from keeps its bytes.
     ...(r.applied && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
-    ...(r.signals ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+    ...(r.signals ? { signals: r.signals.map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count, ...(f.weak === true ? { weak: true } : {}) })) } : {}),
     ...(r.host ? { host: { name: r.host.name, version: r.host.version } } : {}),
     ...(r.gsdVersion !== undefined ? { gsdVersion: r.gsdVersion } : {}),
     ...(r.snapshot ? { snapshot: copySnapshot(r.snapshot) } : {}),
@@ -605,14 +610,15 @@ export function runFor(
     planningDir: facts.planningDir,
     milestone: facts.milestone,
     executedPhases: executedPhaseNumbers(facts),
-    ...(signals ? { signals: signals.slice(0, MAX_RUN_SIGNALS).map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count })) } : {}),
+    ...(signals ? { signals: signals.slice(0, MAX_RUN_SIGNALS).map(f => ({ id: f.id, fingerprint: f.fingerprint, count: f.count, ...(f.weak === true ? { weak: true } : {}) })) } : {}),
     ...(machine ? { host: { ...machine.host }, gsdVersion: machine.gsdVersion } : {}),
     ...(snapshot ? {
+      // A ref the journal could not hold is left out, not written to make the whole run invalid.
       snapshot: copySnapshot({
-        inventory: snapshot.inventory.slice(0, MAX_SNAPSHOT_ITEMS),
-        checks: snapshot.checks.slice(0, MAX_SNAPSHOT_ITEMS),
-        lessons: snapshot.lessons.slice(0, MAX_SNAPSHOT_ITEMS),
-        recurring: snapshot.recurring.slice(0, MAX_SNAPSHOT_ITEMS),
+        inventory: snapshot.inventory.filter(x => x.startsWith('inventory:') && x.length <= MAX_SNAPSHOT_REF).slice(0, MAX_SNAPSHOT_ITEMS),
+        checks: snapshot.checks.filter(x => x.length > 0 && x.length <= MAX_SNAPSHOT_REF).slice(0, MAX_SNAPSHOT_ITEMS),
+        lessons: snapshot.lessons.filter(x => LESSON_ID_RE.test(x)).slice(0, MAX_SNAPSHOT_ITEMS),
+        recurring: snapshot.recurring.slice(0, SNAPSHOT_RECURRING_MAX).map(r => ({ ...r, signals: r.signals.filter(x => RUN_SIGNAL_RE.test(x)).slice(0, SNAPSHOT_RECURRING_SIGNALS_MAX) })),
       }),
     } : {}),
   };

@@ -523,3 +523,33 @@ describe('RUNS.json from a newer GSD, and the run snapshot', () => {
     }
   });
 });
+
+describe('the run snapshot: limits and refs that cannot be journaled', () => {
+  const base = { inventory: [], checks: [], lessons: [], recurring: [] };
+  const mk = (snap) => rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [], undefined, snap);
+  test('a ref over MAX_SNAPSHOT_REF is left out at write and the run stays valid: limit, limit+1', () => {
+    const at = `inventory:x:${'a'.repeat(rc.MAX_SNAPSHOT_REF - 'inventory:x:'.length)}`;
+    const over = `${at}b`;
+    const run = mk({ ...base, inventory: [at, over], lessons: ['lesson-0123456789', 'not-a-lesson'] });
+    assert.deepEqual([run.snapshot.inventory, run.snapshot.lessons], [[at], ['lesson-0123456789']]);
+    assert.deepEqual(rc.runProblems(run), []);
+  });
+
+  test('recurring holds at most MAX_RECURRING entries, each at most MAX_RECURRING_SIGNALS ids: limit-1, limit, limit+1', () => {
+    const ra = require('../gsd-core/bin/lib/retro-artifacts.cjs');
+    const entry = (n) => ({ retro: 'RETRO-2026-10-20', candidate: 'cand-1', signals: Array.from({ length: n }, (_, i) => `hook-block:${String(i).padStart(10, '0')}`), escalate: false, weak: false, lesson: null });
+    for (const n of [ra.MAX_RECURRING - 1, ra.MAX_RECURRING, ra.MAX_RECURRING + 1]) {
+      assert.equal(mk({ ...base, recurring: Array.from({ length: n }, () => entry(1)) }).snapshot.recurring.length, Math.min(n, ra.MAX_RECURRING), `${n} entries`);
+    }
+    for (const n of [ra.MAX_RECURRING_SIGNALS - 1, ra.MAX_RECURRING_SIGNALS, ra.MAX_RECURRING_SIGNALS + 1]) {
+      assert.equal(mk({ ...base, recurring: [entry(n)] }).snapshot.recurring[0].signals.length, Math.min(n, ra.MAX_RECURRING_SIGNALS), `${n} signals`);
+    }
+    assert.equal(rc.runProblems({ ...mk(base), snapshot: { ...base, recurring: [entry(ra.MAX_RECURRING_SIGNALS + 1)] } }).length, 1);
+  });
+
+  test('a weak signal keeps its flag in the journal', () => {
+    const run = rc.runFor('RETRO-2026-10-28', new Date('2026-10-28T10:00:00.000Z'), facts({ executed: 0 }), [{ id: 'hook-block:0000000001', fingerprint: 'hook-block:abcabcabca', count: 1, weak: true }]);
+    rc.recordRun(project, run);
+    assert.equal(rc.readRunsJournal(project).journal.runs[0].signals[0].weak, true);
+  });
+});

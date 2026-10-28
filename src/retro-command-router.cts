@@ -855,8 +855,9 @@ function loadValidatedRetro(cwd: string, stemArg: string | null, usage: string):
   };
   const result = validateCandidates(candidates.value, {
     signals: evidenceSignals,
-    inventory: new Set(read.ok ? (ev.inventory ?? []) : (snapshot?.inventory ?? [])),
-    checks: new Set(read.ok ? (ev.checks ?? []) : (snapshot?.checks ?? [])),
+    // One trust boundary: the snapshot when the run has one, the bundle only for a run journaled before it.
+    inventory: new Set(snapshot ? snapshot.inventory : (ev.inventory ?? [])),
+    checks: new Set(snapshot ? snapshot.checks : (ev.checks ?? [])),
     lessons: new Set(shownLessons.filter(id => existingLessons.has(id))),
     retros: new Set(snapshot ? snapshot.recurring.map(r => `${r.retro}:${r.candidate}`) : (bundle.evidence?.retros ?? [])),
   }, { projectRoot: cwd, patchesDir: paths.patches, layer, recurring: refs });

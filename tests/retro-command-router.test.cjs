@@ -1084,3 +1084,18 @@ describe('a RUNS.json from a newer GSD', () => {
     assert.equal(fs.readFileSync(file, 'utf8'), JSON.stringify({ version: 3, runs: [] }));
   });
 });
+
+describe('with a snapshot on the run, the bundle adds no evidence', () => {
+  test('an inventory ref only the bundle carries is unknown; one the snapshot carries is evidence', () => {
+    const { prep, bundle } = prepareSession('sess-1', versionedRecords());
+    const inv = bundle.evidence.inventory[0];
+    const forged = { ...bundle, evidence: { ...bundle.evidence, inventory: [...bundle.evidence.inventory, 'inventory:missing-guardrail:forged'] } };
+    fs.writeFileSync(path.join(project, prep.json.bundle), JSON.stringify(forged));
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'low', layer: 'project', category: 'environment', title: 'real', signals: [inv], change: 'c' },
+      { id: 'cand-2', severity: 'low', layer: 'project', category: 'environment', title: 'forged', signals: ['inventory:missing-guardrail:forged'], change: 'c' },
+    ]);
+    const r = retro(['candidates', '--retro', prep.json.stem], project);
+    assert.deepEqual([r.json.valid.map((c) => c.id), r.json.dropped.map((d) => [d.id, d.codes])], [['cand-1'], [['cand-2', ['unknown-signal']]]]);
+  });
+});
