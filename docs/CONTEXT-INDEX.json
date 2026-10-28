@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 330,
+  "count": 331,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -20,7 +20,7 @@
     "PROC": 14,
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
-    "RETRO": 13,
+    "RETRO": 14,
     "RULESET": 62,
     "SEAM": 30,
     "SESSION": 9,
@@ -973,12 +973,17 @@
     {
       "id": "RETRO.APPLIED",
       "klass": "RETRO",
-      "value": "RUNS.json run.applied[{candidate, route, at}] (beside run.signals, both absent on runs from before ADR-5209 §10) written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)"
+      "value": "RUNS.json (envelope version 2, v1 still read) run.applied[{candidate, route, at}] beside run.signals (listed + omitted, ≤100), run.host {name, version} and run.gsdVersion — validation's source for the runtime, never the bundle; retro applied needs only the candidate in RETRO-*.json and a run written by retro applied under .RUNS.lock; absent when empty (old journals keep their bytes); refusal no-run|journal-invalid|locked|invalid is an answer, not an error; a malformed applied entry makes the run malformed (schedule fails closed as journal-invalid)"
     },
     {
       "id": "RETRO.DROP-CODES",
       "klass": "RETRO",
-      "value": "every dropped candidate carries codes[] parallel to reasons[] from CANDIDATE_DROP (invalid-envelope, invalid-id, duplicate-id, invalid-category, invalid-severity, missing-field, no-signal, unknown-signal, judgement-in-steering-file, missing-verify, patch-outside, patch-missing, missing-layer, invalid-layer, layer-category-mismatch, missing-target, project-target-outside, user-target-outside-home, user-target-in-project, gsd-root-unknown, gsd-target-not-surface, gsd-target-missing, host-unknown, host-target-name, host-target-version, invalid-related, recurring-uncited, recurring-not-escalated); consumers branch on the code, never the sentence"
+      "value": "every dropped candidate carries codes[] parallel to reasons[] from CANDIDATE_DROP (invalid-envelope, invalid-id, duplicate-id, invalid-category, invalid-severity, missing-field, no-signal, unknown-signal, judgement-in-steering-file, missing-verify, patch-outside, patch-missing, missing-layer, invalid-layer, layer-category-mismatch, missing-target, project-target-outside, user-target-outside-home, user-target-in-project, gsd-root-unknown, gsd-target-not-surface, gsd-target-missing, host-unknown, host-target-name, host-target-version, invalid-related, recurring-uncited, recurring-not-escalated, recurring-lesson-uncited, private-path, field-too-long); consumers branch on the code, never the sentence"
+    },
+    {
+      "id": "RETRO.FINGERPRINT",
+      "klass": "RETRO",
+      "value": "signal.fingerprint computed in retro-signals from the group identity, paths masked to <path>: repeated-tool-error = tool + error up to its first path; permission-denial/tool-rejected = tool + first words of the first shell segment; nav-streak = one; no subject = null; an old bundle's key gives the same (fingerprintBasisFromKey); signal ids hash the first pointer and differ across sessions"
     },
     {
       "id": "RETRO.LAYER",
@@ -1003,7 +1008,7 @@
     {
       "id": "RETRO.RECURRING",
       "klass": "RETRO",
-      "value": "earlier RETRO-*.json candidates whose signal fingerprint (kind+key, sha1, 10 hex; signal ids hash the first pointer and differ across sessions) matches this retro's signals, read through the old retro's run in RUNS.json (signals[{id, fingerprint, count}], ≤100, written by retro prepare — the .work/ bundle does not survive a clone or a new worktree), else its bundle, else unreadable (never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons, countThen, countNow, escalate = not applied and countNow > countThen}; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)"
+      "value": "earlier RETRO-*.json candidates whose signal fingerprint matches this retro's signals, read through the old retro's run in RUNS.json (signals[{id, fingerprint, count}], ≤100, written by retro prepare — the .work/ bundle does not survive a clone or a new worktree), else its bundle, else unreadable (never guessed); {retro, candidate, title, layer, signals (this retro's ids), applied, appliedBy runs|checks|lessons (a lesson counts only for user or once fixed), lesson {id,status,layer}|null, countThen, countNow, escalate = not applied, no lesson, countNow > countThen}; recomputed at validation from the journals, never read back from the bundle; newest first, ≤30; a candidate citing a matched signal must cite retro:<stem>:<cand> (recurring-uncited) and be high when it escalates (recurring-not-escalated)"
     },
     {
       "id": "RETRO.ROUTE",
