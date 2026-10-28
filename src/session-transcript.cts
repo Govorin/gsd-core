@@ -455,6 +455,12 @@ export interface SessionTranscript {
   events: TranscriptEvent[];
   files: TranscriptFileRead[];
   toolResults: { count: number; bytes: number };
+  /**
+   * The runtime version the main transcript's records carry (Claude Code
+   * writes `version` on each record; the last one wins, so a session that
+   * spans an upgrade reports the newer one). Null when none is recorded.
+   */
+  hostVersion: string | null;
 }
 
 /**
@@ -491,6 +497,8 @@ const TOOL_BLOCKED_RE = /^<tool_use_error>Blocked:/;
 const PERMISSION_DENIED_RE = /^Permission to use \S+ .*has been denied/s;
 const USER_REJECTED_RE = /^The user doesn't want to proceed with this tool use/;
 const RECOGNISED_TYPES = new Set(['user', 'assistant', 'system', 'attachment']);
+/** A runtime version as Claude Code records it (`2.1.310`); anything else is not taken for one. */
+const HOST_VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,6}(?:[-+][0-9A-Za-z.-]{1,40})?$/;
 
 function cut(text: string, max: number): string {
   return text.length <= max ? text : text.slice(0, max);
@@ -668,13 +676,15 @@ async function readOneFile(
   ctx: ProjectionContext,
   limits: ReadLimits,
   events: TranscriptEvent[],
-): Promise<{ stats: ReadStats; recognisedRecords: number }> {
+): Promise<{ stats: ReadStats; recognisedRecords: number; version: string | null }> {
   const stats = emptyStats();
   let recognisedRecords = 0;
+  let version: string | null = null;
   for await (const item of iterateJsonl(filePath, limits, stats)) {
     if (item.kind !== 'record') continue;
     const r = item.record;
     if (typeof r['type'] === 'string' && RECOGNISED_TYPES.has(r['type'])) recognisedRecords++;
+    if (typeof r['version'] === 'string' && HOST_VERSION_RE.test(r['version'])) version = r['version'];
     if (events.length >= limits.maxEvents) {
       stats.truncatedEvents = true;
       continue;
@@ -687,7 +697,7 @@ async function readOneFile(
       events.push(ev);
     }
   }
-  return { stats, recognisedRecords };
+  return { stats, recognisedRecords, version };
 }
 
 /**
@@ -707,6 +717,7 @@ export async function readSession(
   const events: TranscriptEvent[] = [];
   const files: TranscriptFileRead[] = [];
   const reasons: string[] = [];
+  let hostVersion: string | null = null;
 
   const targets: Array<{ filePath: string; agentId: string | null; agentType: string | null }> = [
     { filePath: session.filePath, agentId: null, agentType: null },
@@ -721,7 +732,8 @@ export async function readSession(
       maxTextChars: limits.maxTextChars, toolNames: new Map(),
     };
     try {
-      const { stats, recognisedRecords } = await readOneFile(t.filePath, ctx, limits, events);
+      const { stats, recognisedRecords, version } = await readOneFile(t.filePath, ctx, limits, events);
+      if (t.agentId === null) hostVersion = version;
       files.push({ file: ctx.file, agentId: t.agentId, agentType: t.agentType, stats, recognisedRecords });
       if (t.agentId === null && stats.records > 0 && recognisedRecords === 0) {
         reasons.push(`${ctx.file}: no records of a recognised Claude Code type — transcript format not understood`);
@@ -739,6 +751,7 @@ export async function readSession(
     events,
     files,
     toolResults: session.toolResults,
+    hostVersion,
   };
 }
 

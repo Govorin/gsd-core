@@ -648,7 +648,10 @@ describe('regressions', () => {
       //
       // The architecture survey added ARCH_INPUT_UNAVAILABLE — an `arch` step run before
       // the step that writes its input (pocock-practices design D1), the same kind again.
-      assert.strictEqual(seen.reasonCount, 30, 'ERROR_REASON must keep all 30 members (26 + #5118 VERIFICATION_STATUS_INVALID + DIAGRAMS_SOURCE_UNAVAILABLE + WINDOW_REVIEW_UNRESOLVABLE + ARCH_INPUT_UNAVAILABLE)');
+      //
+      // ADR-5209 §10 added RETRO_LESSONS_INVALID — the cross-repository lessons journal
+      // cannot be read whole, so `retro lessons record|close` edited nothing.
+      assert.strictEqual(seen.reasonCount, 31, 'ERROR_REASON must keep all 31 members (26 + #5118 VERIFICATION_STATUS_INVALID + DIAGRAMS_SOURCE_UNAVAILABLE + WINDOW_REVIEW_UNRESOLVABLE + ARCH_INPUT_UNAVAILABLE + RETRO_LESSONS_INVALID)');
       assert.ok(
         seen.keys.includes('SDK_FAIL_FAST'),
         `ERROR_REASON must still include SDK_FAIL_FAST, got: ${JSON.stringify(seen.keys)}`,

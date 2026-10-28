@@ -699,6 +699,7 @@ const EXPECTED_REASON_OUTCOME_3912 = {
   diagrams_source_unavailable: 'UNAVAILABLE',
   window_review_unresolvable: 'UNAVAILABLE',
   arch_input_unavailable: 'UNAVAILABLE',
+  retro_lessons_invalid: 'UNAVAILABLE',
   usage: 'USAGE',
   unknown: 'FAIL',
 };

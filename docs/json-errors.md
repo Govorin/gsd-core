@@ -338,6 +338,12 @@ text (unstable).
 |------|-------------|
 | `arch_input_unavailable` | `arch cards`, `arch report` or `arch decide` before the step that writes its input: no `metrics-<date>.json`, no `candidates.json`, or an id that is neither a candidate of the survey nor in `DECISIONS.md` |
 
+### Retro errors
+
+| Code | When emitted |
+|------|-------------|
+| `retro_lessons_invalid` | `retro lessons record` or `retro lessons close` when `$GSD_HOME/.gsd/lessons/LESSONS.json` is not JSON, not `{ "version": 1, "lessons": [...] }`, or holds a malformed lesson: the journal fails closed and is left unchanged (ADR-5209 §10). `retro lessons` (the list) and `retro prepare` report the same state as `status: "invalid"`, `reason: "lessons-invalid"` at exit 0 |
+
 ### Hook / security errors
 
 | Code | When emitted |

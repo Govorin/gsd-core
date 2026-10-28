@@ -26,6 +26,12 @@
  * (`judgement-in-steering-file`): standards belong to the reviewer, who has the
  * least context pressure, not to every agent's prompt. A mechanical candidate
  * without a command that shows the check firing is dropped (`missing-verify`).
+ * Every candidate names the layer that owns its cause (`project`, `user`,
+ * `gsd`, `host`; ADR-5209 §10), and its target is checked against that layer:
+ * a gsd target must exist in the installed GSD, a host target must name the
+ * runtime and version the session ran, a user target must sit under the home
+ * directory and outside the project. Each drop carries a typed code
+ * (`CANDIDATE_DROP`) beside its sentence.
  *
  * ── The removal loop ───────────────────────────────────────────────────
  *
@@ -38,10 +44,12 @@
  * different answers.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { retryRenameSync } from './shell-command-projection.cjs';
-import { tryWithinRoot, PathAcceptance } from './security.cjs';
+import { tryWithinRoot, tryWithinRootLexical, PathAcceptance } from './security.cjs';
 import { formatPointer } from './session-transcript.cjs';
 import type { SessionTranscript, TranscriptPointer } from './session-transcript.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -107,29 +115,36 @@ export function isRetroStem(stem: string): boolean {
   return STEM_RE.test(stem);
 }
 
-/** The newest retro stem on disk (by date, then sequence), or null. */
-export function latestRetroStem(projectRoot: string): string | null {
-  let names: string[];
-  try {
-    names = fs.readdirSync(retroDir(projectRoot));
-  } catch {
-    return null;
-  }
-  const stems = names
-    .filter(n => n.endsWith('.json') && n !== 'CHECKS.json')
-    .map(n => n.slice(0, -'.json'.length))
-    .filter(isRetroStem);
-  if (stems.length === 0) return null;
+/** Retro stems in time order: by date, then sequence numerically. */
+export function compareRetroStems(a: string, b: string): number {
   const order = (s: string): [string, number] => {
     const m = /^RETRO-(\d{4}-\d{2}-\d{2})(?:-(\d+))?$/.exec(s) as RegExpExecArray;
     return [m[1], m[2] ? Number(m[2]) : 1];
   };
-  stems.sort((a, b) => {
-    const [da, na] = order(a);
-    const [db, nb] = order(b);
-    return da === db ? na - nb : da.localeCompare(db);
-  });
-  return stems[stems.length - 1];
+  const [da, na] = order(a);
+  const [db, nb] = order(b);
+  return da === db ? na - nb : da.localeCompare(db);
+}
+
+/** Every retro stem with a candidates file on disk, oldest first. */
+export function retroStemsOnDisk(projectRoot: string): string[] {
+  let names: string[];
+  try {
+    names = fs.readdirSync(retroDir(projectRoot));
+  } catch {
+    return [];
+  }
+  return names
+    .filter(n => n.endsWith('.json') && n !== 'CHECKS.json')
+    .map(n => n.slice(0, -'.json'.length))
+    .filter(isRetroStem)
+    .sort(compareRetroStems);
+}
+
+/** The newest retro stem on disk (by date, then sequence), or null. */
+export function latestRetroStem(projectRoot: string): string | null {
+  const stems = retroStemsOnDisk(projectRoot);
+  return stems.length === 0 ? null : stems[stems.length - 1];
 }
 
 /**
@@ -482,7 +497,23 @@ export type CandidateCategory = typeof CANDIDATE_CATEGORIES[number];
 
 export const CANDIDATE_SEVERITIES = Object.freeze(['high', 'medium', 'low'] as const);
 
-/** Where a human sends a chosen candidate. Only checks (and their removal) are code work. */
+/**
+ * The layer that owns a candidate's cause (ADR-5209 §10): where the fix has to
+ * land so the friction does not come back.
+ *
+ *   project  this repository's files (a lint rule, a pointer in its CLAUDE.md)
+ *   user     the user's own setup outside any repository (~/.claude settings,
+ *            hooks, personal skills, the global CLAUDE.md)
+ *   gsd      GSD's shipped surface (agents, workflows, references, hooks, CLI)
+ *   host     the runtime itself (Claude Code …): fixable here only by a workaround
+ *
+ * A candidates file of version 1 predates layers: its candidates without one
+ * are read as `project`, exactly as they were routed before.
+ */
+export const CANDIDATE_LAYERS = Object.freeze(['project', 'user', 'gsd', 'host'] as const);
+export type CandidateLayer = typeof CANDIDATE_LAYERS[number];
+
+/** Where a human sends a chosen PROJECT candidate. Only checks (and their removal) are code work. */
 export const CANDIDATE_ROUTE: Readonly<Record<CandidateCategory, 'quick' | 'capture'>> = Object.freeze({
   'navigation': 'capture',
   'mechanical': 'quick',
@@ -492,12 +523,73 @@ export const CANDIDATE_ROUTE: Readonly<Record<CandidateCategory, 'quick' | 'capt
   'retire-check': 'quick',
 });
 
+/**
+ * The `--apply` route: a project candidate goes to /gsd-quick or /gsd-capture
+ * as before; a user candidate is shown to the human, who edits their own file
+ * (`user`); a gsd or host candidate becomes a lesson in the cross-repository
+ * journal (`lesson`) and leaves the project untouched.
+ */
+export type CandidateRoute = 'quick' | 'capture' | 'user' | 'lesson';
+
+export function candidateRoute(layer: CandidateLayer, category: CandidateCategory): CandidateRoute {
+  if (layer === 'project') return CANDIDATE_ROUTE[category];
+  return layer === 'user' ? 'user' : 'lesson';
+}
+
+/**
+ * Why the validator dropped a candidate: one code per reason, in the same
+ * order as the human-readable `reasons` (a consumer branches on the code,
+ * never on the sentence).
+ */
+export const CANDIDATE_DROP = Object.freeze({
+  INVALID_ENVELOPE: 'invalid-envelope',
+  INVALID_ID: 'invalid-id',
+  DUPLICATE_ID: 'duplicate-id',
+  INVALID_CATEGORY: 'invalid-category',
+  INVALID_SEVERITY: 'invalid-severity',
+  MISSING_FIELD: 'missing-field',
+  NO_SIGNAL: 'no-signal',
+  UNKNOWN_SIGNAL: 'unknown-signal',
+  JUDGEMENT_IN_STEERING_FILE: 'judgement-in-steering-file',
+  MISSING_VERIFY: 'missing-verify',
+  PATCH_OUTSIDE: 'patch-outside',
+  PATCH_MISSING: 'patch-missing',
+  MISSING_LAYER: 'missing-layer',
+  INVALID_LAYER: 'invalid-layer',
+  LAYER_CATEGORY: 'layer-category-mismatch',
+  MISSING_TARGET: 'missing-target',
+  PROJECT_TARGET_OUTSIDE: 'project-target-outside',
+  USER_TARGET_OUTSIDE_HOME: 'user-target-outside-home',
+  USER_TARGET_IN_PROJECT: 'user-target-in-project',
+  GSD_ROOT_UNKNOWN: 'gsd-root-unknown',
+  GSD_TARGET_NOT_SURFACE: 'gsd-target-not-surface',
+  GSD_TARGET_MISSING: 'gsd-target-missing',
+  HOST_UNKNOWN: 'host-unknown',
+  HOST_TARGET_NAME: 'host-target-name',
+  HOST_TARGET_VERSION: 'host-target-version',
+  INVALID_RELATED: 'invalid-related',
+  RECURRING_UNCITED: 'recurring-uncited',
+  RECURRING_NOT_ESCALATED: 'recurring-not-escalated',
+} as const);
+export type CandidateDropCode = typeof CANDIDATE_DROP[keyof typeof CANDIDATE_DROP];
+
+/** Typed remarks on a candidate that survived: kept, but flagged for the human. */
+export const CANDIDATE_NOTE = Object.freeze({
+  /** A host candidate whose runtime version the bundle did not know. */
+  HOST_VERSION_UNKNOWN: 'host-version-unknown',
+} as const);
+export type CandidateNote = typeof CANDIDATE_NOTE[keyof typeof CANDIDATE_NOTE];
+
 export interface RetroCandidate {
   id: string;
   severity: typeof CANDIDATE_SEVERITIES[number];
   category: CandidateCategory;
+  /** The layer that owns the cause; `project` for a version-1 candidate without one. */
+  layer: CandidateLayer;
+  /** False when `layer` was defaulted (version-1 file), true when the analyst wrote it. */
+  layerDeclared: boolean;
   title: string;
-  /** Evidence refs: signal ids, `inventory:<kind>:<subject>`, `check:<id>`. */
+  /** Evidence refs: signal ids, `inventory:<kind>:<subject>`, `check:<id>`, `lesson:<id>`, `retro:<stem>:<cand>`. */
   signals: string[];
   /** What already exists that this builds on or replaces (from the inventory), or null. */
   existing: string | null;
@@ -508,26 +600,186 @@ export interface RetroCandidate {
   patch: string | null;
   /** A command that shows the check firing on the incident (mechanical) or the change in effect. */
   verify: string | null;
+  /** Ids of other candidates of this retro answering the same cause in another layer (a project stopgap for a gsd lesson). */
+  related: string[];
 }
 
 export interface EvidenceIndex {
   signals: ReadonlySet<string>;
   inventory: ReadonlySet<string>;
   checks: ReadonlySet<string>;
+  /** Lesson ids the bundle carried (cited as `lesson:<id>`). */
+  lessons?: ReadonlySet<string>;
+  /** `<stem>:<cand>` of the earlier proposals the bundle carried as recurring (cited as `retro:<stem>:<cand>`). */
+  retros?: ReadonlySet<string>;
+}
+
+/** What the layer checks need to know about the machine the retro ran on. */
+export interface LayerContext {
+  /** The GSD install root (the directory holding `gsd-core/`), or null when it could not be found. */
+  gsdRoot: string | null;
+  /** The runtime the session ran in (`resolveRuntime`), or null. */
+  hostName: string | null;
+  /** Its version as the transcript recorded it, or null. */
+  hostVersion: string | null;
+  /** The user's home directory (`~` in a user target). */
+  homeDir: string;
+}
+
+/** An earlier proposal of this project whose signals came back (the bundle's `recurring[]`). */
+export interface RecurringRef {
+  retro: string;
+  candidate: string;
+  /** The signal ids it shares with this retro. */
+  signals: readonly string[];
+  /** Not applied and the shared signals grew: a candidate answering it must be `high`. */
+  escalate: boolean;
+}
+
+export interface ValidCandidate extends RetroCandidate {
+  route: CandidateRoute;
+  notes: CandidateNote[];
+}
+
+export interface DroppedCandidate {
+  id: string;
+  reasons: string[];
+  /** One code per entry of `reasons`, same order. */
+  codes: CandidateDropCode[];
 }
 
 export interface CandidateValidation {
-  valid: Array<RetroCandidate & { route: 'quick' | 'capture' }>;
-  dropped: Array<{ id: string; reasons: string[] }>;
+  /** The candidates file's version: 1 (layers optional, default project) or 2 (layer required). */
+  version: 1 | 2 | null;
+  valid: ValidCandidate[];
+  dropped: DroppedCandidate[];
 }
 
 const CANDIDATE_ID_RE = /^cand-[1-9]\d{0,3}$/;
 const STEERING_FILES = new Set(['claude.md', 'agents.md', 'gemini.md']);
+const LESSON_REF_RE = /^lesson:(lesson-[0-9a-f]{10})$/;
+const RETRO_REF_RE = /^retro:(RETRO-\d{4}-\d{2}-\d{2}(?:-[1-9]\d{0,3})?):(cand-[1-9]\d{0,3})$/;
 
 function isEvidence(ref: string, ev: EvidenceIndex): boolean {
   if (ref.startsWith('inventory:')) return ev.inventory.has(ref);
   if (ref.startsWith('check:')) return ev.checks.has(ref.slice('check:'.length));
+  if (ref.startsWith('lesson:')) {
+    const m = LESSON_REF_RE.exec(ref);
+    return m !== null && (ev.lessons?.has(m[1]) ?? false);
+  }
+  if (ref.startsWith('retro:')) {
+    const m = RETRO_REF_RE.exec(ref);
+    return m !== null && (ev.retros?.has(`${m[1]}:${m[2]}`) ?? false);
+  }
   return ev.signals.has(ref);
+}
+
+/** The lesson ids a candidate cites (`lesson:<id>`), in order. */
+export function citedLessons(signals: readonly string[]): string[] {
+  return signals.map(s => LESSON_REF_RE.exec(s)).filter((m): m is RegExpExecArray => m !== null).map(m => m[1]);
+}
+
+/**
+ * The places a `gsd` target may name, relative to the install root. Installed
+ * commands are skills on most runtimes, and the user's own agents and hooks
+ * share those directories, so only GSD's own names count.
+ */
+export const GSD_SURFACE_PREFIXES = Object.freeze(['gsd-core/', 'agents/gsd-', 'hooks/gsd-', 'commands/gsd/', 'skills/gsd-'] as const);
+
+/** A target without its `#anchor` (a section, a settings key): the file it lands in. */
+function targetFile(target: string): string {
+  const hash = target.indexOf('#');
+  return (hash >= 0 ? target.slice(0, hash) : target).trim();
+}
+
+const HOST_TARGET_RE = /^([A-Za-z0-9._-]+)(?:@([^\s:]+))?(?:\s*:\s*(.*))?$/;
+
+/** `<runtime>[@<version>][: <area>]` — the runtime and version a host candidate is about. */
+export function parseHostTarget(target: string): { name: string; version: string | null; area: string | null } | null {
+  const m = HOST_TARGET_RE.exec(target.trim());
+  if (!m) return null;
+  return { name: m[1], version: m[2] ?? null, area: m[3] ? m[3].trim() || null : null };
+}
+
+type Drop = (code: CandidateDropCode, reason: string) => void;
+
+/**
+ * The checks that depend on the layer: where its target may point. A version-1
+ * candidate that did not declare a layer is not checked here — it is routed
+ * exactly as before layers existed.
+ */
+function checkLayerTarget(
+  layer: CandidateLayer,
+  category: CandidateCategory,
+  target: string | null,
+  ctx: LayerContext,
+  projectRoot: string,
+  drop: Drop,
+  notes: CandidateNote[],
+): void {
+  if (category === 'retire-check' && layer !== 'project') {
+    drop(CANDIDATE_DROP.LAYER_CATEGORY, 'layer-category-mismatch: a retire-check removes a journaled check of this project, so its layer is project');
+  }
+  if (layer === 'project') {
+    const file = target ? targetFile(target) : '';
+    if (target && (file.startsWith('~') || tryWithinRootLexical(file || '.', projectRoot) === null)) {
+      drop(CANDIDATE_DROP.PROJECT_TARGET_OUTSIDE, `project-target-outside: ${target} is not inside the project; a change outside it belongs to another layer`);
+    }
+    return;
+  }
+  if (!target) {
+    drop(CANDIDATE_DROP.MISSING_TARGET, `missing-target: a ${layer} candidate must name where the change lands`);
+    return;
+  }
+  if (layer === 'user') {
+    const file = targetFile(target);
+    if (!(file === '~' || file.startsWith('~/'))) {
+      drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: a user target is written from the home directory, ~/…, got ${target}`);
+      return;
+    }
+    const abs = tryWithinRootLexical(file === '~' ? '.' : file.slice(2), ctx.homeDir);
+    if (abs === null) {
+      drop(CANDIDATE_DROP.USER_TARGET_OUTSIDE_HOME, `user-target-outside-home: ${target} leaves the home directory`);
+    } else if (tryWithinRootLexical(abs, projectRoot) !== null) {
+      drop(CANDIDATE_DROP.USER_TARGET_IN_PROJECT, `user-target-in-project: ${target} is inside this project; that is a project candidate`);
+    }
+    return;
+  }
+  if (layer === 'gsd') {
+    const file = targetFile(target);
+    const plain = !path.isAbsolute(file) && !file.split(/[\\/]/).includes('..');
+    if (!plain || !GSD_SURFACE_PREFIXES.some(p => file.startsWith(p))) {
+      drop(CANDIDATE_DROP.GSD_TARGET_NOT_SURFACE, `gsd-target-not-surface: a gsd target is a path of the installed GSD under ${GSD_SURFACE_PREFIXES.join(', ')}; got ${target}`);
+      return;
+    }
+    if (ctx.gsdRoot === null) {
+      drop(CANDIDATE_DROP.GSD_ROOT_UNKNOWN, 'gsd-root-unknown: the GSD install root is not known, so a gsd target cannot be checked');
+      return;
+    }
+    if (!fs.existsSync(path.join(ctx.gsdRoot, file))) {
+      drop(CANDIDATE_DROP.GSD_TARGET_MISSING, `gsd-target-missing: ${file} does not exist in the installed GSD`);
+    }
+    return;
+  }
+  // host
+  if (ctx.hostName === null) {
+    drop(CANDIDATE_DROP.HOST_UNKNOWN, 'host-unknown: the bundle does not name the runtime, so a host candidate cannot be tied to it');
+    return;
+  }
+  const parsed = parseHostTarget(target);
+  if (parsed === null || parsed.name.toLowerCase() !== ctx.hostName.toLowerCase()) {
+    drop(CANDIDATE_DROP.HOST_TARGET_NAME, `host-target-name: a host target starts with the runtime the bundle names, ${ctx.hostName}[@<version>][: <area>]; got ${target}`);
+    return;
+  }
+  if (ctx.hostVersion === null) {
+    if (parsed.version !== null && parsed.version !== 'unknown') {
+      drop(CANDIDATE_DROP.HOST_TARGET_VERSION, `host-target-version: the bundle does not know the ${ctx.hostName} version, so ${parsed.version} cannot be claimed`);
+    } else {
+      notes.push(CANDIDATE_NOTE.HOST_VERSION_UNKNOWN);
+    }
+  } else if (parsed.version !== ctx.hostVersion) {
+    drop(CANDIDATE_DROP.HOST_TARGET_VERSION, `host-target-version: a host target names the version the session ran, ${ctx.hostName}@${ctx.hostVersion}; got ${target}`);
+  }
 }
 
 /** `inventory:<kind>:<subject>` refs for an inventory's findings. */
@@ -535,61 +787,135 @@ export function inventoryRefs(findings: ReadonlyArray<{ kind: string; subject: s
   return findings.map(f => `inventory:${f.kind}:${f.subject}`);
 }
 
+function defaultLayerContext(): LayerContext {
+  return { gsdRoot: null, hostName: null, hostVersion: null, homeDir: os.homedir() };
+}
+
 /**
  * Validate the analyst's candidates against the evidence the bundle carried.
  * Every rule is mechanical; a candidate that breaks any is dropped with its
- * reasons, never repaired. Valid candidates come back ordered by severity,
- * then id, with their route.
+ * reasons and their codes, never repaired. Valid candidates come back ordered
+ * by severity, then id, with their route.
+ *
+ * Version 2 files must give every candidate a `layer`, and its target is
+ * checked against that layer (ADR-5209 §10). A version-1 file (or one with no
+ * version) predates layers: a candidate without one is `project` and is not
+ * checked by layer. A candidate whose signals came back from an earlier
+ * proposal (`recurring`) must cite it as `retro:<stem>:<cand>`, and as `high`
+ * when that proposal was not applied and its signals grew.
  */
-export function validateCandidates(raw: unknown, evidence: EvidenceIndex, opts: { projectRoot: string; patchesDir: string }): CandidateValidation {
-  const list = raw && typeof raw === 'object' && Array.isArray((raw as { candidates?: unknown }).candidates)
-    ? (raw as { candidates: unknown[] }).candidates
-    : null;
-  if (list === null) return { valid: [], dropped: [{ id: '(file)', reasons: ['candidates file must be { "version": 1, "candidates": [...] }'] }] };
-  const valid: CandidateValidation['valid'] = [];
-  const dropped: CandidateValidation['dropped'] = [];
+export function validateCandidates(
+  raw: unknown,
+  evidence: EvidenceIndex,
+  opts: { projectRoot: string; patchesDir: string; layer?: LayerContext; recurring?: readonly RecurringRef[] },
+): CandidateValidation {
+  const envelope = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw as { version?: unknown; candidates?: unknown } : null;
+  const version = envelope && (envelope.version === undefined || envelope.version === 1) ? 1 : envelope && envelope.version === 2 ? 2 : null;
+  if (envelope === null || version === null || !Array.isArray(envelope.candidates)) {
+    return {
+      version: null,
+      valid: [],
+      dropped: [{ id: '(file)', reasons: ['invalid-envelope: candidates file must be { "version": 1 | 2, "candidates": [...] }'], codes: [CANDIDATE_DROP.INVALID_ENVELOPE] }],
+    };
+  }
+  const list = envelope.candidates as unknown[];
+  const ctx = opts.layer ?? defaultLayerContext();
+  const recurring = opts.recurring ?? [];
+  const fileIds = new Set(list.map(item => (item && typeof item === 'object' ? (item as Record<string, unknown>)['id'] : null)).filter((v): v is string => typeof v === 'string'));
+  const valid: ValidCandidate[] = [];
+  const dropped: DroppedCandidate[] = [];
   const seen = new Set<string>();
   const patchesAbs = path.join(opts.projectRoot, opts.patchesDir);
   list.forEach((item, i) => {
     const c = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
     const id = typeof c['id'] === 'string' ? c['id'] : `(index ${i})`;
     const reasons: string[] = [];
-    if (!CANDIDATE_ID_RE.test(id)) reasons.push('id must look like cand-<n>');
-    else if (seen.has(id)) reasons.push('duplicate id');
+    const codes: CandidateDropCode[] = [];
+    const drop: Drop = (code, reason) => { codes.push(code); reasons.push(reason); };
+    const notes: CandidateNote[] = [];
+    if (!CANDIDATE_ID_RE.test(id)) drop(CANDIDATE_DROP.INVALID_ID, 'id must look like cand-<n>');
+    else if (seen.has(id)) drop(CANDIDATE_DROP.DUPLICATE_ID, 'duplicate id');
     seen.add(id);
     const category = c['category'] as CandidateCategory;
-    if (!(CANDIDATE_CATEGORIES as readonly string[]).includes(category)) reasons.push(`category must be one of ${CANDIDATE_CATEGORIES.join(', ')}`);
-    if (!(CANDIDATE_SEVERITIES as readonly string[]).includes(c['severity'] as string)) reasons.push(`severity must be one of ${CANDIDATE_SEVERITIES.join(', ')}`);
+    const categoryOk = (CANDIDATE_CATEGORIES as readonly string[]).includes(category);
+    if (!categoryOk) drop(CANDIDATE_DROP.INVALID_CATEGORY, `category must be one of ${CANDIDATE_CATEGORIES.join(', ')}`);
+    if (!(CANDIDATE_SEVERITIES as readonly string[]).includes(c['severity'] as string)) drop(CANDIDATE_DROP.INVALID_SEVERITY, `severity must be one of ${CANDIDATE_SEVERITIES.join(', ')}`);
+    const rawLayer = c['layer'];
+    let layer: CandidateLayer = 'project';
+    let layerDeclared = false;
+    let layerOk = true;
+    if (rawLayer === undefined || rawLayer === null) {
+      if (version === 2) {
+        drop(CANDIDATE_DROP.MISSING_LAYER, `missing-layer: a version 2 candidate names the layer that owns its cause (${CANDIDATE_LAYERS.join(', ')})`);
+        layerOk = false;
+      }
+    } else if (typeof rawLayer === 'string' && (CANDIDATE_LAYERS as readonly string[]).includes(rawLayer)) {
+      layer = rawLayer as CandidateLayer;
+      layerDeclared = true;
+    } else {
+      drop(CANDIDATE_DROP.INVALID_LAYER, `invalid-layer: layer must be one of ${CANDIDATE_LAYERS.join(', ')}, got ${JSON.stringify(rawLayer)}`);
+      layerOk = false;
+    }
     for (const field of ['title', 'change']) {
       const v = c[field];
-      if (typeof v !== 'string' || v.trim() === '') reasons.push(`${field} is required`);
+      if (typeof v !== 'string' || v.trim() === '') drop(CANDIDATE_DROP.MISSING_FIELD, `${field} is required`);
     }
     const signals = Array.isArray(c['signals']) ? (c['signals'] as unknown[]).filter((s): s is string => typeof s === 'string') : [];
-    if (signals.length === 0) reasons.push('no-signal: a candidate must point at the signal it answers');
-    for (const s of signals) if (!isEvidence(s, evidence)) reasons.push(`unknown-signal: ${s}`);
+    if (signals.length === 0) drop(CANDIDATE_DROP.NO_SIGNAL, 'no-signal: a candidate must point at the signal it answers');
+    for (const s of signals) if (!isEvidence(s, evidence)) drop(CANDIDATE_DROP.UNKNOWN_SIGNAL, `unknown-signal: ${s}`);
     const target = nullableString(c['target']);
-    if (category === 'judgement' && target && STEERING_FILES.has(path.basename(target).toLowerCase())) {
-      reasons.push('judgement-in-steering-file: a judgement rule goes to the reviewer (agent_skills.*), not to CLAUDE.md/AGENTS.md');
+    if (category === 'judgement' && target && STEERING_FILES.has(path.basename(targetFile(target)).toLowerCase())) {
+      drop(CANDIDATE_DROP.JUDGEMENT_IN_STEERING_FILE, 'judgement-in-steering-file: a judgement rule goes to the reviewer (agent_skills.*), not to CLAUDE.md/AGENTS.md');
     }
+    if (categoryOk && layerOk && layerDeclared) checkLayerTarget(layer, category, target, ctx, opts.projectRoot, drop, notes);
     const verify = nullableString(c['verify']);
-    if ((category === 'mechanical' || category === 'retire-check') && !verify) reasons.push('missing-verify: a check needs a command that shows it firing');
+    // A check is verified where it lands: in this project, or in the user's
+    // setup. A gsd or host check is verified in GSD's repository or the
+    // runtime's, never here.
+    const verifiedHere = layer === 'project' || layer === 'user';
+    if ((category === 'mechanical' || category === 'retire-check') && verifiedHere && !verify) {
+      drop(CANDIDATE_DROP.MISSING_VERIFY, 'missing-verify: a check needs a command that shows it firing');
+    }
     const patch = nullableString(c['patch']);
     if (patch) {
       const abs = tryWithinRoot(patch, opts.projectRoot, PathAcceptance.RelativeOnly);
       if (!abs || !tryWithinRoot(path.relative(patchesAbs, abs), patchesAbs, PathAcceptance.RelativeOnly)) {
-        reasons.push(`patch must live under ${opts.patchesDir}/`);
+        drop(CANDIDATE_DROP.PATCH_OUTSIDE, `patch must live under ${opts.patchesDir}/`);
       } else if (!fs.existsSync(abs)) {
-        reasons.push(`patch not found: ${patch}`);
+        drop(CANDIDATE_DROP.PATCH_MISSING, `patch not found: ${patch}`);
+      }
+    }
+    const relatedRaw = c['related'];
+    const related: string[] = [];
+    if (relatedRaw !== undefined && relatedRaw !== null) {
+      const items = Array.isArray(relatedRaw) ? relatedRaw : [relatedRaw];
+      for (const r of items) {
+        if (typeof r !== 'string' || !CANDIDATE_ID_RE.test(r) || r === id || !fileIds.has(r)) {
+          drop(CANDIDATE_DROP.INVALID_RELATED, `invalid-related: ${JSON.stringify(r)} is not another candidate of this file`);
+        } else if (!related.includes(r)) {
+          related.push(r);
+        }
+      }
+    }
+    for (const r of recurring) {
+      if (!r.signals.some(s => signals.includes(s))) continue;
+      const ref = `retro:${r.retro}:${r.candidate}`;
+      if (!signals.includes(ref)) {
+        drop(CANDIDATE_DROP.RECURRING_UNCITED, `recurring-uncited: its signals came back from ${r.retro} ${r.candidate}; cite ${ref} and say what became of it`);
+      } else if (r.escalate && c['severity'] !== 'high') {
+        drop(CANDIDATE_DROP.RECURRING_NOT_ESCALATED, `recurring-not-escalated: ${ref} was not applied and its signals grew, so this candidate is high`);
       }
     }
     if (reasons.length > 0) {
-      dropped.push({ id, reasons });
+      dropped.push({ id, reasons, codes });
       return;
     }
     valid.push({
       id,
       severity: c['severity'] as RetroCandidate['severity'],
       category,
+      layer,
+      layerDeclared,
       title: c['title'] as string,
       signals,
       existing: nullableString(c['existing']),
@@ -597,10 +923,183 @@ export function validateCandidates(raw: unknown, evidence: EvidenceIndex, opts: 
       change: c['change'] as string,
       patch,
       verify,
-      route: CANDIDATE_ROUTE[category],
+      related,
+      route: candidateRoute(layer, category),
+      notes,
     });
   });
   const rank = (s: string) => (CANDIDATE_SEVERITIES as readonly string[]).indexOf(s);
   valid.sort((a, b) => rank(a.severity) - rank(b.severity) || Number(a.id.slice(5)) - Number(b.id.slice(5)));
-  return { valid, dropped };
+  return { version, valid, dropped };
+}
+
+// ─── Earlier proposals ────────────────────────────────────────────────────────
+
+/**
+ * What a signal is about, stable across sessions: its kind and key. A signal's
+ * `id` also hashes its first pointer (`file:line` of one transcript), so the
+ * same friction in another session has another id; the fingerprint is how a
+ * retro recognises it. A signal without a key has no subject to recognise.
+ */
+export function signalFingerprint(kind: string, key: string | null | undefined): string | null {
+  if (typeof key !== 'string' || key.trim() === '') return null;
+  return `${kind}:${crypto.createHash('sha1').update(`${kind}\u0000${key}`).digest('hex').slice(0, 10)}`;
+}
+
+/** The part of a bundle signal recurrence reads. */
+export interface SignalFacts {
+  id: string;
+  kind: string;
+  key: string | null;
+  count: number;
+}
+
+/** A candidate an earlier retro of this project proposed. */
+export interface PastProposal {
+  retro: string;
+  candidate: string;
+  title: string;
+  layer: CandidateLayer;
+  /** The signal ids it cited. */
+  signals: string[];
+  /** Those signals as that retro's bundle recorded them; null when the bundle is gone. */
+  facts: SignalFacts[] | null;
+}
+
+const SIGNAL_REF_RE = /^[a-z][a-z0-9-]{0,40}:[0-9a-f]{6,16}$/;
+
+/** The signals a bundle's report carries (only `signals[]` has keys and counts). */
+export function bundleSignalFacts(bundle: unknown): SignalFacts[] {
+  const report = (bundle as { report?: { signals?: unknown } } | null)?.report;
+  const list = Array.isArray(report?.signals) ? report.signals as Array<Record<string, unknown>> : [];
+  return list
+    .filter(s => s && typeof s['id'] === 'string' && typeof s['kind'] === 'string')
+    .map(s => ({ id: s['id'] as string, kind: s['kind'] as string, key: typeof s['key'] === 'string' ? s['key'] : null, count: typeof s['count'] === 'number' ? s['count'] : 0 }));
+}
+
+function readBundleFacts(projectRoot: string, stem: string): SignalFacts[] | null {
+  try {
+    return bundleSignalFacts(JSON.parse(fs.readFileSync(path.join(projectRoot, retroPathsFor(projectRoot, stem).bundle), 'utf8')));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The candidates of every earlier retro on disk (not `currentStem`), read as
+ * written: an unreadable file contributes nothing, a candidate without a
+ * layer is `project`. What their signals were about comes from that retro's
+ * bundle under `.work/`, which stays on the machine that ran it.
+ */
+export function readPastProposals(projectRoot: string, currentStem: string | null): PastProposal[] {
+  const out: PastProposal[] = [];
+  for (const stem of retroStemsOnDisk(projectRoot)) {
+    if (stem === currentStem) continue;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(fs.readFileSync(path.join(projectRoot, retroPathsFor(projectRoot, stem).candidates), 'utf8'));
+    } catch {
+      continue;
+    }
+    const list = raw && typeof raw === 'object' && Array.isArray((raw as { candidates?: unknown }).candidates) ? (raw as { candidates: unknown[] }).candidates : [];
+    let facts: SignalFacts[] | null | undefined;
+    for (const item of list) {
+      const c = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+      if (typeof c['id'] !== 'string' || !CANDIDATE_ID_RE.test(c['id'])) continue;
+      const signals = Array.isArray(c['signals']) ? (c['signals'] as unknown[]).filter((s): s is string => typeof s === 'string' && SIGNAL_REF_RE.test(s)) : [];
+      if (signals.length === 0) continue;
+      if (facts === undefined) facts = readBundleFacts(projectRoot, stem);
+      const layer = typeof c['layer'] === 'string' && (CANDIDATE_LAYERS as readonly string[]).includes(c['layer']) ? c['layer'] as CandidateLayer : 'project';
+      out.push({
+        retro: stem,
+        candidate: c['id'],
+        title: typeof c['title'] === 'string' ? c['title'] : '',
+        layer,
+        signals,
+        facts: facts === null ? null : facts.filter(f => signals.includes(f.id)),
+      });
+    }
+  }
+  return out;
+}
+
+export type AppliedSource = 'runs' | 'checks' | 'lessons';
+
+/** An earlier proposal whose signals this retro saw again (the bundle's `recurring.items[]`). */
+export interface RecurringEntry {
+  retro: string;
+  candidate: string;
+  title: string;
+  layer: CandidateLayer;
+  /** THIS retro's signal ids that are the same friction (same kind and key). */
+  signals: string[];
+  /** Whether a human applied it, and which journal says so. */
+  applied: boolean;
+  appliedBy: AppliedSource | null;
+  /** The matched signals' summed count then and now. */
+  countThen: number;
+  countNow: number;
+  /** Not applied and grown: a candidate answering it must be `high` (ADR-5209 §10). */
+  escalate: boolean;
+}
+
+export const MAX_RECURRING = 30;
+
+/**
+ * Compare this retro's signals with the earlier proposals. Code decides what
+ * recurred (same signal fingerprint: kind and key) and whether it was applied
+ * (`stem:cand` in the runs, checks or lessons journal); the analyst says what
+ * that means. An earlier retro whose bundle is gone cannot be compared and is
+ * named in `unreadable`. Newest retro first, at most `max`.
+ */
+export function computeRecurring(input: {
+  current: readonly SignalFacts[];
+  past: readonly PastProposal[];
+  applied: Readonly<Record<AppliedSource, ReadonlySet<string>>>;
+  max?: number;
+}): { items: RecurringEntry[]; omitted: number; unreadable: string[] } {
+  const now = new Map<string, SignalFacts[]>();
+  for (const s of input.current) {
+    const fp = signalFingerprint(s.kind, s.key);
+    if (fp === null) continue;
+    now.set(fp, [...(now.get(fp) ?? []), s]);
+  }
+  const entries: RecurringEntry[] = [];
+  const unreadable = new Set<string>();
+  for (const p of input.past) {
+    if (p.facts === null) {
+      unreadable.add(p.retro);
+      continue;
+    }
+    const matchedThen = p.facts.filter(f => { const fp = signalFingerprint(f.kind, f.key); return fp !== null && now.has(fp); });
+    if (matchedThen.length === 0) continue;
+    const fps = new Set(matchedThen.map(f => signalFingerprint(f.kind, f.key) as string));
+    const matchedNow = [...fps].flatMap(fp => now.get(fp) ?? []);
+    const key = `${p.retro}:${p.candidate}`;
+    const appliedBy = (['runs', 'checks', 'lessons'] as const).find(src => input.applied[src].has(key)) ?? null;
+    const countThen = matchedThen.reduce((n, f) => n + f.count, 0);
+    const countNow = matchedNow.reduce((n, f) => n + f.count, 0);
+    entries.push({
+      retro: p.retro,
+      candidate: p.candidate,
+      title: p.title,
+      layer: p.layer,
+      signals: [...new Set(matchedNow.map(f => f.id))],
+      applied: appliedBy !== null,
+      appliedBy,
+      countThen,
+      countNow,
+      escalate: appliedBy === null && countNow > countThen,
+    });
+  }
+  entries.sort((a, b) => compareRetroStems(b.retro, a.retro) || Number(a.candidate.slice(5)) - Number(b.candidate.slice(5)));
+  const max = Math.max(0, input.max ?? MAX_RECURRING);
+  return { items: entries.slice(0, max), omitted: Math.max(0, entries.length - max), unreadable: [...unreadable].sort(compareRetroStems) };
+}
+
+/** `stem:cand` of every check journaled from a retro candidate. */
+export function appliedFromChecks(journal: ChecksJournal): Set<string> {
+  const out = new Set<string>();
+  for (const c of journal.checks) if (c.source.retro && c.source.candidate) out.add(`${c.source.retro}:${c.source.candidate}`);
+  return out;
 }

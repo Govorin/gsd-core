@@ -66,9 +66,13 @@ function writeConfig(projectRoot, config) {
   fs.writeFileSync(path.join(projectRoot, '.planning', 'config.json'), JSON.stringify(config, null, 2));
 }
 
-/** Run `gsd-tools --json-errors retro …`; `reason` is the error's wire code, parsed from stderr. */
+/**
+ * Run `gsd-tools --json-errors retro …`; `reason` is the error's wire code,
+ * parsed from stderr. GSD_HOME is a per-test temp dir, so the lessons journal
+ * (`$GSD_HOME/.gsd/lessons/`) is never the real one.
+ */
 function retro(args, cwd, env = {}) {
-  const res = runGsdTools(['--json-errors', 'retro', ...args], cwd, { GSD_RUNTIME: 'claude', ...env });
+  const res = runGsdTools(['--json-errors', 'retro', ...args], cwd, { GSD_RUNTIME: 'claude', GSD_HOME: gsdHome, ...env });
   const last = (res.error || '').trim().split('\n').filter(Boolean).pop() || '';
   let reason = null;
   if (!res.success && last.startsWith('{')) reason = JSON.parse(last).reason;
@@ -77,13 +81,16 @@ function retro(args, cwd, env = {}) {
 
 let project;
 let sessions;
+let gsdHome;
 beforeEach(() => {
   project = createTempGitProject('gsd-retro-cli-');
   sessions = createTempDir('gsd-retro-sessions-');
+  gsdHome = createTempDir('gsd-retro-home-');
 });
 afterEach(() => {
   cleanup(project);
   cleanup(sessions);
+  cleanup(gsdHome);
 });
 
 // ─── Config surface ───────────────────────────────────────────────────────────
@@ -391,10 +398,10 @@ describe('retro candidates', () => {
     assert.equal(r.success, true, r.error);
     assert.equal(r.json.retro, prep.json.stem);
     assert.deepEqual(r.json.valid.map((c) => [c.id, c.route]).slice(0, 2), [['cand-1', 'quick'], ['cand-5', 'capture']]);
-    const dropped = Object.fromEntries(r.json.dropped.map((d) => [d.id, d.reasons.join(' | ')]));
-    assert.match(dropped['cand-2'], /^judgement-in-steering-file/);
-    assert.match(dropped['cand-3'], /^unknown-signal: repeated-call:0000000000/);
-    assert.match(dropped['cand-4'], /^missing-verify/);
+    const dropped = Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes]));
+    assert.deepEqual(dropped['cand-2'], ['judgement-in-steering-file']);
+    assert.deepEqual(dropped['cand-3'], ['unknown-signal']);
+    assert.deepEqual(dropped['cand-4'], ['missing-verify']);
 
     const one = retro(['candidates', '--id', 'cand-1'], project);
     assert.equal(one.json.candidate.route, 'quick');
@@ -408,7 +415,7 @@ describe('retro candidates', () => {
     ]);
     const r = retro(['candidates'], project);
     assert.equal(r.json.valid.length, 0);
-    assert.match(r.json.dropped[0].reasons[0], /^patch must live under/);
+    assert.deepEqual(r.json.dropped[0].codes, ['patch-outside']);
   });
 });
 
@@ -741,4 +748,231 @@ describe('decideRetro with a schedule', () => {
 test('an unknown subcommand is refused', () => {
   const r = runGsdTools(['retro', 'apply'], project);
   assert.equal(r.success, false);
+});
+
+// ─── Layers, lessons and earlier proposals (ADR-5209 §10) ─────────────────────
+
+const REPO_ROOT = path.resolve(__dirname, '..');
+const HOST_VERSION = '2.1.310';
+
+/** The struggling session as Claude Code records it, with its version on each record. */
+function versionedRecords(extraBlocks = 0) {
+  const rec = strugglingRecords().map((r) => JSON.stringify({ ...JSON.parse(r), version: HOST_VERSION }));
+  for (let i = 0; i < extraBlocks; i++) {
+    rec.push(JSON.stringify({ uuid: `x-${i}a`, timestamp: '2026-10-04T00:01:00Z', version: HOST_VERSION, type: 'assistant', message: { content: [{ type: 'tool_use', id: `hx${i}`, name: 'Bash', input: { command: 'git stash' } }] } }));
+    rec.push(JSON.stringify({ uuid: `x-${i}b`, timestamp: '2026-10-04T00:01:01Z', version: HOST_VERSION, type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: `hx${i}`, content: 'PreToolUse:Bash hook error: git stash is disabled', is_error: true }] } }));
+  }
+  return rec;
+}
+
+function prepareSession(id, records) {
+  writeSession(sessions, project, id, records);
+  const prep = retro(['prepare', '--sessions-dir', sessions, '--session', id], project);
+  assert.equal(prep.success, true, prep.error);
+  return { prep, bundle: readBundle(prep) };
+}
+
+function writeCandidates(prep, candidates, version = 2) {
+  fs.writeFileSync(path.join(project, prep.json.candidates), JSON.stringify({ version, candidates }));
+}
+
+const lessonsFile = () => path.join(gsdHome, '.gsd', 'lessons', 'LESSONS.json');
+
+describe('retro prepare: what the analyst knows about the machine and the past', () => {
+  test('the bundle names the GSD install, the runtime and its version, the lessons and the recurring proposals', () => {
+    const { prep, bundle } = prepareSession('sess-v', versionedRecords());
+    assert.equal(bundle.version, 2);
+    assert.equal(fs.realpathSync(bundle.gsd.root), fs.realpathSync(REPO_ROOT));
+    assert.equal(typeof bundle.gsd.version, 'string');
+    assert.deepEqual(bundle.host, { name: 'claude', version: HOST_VERSION });
+    assert.deepEqual([bundle.lessons.status, bundle.lessons.items, bundle.recurring.items], ['absent', [], []]);
+    assert.deepEqual([bundle.evidence.lessons, bundle.evidence.retros], [[], []]);
+    assert.deepEqual([prep.json.lessons.status, prep.json.recurring], ['absent', 0]);
+  });
+
+  test('a transcript without a version leaves host.version null', () => {
+    const { bundle } = prepareSession('sess-nov', strugglingRecords());
+    assert.deepEqual(bundle.host, { name: 'claude', version: null });
+  });
+
+  test('an unreadable lessons journal is reported as lessons-invalid and gives no lessons', () => {
+    fs.mkdirSync(path.dirname(lessonsFile()), { recursive: true });
+    fs.writeFileSync(lessonsFile(), '{ broken');
+    const { prep, bundle } = prepareSession('sess-v', versionedRecords());
+    assert.deepEqual([bundle.lessons.status, bundle.lessons.reason, bundle.lessons.items], ['invalid', 'lessons-invalid', []]);
+    assert.equal(prep.json.lessons.reason, 'lessons-invalid');
+    assert.equal(fs.readFileSync(lessonsFile(), 'utf8'), '{ broken', 'prepare never rewrites it');
+  });
+});
+
+describe('retro candidates by layer, through the CLI', () => {
+  test('each layer is checked against the machine and gets its route', () => {
+    const { prep, bundle } = prepareSession('sess-v', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader refused', signals: [hook], target: 'agents/gsd-retro-analyst.md', change: 'c', related: ['cand-2'] },
+      { id: 'cand-2', severity: 'medium', layer: 'project', category: 'navigation', title: 'stopgap', signals: [hook], target: 'CLAUDE.md', change: 'c', related: ['cand-1'] },
+      { id: 'cand-3', severity: 'medium', layer: 'host', category: 'environment', title: 'host', signals: [hook], target: `claude@${HOST_VERSION}: worktree isolation`, change: 'c' },
+      { id: 'cand-4', severity: 'medium', layer: 'user', category: 'environment', title: 'hook', signals: [hook], target: '~/.claude/settings.json', change: 'c' },
+      { id: 'cand-5', severity: 'low', layer: 'gsd', category: 'environment', title: 'nope', signals: [hook], target: 'agents/not-a-gsd-file.md', change: 'c' },
+      { id: 'cand-6', severity: 'low', layer: 'host', category: 'environment', title: 'old', signals: [hook], target: 'claude@2.0.0: x', change: 'c' },
+      { id: 'cand-7', severity: 'low', category: 'environment', title: 'no layer', signals: [hook], change: 'c' },
+    ]);
+    const r = retro(['candidates'], project);
+    assert.equal(r.success, true, r.error);
+    assert.equal(r.json.version, 2);
+    assert.deepEqual(r.json.valid.map((c) => [c.id, c.layer, c.route]), [['cand-1', 'gsd', 'lesson'], ['cand-2', 'project', 'capture'], ['cand-3', 'host', 'lesson'], ['cand-4', 'user', 'user']]);
+    assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), {
+      'cand-5': ['gsd-target-not-surface'],
+      'cand-6': ['host-target-version'],
+      'cand-7': ['missing-layer'],
+    });
+  });
+
+  test('a version-1 candidates file written before layers is still valid and routed as before', () => {
+    const { prep, bundle } = prepareSession('sess-v', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [{ id: 'cand-1', severity: 'high', category: 'environment', title: 'old shape', signals: [hook], target: 'apps/x/notes.md', change: 'c', patch: null, verify: null, existing: null }], 1);
+    const r = retro(['candidates', '--id', 'cand-1'], project);
+    assert.deepEqual([r.json.candidate.layer, r.json.candidate.layerDeclared, r.json.candidate.route], ['project', false, 'capture']);
+  });
+});
+
+describe('retro lessons', () => {
+  function gsdCandidate() {
+    const { prep, bundle } = prepareSession('sess-v', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [
+      { id: 'cand-1', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader refused in a worktree', signals: [hook, bundle.evidence.inventory[0]].filter(Boolean), target: 'agents/gsd-retro-analyst.md', change: 'use literal paths' },
+      { id: 'cand-2', severity: 'low', layer: 'project', category: 'navigation', title: 'pointer', signals: [hook], target: 'CLAUDE.md', change: 'c' },
+    ]);
+    return { prep, hook };
+  }
+
+  test('record journals a gsd candidate under GSD_HOME with an issue draft; a repeat is a duplicate', () => {
+    const { prep, hook } = gsdCandidate();
+    const rec = retro(['lessons', 'record', '--candidate', 'cand-1'], project);
+    assert.equal(rec.success, true, rec.error);
+    assert.deepEqual([rec.json.outcome, rec.json.lesson.layer, rec.json.lesson.status, rec.json.lesson.occurrences], ['created', 'gsd', 'open', 1]);
+    assert.equal(rec.json.retro, prep.json.stem);
+    const journal = JSON.parse(fs.readFileSync(lessonsFile(), 'utf8'));
+    const [lesson] = journal.lessons;
+    assert.deepEqual(lesson.occurrences[0].signals, [hook], 'signal ids only — no inventory refs, no text');
+    assert.deepEqual([lesson.occurrences[0].hostVersion, typeof lesson.occurrences[0].gsdVersion], [HOST_VERSION, 'string']);
+    assert.equal(fs.existsSync(path.join(gsdHome, '.gsd', 'lessons', 'drafts', `${lesson.id}.md`)), true);
+    assert.equal(JSON.stringify(journal).includes(SECRET), false);
+    assert.equal(retro(['lessons', 'record', '--candidate', 'cand-1'], project).json.outcome, 'duplicate');
+  });
+
+  test('a project candidate is not a lesson; an unknown or dropped candidate is a usage error', () => {
+    gsdCandidate();
+    for (const id of ['cand-2', 'cand-9']) {
+      const r = retro(['lessons', 'record', '--candidate', id], project);
+      assert.equal(r.reason, 'usage', id);
+    }
+    assert.equal(fs.existsSync(lessonsFile()), false);
+  });
+
+  test('list filters by layer and status; close marks it fixed; the next bundle carries it as evidence', () => {
+    gsdCandidate();
+    const id = retro(['lessons', 'record', '--candidate', 'cand-1'], project).json.lesson.id;
+    const all = retro(['lessons', '--json'], project);
+    assert.deepEqual([all.json.status, all.json.lessons.map((l) => [l.id, l.projects])], ['ok', [[id, 1]]]);
+    assert.deepEqual(retro(['lessons', 'list', '--layer', 'host'], project).json.lessons, []);
+    assert.equal(retro(['lessons', '--layer', 'team'], project).reason, 'usage');
+    const closed = retro(['lessons', 'close', '--id', id, '--status', 'fixed', '--fixed-in', '1.19.0'], project);
+    assert.deepEqual([closed.json.lesson.status, closed.json.lesson.fixedIn], ['fixed', '1.19.0']);
+    assert.deepEqual(retro(['lessons', '--status', 'open'], project).json.lessons, []);
+    assert.equal(retro(['lessons', 'close', '--id', id, '--status', 'maybe'], project).reason, 'usage');
+    const { bundle } = prepareSession('sess-w', versionedRecords());
+    assert.deepEqual(bundle.lessons.items.map((l) => [l.id, l.status]), [[id, 'fixed']]);
+    assert.deepEqual(bundle.evidence.lessons, [id]);
+  });
+
+  test('an invalid journal: record fails with retro_lessons_invalid and leaves it; list answers lessons-invalid', () => {
+    gsdCandidate();
+    fs.mkdirSync(path.dirname(lessonsFile()), { recursive: true });
+    fs.writeFileSync(lessonsFile(), '{"version":1,"lessons":[{"id":"bad"}]}');
+    const r = retro(['lessons', 'record', '--candidate', 'cand-1'], project);
+    assert.equal(r.reason, 'retro_lessons_invalid');
+    assert.equal(fs.readFileSync(lessonsFile(), 'utf8'), '{"version":1,"lessons":[{"id":"bad"}]}');
+    const list = retro(['lessons'], project);
+    assert.deepEqual([list.success, list.json.status, list.json.reason, list.json.lessons], [true, 'invalid', 'lessons-invalid', []]);
+  });
+
+  test('record runs under the lessons lock; a lock that cannot be had writes nothing', (t) => {
+    gsdCandidate();
+    const saved = process.env.GSD_HOME;
+    process.env.GSD_HOME = gsdHome;
+    t.after(() => { if (saved === undefined) delete process.env.GSD_HOME; else process.env.GSD_HOME = saved; });
+    const calls = [];
+    const errors = [];
+    router.routeRetroCommand({
+      args: ['retro', 'lessons', 'record', '--candidate', 'cand-1'],
+      cwd: project,
+      raw: true,
+      error: (_message, reason) => { errors.push(reason); },
+      _lessonsLock: { acquire: (p) => { calls.push(path.basename(p)); return null; }, release: () => calls.push('release') },
+    });
+    assert.deepEqual([calls, errors], [['.LESSONS.lock'], ['usage']]);
+    assert.equal(fs.existsSync(lessonsFile()), false);
+  });
+
+  test('an unknown lessons action is a usage error', () => {
+    assert.equal(retro(['lessons', 'forget'], project).reason, 'usage');
+  });
+});
+
+describe('retro applied and recurring proposals', () => {
+  function firstRetro() {
+    const { prep, bundle } = prepareSession('sess-1', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [{ id: 'cand-1', severity: 'medium', layer: 'project', category: 'navigation', title: 'pointer for the hook', signals: [hook], target: 'CLAUDE.md', change: 'c' }]);
+    return { prep, hook };
+  }
+
+  test('applied is journaled on the retro\'s run; once only', () => {
+    const { prep } = firstRetro();
+    const a = retro(['applied', '--candidate', 'cand-1'], project);
+    assert.deepEqual([a.json.recorded, a.json.already, a.json.refusal, a.json.route], [true, false, null, 'capture']);
+    const runs = JSON.parse(fs.readFileSync(path.join(project, '.planning', 'retro', 'RUNS.json'), 'utf8')).runs;
+    assert.deepEqual(runs.find((r) => r.stem === prep.json.stem).applied.map((x) => [x.candidate, x.route]), [['cand-1', 'capture']]);
+    assert.equal(retro(['applied', '--candidate', 'cand-1'], project).json.already, true);
+    assert.equal(retro(['applied', '--candidate', 'cand-7'], project).reason, 'usage');
+    assert.equal(retro(['applied'], project).reason, 'usage');
+  });
+
+  test('the same friction in a later session recurs with a new signal id; ignored and grown, it escalates', () => {
+    const { prep: first, hook } = firstRetro();
+    const { prep: second, bundle } = prepareSession('sess-2', versionedRecords(3));
+    const now = bundle.report.signals.find((s) => s.kind === 'hook-block');
+    assert.notEqual(now.id, hook, 'a signal id hashes its pointer: another session, another id');
+    assert.deepEqual(bundle.recurring.items.map((e) => [e.retro, e.candidate, e.signals, e.applied, e.countNow > e.countThen, e.escalate]),
+      [[first.json.stem, 'cand-1', [now.id], false, true, true]]);
+    assert.deepEqual(bundle.evidence.retros, [`${first.json.stem}:cand-1`]);
+    writeCandidates(second, [
+      { id: 'cand-1', severity: 'high', layer: 'project', category: 'navigation', title: 'uncited', signals: [now.id], target: 'CLAUDE.md', change: 'c' },
+      { id: 'cand-2', severity: 'medium', layer: 'project', category: 'navigation', title: 'not high', signals: [now.id, `retro:${first.json.stem}:cand-1`], target: 'CLAUDE.md', change: 'c' },
+      { id: 'cand-3', severity: 'high', layer: 'gsd', category: 'environment', title: 'the real cause', signals: [now.id, `retro:${first.json.stem}:cand-1`], target: 'agents/gsd-retro-analyst.md', change: 'c' },
+    ]);
+    const r = retro(['candidates', '--retro', second.json.stem], project);
+    assert.deepEqual(r.json.valid.map((c) => c.id), ['cand-3']);
+    assert.deepEqual(Object.fromEntries(r.json.dropped.map((d) => [d.id, d.codes])), { 'cand-1': ['recurring-uncited'], 'cand-2': ['recurring-not-escalated'] });
+  });
+
+  test('an applied proposal that recurs is applied, not escalated: the change did not work', () => {
+    firstRetro();
+    retro(['applied', '--candidate', 'cand-1'], project);
+    const { bundle } = prepareSession('sess-2', versionedRecords(3));
+    assert.deepEqual(bundle.recurring.items.map((e) => [e.applied, e.appliedBy, e.escalate]), [[true, 'runs', false]]);
+  });
+
+  test('a lesson recorded from a candidate counts as applied for that proposal', () => {
+    const { prep, bundle } = prepareSession('sess-1', versionedRecords());
+    const hook = bundle.report.signals.find((s) => s.kind === 'hook-block').id;
+    writeCandidates(prep, [{ id: 'cand-1', severity: 'high', layer: 'gsd', category: 'environment', title: 'loader', signals: [hook], target: 'agents/gsd-retro-analyst.md', change: 'c' }]);
+    assert.equal(retro(['lessons', 'record', '--candidate', 'cand-1'], project).json.outcome, 'created');
+    const later = prepareSession('sess-2', versionedRecords(3)).bundle;
+    assert.deepEqual(later.recurring.items.map((e) => [e.appliedBy, e.escalate]), [['lessons', false]]);
+  });
 });

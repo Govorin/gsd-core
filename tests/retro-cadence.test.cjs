@@ -393,3 +393,58 @@ describe('readMilestoneFacts', () => {
     assert.deepEqual(r, { stem: 'RETRO-2026-10-25', at: '2026-10-25T09:30:00.000Z', planningDir: '.planning', milestone: 'v1.2', executedPhases: ['1'] });
   });
 });
+
+// ─── Applied candidates (ADR-5209 §10) ────────────────────────────────────────
+
+describe('recordApplied: what a human applied, on the retro\'s run', () => {
+  const run = runAt('2026-10-25T10:00:00.000Z', { stem: 'RETRO-2026-10-25' });
+  const entry = (over = {}) => ({ candidate: 'cand-1', route: 'capture', at: '2026-10-26T09:00:00.000Z', ...over });
+  const freeLock = { acquire: () => ({}), release: () => {} };
+
+  test('recorded once on the run of that stem; a second time is already, unchanged', () => {
+    rc.recordRun(project, run);
+    assert.deepEqual(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock), { recorded: true, already: false, refusal: null, problems: [] });
+    const before = fs.readFileSync(rc.runsJournalPath(project), 'utf8');
+    assert.deepEqual(rc.recordApplied(project, 'RETRO-2026-10-25', entry({ at: '2026-10-27T09:00:00.000Z' }), freeLock).already, true);
+    assert.equal(fs.readFileSync(rc.runsJournalPath(project), 'utf8'), before);
+    const [r] = rc.readRunsJournal(project).journal.runs;
+    assert.deepEqual(r.applied, [entry()]);
+    assert.deepEqual([...rc.appliedFromRuns([r])], ['RETRO-2026-10-25:cand-1']);
+  });
+
+  test('the schedule still reads the run the same way', () => {
+    rc.recordRun(project, run);
+    rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock);
+    const r = rc.readRunsJournal(project);
+    assert.deepEqual([r.status, r.problems, r.journal.runs[0].executedPhases], ['ok', [], []]);
+  });
+
+  test('a journal nothing was applied from keeps its bytes (no applied key)', () => {
+    rc.recordRun(project, run);
+    const parsed = JSON.parse(fs.readFileSync(rc.runsJournalPath(project), 'utf8'));
+    assert.equal('applied' in parsed.runs[0], false);
+  });
+
+  test('no run of that stem, an invalid journal, a busy lock, a malformed entry: typed refusal, nothing written', () => {
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock).refusal, rc.APPLIED_REFUSAL.NO_RUN);
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, '{ nope');
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), freeLock).refusal, rc.APPLIED_REFUSAL.JOURNAL_INVALID);
+    assert.equal(fs.readFileSync(file, 'utf8'), '{ nope');
+    fs.unlinkSync(file);
+    rc.recordRun(project, run);
+    const busy = { acquire: () => null, release: () => {} };
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry(), busy).refusal, rc.APPLIED_REFUSAL.LOCKED);
+    assert.equal(rc.recordApplied(project, 'RETRO-2026-10-25', entry({ route: 'somewhere' }), freeLock).refusal, rc.APPLIED_REFUSAL.INVALID);
+    assert.equal(rc.readRunsJournal(project).journal.runs[0].applied, undefined);
+  });
+
+  test('a run whose applied entry is malformed makes the journal fail closed', () => {
+    const file = rc.runsJournalPath(project);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ version: 1, runs: [{ ...run, applied: [{ candidate: 'x', route: 'quick', at: 'now' }] }] }));
+    const r = rc.readRunsJournal(project);
+    assert.deepEqual([r.journal.runs.length, r.problems.length], [0, 1]);
+  });
+});

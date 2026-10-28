@@ -117,6 +117,35 @@ export interface RetroRun {
   milestone: string | null;
   /** Numbers of that milestone's phases that had finished executing then. */
   executedPhases: string[];
+  /**
+   * The candidates of this retro a human applied (`retro applied`), so a later
+   * retro can tell a proposal that was ignored from one that did not work
+   * (ADR-5209 §10). Absent when nothing was applied.
+   */
+  applied?: AppliedCandidate[];
+}
+
+/** One candidate of a retro a human routed with `/gsd-retro --apply`. */
+export interface AppliedCandidate {
+  /** `cand-<n>`. */
+  candidate: string;
+  /** Where it went: quick, capture, user (the human edited their own file) or lesson. */
+  route: string;
+  /** ISO instant it was recorded. */
+  at: string;
+}
+
+const APPLIED_CANDIDATE_RE = /^cand-[1-9]\d{0,3}$/;
+const APPLIED_ROUTES = Object.freeze(['quick', 'capture', 'user', 'lesson']);
+
+function appliedProblems(a: unknown): string[] {
+  if (!a || typeof a !== 'object') return ['applied entry is not an object'];
+  const e = a as Partial<AppliedCandidate>;
+  const problems: string[] = [];
+  if (typeof e.candidate !== 'string' || !APPLIED_CANDIDATE_RE.test(e.candidate)) problems.push(`applied candidate must be cand-<n>, got ${JSON.stringify(e.candidate)}`);
+  if (typeof e.route !== 'string' || !APPLIED_ROUTES.includes(e.route)) problems.push(`applied route must be one of ${APPLIED_ROUTES.join(', ')}, got ${JSON.stringify(e.route)}`);
+  if (typeof e.at !== 'string' || !ISO_INSTANT_RE.test(e.at) || Number.isNaN(Date.parse(e.at))) problems.push(`applied at must be an ISO instant in UTC, got ${JSON.stringify(e.at)}`);
+  return problems;
 }
 
 export interface RunsJournal {
@@ -154,6 +183,10 @@ export function runProblems(r: Partial<RetroRun> | null | undefined): string[] {
   if (!boundedString(r.planningDir)) problems.push(`planningDir must be a non-empty path, got ${JSON.stringify(r.planningDir)}`);
   if (r.milestone !== null && !boundedString(r.milestone)) problems.push(`milestone must be a version or null, got ${JSON.stringify(r.milestone)}`);
   if (!Array.isArray(r.executedPhases) || !r.executedPhases.every(boundedString)) problems.push('executedPhases must be an array of phase numbers');
+  if (r.applied !== undefined) {
+    if (!Array.isArray(r.applied)) problems.push('applied must be an array');
+    else r.applied.forEach((a, i) => { for (const p of appliedProblems(a)) problems.push(`applied[${i}]: ${p}`); });
+  }
   return problems;
 }
 
@@ -187,6 +220,7 @@ export function parseRunsJournal(text: string): RunsJournalRead {
       planningDir: r.planningDir as string,
       milestone: r.milestone ?? null,
       executedPhases: [...(r.executedPhases as string[])],
+      ...(Array.isArray(r.applied) && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
     });
   });
   return { status: 'ok', journal: { version: 1, runs }, problems };
@@ -211,6 +245,8 @@ export function formatRunsJournal(journal: RunsJournal): string {
     planningDir: r.planningDir,
     milestone: r.milestone,
     executedPhases: [...r.executedPhases],
+    // Written only when there is one: a journal nothing was applied from keeps its bytes.
+    ...(r.applied && r.applied.length > 0 ? { applied: r.applied.map(a => ({ candidate: a.candidate, route: a.route, at: a.at })) } : {}),
   }));
   return `${JSON.stringify({ version: 1, runs }, null, 2)}\n`;
 }
@@ -443,6 +479,55 @@ export function recordRun(projectRoot: string, run: RetroRun, lock: JournalLock 
     return { recorded: true, problems: [] };
   }, lock);
   return locked.ok ? locked.value : { recorded: false, problems: [locked.reason] };
+}
+
+/** Why `recordApplied` wrote nothing. */
+export const APPLIED_REFUSAL = Object.freeze({
+  JOURNAL_INVALID: 'journal-invalid',
+  NO_RUN: 'no-run',
+  LOCKED: 'locked',
+  INVALID: 'invalid',
+} as const);
+export type AppliedRefusal = typeof APPLIED_REFUSAL[keyof typeof APPLIED_REFUSAL];
+
+/**
+ * Journal that a human applied a candidate of the retro `stem`, on that
+ * retro's run. Applying the same candidate twice keeps the first record. The
+ * same rules as `recordRun`: under the lock, and a journal that cannot be read
+ * whole is left as it is. A retro with no run (held before RUNS.json existed)
+ * cannot take one: a run invented now would restart the schedule's count.
+ */
+export function recordApplied(
+  projectRoot: string,
+  stem: string,
+  entry: AppliedCandidate,
+  lock: JournalLock = defaultJournalLock,
+): { recorded: boolean; already: boolean; refusal: AppliedRefusal | null; problems: string[] } {
+  const bad = appliedProblems(entry);
+  if (bad.length > 0) return { recorded: false, already: false, refusal: APPLIED_REFUSAL.INVALID, problems: bad };
+  const file = runsJournalPath(projectRoot);
+  const locked = withJournalLock(journalLockPath(projectRoot, file), () => {
+    const read = readRunsJournal(projectRoot);
+    if (read.status === 'invalid' || read.problems.length > 0) {
+      return { recorded: false, already: false, refusal: APPLIED_REFUSAL.JOURNAL_INVALID, problems: [...read.problems, `${posixRel(projectRoot, file)} left unchanged`] };
+    }
+    const runs = read.journal.runs;
+    const index = runs.map(r => r.stem).lastIndexOf(stem);
+    if (index < 0) return { recorded: false, already: false, refusal: APPLIED_REFUSAL.NO_RUN, problems: [`no run of ${stem} in ${posixRel(projectRoot, file)}`] };
+    const run = runs[index];
+    if ((run.applied ?? []).some(a => a.candidate === entry.candidate)) return { recorded: false, already: true, refusal: null, problems: [] };
+    const next = runs.map((r, i) => (i === index ? { ...r, applied: [...(r.applied ?? []), entry] } : r));
+    writeTextAtomic(file, formatRunsJournal({ version: 1, runs: next }));
+    return { recorded: true, already: false, refusal: null, problems: [] };
+  }, lock);
+  return locked.ok ? locked.value : { recorded: false, already: false, refusal: APPLIED_REFUSAL.LOCKED, problems: [locked.reason] };
+}
+
+/** `stem:cand` of every candidate the runs journal records as applied. */
+export function appliedFromRuns(runs: readonly RetroRun[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of runs) for (const a of r.applied ?? []) out.add(`${r.stem}:${a.candidate}`);
+  return out;
 }
 
 export function runsJournalRelPath(projectRoot: string): string {

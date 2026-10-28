@@ -362,6 +362,7 @@ build/
 /gsd-core/bin/lib/retro-inventory.cjs
 /gsd-core/bin/lib/retro-artifacts.cjs
 /gsd-core/bin/lib/retro-cadence.cjs
+/gsd-core/bin/lib/retro-lessons.cjs
 /gsd-core/bin/lib/retro-command-router.cjs
 /gsd-core/bin/lib/roadmap-upgrade.cjs
 /gsd-core/bin/lib/phases-command-router.cjs

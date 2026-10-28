@@ -404,6 +404,10 @@ const ERROR_REASON = Object.freeze({
   // `arch cards|report|decide`: the survey step's input (metrics, cards, candidates)
   // has not been written yet — run the earlier step first.
   ARCH_INPUT_UNAVAILABLE: 'arch_input_unavailable',
+  // `retro lessons record|close` (ADR-5209 §10): ~/.gsd/lessons/LESSONS.json is not
+  // JSON, not the envelope, or holds a malformed lesson — the journal fails closed
+  // and is never rewritten, which is never an edit that silently did nothing.
+  RETRO_LESSONS_INVALID: 'retro_lessons_invalid',
   // generic
   USAGE: 'usage',
   UNKNOWN: 'unknown',
@@ -554,6 +558,8 @@ const REASON_TO_OUTCOME: Readonly<Record<string, string>> = Object.freeze({
   [ERROR_REASON.WINDOW_REVIEW_UNRESOLVABLE]: 'UNAVAILABLE',
   // An architecture survey step ran before the step that writes its input.
   [ERROR_REASON.ARCH_INPUT_UNAVAILABLE]: 'UNAVAILABLE',
+  // The lessons journal cannot be read whole, so it was not edited.
+  [ERROR_REASON.RETRO_LESSONS_INVALID]: 'UNAVAILABLE',
 
   // Self-failure: the run itself broke, not its inputs.
   [ERROR_REASON.SDK_FAIL_FAST]: 'INTERNAL',
