@@ -667,7 +667,14 @@ Proceed to state updates only after `## Self-Check: PASSED`.
 </self_check>
 
 <state_updates>
-After SUMMARY.md, update STATE.md using `gsd-tools query` state handlers (named flags):
+After SUMMARY.md, update ROADMAP.md progress FIRST, then STATE.md. The ROADMAP write is the step that can decline (`missing_phase_details`), and a decline stops the plan before any STATE.md write, so STATE.md never advances past a plan the ROADMAP did not record:
+
+```bash
+# Update ROADMAP.md progress for this phase (plan counts, status). A decline stops here, before STATE.md moves.
+PROGRESS=$(gsd_run query roadmap.update-plan-progress "${PHASE_NUMBER}") && REASON=$(jq -er '.reason//""' <<<"$PROGRESS") && [ "$REASON" != missing_phase_details ] || { echo "ERROR: ROADMAP update-plan-progress did not complete for ${PHASE_NUMBER}-${PLAN} (missing_phase_details decline, failed query, or jq not installed). STOP: skip this plan's completion steps." >&2; exit 1; }
+```
+
+Then update STATE.md using `gsd-tools query` state handlers (named flags):
 
 **Merge, never overwrite — hard rule.** Every write below is a field-level merge through the handlers. Never `Write` or `Edit` STATE.md whole, never re-emit a field you were not asked to change, and carry every key forward — including ones you do not recognise. No handler fits → `state.add-blocker`, never a hand-edit. Key list and why: `__GSD_PI_ENGINE_ROOT__/gsd-core/references/executor-plan-status.md`.
 
@@ -696,9 +703,6 @@ gsd_run query state.record-session \
 ```
 
 ```bash
-# Update ROADMAP.md progress for this phase (plan counts, status)
-gsd_run query roadmap.update-plan-progress "${PHASE_NUMBER}"
-
 # Mark completed requirements (see Requirement IDs below)
 gsd_run query requirements.mark-complete ${REQ_IDS}
 ```

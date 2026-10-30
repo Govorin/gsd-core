@@ -1,7 +1,7 @@
 {
   "id": "mn-code-navigation",
   "role": "feature",
-  "version": "1.18.0",
+  "version": "1.19.0",
   "title": "Code-navigation MCP grants",
   "description": "Grants the code-reading agents the three code-navigation MCP families (atlas, serena, codebase-memory) at install time, so agents/*.md keeps upstream's tools: line byte for byte. agentTools is the one place the grant set and the agents it goes to are declared: the installer appends the grants to each listed agent's tools: before the runtime converter runs (the same pre-converter step as the user's agent_tools, which follows it), so every runtime keeps the representation its converter gives an MCP grant — Claude, Copilot, Hermes, Kimi Code, Qwen and Codex keep the names, Kilo maps them to permissions, the other converters drop them — exactly as when the grants were written into agents/*.md. A grant the agent already declares is not added twice. Only this frozen first-party registry is read: an installed overlay capability can never widen a first-party agent (ADR-1244 D2). Setting code_navigation.enabled to false in ~/.gsd/defaults.json or the nearest .planning/config.json and re-running the install drops the grants.",
   "tier": "full",

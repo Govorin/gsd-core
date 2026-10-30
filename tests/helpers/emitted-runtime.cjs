@@ -900,6 +900,21 @@ function extractSquashBuriedTrailers(rawBody, { cwd, timeoutMs }) {
   return recovered;
 }
 
+// #5734: `.github/workflows/release.yml` titles the release -> main merge PR
+// `chore: merge release v<version> to main`, and GitHub appends ` (#<pr>)` when it
+// squashes it. That one commit re-carries every acknowledgment its squashed commits
+// already had checked against their own diff when they landed on `next`, so in the
+// main -> next back-merge range it is history, not a declaration about that PR's own
+// diff — and two release commits that acknowledged one key with different reasons
+// would read as an ambiguous declaration. Anchored whole-subject match: a subject that
+// merely mentions a release merge is an ordinary commit and keeps its acks.
+const RELEASE_MERGE_SUBJECT_RE = /^chore: merge release v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)? to main(?: \(#\d+\))?$/;
+
+/** True iff `subject` is the release -> main merge commit's subject. */
+function isReleaseMergeSubject(subject) {
+  return RELEASE_MERGE_SUBJECT_RE.test(String(subject).trim());
+}
+
 // Record/field/value separators for the `git log --format` trailer extraction below.
 // ASCII control characters (RS/US/GS) so they can never collide with real trailer
 // content, following the precedent at gsd-core/workflows/ship.md:312 (`%x1f`/`%x1e` for
@@ -968,7 +983,10 @@ function readAckTrailers({ baseRef, headRef = 'HEAD', cwd = REPO_ROOT, timeoutMs
   // of splitting into separate entries (silent data loss — the exact failure class
   // `MAX_ACK_TRAILERS` exists to prevent). Fixed by emitting the `%x` escape.
   const ackValueSepHex = `%x${ACK_TRAILER_VALUE_SEP.codePointAt(0).toString(16).padStart(2, '0')}`;
-  const format = ACK_TRAILER_RECORD_SEP + ACK_TRAILER_NAMES
+  // The subject leads each record (#5734) so a release -> main merge commit can be
+  // recognised and left out; see `isReleaseMergeSubject`. The trailer fields follow it
+  // in `ACK_TRAILER_NAMES` order.
+  const format = `${ACK_TRAILER_RECORD_SEP}%s${ACK_TRAILER_FIELD_SEP}` + ACK_TRAILER_NAMES
     .map((name) => `%(trailers:key=${name},valueonly,separator=${ackValueSepHex})`)
     .join(ACK_TRAILER_FIELD_SEP);
   const rangeArgs = ['log', '--reverse', '--topo-order', `${mergeBase}..${headRef}`];
@@ -983,11 +1001,16 @@ function readAckTrailers({ baseRef, headRef = 'HEAD', cwd = REPO_ROOT, timeoutMs
   const normalized = raw.replace(/\r/g, '');
   // index 0 is the (empty) text before the FIRST record separator — every real record
   // starts with one, by construction of the `--format` string above.
+  // Every commit keeps its slot (release merges included) so record i still pairs with
+  // body record i below; a release merge is dropped only after the pairing.
   const commits = normalized.split(ACK_TRAILER_RECORD_SEP).slice(1).map((record) => {
-    const fields = record.replace(/\n+$/, '').split(ACK_TRAILER_FIELD_SEP); // git's own between-commit newline
-    return Object.fromEntries(ACK_TRAILER_NAMES.map((name, i) => [
-      name, (fields[i] || '').split(ACK_TRAILER_VALUE_SEP).filter((v) => v !== ''),
-    ]));
+    const [subject = '', ...fields] = record.replace(/\n+$/, '').split(ACK_TRAILER_FIELD_SEP); // git's own between-commit newline
+    return {
+      releaseMerge: isReleaseMergeSubject(subject),
+      acks: Object.fromEntries(ACK_TRAILER_NAMES.map((name, i) => [
+        name, (fields[i] || '').split(ACK_TRAILER_VALUE_SEP).filter((v) => v !== ''),
+      ])),
+    };
   });
 
   // #4454 follow-on: recover any ack trailer the whole-message pass above cannot see
@@ -1012,16 +1035,19 @@ function readAckTrailers({ baseRef, headRef = 'HEAD', cwd = REPO_ROOT, timeoutMs
     );
   }
   bodyRecords.forEach((body, i) => {
+    // #5734: record i is the same commit in both passes, so the `%s` classification holds.
+    if (commits[i].releaseMerge) return;
     const recovered = extractSquashBuriedTrailers(body, { cwd, timeoutMs });
     for (const name of ACK_TRAILER_NAMES) {
       // A value both passes saw on the SAME commit is one declaration, not two: for an
       // ack the parser would dedupe it anyway, but a withdrawal seen twice would read as
       // "withdrawn twice".
-      for (const v of recovered[name]) if (!commits[i][name].includes(v)) commits[i][name].push(v);
+      for (const v of recovered[name]) if (!commits[i].acks[name].includes(v)) commits[i].acks[name].push(v);
     }
   });
 
-  return parseAckTrailerSequence(commits);
+  // #5734: the release -> main merge commit is history, not a declaration — left out.
+  return parseAckTrailerSequence(commits.filter((c) => !c.releaseMerge).map((c) => c.acks));
 }
 
 /**
@@ -1072,6 +1098,7 @@ function resolveAttributionInputs(attributionBase, {
 
 module.exports = {
   REPO_ROOT,
+  isReleaseMergeSubject,
   FIXTURE_SUBDIR,
   MANIFEST_FAMILIES,
   MINIMUM_MANIFEST_FAMILIES,

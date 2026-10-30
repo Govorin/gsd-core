@@ -198,6 +198,8 @@ export default tseslint.config(
       'gsd-core/bin/lib/pr-branch-patterns.cjs',
       // #4984: tsc-generated — lint the src/undo-commit-selection.cts source.
       'gsd-core/bin/lib/undo-commit-selection.cjs',
+      // #5705: tsc-generated — lint the src/milestone-release-tags.cts source.
+      'gsd-core/bin/lib/milestone-release-tags.cjs',
       // #4145: tsc-generated runtime artifact — lint the src/pristine-baseline.cts source.
       'gsd-core/bin/lib/pristine-baseline.cjs',
       'gsd-core/bin/lib/ui-consideration-probe.cjs',
@@ -209,6 +211,7 @@ export default tseslint.config(
       // issue #1953: tsc-generated runtime artifact — lint the src/refactor-trigger-command-router.cts source.
       'gsd-core/bin/lib/refactor-trigger-command-router.cjs',
       'gsd-core/bin/lib/api-coverage.cjs',
+      'gsd-core/bin/lib/args-terminator.cjs',
       'gsd-core/bin/lib/artifacts.cjs',
       'gsd-core/bin/lib/assumption-delta.cjs',
       'gsd-core/bin/lib/state-transition.cjs',
@@ -361,6 +364,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/quick-batch-dispatch.cjs',
       'gsd-core/bin/lib/quick-batch-command-router.cjs',
       'gsd-core/bin/lib/roadmap-parser.cjs',
+      'gsd-core/bin/lib/roadmap-progress.cjs',
       'gsd-core/bin/lib/drift.cjs',
       'gsd-core/bin/lib/cjs-command-router-adapter.cjs',
       'gsd-core/bin/lib/phase-command-router.cjs',
@@ -392,6 +396,10 @@ export default tseslint.config(
       'gsd-core/bin/lib/commands.cjs',
       'gsd-core/bin/lib/state.cjs',
       'gsd-core/bin/lib/milestone.cjs',
+      // #5706: tsc-generated runtime artifact — lint src/milestone-release-map.cts, not this.
+      'gsd-core/bin/lib/milestone-release-map.cjs',
+      // #5763: tsc-generated runtime artifact — lint src/phase-entry-grammar.cts, not this.
+      'gsd-core/bin/lib/phase-entry-grammar.cjs',
       'gsd-core/bin/lib/phase.cjs',
       'gsd-core/bin/lib/verify.cjs',
       'gsd-core/bin/lib/verify-gates.cjs',

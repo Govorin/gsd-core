@@ -2,7 +2,7 @@
 
 # complete-milestone
 
-Источник: `gsd-core/workflows/complete-milestone.md`. Единицы: 14 шагов `<step>`, 2 секции `gsd:section`. Спавнов: 0. Точки цикла: `milestone:pre`, `milestone:post`.
+Источник: `gsd-core/workflows/complete-milestone.md`. Единицы: 15 шагов `<step>`, 2 секции `gsd:section`. Спавнов: 0. Точки цикла: `milestone:pre`, `milestone:post`.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 6; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 3.
 
@@ -28,6 +28,7 @@ flowchart TB
   u_step_update_state["update_state"]
   u_step_handle_branches["handle_branches"]
   u_section_git_tag("§ git-tag"):::conditional
+  u_step_push_release_tags["push_release_tags"]
   u_step_git_commit_milestone["git_commit_milestone"]
   u_step_milestone_post_hooks["milestone_post_hooks"]
   u_step_offer_next["offer_next"]
@@ -44,7 +45,8 @@ flowchart TB
   u_step_write_retrospective --> u_step_update_state
   u_step_update_state --> u_step_handle_branches
   u_step_handle_branches -->|"when#58; state#58;git-create-tag"| u_section_git_tag
-  u_section_git_tag --> u_step_git_commit_milestone
+  u_section_git_tag --> u_step_push_release_tags
+  u_step_push_release_tags --> u_step_git_commit_milestone
   u_step_git_commit_milestone --> u_step_milestone_post_hooks
   u_step_milestone_post_hooks --> u_step_offer_next
   u_step_verify_readiness -.->|"goto"| u_step_gather_stats
@@ -102,15 +104,16 @@ flowchart LR
 | 5 | `extract_accomplishments` | step |  |  |  |  |
 | 6 | `create_milestone_entry` | step |  |  |  |  |
 | 7 | `project-md-evolution-review` | section | when: state:flat-mode |  |  | `complete-milestone/steps/project-md-evolution-review.md` |
-| 8 | `archive_milestone` | step |  |  |  |  |
+| 8 | `archive_milestone` | step |  |  |  | `complete-milestone/steps/release-map.md` |
 | 9 | `reorganize_roadmap_and_delete_originals` | step |  |  |  |  |
 | 10 | `write_retrospective` | step |  |  |  |  |
 | 11 | `update_state` | step |  |  |  |  |
 | 12 | `handle_branches` | step |  |  |  | `complete-milestone/detail/elaboration.md` |
 | 13 | `git-tag` | section | when: state:git-create-tag |  |  | `complete-milestone/steps/git-tag.md` |
-| 14 | `git_commit_milestone` | step |  |  |  |  |
-| 15 | `milestone_post_hooks` | step |  |  | `milestone:post` |  |
-| 16 | `offer_next` | step |  |  |  |  |
+| 14 | `push_release_tags` | step |  |  |  | `complete-milestone/steps/release-map.md` |
+| 15 | `git_commit_milestone` | step |  |  |  |  |
+| 16 | `milestone_post_hooks` | step |  |  | `milestone:post` |  |
+| 17 | `offer_next` | step |  |  |  |  |
 
 ## Дефекты
 

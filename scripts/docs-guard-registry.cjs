@@ -163,6 +163,7 @@ const DOCS_GUARD_TESTS = {
     'docs/COMMANDS.md',
     'docs/how-to/run-phases-autonomously.md',
   ],
+  'tests/adr-612-bracket-new-project-config.test.cjs': ['docs/CONFIGURATION.md'],
   // Walks docs/adr/ as a directory (builds/reads docs/adr/README.md and
   // fixture ADRs throughout) and separately reads docs/contributor-standards.md.
   'tests/adr-index-gate.test.cjs': ['docs/adr/', 'docs/contributor-standards.md'],
@@ -180,6 +181,9 @@ const DOCS_GUARD_TESTS = {
   // artifact registry (reads docs/FEATURES.md around the extract-learnings
   // entry).
   'tests/learnings.test.cjs': ['docs/FEATURES.md'],
+  // #5706: pins the release map statuses / tag states in docs/CONFIGURATION.md
+  // against the milestone-release-map module's exported enums.
+  'tests/milestone-release-map.test.cjs': ['docs/CONFIGURATION.md'],
   'tests/analyze-dependencies.test.cjs': ['docs/COMMANDS.md'],
   'tests/auto-select-attribute.test.cjs': ['docs/reference/plan-md.md'],
   'tests/autonomous-converge.test.cjs': [
@@ -206,6 +210,7 @@ const DOCS_GUARD_TESTS = {
   // files without re-deriving the scan's own file-discovery logic.
   'tests/commit-files-pathspec.test.cjs': ['*'],
   'tests/compact-content-4139.test.cjs': ['docs/CONFIGURATION.md'],
+  'tests/complete-milestone-release-map-routing.test.cjs': ['docs/README.md', 'docs/how-to/tag-a-multi-repo-milestone.md'],
   'tests/config-field-docs.test.cjs': ['docs/CONFIGURATION.md'],
   'tests/config.test.cjs': ['docs/CONFIGURATION.md'],
   // #4974: doc/workflow content-parity checks read docs/CONFIGURATION.md's

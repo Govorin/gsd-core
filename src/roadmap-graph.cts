@@ -48,6 +48,7 @@ import {
 } from './mermaid.cjs';
 import type { ClassDef, FlowEdge, FlowNode, FlowSubgraph, FlowchartSpec, GanttSection, GanttSpec } from './mermaid.cjs';
 import { DISK_STATUS } from './phase-status.cjs';
+import { locateRoadmapProgress } from './roadmap-progress.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- roadmap.cjs is an export= CommonJS module
 import roadmapMod = require('./roadmap.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- roadmap-parser.cjs is an export= CommonJS module
@@ -574,7 +575,8 @@ export function readRoadmapGraphInput(cwd: string, scope: RoadmapGraphScope): Re
  * cannot hand one milestone's date to another's phase.
  */
 function completionDates(roadmapText: string): (phaseKey: string, version: string | null) => string | null {
-  const table = roadmapParser.findRoadmapProgressTable(roadmapText);
+  // #5761: the one owner of which table is the Progress table.
+  const { table } = locateRoadmapProgress(roadmapText);
   const byKey = new Map<string, string>();
   if (table !== null) {
     for (const row of table.rows) {
