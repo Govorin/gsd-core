@@ -60,6 +60,9 @@ const { getMilestoneFromPhaseId, matchPhaseDirs, normalizePhaseName, extractPhas
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- the single owner of the persisted status vocabulary
 import stateDocumentMod = require('../state-document.cjs');
 const { normalizeStateStatus } = stateDocumentMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import stateMdSchemaMod = require('../state-md-schema.cjs');
+const { isMilestoneClosedStatus } = stateMdSchemaMod;
 
 // ─── W024 — STATE.md commit-age freshness (DELIBERATELY INERT) ─────────────
 
@@ -350,7 +353,7 @@ const RULE_W026: Rule = {
   repairable: false,
   check: (snapshot: PlanningSnapshot): Diagnostic[] => {
     const statusVal = (snapshot.stateStatus.value ?? '').trim().toLowerCase();
-    if (!/milestone complete|archived/.test(statusVal)) return [];
+    if (!isMilestoneClosedStatus(statusVal) && !/milestone complete|archived/.test(statusVal)) return [];
 
     // `currentMilestoneRoadmapPhaseIds` is already scoped to the current
     // milestone (`extractCurrentMilestone(roadmapRaw, cwd)`, the same

@@ -15,6 +15,8 @@ import { clampPercent } from './phase-lifecycle.cjs';
 // importing them here does not violate this module's "No I/O. No async."
 // contract.
 import { phaseStatusFromFacts, toWireStatus } from './phase-status.cjs';
+// `state-md-schema.cjs` is a load-time leaf too: the status lifecycle vocabulary.
+import { isMilestoneClosedStatus } from './state-md-schema.cjs';
 // #5118: type-only (erased) — this module stays I/O- and import-free at load.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import type verificationTypes = require('./verification.cjs');
@@ -85,7 +87,7 @@ export function isCompletedInventory(status: unknown): boolean {
       ? String(status)
       : ''
   ).trim().toLowerCase();
-  return /\bmilestone\s+complete\b/.test(s) || /\barchived\b/.test(s);
+  return isMilestoneClosedStatus(s) || /\bmilestone\s+complete\b/.test(s) || /\barchived\b/.test(s);
 }
 
 export interface PhaseFilesCount {

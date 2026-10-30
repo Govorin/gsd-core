@@ -58,6 +58,9 @@ const { extractCurrentMilestone, scanMilestonePhaseIds } = roadmapParser;
 import stateDocument = require('./state-document.cjs');
 const { stateFieldValue } = stateDocument;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+import stateMdSchema = require('./state-md-schema.cjs');
+const { isMilestoneClosedStatus } = stateMdSchema;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import phaseId = require('./phase-id.cjs');
 const { comparePhaseNum, extractPhaseToken, matchPhaseDirs, normalizePhaseName, parsePhaseFromProse, stripProjectCodePrefix } = phaseId;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -650,6 +653,10 @@ export function classify(s: SmartEntrySignals): Situation {
   if (s.paused) return 'paused';
   if (s.blockers.length > 0) return 'blocked';
   if (s.verify_failed) return 'verify-failed';
+  // ADR-2207: only the milestone-close verb writes these, after archiving the
+  // milestone's phases, so the phase counts no longer describe it and a
+  // closed milestone is not one that needs its first phase.
+  if (isMilestoneClosedStatus(s.status)) return 'complete';
   if (s.total_phases === null || s.total_phases <= 0 || !s.has_roadmap) return 'needs-first-phase';
   if (isComplete(s)) return 'complete';
   if (/\bplanning|planned\b/i.test(s.status)) return 'planning';

@@ -3777,6 +3777,33 @@ Phase: Milestone v1.3 complete
       `W026 fixture must not also fire W021: ${JSON.stringify(warnings.map(w => w.code))}`
     );
   });
+
+  // milestone close leaves "Awaiting next milestone" in the frontmatter of
+  // the shipped template, where Current Position holds the only Status field.
+  test('validate health emits W026 when STATE says "Awaiting next milestone" but ROADMAP has unstarted phases', () => {
+    const planning = path.join(tmpDir, '.planning');
+    fs.writeFileSync(path.join(planning, 'ROADMAP.md'), ROADMAP_DETAILS_SUMMARY, 'utf-8');
+    fs.writeFileSync(path.join(planning, 'STATE.md'), `---
+gsd_state_version: 1.0
+milestone: v1.3
+milestone_name: Active Sprint
+status: Awaiting next milestone
+---
+
+# Project State
+
+## Current Position
+
+Phase: Milestone v1.3 complete
+Status: Awaiting next milestone
+`, 'utf-8');
+    fs.writeFileSync(path.join(planning, 'config.json'), '{}', 'utf-8');
+
+    const result = runGsdTools(['validate', 'health'], tmpDir);
+    assert.ok(result.success, `validate health failed: ${result.error}`);
+    const warnings = JSON.parse(result.output).warnings || [];
+    assert.ok(warnings.some(w => w.code === 'W026'), `Expected W026. Got warnings: ${JSON.stringify(warnings.map(w => w.code))}`);
+  });
 });
   });
 }

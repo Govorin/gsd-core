@@ -103,6 +103,25 @@ export const STATUS_LIFECYCLE_ENUM = Object.freeze([
   'completed',
 ] as const);
 
+/**
+ * True for the two shapes the milestone-close verb writes (ADR-2207):
+ * `<version> milestone complete` and `Awaiting next milestone`, plus the
+ * legacy bare `Milestone complete` that `STATUS_EXACT_TOKENS` still reads.
+ * The version is any single token, as in `STATUS_ANCHORED_PATTERNS`
+ * (src/state-document.cts), so `not milestone complete` passes too: the
+ * shape is checked, not the label. `milestoneCompleteCore` writes the
+ * first, then resets `## Current Position` to `Status: Awaiting next
+ * milestone`; in the shipped STATE.md template that section holds the only
+ * Status field, so the second write is the one the frontmatter keeps. A
+ * reader that knows only the first never sees a closed milestone as closed.
+ * Anchored on the whole field (#4186), case and whitespace aside.
+ */
+export function isMilestoneClosedStatus(status: string | null | undefined): boolean {
+  const key = (status ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+  return /^(?:\S+ )?milestone complete$/.test(key) || key === 'awaiting next milestone';
+}
+
 // ─── The schema row shape ───────────────────────────────────────────────────
 
 export type StateFieldSchema = {

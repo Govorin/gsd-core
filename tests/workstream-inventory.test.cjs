@@ -121,6 +121,10 @@ describe('isCompletedInventory — ADR-2207 status lifecycle', () => {
     assert.ok(isCompletedInventory('archived'));
   });
 
+  test('"Awaiting next milestone", what milestone close leaves in the frontmatter, is completed', () => {
+    assert.ok(isCompletedInventory('Awaiting next milestone'));
+  });
+
   test('active statuses are NOT completed', () => {
     assert.ok(!isCompletedInventory('Ready to plan'));
     assert.ok(!isCompletedInventory('In progress'));

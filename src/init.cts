@@ -3670,8 +3670,9 @@ function cmdInitUpdate(cwd: string, raw: boolean, options: Record<string, unknow
  * inventory.cts), the SAME primitive `workstream.list` itself calls
  * (`cmdWorkstreamList`, src/workstream.cts), pre-filtered exactly as the
  * step's own prose described (excludes the current workstream and any
- * workstream whose status contains "milestone complete" or "archived",
- * case-insensitively — `isCompletedInventory`), so the step body becomes a
+ * workstream whose status closes its milestone ("Awaiting next milestone")
+ * or contains "milestone complete" or "archived", case-insensitively —
+ * `isCompletedInventory`), so the step body becomes a
  * pure JSON consumer with no `gsd_run` call of its own.
  */
 function cmdInitTransition(cwd: string, raw: boolean, options: Record<string, unknown> = {}): void {

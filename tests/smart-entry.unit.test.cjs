@@ -702,6 +702,40 @@ describe('#2427 — roadmap-grounded completion + tightened status regex', () =>
       `legacy fallback (no roadmap Progress table) must still classify complete via STATE.md. Got: ${result.situation}`);
   });
 
+  // A closed milestone as complete-milestone leaves it: the Current Position
+  // reset wrote "Awaiting next milestone" over "<version> milestone complete",
+  // and the phases are archived, so no count says the milestone is done.
+  test('"Awaiting next milestone" is complete and recommends a new milestone', () => {
+    const dir = track(makeProject({
+      state: state({ status: 'Awaiting next milestone', total_phases: 5, current_phase: 92 }),
+      roadmap: roadmapWithProgress(5, 3),
+    }));
+    const result = classifyProject(dir);
+    assert.equal(result.situation, 'complete');
+    assert.equal(result.recommended, 'new-milestone');
+  });
+
+  test('a closed milestone whose phase count was reset to 0 is complete, not needs-first-phase', () => {
+    const dir = track(makeProject({
+      state: state({ status: 'v1.12 milestone complete', total_phases: 0, current_phase: 92 }),
+      roadmap: true,
+    }));
+    assert.equal(classifyProject(dir).situation, 'complete');
+  });
+
+  test('a closed status does not outrank a pause', () => {
+    const dir = track(makeProject({
+      state: state({ status: 'Awaiting next milestone', total_phases: 5, current_phase: 5, paused_at: '2026-10-29' }),
+      roadmap: true,
+    }));
+    assert.equal(classifyProject(dir).situation, 'paused');
+  });
+
+  test('a closed status does not outrank a blocker', () => {
+    const signals = { ...detectSignals(track(makeProject({ state: state({ status: 'Awaiting next milestone', total_phases: 5, current_phase: 5 }), roadmap: true }))), blockers: ['waiting on legal'] };
+    assert.equal(classify(signals), 'blocked');
+  });
+
   test('legacy fallback: empty roadmap with current_phase < total_phases is NOT complete', () => {
     const dir = track(makeProject({
       state: state({ status: 'complete', total_phases: 5, current_phase: 3 }),
