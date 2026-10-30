@@ -1017,6 +1017,60 @@ fails if it is lost). Upstream's `agent_tools` selector does not match `.compact
 (`deriveAgentName` keeps `.compact`); the capability path handles them, but the upstream gap is
 left alone.
 
+### The upstream 1.19 sync (2026-10-30)
+
+Per-file conflict decisions: `.plans/sync-1.19/notes.md`. Branch `sync/upstream-1.19` from `next`
+`5721c403b` (rollback tag `pre-sync-1.19`). The base already carries the fork's `5721c403b` (STATE
+`Awaiting next milestone` reads as a closed milestone, `isMilestoneClosedStatus` in
+`state-md-schema`), one commit past `origin/next` `009152cf3`. A plain `git merge upstream/next`
+(`7d68e2b72`, 34 commits since `fa377ad5d`: 1.19.0, one owner for the ROADMAP Progress table and
+the phase-entry grammar #5761–#5765, repository release tags #5705–#5707, the git location env
+scrub #5548, bracket phase ids #5528), 19 conflicted files, merge commit `d647917cc`. Derived
+artifacts taken from upstream and regenerated (plus `benchmark-compact-content.cjs --write`, which
+`regen:derived` does not run).
+
+**Decisions (detail in notes.md):**
+
+- **Depends-on readers.** Upstream added the bracket-aware `extractPhaseDependencyTokens`; the
+  fork's `phaseDepRefs` stays as the owner of the case-insensitive legacy loop and replaces the
+  inline copy upstream put in `init.cts`. planning-inspect takes upstream (case-sensitive, so
+  `Phase 1a` keeps upstream's bytes). `roadmap graph` takes init's split too (`8e4726f51`).
+- **`roadmap analyze`** keeps the fork's `analyzeRoadmap`/`RoadmapAnalysis` and gains upstream's
+  `roadmap_record` (#5221); `analyzeMilestoneSections` threads #5186's `directoryContext`.
+  `roadmap-graph` reads the Progress table through `locateRoadmapProgress` (the removed
+  `findRoadmapProgressTable`).
+- **`execGit`** keeps the fork's locale pin and `maxBuffer` beside upstream's scrub re-export.
+- **`readAckTrailers`** keeps per-commit order and withdrawals and skips the release → main merge
+  commit (#5734); record i still pairs with body i.
+
+**What the merge broke, and the fixes:**
+
+| Defect | Fix | Commit |
+|---|---|---|
+| #5548 scrubbed every runtime git spawn except the fork's hooks: exit gate `rev-parse`, worktree-provision `runGit` (explicit `process.env` bypassed the scrubbed default) | `gitEnv()` from `hooks/lib/git-probe.js` | `790deee0e` |
+| same, the shell commands those hooks run (gate check: `nx affected`/lefthook; `worktree_install_command`) | `env: gitEnv()` | `34a56362b` |
+| `plan-phase.md` 98 658 B over the XL cap 98 304 (fork was 8 B under; #5528 +362 B) | fork's text only: reading bullets → `references/planner-lessons.md`, 11b in one sentence; 98 270 B | `a454972f4` |
+| #5325 MCP config-path test compares `/var` with the CLI's `/private/var` on macOS (upstream runs it on Linux/Windows only) | compare through realpath | `c0b6903e2` |
+| `roadmap graph` drew `Phase [GSD.02] 01` as unparsed under the bracket convention | init's reader split; a qualified ref only matches its own milestone | `8e4726f51` |
+| comment wraps in `init.cts`, upstream's io comment | comments | `24464d796` |
+
+**Gates:** `build:lib`, `regen:derived`, `lint:generated-sync` clean; `lint:ci` 53/53 steps (no
+red: `origin/next` is current now). Full `npm test` (`RUN_TESTS_CHUNK_TIMEOUT_MS=1500000
+GSD_EMITTED_BASE=upstream/next`, on `790deee0e`): 52 068 tests, 51 962 pass, 5 fail, 100 skipped,
+1 todo — the five are the plan-phase cap (3 tests) and the macOS MCP pair, both fixed above and
+re-run with the touched files (1 101/1 101). Emitted attribution against `upstream/next` 148/148,
+no new trailer. The suite's hermeticity guard reported `~/.gsd` modified: a real retro of
+`~/IdeaProjects/mn` in another session wrote `lessons/LESSONS.json`, not a test.
+
+**gsd-deck JSON** (asgard, installed `~/.claude/gsd-core` vs the merged tree): `roadmap get-phase`,
+`progress json`, `phase-plan-index`, `find-phase`, `planning inspect`, `retro due`,
+`smart-entry --json`, `state-snapshot`, `list-todos` identical keys and values; `roadmap analyze`
+adds only `roadmap_record`; `roadmap graph` (both scopes) the same document.
+
+**Risks for the next sync:** `plan-phase.md` has 34 B under the PRE_PHASE6 line (98 300). The fork's
+text in it is now ~370 B; the next upstream growth there needs another fork move, not a trim of
+upstream text.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
