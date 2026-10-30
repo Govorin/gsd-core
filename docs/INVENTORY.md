@@ -445,6 +445,7 @@ Full roster at `gsd-core/references/*.md`. References are shared knowledge docum
 | `verify-mvp-mode.md` | UAT framing rules for MVP-mode phases — user-flow-first ordering, deferred technical checks, user-story-format guard. |
 | `compact-content-gate.md` | Shared compact-content gate (ADR-4139 Decision 3/4) — the `workflow.compact_content` check and detail-file resolution rule every compact-split workflow spine references, stated once. |
 | `finding-refutation.md` | Adversarial pass over checker findings, read by `/gsd-plan-phase` step 11b when `workflow.refute_findings` is on and `gsd-plan-checker` returned `## ISSUES FOUND`: `gsd-finding-refuter` tries to refute each finding against the plans and the codebase, so only findings that survive reach the planner's revision loop. |
+| `planner-lessons.md` | The accumulated lesson files `/gsd-plan-phase` hands the planner beside the recent phases' LEARNINGS.md: `.planning/LEARNINGS-DIGEST.md` and, in a nested `.planning/`, the repository's `CROSS-DOMAIN.md`. |
 | `codebase-design.md` | The architecture survey's vocabulary (module, interface, depth, seam, adapter, leverage, locality), the deletion test, deepening categories and design-it-twice; rejects implementation/interface line ratios as a depth metric. Read by `gsd-arch-surveyor` and `gsd-finding-refuter` (mode arch). |
 
 ### Sketch References

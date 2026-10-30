@@ -786,8 +786,7 @@ ${CONTEXT_WINDOW >= 500000 ? `
 - SUMMARY.md files from the 3 most recent completed phases (what was built — reuse patterns, avoid duplication)
 - LEARNINGS.md files from the 3 most recent completed phases (structured decisions, patterns, lessons, surprises — skip silently if a phase has no LEARNINGS.md; prefix each block with \`[from Phase N LEARNINGS]\` for source attribution; if total size exceeds 15% of context budget, drop oldest first)
 - CONTEXT.md, SUMMARY.md, and LEARNINGS.md from any phases listed in the current phase's "Depends on:" field in ROADMAP.md (regardless of recency — explicit dependencies always load, deduplicated against the 3 most recent)
-- `.planning/LEARNINGS-DIGEST.md` if it exists — the accumulated distillation, always loaded regardless of recency
-- `<repo-root>/.planning/CROSS-DOMAIN.md` if this `.planning/` is nested in a larger repository — what sibling projects learned about shared ground (build system, shared libraries, tree-wide conventions)
+- Files listed in \`gsd-core/references/planner-lessons.md\`, each if present
 - Skip all other prior phases to stay within context budget
 ` : ''}
 </required_reading>
@@ -1120,8 +1119,8 @@ Agent(
 
 ## 11. Handle Checker Return
 
-- **`marker_received` + `## VERIFICATION PASSED`:** If the return lists an entry whose severity is BLOCKER or WARNING, in the YAML issues block or listed in prose (a mention such as "no warnings" or a zero count is not an entry), treat it as `## ISSUES FOUND` instead: display issues, check iteration count, proceed to step 11b (refutation, when enabled) and then step 12, which counts those prose entries as BLOCKER/WARNING entries (the no-YAML-block shortcut there does not apply). The sentinel never decides alone, and an entry with a missing or unrecognized severity counts as a BLOCKER (#5578). Otherwise display confirmation, proceed to step 13.
-- **`marker_received` + `## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 11b (refutation, when enabled) and then step 12.
+- **`marker_received` + `## VERIFICATION PASSED`:** If the return lists an entry whose severity is BLOCKER or WARNING, in the YAML issues block or listed in prose (a mention such as "no warnings" or a zero count is not an entry), treat it as `## ISSUES FOUND` instead: display issues, check iteration count, proceed to step 11b, then step 12, which counts those prose entries as BLOCKER/WARNING entries (the no-YAML-block shortcut there does not apply). The sentinel never decides alone, and an entry with a missing or unrecognized severity counts as a BLOCKER (#5578). Otherwise display confirmation, proceed to step 13.
+- **`marker_received` + `## ISSUES FOUND`:** Display issues, check iteration count, proceed to step 11b.
 - **`stalled`:** Automatically surface 11a's recovery choice (Accept verification / Retry checker / Stop) — no manual interrupt needed.
 - **Empty / truncated / no recognized marker:** → Filesystem fallback (step 11a).
 
@@ -1139,7 +1138,7 @@ If `DISK_PLANS` is greater than 0 (plans exist on disk; a known Windows stdio ha
 
 ## 11b. Refute Findings (conditional)
 
-**Runs when:** the checker returned `## ISSUES FOUND` **and** `PLAN_PRE_HOOKS_JSON` has an active hook with `when == "workflow.refute_findings"`; otherwise go to step 12. Read and execute `gsd-core/references/finding-refutation.md` — dispatch prompt and routing rules.
+If the checker returned `## ISSUES FOUND` and `PLAN_PRE_HOOKS_JSON` has an active hook with `when == "workflow.refute_findings"`, follow `gsd-core/references/finding-refutation.md`. Then go to step 12.
 
 ## 12. Revision Loop (Max 3 Iterations)
 
