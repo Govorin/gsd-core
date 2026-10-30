@@ -511,6 +511,9 @@ function provisionDeps(mode, sourceDir, worktreeDir, installCommand, timeoutMs) 
   }
   const res = spawnSync(installCommand, {
     cwd: worktreeDir,
+    // #5548: an inherited GIT_DIR/GIT_WORK_TREE would let an install's `prepare` (hook
+    // installers) write into another repository's .git.
+    env: gitEnv(),
     shell: true,
     encoding: 'utf8',
     // The install's own output must never reach the hook's stdout, which

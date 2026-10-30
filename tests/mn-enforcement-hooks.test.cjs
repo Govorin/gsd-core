@@ -598,6 +598,24 @@ describe('mn enforcement hooks — executor exit gate', () => {
     process.env.GIT_WORK_TREE = other;
     assert.equal(fs.realpathSync.native(exitGate.resolveWorkTree(own, own)), fs.realpathSync.native(own));
   });
+
+  test('#5548: the project\'s check command runs against the checked tree, not an inherited GIT_DIR', (t) => {
+    const own = createTempGitProject('exit-gate-cmd-own-');
+    const other = createTempGitProject('exit-gate-cmd-other-');
+    t.after(() => { cleanup(own); cleanup(other); });
+    // Green only when git, run by the command itself, answers for the tree the gate checks.
+    const TOPLEVEL_IS_CWD = 'node -e \'const c=require("child_process"),f=require("fs");'
+      + 'const t=c.execFileSync("git",["rev-parse","--show-toplevel"],{encoding:"utf8"}).trim();'
+      + 'process.exit(f.realpathSync(t)===f.realpathSync(process.cwd())?0:1)\'';
+    makeProject(own, { workflow: { exit_gate: TOPLEVEL_IS_CWD } }, );
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+    t.after(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    });
+    process.env.GIT_DIR = path.join(other, '.git');
+    process.env.GIT_WORK_TREE = other;
+    assert.equal(exitGate.evaluateStop({ subagent_type: 'gsd-executor', cwd: own }).action, 'allow');
+  });
 });
 
 describe('mn enforcement hooks — invariant pin', () => {

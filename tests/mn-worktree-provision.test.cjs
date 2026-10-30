@@ -406,6 +406,25 @@ describe('WorktreeCreate: equipment', () => {
     assert.equal(r.stdout, managedPath(repo, 'warned-process'));
   });
 
+  test('#5548: the install command runs in the new worktree, not an inherited GIT_DIR', (t) => {
+    const other = createTempGitProject('wt-provision-install-other-');
+    t.after(() => cleanup(other));
+    // Exits 0 only when git, run by the install itself, answers for the worktree being equipped.
+    const TOPLEVEL_IS_CWD = 'node -e \'const c=require("child_process"),f=require("fs");'
+      + 'const t=c.execFileSync("git",["rev-parse","--show-toplevel"],{encoding:"utf8"}).trim();'
+      + 'process.exit(f.realpathSync(t)===f.realpathSync(process.cwd())?0:1)\'';
+    writeConfig(repo, { worktree_provision: true, worktree_deps: 'install', worktree_install_command: TOPLEVEL_IS_CWD });
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+    t.after(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    });
+    process.env.GIT_DIR = path.join(other, '.git');
+    process.env.GIT_WORK_TREE = other;
+    const result = provision.createWorktree({ name: 'scoped-install', cwd: repo });
+    assert.equal(result.outcome, 'created');
+    assert.deepEqual(result.warnings, [], 'the install saw the worktree as its repository');
+  });
+
   test('a failed install under worktree_provision_strict REFUSES and rolls the worktree back', () => {
     writeConfig(repo, {
       worktree_provision: true,

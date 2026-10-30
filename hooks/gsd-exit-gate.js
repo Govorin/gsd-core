@@ -254,6 +254,9 @@ function evaluateStop(data, options = {}) {
       // never model-authored at this point.
       const res = spawnSync(command, {
         cwd: execCwd,
+        // #5548: an inherited GIT_DIR/GIT_WORK_TREE would point `nx affected` or lefthook
+        // at another repository than the tree being checked.
+        env: gitEnv(),
         shell: true,
         encoding: 'utf8',
         timeout: timeoutMs,
