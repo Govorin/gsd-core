@@ -86,6 +86,9 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const { terminateNow } = require('./lib/cli-exit.js');
 const { writeNotice } = require('./lib/worktree-notice.js');
+// #5548: repo-location vars (GIT_DIR, GIT_WORK_TREE, …) inherited from a git hook would point every
+// call below at another repository instead of its cwd; the hooks' copy of the scrub.
+const { gitEnv } = require('./lib/git-probe.js');
 
 // GIT_OPTIONAL_LOCKS=0 on every git spawn (#5048): a read such as `ls-files` or `worktree remove`'s
 // status check must not take the optional .git/index.lock a concurrent commit needs. The env block is
@@ -184,7 +187,7 @@ function runGit(args, cwd, { timeoutMs = GIT_QUERY_TIMEOUT_MS, input, env } = {}
     timeout: timeoutMs,
     maxBuffer: GIT_MAX_BUFFER,
     input,
-    env: readOnlyGitEnv(env || process.env),
+    env: readOnlyGitEnv(gitEnv(env || process.env)),
     stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     windowsHide: true,
   });

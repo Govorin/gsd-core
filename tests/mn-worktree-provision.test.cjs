@@ -80,11 +80,11 @@ function branchExists(repo, branch) {
   return gitOrThrow(['-C', repo, 'branch', '--list', branch]).trim() !== '';
 }
 
-function create(cwd, payload) {
+function create(cwd, payload, extraEnv = {}) {
   return runHook(HOOK, [], {
     input: typeof payload === 'string' ? payload : JSON.stringify({ hook_event_name: 'WorktreeCreate', cwd, ...payload }),
     cwd,
-    env: { ...TEST_ENV_BASE },
+    env: { ...TEST_ENV_BASE, ...extraEnv },
     timeoutMs: STAGED_HOOK_SCRIPT_TIMEOUT_MS,
   });
 }
@@ -121,6 +121,20 @@ describe('WorktreeCreate: creates the worktree and prints only its path', () => 
     assert.equal(r.stdout, expected, 'stdout carries the path and nothing else');
     assert.equal(git(expected, ['rev-parse', 'HEAD']), head);
     assert.equal(git(expected, ['rev-parse', '--abbrev-ref', 'HEAD']), 'worktree-x');
+  });
+
+  test('#5548: an inherited GIT_DIR naming another repository does not redirect the creation', (t) => {
+    const other = createTempGitProject('wt-provision-other-');
+    t.after(() => cleanup(other));
+    const head = git(repo, ['rev-parse', 'HEAD']);
+    // A hook git runs (post-checkout, pre-commit) exports these; the worktree still belongs to cwd's repository.
+    const r = create(repo, { name: 'x' }, { GIT_DIR: path.join(other, '.git'), GIT_WORK_TREE: other });
+    assert.equal(r.outcome, OUTCOME.EXITED, `stderr=${r.stderr}`);
+    assert.equal(r.exitCode, EXIT.PASS, `stderr=${r.stderr}`);
+    const expected = managedPath(repo, 'x');
+    assert.equal(r.stdout, expected, 'the worktree is made under cwd\'s repository');
+    assert.equal(git(expected, ['rev-parse', 'HEAD']), head);
+    assert.equal(branchExists(other, 'worktree-x'), false, 'nothing is made in the repository GIT_DIR names');
   });
 
   test('forks from the LOCAL HEAD even when origin/HEAD points at an older commit', () => {

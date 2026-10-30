@@ -63,6 +63,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
+const { gitEnv } = require('./lib/git-probe.js');
 
 /** Default executor identity. Overridable per project. */
 const DEFAULT_AGENTS = ['gsd-executor'];
@@ -141,6 +142,8 @@ function resolveWorkTree(cwd, planningRoot) {
   try {
     const out = execFileSync('git', ['rev-parse', '--show-toplevel'], { // allow-index-refresh: rev-parse reads .git metadata only, never opens the index
       cwd,
+      // #5548: an inherited GIT_DIR/GIT_WORK_TREE would report another repository's top level.
+      env: gitEnv(),
       encoding: 'utf8',
       timeout: 5000,
       stdio: ['ignore', 'pipe', 'ignore'],

@@ -35,7 +35,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { runNode, OUTCOME } = require('./helpers/process-seam.cjs');
-const { createTempDir, cleanup } = require('./helpers.cjs');
+const { createTempDir, createTempGitProject, cleanup } = require('./helpers.cjs');
 
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 const prohibition = require(path.join(HOOKS_DIR, 'gsd-prohibition-guard.js'));
@@ -583,6 +583,20 @@ describe('mn enforcement hooks — executor exit gate', () => {
       'allow'
     );
     assert.equal(exitGate.evaluateStop(null).action, 'allow');
+  });
+
+  test('#5548: an inherited GIT_DIR naming another repository does not move the checked tree', (t) => {
+    const own = createTempGitProject('exit-gate-own-');
+    const other = createTempGitProject('exit-gate-other-');
+    t.after(() => { cleanup(own); cleanup(other); });
+    const saved = { GIT_DIR: process.env.GIT_DIR, GIT_WORK_TREE: process.env.GIT_WORK_TREE };
+    t.after(() => {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    });
+    // A hook git runs (pre-commit) exports these; the gate must still scope to the stopping agent's cwd.
+    process.env.GIT_DIR = path.join(other, '.git');
+    process.env.GIT_WORK_TREE = other;
+    assert.equal(fs.realpathSync.native(exitGate.resolveWorkTree(own, own)), fs.realpathSync.native(own));
   });
 });
 
