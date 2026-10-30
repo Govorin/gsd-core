@@ -8,7 +8,8 @@
  *     (`analyzeRoadmap`), so the graph cannot show a phase set analyze would not;
  *     an edge is a phase reference inside the phase's `**Depends on:**` value,
  *     read through the PlanningDoc seam and matched by phase-id.cts's
- *     `phaseDepRefs` (no local grammar: dates, shas and ledger ids are not
+ *     `phaseDepRefs`, or `extractPhaseDependencyTokens` under the bracket
+ *     convention (no local grammar: dates, shas and ledger ids are not
  *     references);
  *   - defects are DRAWN, not hidden and not judged: a reference to a phase that
  *     exists nowhere (red dashed edge to a `missing` node), a cycle, a complete
@@ -60,7 +61,7 @@ import phaseLocator = require('./phase-locator.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- planning-workspace.cjs is an export= CommonJS module
 import planningWorkspace = require('./planning-workspace.cjs');
 
-const { phaseDepRefs, phaseKeyFromToken, phaseKeyFromProse, phaseKeyFromDir, comparePhaseNum } = phaseIdMod;
+const { phaseDepRefs, extractPhaseDependencyTokens, parsePhaseId, phaseKeyFromToken, phaseKeyFromProse, phaseKeyFromDir, comparePhaseNum } = phaseIdMod;
 
 // ─── Input ───────────────────────────────────────────────────────────────────
 
@@ -97,6 +98,11 @@ export interface RoadmapGraphInput {
   known: KnownPhase[];
   /** Phase fields the PlanningDoc seam could not read. */
   unreadable: Array<{ phase: string; field: string; reason: string }>;
+  /**
+   * The project's `phase_id_convention`. Under `bracket`, a reference may name its milestone
+   * (`Phase [GSD.02] 01`); absent or anything else, only legacy references are read.
+   */
+  convention?: string | null;
 }
 
 // ─── The graph ───────────────────────────────────────────────────────────────
@@ -169,6 +175,33 @@ export function isCalendarDate(value: string): boolean {
 
 const phaseNumOrder = (a: string, b: string): number => comparePhaseNum(a, b) || a.localeCompare(b);
 
+/** A bracket phase directory's milestone (`GSD.02-05-x` → `[GSD.02]`), or null when it is not one. */
+function bracketOfDir(dir: string): string | null {
+  try {
+    const id = parsePhaseId(dir);
+    return `[${id.project}.${id.milestone}]`;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A reference's phase key, and the bracket milestone it names (`[GSD.02]`) when it is
+ * qualified (`[GSD.02] 01`); a legacy reference (`01`) names none.
+ */
+function referenceTarget(ref: string): { key: string; bracket: string | null; nodeKey: string } {
+  try {
+    const id = parsePhaseId(ref);
+    const token = id.subphase ? `${id.phase}.${id.subphase}` : id.phase;
+    const key = phaseKeyFromToken(token);
+    // `nodeKey` becomes a diagram node id, so it carries no bracket punctuation.
+    return { key, bracket: `[${id.project}.${id.milestone}]`, nodeKey: `${id.project}_${id.milestone}_${key}` };
+  } catch {
+    const key = phaseKeyFromToken(ref);
+    return { key, bracket: null, nodeKey: key };
+  }
+}
+
 /** Edges, missing and outside nodes, and every defect, from the phases' own declarations. Pure. */
 export function buildRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
   const phases = [...input.phases];
@@ -195,14 +228,20 @@ export function buildRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
 
   for (const p of phases) {
     if (p.dependsRaw === null || NO_DEPENDENCY_RE.test(p.dependsRaw.trim())) continue;
-    const refs = phaseDepRefs(p.dependsRaw);
+    // The same reader split init.manager uses: bracket-aware under the bracket convention.
+    const refs = input.convention === 'bracket'
+      ? extractPhaseDependencyTokens(p.dependsRaw, 'bracket')
+      : phaseDepRefs(p.dependsRaw);
     if (refs.length === 0) {
       unparsed.push({ phase: p.key, raw: p.dependsRaw });
       continue;
     }
     for (const ref of refs) {
-      const rk = phaseKeyFromToken(ref);
-      const candidates = byPhaseKey.get(rk) ?? [];
+      const { key: phaseKey, bracket, nodeKey: rk } = referenceTarget(ref);
+      // A qualified reference names its milestone: only a phase under that milestone's
+      // heading can satisfy it — never the same number in another milestone.
+      const inBracket = (milestone: string | null): boolean => bracket === null || (milestone ?? '').includes(bracket);
+      const candidates = (byPhaseKey.get(phaseKey) ?? []).filter((c) => inBracket(c.milestone));
       // Numbers may restart per milestone: a reference means the phase of the
       // SAME milestone first, then any drawn phase with that number.
       const target = candidates.find((c) => c.milestone === p.milestone) ?? candidates[0];
@@ -210,7 +249,13 @@ export function buildRoadmapGraph(input: RoadmapGraphInput): RoadmapGraph {
         edges.push({ from: target.key, to: p.key, ref, defect: null });
         continue;
       }
-      const known = knownByKey.get(rk);
+      const sameKey = (k: KnownPhase): boolean => phaseKeyFromToken(k.id) === phaseKey;
+      // Under a qualified reference: a ROADMAP entry under that milestone, else a phase
+      // directory of that milestone (a directory with no readable milestone still exists).
+      const known = bracket === null
+        ? knownByKey.get(phaseKey)
+        : input.known.find((k) => sameKey(k) && k.milestone !== null && inBracket(k.milestone))
+          ?? input.known.find((k) => sameKey(k) && k.milestone === null);
       if (known !== undefined) {
         const key = `${OUTSIDE_PREFIX}${rk}`;
         if (!outside.has(key)) outside.set(key, { key, id: known.id, name: known.name, milestone: known.milestone });
@@ -407,7 +452,7 @@ export function roadmapGraphSpec(graph: RoadmapGraph): FlowchartSpec {
     nodes.push({ id: ids.id(o.key), label: `${o.id}${o.name !== null ? `. ${o.name}` : ''} — ${where}`, className: 'outside' });
   }
   for (const m of graph.missing) {
-    nodes.push({ id: ids.id(`${MISSING_PREFIX}${phaseKeyFromToken(m)}`), label: `${m} — нет такой фазы`, className: 'missing' });
+    nodes.push({ id: ids.id(`${MISSING_PREFIX}${referenceTarget(m).nodeKey}`), label: `${m} — нет такой фазы`, className: 'missing' });
   }
   for (const e of graph.edges) {
     const linkStyle = e.defect === null ? undefined : e.defect === 'forward' ? WARNING_LINK_STYLE : DEFECT_LINK_STYLE;
@@ -564,9 +609,9 @@ export function readRoadmapGraphInput(cwd: string, scope: RoadmapGraphScope): Re
   const phasesDir = planningWorkspace.planningPaths(cwd).phases;
   const convention = planningWorkspace.resolvePhaseIdConvention(cwd);
   for (const dir of phaseLocator.listAllPhaseDirs(phasesDir, { includeSentinels: false }).value) {
-    known.push({ id: phaseKeyFromDir(dir, convention), name: null, milestone: null });
+    known.push({ id: phaseKeyFromDir(dir, convention), name: null, milestone: convention === 'bracket' ? bracketOfDir(dir) : null });
   }
-  return { ok: true, input: { phases, known, unreadable } };
+  return { ok: true, input: { phases, known, unreadable, convention } };
 }
 
 /**

@@ -469,3 +469,49 @@ describe('gsd-tools roadmap graph', () => {
     assert.equal(fs.existsSync(path.join(dir, '..', 'x.md')), false);
   });
 });
+
+// ─── Bracket convention (phase_id_convention: bracket) ──────────────────────
+
+describe('roadmap graph — bracket-qualified references', () => {
+  test('under the bracket convention a qualified reference is an edge; elsewhere it is unparsed', () => {
+    const bracket = { milestone: '[GSD.02] v2.0', milestoneVersion: 'v2.0' };
+    const phases = [ph('01', bracket), ph('05', { ...bracket, dependsRaw: 'Phase [GSD.02] 01' })];
+    const g = rg.buildRoadmapGraph({ phases, known: [], unreadable: [], convention: 'bracket' });
+    assert.deepEqual(edgeList(g), ['m0_01->m0_05:-']);
+    assert.deepEqual(g.defects, []);
+    const legacy = rg.buildRoadmapGraph({ phases, known: [], unreadable: [] });
+    assert.deepEqual(edgeList(legacy), []);
+    assert.deepEqual(defectTypes(legacy), ['unparsed@05']);
+  });
+
+  test('a reference qualified with another milestone is not satisfied by the same number here', () => {
+    // init.manager's rule: `[CK.01] 01` must never stand in for `[CK.02] 01`.
+    const bracket = { milestone: '[GSD.02] v2.0', milestoneVersion: 'v2.0' };
+    const phases = [ph('05', bracket), ph('06', { ...bracket, dependsRaw: 'Phase [GSD.01] 05' })];
+    const g = rg.buildRoadmapGraph({ phases, known: [], unreadable: [], convention: 'bracket' });
+    assert.deepEqual(edgeList(g), ['missing:GSD_01_05->m0_06:missing']);
+    assert.deepEqual(g.missing, ['[GSD.01] 05']);
+    const known = [{ id: '05', name: 'Old', milestone: '[GSD.01] v1.0' }];
+    const outside = rg.buildRoadmapGraph({ phases, known, unreadable: [], convention: 'bracket' });
+    assert.deepEqual(edgeList(outside), ['outside:GSD_01_05->m0_06:-']);
+  });
+
+  test('gsd-tools roadmap graph reads the project convention and draws the qualified edge', (t) => {
+    const dir = createTempProject();
+    t.after(() => cleanup(dir));
+    fs.writeFileSync(path.join(dir, '.planning', 'config.json'), JSON.stringify({ phase_id_convention: 'bracket' }));
+    fs.writeFileSync(path.join(dir, '.planning', 'STATE.md'), '---\nmilestone: v2.0\nstatus: executing\n---\n# State\n');
+    fs.writeFileSync(path.join(dir, '.planning', 'ROADMAP.md'), [
+      '# Roadmap', '', '## [GSD.02] v2.0', '',
+      '### [GSD.02] 01: Setup', '**Goal:** a', '',
+      '### [GSD.02] 05: Real work', '**Goal:** b', '**Depends on:** Phase [GSD.02] 01', '',
+      '### [GSD.02] 06: Follow-up', '**Goal:** c', '**Depends on:** Phase [GSD.01] 05', '',
+    ].join('\n'));
+    const r = runGsdTools(['roadmap', 'graph'], dir);
+    assert.ok(r.success, r.error);
+    const out = JSON.parse(r.output);
+    assert.equal(out.phase_count, 3);
+    assert.equal(out.edge_count, 2);
+    assert.deepEqual(out.defects.map((d) => `${d.type}@${d.phase}:${d.ref}`), ['missing@06:[GSD.01] 05']);
+  });
+});
