@@ -54,7 +54,10 @@ for (const subcommand of [undefined, '']) {
 
     const cli = runGsdTools(['config-path', '--raw', '--json-errors'], dir);
     assert.equal(cli.success, true, cli.error);
-    assert.equal(cli.output, path.join(dir, '.planning', 'config.json'));
+    // Compared through the real path: a spawned CLI reads its cwd as process.cwd() (on macOS
+    // `/var/folders/…` comes back as `/private/var/folders/…`), the MCP call passes `cwd` as given.
+    const real = (p) => path.join(fs.realpathSync.native(path.dirname(p)), path.basename(p));
+    assert.equal(real(cli.output), real(path.join(dir, '.planning', 'config.json')));
 
     const args = { family: 'config-path' };
     if (subcommand !== undefined) args.subcommand = subcommand;
@@ -63,7 +66,7 @@ for (const subcommand of [undefined, '']) {
       { cwd: dir },
     );
     assert.notEqual(res.result.isError, true, 'the family-only command must reach the CLI through MCP');
-    assert.equal(res.result.content[0].text.trim(), cli.output);
+    assert.equal(real(res.result.content[0].text.trim()), real(cli.output));
   });
 }
 
