@@ -722,7 +722,7 @@ describe('#3912 A1/B1: error() declares from ERROR_REASON, exhaustive over the e
 
   // A1 — the acceptance criterion: EVERY member of ERROR_REASON, iterated
   // from the enum itself (not a hand-picked subset), exits 1 under v1. A
-  // new member added to the enum without a table entry still exits 1
+  // further member added to the enum without a table entry still exits 1
   // under v1 (v1 never consults the table at all); under v2, the table
   // lookup for that member yields `undefined`, `CODE_FOR_3912.get(undefined)`
   // yields `undefined`, and `err.code === expected` fails against the real

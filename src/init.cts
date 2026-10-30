@@ -3359,21 +3359,22 @@ function cmdInitManager(cwd: string, raw: boolean): void {
   // the row's OWN number all became "dependencies", and deps_satisfied came
   // back false for phases whose prose declares none (50 of 92 phases in the
   // reporter's milestone). The anchored grammar (owned by phase-id.cts as
-  // PHASE_DEP_REF_SOURCE, read by phaseDepRefs; planning-inspect reads it through
-  // extractPhaseDependencyTokens) keeps
-  // lists fully extracted ("Phases 601 and 602", "Phase 601, 602, and 603",
-  // "Phase 1-3") — silently dropping a REAL dependency would clear
-  // deps_satisfied prematurely, the dangerous direction. Negation prose
-  // ("dropped the dependency on Phase 654") is NOT detected: the issue's own
-  // minimum keeps such tokens. Bracket repositories route through the same
-  // phase-id owner so `[CK.02] 01` retains its complete qualified identity;
-  // bare `01` still resolves against the active milestone. This prevents a
-  // checked historical `[CK.01] 01` from satisfying incomplete `[CK.02] 01`.
-  // Non-bracket extraction remains this manager surface's exact #4764 code
-  // path, including its case-insensitive token regex — phase-id.cts's
-  // phaseDepRefs, so the roadmap graph reads the same references. Planning-inspect's
-  // old token regex was case-sensitive, so forcing both through one widened
-  // helper changed its `Phase 1a` bytes from `1` to `1a`.
+  // PHASE_DEP_REF_SOURCE, read by phaseDepRefs; planning-inspect reads it
+  // through extractPhaseDependencyTokens) keeps lists fully extracted
+  // ("Phases 601 and 602", "Phase 601, 602, and 603", "Phase 1-3") —
+  // silently dropping a REAL dependency would clear deps_satisfied
+  // prematurely, the dangerous direction. Negation prose ("dropped the
+  // dependency on Phase 654") is NOT detected: the issue's own minimum keeps
+  // such tokens. Bracket repositories route through the same phase-id owner
+  // so `[CK.02] 01` retains its complete qualified identity; bare `01` still
+  // resolves against the active milestone. This prevents a checked historical
+  // `[CK.01] 01` from satisfying incomplete `[CK.02] 01`. Non-bracket
+  // extraction remains this manager surface's exact #4764 code path,
+  // including its case-insensitive token regex: phase-id.cts's phaseDepRefs.
+  // The roadmap graph takes the same split, so the two read the same
+  // references. Planning-inspect's old token regex was case-sensitive, so
+  // forcing both through one widened helper changed its `Phase 1a` bytes
+  // from `1` to `1a`.
 
   for (const phase of phases) {
     if (
