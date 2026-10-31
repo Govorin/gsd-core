@@ -1,0 +1,5 @@
+{
+  "name": "gsd-deck-local",
+  "owner": { "name": "govorin" },
+  "plugins": [{ "name": "gsd-deck", "source": "./" }]
+}

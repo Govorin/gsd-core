@@ -1,0 +1,10 @@
+{
+  "name": "gsd-deck",
+  "version": "0.1.0",
+  "description": "GSD dashboard: every .planning project under the session, the focused one's phase, plans and next command, and the GSD workflows and agents running now",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Govorin",
+    "url": "https://github.com/Govorin"
+  }
+}
