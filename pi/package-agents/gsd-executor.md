@@ -32,6 +32,10 @@ Before executing, discover project context:
 
 <execution_flow>
 
+<gsd_tools_launcher_rule>
+`{GSD_TOOLS_CMD}` below means the command in your prompt's `<gsd_tools_launcher>` block (a literal `node '<absolute path>'`; ADR-5211). In a worktree-isolated dispatch it is the ONLY way to run GSD tools — `{GSD_TOOLS_CMD} <args>` with every argument written out literally — no `$VAR`, no `$(…)` — and never the `gsd_run` resolver line; read each `gsd_run <args>` in your instructions as `{GSD_TOOLS_CMD} <args>`. With no `<gsd_tools_launcher>` block, `{GSD_TOOLS_CMD}` is `gsd_run`. A guard that cannot run is a HALT, never a skip.
+</gsd_tools_launcher_rule>
+
 <step name="load_project_state" priority="first">
 Load execution context:
 
@@ -70,17 +74,15 @@ gsd_run frontmatter set "${PLAN_FILE}" --field status_at --value "${PLAN_START_T
 Marks the plan started — a record, not a lock; you are this file's only writer, one flat field per call. Reasons for this and the later `done`/`blocked` writes: `__GSD_PI_ENGINE_ROOT__/gsd-core/references/executor-plan-status.md` (Read on demand).
 </step>
 
-<gsd_tools_launcher>
-`{GSD_TOOLS_CMD}` below means the command in your prompt's `<gsd_tools_launcher>` block (`node '/abs/…/gsd-tools.cjs'`; ADR-5211). In a worktree-isolated dispatch it is the ONLY way to run GSD tools — `{GSD_TOOLS_CMD} <args>` with every argument written out literally — no `$VAR`, no `$(…)` — and never the `gsd_run` resolver line; read each `gsd_run <args>` in your instructions as `{GSD_TOOLS_CMD} <args>`. With no `<gsd_tools_launcher>` block, `{GSD_TOOLS_CMD}` is `gsd_run`. A guard that cannot run is a HALT, never a skip.
-</gsd_tools_launcher>
-
 <worktree_metadata_capture>
 If running inside a git worktree, capture authoritative worktree identity before
 any task commit changes HEAD. The execute-phase orchestrator consumes this from
 your final `<worktree_metadata>` return block to build the wave cleanup manifest
 without relying on runtime harness metadata (#1297). Each Bash call is a fresh shell:
 run each command as its own plain call and keep the printed values for that block
-(`worktree_path`, `branch`, `expected_base`; all empty outside a worktree):
+(`worktree_path`, `branch`, `expected_base`; all empty outside a LINKED worktree — the one
+`{GSD_TOOLS_CMD} worktree guard sentinel` reports with `applies: true`, its git dir differing
+from the common git dir):
 
 ```bash
 git rev-parse --show-toplevel
@@ -118,7 +120,9 @@ For each task:
    - Check for `tdd="true"` → follow TDD execution flow
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
-   - Run verification, confirm done criteria
+   - Run verification, confirm done criteria — before running a task's `<automated>` command,
+     `{GSD_TOOLS_CMD} worktree guard automated --plan '<PLAN.md path>' --task <n>` (`<n>`: this
+     `<task>`'s ordinal in PLAN.md, from 1); a refusal is a HALT (`worktree-path-safety.md` 0c)
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
 
@@ -388,9 +392,9 @@ Write that uses an absolute path, check it, written out literally:
 {GSD_TOOLS_CMD} worktree guard abs-path --path '/the/absolute/path'
 ```
 Prefer **relative paths** for Edit/Write in a worktree; an unavoidable absolute comes from
-`git rev-parse --show-toplevel` inside it, never an orchestrator `pwd`. Before each task's
-`<automated>`: `{GSD_TOOLS_CMD} worktree guard automated --plan '<PLAN.md path>' --task <n>`
-(`worktree-path-safety.md` step 0c, #4767).
+`git rev-parse --show-toplevel` inside it, never an orchestrator `pwd`. The same containment
+covers each `<automated>` command, checked BEFORE it runs (execute_tasks;
+`worktree-path-safety.md` step 0c, #4767).
 
 **0. Pre-commit HEAD safety assertion (MANDATORY — #2924, #3819):**
 Assert HEAD is attached, not the protected/default branch (#3819: the configured answer,
@@ -450,11 +454,9 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 
 **6. Post-commit deletion check:** After recording the hash, verify the commit did not accidentally delete tracked files:
 ```bash
-DELETIONS=$(git show --first-parent --diff-filter=D --name-only --pretty=format: HEAD 2>/dev/null || true)
-if [ -n "$DELETIONS" ]; then
-  echo "WARNING: Commit includes file deletions: $DELETIONS"
-fi
+git show --first-parent --diff-filter=D --name-only --pretty=format: HEAD
 ```
+Any path it prints is a file this commit deleted (no output: none).
 Intentional deletions (e.g., removing a deprecated file as part of the task) are expected — document them in the Summary. Unexpected deletions are a Rule 1 bug: revert and fix before proceeding.
 
 **7. Check for untracked files:** After running scripts or tools, check `git status --short | grep '^??'`. For any new untracked files: commit if intentional, add to `.gitignore` if generated/runtime output. Never leave generated files untracked.
