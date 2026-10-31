@@ -198,6 +198,25 @@ function stripTrailingNewlines(s: string): string {
   return s.slice(0, end);
 }
 
+/**
+ * Whether `cwd` is a LINKED worktree: its git dir differs from the common git
+ * dir (both absolute, realpath'd). Not a `.git`-file test — a submodule and a
+ * `--separate-git-dir` checkout have a `.git` file too — and not a path pattern
+ * (a git dir need not sit under `.git/worktrees/`).
+ */
+function linkedWorktree(stage: GuardStage, deps: GuardDeps, cwd: string): { linked: boolean; gitDir: string } | GuardResult {
+  const gd = runGit(deps, cwd, ['rev-parse', '--git-dir']);
+  if (gd.kind !== 'ok' || gd.out === '') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, gd.kind === 'ok' ? { git: 'rev-parse --git-dir', output: '' } : gitDetail(gd, ['rev-parse', '--git-dir']));
+  const common = runGit(deps, cwd, ['rev-parse', '--git-common-dir']);
+  if (common.kind !== 'ok' || common.out === '') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, common.kind === 'ok' ? { git: 'rev-parse --git-common-dir', output: '' } : gitDetail(common, ['rev-parse', '--git-common-dir']));
+  const real = (p: string) => {
+    const abs = path.resolve(cwd, p);
+    try { return fs.realpathSync.native(abs); } catch { return abs; }
+  };
+  const gitDir = real(gd.out);
+  return { linked: toComparablePathKey(gitDir, deps.platform ?? process.platform) !== toComparablePathKey(real(common.out), deps.platform ?? process.platform), gitDir };
+}
+
 function isResult(x: unknown): x is GuardResult {
   return typeof x === 'object' && x !== null && 'exit_code' in x;
 }
@@ -260,10 +279,9 @@ export function guardPreCommit(cwd: string, opts: PreCommitOptions, deps: GuardD
     source = 'fallback';
   }
   if (isProtected) return refuse('pre-commit', GUARD_CODE.PROTECTED_BRANCH, { branch, protection_source: source });
-  const top = showToplevel(deps, cwd);
-  if (top.kind !== 'ok') return refuse('pre-commit', GUARD_CODE.GIT_UNAVAILABLE, gitDetail(top, ['rev-parse', '--show-toplevel']));
-  let linked = false;
-  try { linked = fs.statSync(path.join(top.out, '.git')).isFile(); } catch { linked = false; }
+  const wt = linkedWorktree('pre-commit', deps, cwd);
+  if (isResult(wt)) return wt;
+  const linked = wt.linked;
   if (linked && !opts.sequential && !AGENT_BRANCH_RE.test(branch)) {
     return refuse('pre-commit', GUARD_CODE.NAMESPACE_MISMATCH, { branch, namespace: AGENT_BRANCH_RE.source });
   }
@@ -279,10 +297,10 @@ export function guardPreCommit(cwd: string, opts: PreCommitOptions, deps: GuardD
  */
 export function guardSentinel(cwd: string, deps: GuardDeps = {}): GuardResult {
   const platform = deps.platform ?? process.platform;
-  const gd = runGit(deps, cwd, ['rev-parse', '--git-dir']);
-  if (gd.kind !== 'ok') return refuse('sentinel', GUARD_CODE.GIT_UNAVAILABLE, gitDetail(gd, ['rev-parse', '--git-dir']));
-  const gitDir = path.resolve(cwd, gd.out);
-  if (!/\.git\/worktrees\/./.test(posixNormalize(gitDir))) return pass('sentinel', { git_dir: gitDir }, false);
+  const wt = linkedWorktree('sentinel', deps, cwd);
+  if (isResult(wt)) return wt;
+  const gitDir = wt.gitDir;
+  if (!wt.linked) return pass('sentinel', { git_dir: gitDir }, false);
   const top = showToplevel(deps, cwd);
   if (top.kind !== 'ok') return refuse('sentinel', GUARD_CODE.GIT_UNAVAILABLE, gitDetail(top, ['rev-parse', '--show-toplevel']));
   const sentinel = path.join(gitDir, SENTINEL_FILE);

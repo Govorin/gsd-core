@@ -1248,16 +1248,15 @@ function extractExecutorPreCommitBash() {
 /**
  * ADR-5211: Step 0 is the `worktree guard pre-commit` verb. The scenarios below drive the verb's
  * stage function with a scripted git and protected-branch answer — the same seams the bash
- * version mocked (`git`, `gsd_run query git.base-branch --is-protected`) — over a real directory
- * whose `.git` is a FILE (linked worktree) or a DIRECTORY (ordinary checkout).
+ * version mocked (`git`, `gsd_run query git.base-branch --is-protected`). A linked worktree is
+ * one whose git dir differs from the common git dir.
  */
 const { guardPreCommit } = require('../gsd-core/bin/lib/worktree-guard.cjs');
 
 function runExecutorGuard(t, { branch, headRef, isWorktree, protectedAnswer }) {
   const top = createTempDir('gsd-3819-guard-');
   t.after(() => cleanup(top));
-  if (isWorktree) fs.writeFileSync(path.join(top, '.git'), 'gitdir: /nonexistent\n');
-  else fs.mkdirSync(path.join(top, '.git'));
+  fs.mkdirSync(path.join(top, '.git'));
   const ok = (stdout) => ({ exitCode: 0, stdout, stderr: '', signal: null, error: null, timedOut: false });
   const execGit = (args) => {
     if (args[0] === 'symbolic-ref') {
@@ -1265,6 +1264,9 @@ function runExecutorGuard(t, { branch, headRef, isWorktree, protectedAnswer }) {
     }
     if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return ok(branch);
     if (args.join(' ') === 'rev-parse --show-toplevel') return ok(top);
+    // A linked worktree's git dir differs from the common dir; an ordinary checkout's does not.
+    if (args.join(' ') === 'rev-parse --git-dir') return ok(isWorktree ? path.join(top, 'worktree-gitdir') : path.join(top, '.git'));
+    if (args.join(' ') === 'rev-parse --git-common-dir') return ok(path.join(top, '.git'));
     throw new Error(`unexpected git invocation: ${args.join(' ')}`);
   };
   const resolveProtected = (_cwd, asked) => {

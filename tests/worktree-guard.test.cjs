@@ -80,7 +80,7 @@ describe('every stage refuses when git cannot answer (ADR-3409)', () => {
   });
 
   test('pre-commit: an unreadable protected-branch answer falls back to the five names', () => {
-    const answers = { 'symbolic-ref': OK('refs/heads/main'), 'rev-parse': OK('main') };
+    const answers = { 'symbolic-ref': OK('refs/heads/main'), 'rev-parse': OK('/x/.git') };
     const execGit = (args) => answers[args[0]];
     const r = guard.guardPreCommit('/x', { sequential: true, configCwd: '/x' }, {
       execGit,
@@ -91,7 +91,7 @@ describe('every stage refuses when git cannot answer (ADR-3409)', () => {
   });
 
   test('pre-commit: an unverified protected-branch answer is "protected" (fail closed, #3057)', () => {
-    const answers = { 'symbolic-ref': OK('refs/heads/agent-1'), 'rev-parse': OK('agent-1') };
+    const answers = { 'symbolic-ref': OK('refs/heads/agent-1'), 'rev-parse': OK('/x/.git') };
     const r = guard.guardPreCommit('/x', { sequential: false, configCwd: '/x' }, {
       execGit: (args) => answers[args[0]],
       resolveProtected: () => ({ isProtected: false, verified: false }),
@@ -280,6 +280,57 @@ describe('guard pre-commit (executor step 0, #2924/#3819/#4799)', () => {
     const r = verb(repo.main, ['guard', 'pre-commit']);
     assert.equal(r.json.detail.linked_worktree, false);
     assert.notEqual(r.json.code, GUARD_CODE.NAMESPACE_MISMATCH);
+  });
+});
+
+// ─── linked-worktree detection (git dir vs common dir) ──────────────────────
+
+describe('a linked worktree is one whose git dir differs from the common git dir', () => {
+  let tmp;
+  before(() => { tmp = createTempDir('gsd-wt-linked-'); });
+  after(() => cleanup(tmp));
+
+  test('a --separate-git-dir main checkout (a .git FILE) is not linked: no agent namespace, no sentinel', () => {
+    const repo = path.join(tmp, 'sep');
+    git(['init', '-q', '--separate-git-dir', path.join(tmp, 'sep-store'), repo], tmp);
+    git(['commit', '-q', '--allow-empty', '-m', 'init'], repo);
+    git(['checkout', '-q', '-b', 'feature/x'], repo);
+    const pre = verb(repo, ['guard', 'pre-commit']);
+    assert.equal(pre.json.code, GUARD_CODE.OK, JSON.stringify(pre.json));
+    assert.equal(pre.json.detail.linked_worktree, false);
+    assert.equal(verb(repo, ['guard', 'sentinel']).json.applies, false);
+  });
+
+  test('a linked worktree of that repo IS linked, though its git dir is not under .git/worktrees', () => {
+    const wt = path.join(tmp, 'sep-wt');
+    git(['worktree', 'add', '-q', '-b', 'feature/y', wt], path.join(tmp, 'sep'));
+    assert.equal(verb(wt, ['guard', 'pre-commit']).json.code, GUARD_CODE.NAMESPACE_MISMATCH);
+    const sentinel = verb(wt, ['guard', 'sentinel']);
+    assert.equal(sentinel.json.applies, true);
+    assert.equal(sentinel.json.detail.created, true);
+  });
+
+  test('a submodule (a .git FILE) is not linked: pre-commit raises no false namespace_mismatch', () => {
+    const source = path.join(tmp, 'sub-source');
+    git(['init', '-q', source], tmp);
+    git(['commit', '-q', '--allow-empty', '-m', 'init'], source);
+    const superRepo = path.join(tmp, 'super');
+    git(['init', '-q', superRepo], tmp);
+    git(['commit', '-q', '--allow-empty', '-m', 'init'], superRepo);
+    git(['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', source, 'module'], superRepo);
+    const module = path.join(superRepo, 'module');
+    git(['checkout', '-q', '-b', 'feature/z'], module);
+    const pre = verb(module, ['guard', 'pre-commit']);
+    assert.equal(pre.json.code, GUARD_CODE.OK, JSON.stringify(pre.json));
+    assert.equal(pre.json.detail.linked_worktree, false);
+    assert.equal(verb(module, ['guard', 'sentinel']).json.applies, false);
+  });
+
+  test('an ordinary linked worktree is linked', () => {
+    const repo = makeRepo('agent-1');
+    const r = verb(repo.wt, ['guard', 'pre-commit']);
+    cleanup(repo.tmp);
+    assert.equal(r.json.detail.linked_worktree, true);
   });
 });
 
