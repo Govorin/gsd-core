@@ -495,7 +495,9 @@ export function planLedger(cwd: string, opts: { phase: string; plan: string }, d
 /**
  * Materialise planning files from a commit into the worktree (quick's isolated
  * dispatch: the PLAN.md the orchestrator committed before spawning, plus its
- * optional CONTEXT/RESEARCH companions). A file already present is left alone.
+ * optional CONTEXT/RESEARCH companions). A file already present is left alone;
+ * a file the commit lacks but the main checkout holds (planning docs not
+ * committed) is reported in `read_from_main` with its absolute path there.
  * A `--path` that cannot be produced refuses with exit 42 (the quick contract);
  * an `--optional-path` absent from the commit is skipped. Every path is
  * worktree-relative and must stay inside the worktree (ADR-4650).
@@ -511,6 +513,7 @@ export function materializeFromCommit(
   if (isResult(roots)) return roots;
   const written: string[] = [];
   const alreadyPresent: string[] = [];
+  const readFromMain: { path: string; main_path: string }[] = [];
   const skipped: string[] = [];
   const all = [...opts.paths.map((p) => ({ p, required: true })), ...opts.optionalPaths.map((p) => ({ p, required: false }))];
   for (const { p, required } of all) {
@@ -529,6 +532,13 @@ export function materializeFromCommit(
     const present = runGit(deps, roots.worktreeRoot, ['cat-file', '-e', spec]);
     if (present.kind !== 'ok') {
       if (present.kind === 'unavailable') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, { path: p, ...gitDetail(present, ['cat-file', '-e', spec]) });
+      // Not in the commit, but on disk in the main checkout: `commit_docs: false` or a
+      // gitignored `.planning/` never commits the plan, and the orchestrator wrote it
+      // there. The executor reads it at that absolute path; nothing is copied.
+      const inMainCheckout = path.join(roots.mainRoot, rel);
+      let mainFile = false;
+      try { mainFile = fs.statSync(inMainCheckout).isFile(); } catch { mainFile = false; }
+      if (mainFile) { readFromMain.push({ path: p, main_path: inMainCheckout }); continue; }
       if (!required) { skipped.push(p); continue; }
       return refuse(stage, GUARD_CODE.NOT_IN_COMMIT, { path: p, from: opts.commit, ...gitDetail(present, ['cat-file', '-e', spec]) });
     }
@@ -548,7 +558,7 @@ export function materializeFromCommit(
     }
     written.push(p);
   }
-  return pass(stage, { from: opts.commit, written, present: alreadyPresent, skipped });
+  return pass(stage, { from: opts.commit, written, present: alreadyPresent, read_from_main: readFromMain, skipped });
 }
 
 // ─── CLI ────────────────────────────────────────────────────────────────────

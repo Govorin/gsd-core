@@ -633,6 +633,23 @@ describe('worktree materialize (quick isolated dispatch, exit 42)', () => {
     assert.equal(fs.readFileSync(wtPlan, 'utf8'), 'plan\n\n');
   });
 
+  // Review BLOCKER: with commit_docs:false or a gitignored .planning/, QUICK_PLAN_COMMIT is a
+  // bare HEAD without the plan, and every isolated quick task halted 42 on not_in_commit.
+  test('a plan the commit lacks but the main checkout holds is read from main, not refused', () => {
+    const dir = path.join(repo.main, '.planning', 'quick', 'q2');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'q2-PLAN.md'), 'uncommitted plan\n');
+    const absolute = path.join(dir, 'q2-PLAN.md');
+    for (const arg of [absolute, '.planning/quick/q2/q2-PLAN.md']) {
+      const r = verb(repo.wt, ['materialize', '--from', commit, '--path', arg, '--optional-path', path.join(dir, 'q2-CONTEXT.md')]);
+      assert.equal(r.exitCode, 0, JSON.stringify(r.json));
+      assert.deepEqual(r.json.detail.read_from_main, [{ path: arg, main_path: fs.realpathSync(absolute) }]);
+      assert.deepEqual(r.json.detail.written, []);
+      assert.deepEqual(r.json.detail.skipped, [path.join(dir, 'q2-CONTEXT.md')]);
+    }
+    assert.equal(fs.existsSync(path.join(repo.wt, '.planning', 'quick', 'q2')), false, 'nothing is copied into the worktree');
+  });
+
   test('a skipped optional path in a directory that does not exist leaves no empty directory', () => {
     const r = verb(repo.wt, ['materialize', '--from', commit, '--path', '.planning/quick/q1/q1-PLAN.md', '--optional-path', '.planning/quick/q9/deep/q9-RESEARCH.md']);
     assert.equal(r.exitCode, 0);
