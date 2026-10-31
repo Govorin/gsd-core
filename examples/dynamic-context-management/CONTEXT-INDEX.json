@@ -2103,7 +2103,7 @@
     {
       "id": "WORKTREE.GUARD.shell-form",
       "klass": "WORKTREE",
-      "value": "every mandatory block a worktree sub-agent runs, after substitution, passes tests/helpers/isolation-shell-form.cjs (no $(…)/backticks, no computed git/node/sed args, no cd … &&, no git -C, no unbound placeholder); the frozen bash is its positive control",
+      "value": "every mandatory block a worktree sub-agent runs, after substitution, passes tests/helpers/isolation-shell-form.cjs (no $(…)/backticks, no computed git/node/sed args, no cd … &&, no git -C, no unbound placeholder); lines of the pre-ADR bash are its positive control",
       "line": 891
     },
     {
@@ -2115,7 +2115,7 @@
     {
       "id": "WORKTREE.GUARD.test-anchors",
       "klass": "WORKTREE",
-      "value": "[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs, tests/gsd-tools-invocation.test.cjs, tests/worktree-dispatch-shell-forms.test.cjs]",
+      "value": "[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-matrix.test.cjs, tests/gsd-tools-invocation.test.cjs, tests/worktree-dispatch-shell-forms.test.cjs]",
       "line": 890
     },
     {
