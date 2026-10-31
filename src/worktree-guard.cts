@@ -166,14 +166,21 @@ function gitDetail(a: Exclude<GitAnswer, { kind: 'ok' }>, args: string[]): Recor
     : { git: args.join(' '), reason: a.reason };
 }
 
-/** HEAD attachment and branch name, or the refusal that stops the caller. */
+/**
+ * HEAD attachment and branch name, or the refusal that stops the caller. The
+ * name is the symbolic ref itself minus `refs/heads/` — never
+ * `rev-parse --abbrev-ref HEAD`, which answers `heads/main` when a tag named
+ * `main` also exists and so slipped a protected branch past every name check.
+ */
 function readHead(stage: GuardStage, deps: GuardDeps, cwd: string): { branch: string } | GuardResult {
   const sym = runGit(deps, cwd, ['symbolic-ref', '--quiet', 'HEAD']);
   if (sym.kind === 'exit' && sym.exitCode === 1) return refuse(stage, GUARD_CODE.HEAD_DETACHED, {});
   if (sym.kind !== 'ok') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, gitDetail(sym, ['symbolic-ref', '--quiet', 'HEAD']));
-  const abbrev = runGit(deps, cwd, ['rev-parse', '--abbrev-ref', 'HEAD']);
-  if (abbrev.kind !== 'ok') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, gitDetail(abbrev, ['rev-parse', '--abbrev-ref', 'HEAD']));
-  return { branch: abbrev.out };
+  const prefix = 'refs/heads/';
+  if (!sym.out.startsWith(prefix) || sym.out.length === prefix.length) {
+    return refuse(stage, GUARD_CODE.HEAD_DETACHED, { head_ref: sym.out, reason: 'HEAD is not a local branch' });
+  }
+  return { branch: sym.out.slice(prefix.length) };
 }
 
 /** `git rev-parse --show-toplevel`, where an empty answer (no work tree) is no answer. */

@@ -188,6 +188,16 @@ describe('guard branch (worktree_branch_check, exit 42)', () => {
     assert.equal(r.json.code, GUARD_CODE.BASE_MISMATCH);
   });
 
+  test('a tag named like a protected branch cannot disguise it (`heads/main` from abbrev-ref)', () => {
+    setBranch('main');
+    git(['tag', 'main'], repo.wt);
+    const r = verb(repo.wt, ['guard', 'branch', '--expected-base', head]);
+    git(['tag', '-d', 'main'], repo.wt);
+    assert.equal(r.exitCode, 42);
+    assert.equal(r.json.code, GUARD_CODE.PROTECTED_BRANCH);
+    assert.equal(r.json.detail.branch, 'main');
+  });
+
   test('refuses a detached HEAD', () => {
     git(['checkout', '-q', '--detach'], repo.wt);
     const r = verb(repo.wt, ['guard', 'branch', '--expected-base', head]);
@@ -253,6 +263,17 @@ describe('guard pre-commit (executor step 0, #2924/#3819/#4799)', () => {
   test('a configured protected_branches entry is protected', () => {
     onBranch('frozen');
     assert.equal(verb(repo.wt, ['guard', 'pre-commit', '--sequential']).json.code, GUARD_CODE.PROTECTED_BRANCH);
+  });
+
+  // Review finding: `rev-parse --abbrev-ref HEAD` answers `heads/main` when a tag named
+  // `main` exists, so the protected check compared the wrong name and passed.
+  test('a tag sharing the protected branch name cannot disguise it', () => {
+    onBranch('trunk-x');
+    git(['tag', 'trunk-x'], repo.wt);
+    const r = verb(repo.wt, ['guard', 'pre-commit', '--sequential']);
+    assert.equal(r.json.code, GUARD_CODE.PROTECTED_BRANCH);
+    assert.equal(r.json.detail.branch, 'trunk-x');
+    git(['tag', '-d', 'trunk-x'], repo.wt);
   });
 
   test('a main checkout is not subject to the agent namespace', () => {
