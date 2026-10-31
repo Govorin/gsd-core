@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 358,
+  "count": 359,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -27,7 +27,7 @@
     "SETTINGS-HOOKS": 6,
     "WAVE": 5,
     "WORKSTREAM": 5,
-    "WORKTREE": 23
+    "WORKTREE": 24
   },
   "predicates": [
     {
@@ -1749,6 +1749,11 @@
       "id": "WORKTREE.GUARD.interface",
       "klass": "WORKTREE",
       "value": "[guardBranch, guardPreCommit, guardSentinel, guardAbsPath, guardAutomated, guardPin, planLedger, runGuardCli, runPlanLedgerCli, checkAutomatedCommand]"
+    },
+    {
+      "id": "WORKTREE.GUARD.launch",
+      "klass": "WORKTREE",
+      "value": "init.execute-phase / init.quick / init.quick-batch report gsd_tools_cmd = node '<realpath of the gsd-tools.cjs beside src/gsd-tools-invocation.cts>' (forward slashes, POSIX-quoted; null when unresolvable = HALT); gsd-tools worktree tools-cmd [--raw] gives the same for workflows without an init; the orchestrator substitutes it for {GSD_TOOLS_CMD} at dispatch"
     },
     {
       "id": "WORKTREE.GUARD.strengthenings",

@@ -109,6 +109,7 @@ module.exports = {
   "tests/gsd-secret-read-guard.test.cjs",
   "tests/gsd-settings-advanced.test.cjs",
   "tests/gsd-statusline.test.cjs",
+  "tests/gsd-tools-invocation.test.cjs",
   "tests/gsd-tools-path-refs.test.cjs",
   "tests/gsd-validate-commit-crash-policy.test.cjs",
   "tests/gsd-validate-commit-sigpipe.test.cjs",

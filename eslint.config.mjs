@@ -333,6 +333,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/worktree-agent-branch.cjs',
       'gsd-core/bin/lib/automated-command-containment.cjs',
       'gsd-core/bin/lib/posix-ere.cjs',
+      'gsd-core/bin/lib/gsd-tools-invocation.cjs',
       'gsd-core/bin/lib/planning-workspace.cjs',
       'gsd-core/bin/lib/planning-scope.cjs',
       'gsd-core/bin/lib/command-roster.cjs',
