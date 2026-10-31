@@ -146,6 +146,7 @@ If `ONLY_PHASE` is set, display: `Single phase mode: Phase ${ONLY_PHASE}`
 Else if `FROM_PHASE` is set, display: `Starting from phase ${FROM_PHASE}`
 If `TO_PHASE` is set, display: `Stopping after phase ${TO_PHASE}`
 If `INTERACTIVE` is set, display: `Mode: Interactive (discuss inline, plan+execute inline — background on Codex only)`
+For each KEY of `prohibition_guard`, `test_tamper_guard` whose `gsd_run config-get workflow.KEY` is `ask`, display: `⚠ workflow.KEY = ask: a write it flags waits for approval and stalls an unattended run. Unattended: gsd_run config-set workflow.KEY deny`
 <!-- gsd:section id="converge-banner" when="state:plan-strategy-converge" -->
 If `section_manifest` is `null` or `"converge-banner"` is in its `included` list: read and execute `gsd-core/workflows/autonomous/steps/converge-banner.md`. Otherwise skip — do not read the file.
 <!-- /gsd:section -->
