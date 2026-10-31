@@ -21,10 +21,10 @@
  * `_ENVOPT`/`_ENVOPTL`/`_LAUNCH`/`_DIR`/`_EXEC`/`_EVAL`/`_TOK`, character for
  * character, evaluated by `posix-ere.cts` with grep's leftmost-longest
  * semantics; `unquote`, `resetsCwd`, `resolveLikeShell` and `normalizeLexical`
- * are the bash `_unquote`, `_resets_cwd`, `_resolve` and `_norm`. The
- * differential test (tests/worktree-guard-differential.test.cjs) runs the old
- * bash and this module over the whole #4767 corpus and requires identical
- * verdicts. Every design decision the bash comments recorded (why control
+ * are the bash `_unquote`, `_resets_cwd`, `_resolve` and `_norm`. Before the
+ * bash was deleted, a differential run held this module to it over the whole
+ * #4767 corpus plus 300 generated commands with identical verdicts; the corpus
+ * now lives in tests/helpers/worktree-guard-corpus.cjs. Every design decision the bash comments recorded (why control
  * keywords are not command boundaries, why the launcher set is named rather
  * than a catch-all, why directory flags are tool-scoped, why `command`/`exec`
  * are not launchers) carries over unchanged; the reasons are summarised at
@@ -56,10 +56,19 @@
  * - Anything the shell builds at run time: `cd $VAR`, `cd "$(…)"`, `~`,
  *   `bash -c "$CMD"`. The plan-time probe (`check verify-command-paths`)
  *   reports these as `dynamic_path`.
- * - A command boundary outside `OPEN`'s set, matched against RAW TEXT. Control
- *   keywords are deliberately not boundaries (`grep -F 'if cd ../main; then'`
- *   would halt on prose); the same quote-blindness makes
+ * - A `cd` the shell completes from its own state: bare `cd` (`$HOME`), `cd -`
+ *   (`$OLDPWD`), `CDPATH` lookups, an alias or function defined elsewhere, a
+ *   sourced script (`. ./x.sh`), or a file a tool runs (`npm test`'s script,
+ *   `bash x.sh`) — the text holds no target to resolve.
+ * - A command boundary outside `OPEN`'s set (`&&` `&` `;` `|` `(` `{`, line
+ *   start), matched against RAW TEXT. After a boundary, `time [-p]`, `!` and the
+ *   compound-command keywords (`if then else elif do while until`) are read as
+ *   prefixes; anywhere else they are words, so `grep -F 'if cd ../main; then'`
+ *   (no boundary before `if`) passes. The same quote-blindness makes
  *   `echo 'note; bash -c "cd ../main"'` halt — an over-halt in the loud direction.
+ * - `eval` rescans every word up to the end of its simple command, joined; an
+ *   `eval` reached through `exec`/`command`, or one whose words the shell builds
+ *   at run time (`eval "cd $X"`), is not seen.
  * - A launcher outside `env timeout nohup stdbuf nice ionice setsid`; `command`
  *   and `exec` are excluded so `command -v bash` (a probe) does not halt.
  * - An interpreter outside `sh bash zsh dash ksh python python3 node perl ruby`
@@ -71,7 +80,8 @@
  *   pass-through argument spelling a directory flag over-halts
  *   (`npm run x -- --prefix=../main/`).
  * - A non-shell payload whose path is computed (`os.path.join(root, '..')`).
- * - Wrapping nested more than four deep.
+ * - Nothing nested deeper than MAX_UNWRAP_DEPTH is scanned: it refuses
+ *   (`unwrap_too_deep`) instead.
  * - A directory flag on a tool outside npm npx pnpm yarn make git env; for such
  *   a tool only the ABSOLUTE form of the flag is caught, by the catch-all scan.
  * - POSIX paths only: the bash harness never ran on Windows, and neither do
@@ -86,15 +96,31 @@ import { deleteFirstMatch, grepOnlyMatching, matchAllInLine, matchPrefix } from 
 /** Longest command the check will scan; longer text is refused, never truncated. */
 export const MAX_COMMAND_CHARS = 64 * 1024;
 
-/** Nesting bound for unwrapped interpreter payloads (the bash `_walk` depth bound). */
-const MAX_UNWRAP_DEPTH = 4;
+/**
+ * Nesting bound for unwrapped interpreter and `eval` payloads (the bash `_walk`
+ * depth bound). The bash stopped scanning past it and passed; here a payload
+ * nested deeper than this is a refusal (`unwrap_too_deep`).
+ */
+export const MAX_UNWRAP_DEPTH = 4;
 
 // ─── The bash guard's expressions, verbatim ─────────────────────────────────
 
 /** A shell word as the planner wrote it: bare runs, "…"/'…' spans, backslash escapes. */
 const TOK = String.raw`("[^"]*"|'[^']*'|\\.|[^[:space:]"';|&()])+`;
-/** `cd` / `pushd`, bare, `builtin`/`command`-prefixed, or with `--`. */
-const VERB = String.raw`((builtin|command)[[:space:]]+)?(cd|pushd)([[:space:]]+--)?`;
+/**
+ * `cd` / `pushd`, bare, `builtin`/`command`-prefixed, with their options
+ * (`-L`, `-P`, `-e`, `-@`, pushd's `-n`; review finding: `cd -P ../main` took
+ * `-P` for the target) and with `--`.
+ */
+const VERB = String.raw`((builtin|command)[[:space:]]+)?(cd|pushd)([[:space:]]+-[LPe@n]+)*([[:space:]]+--)?`;
+/**
+ * Prefixes that run the command after them in the same shell: `time` (with
+ * `-p`), `!`, and the compound-command keywords. Matched only right AFTER a
+ * command boundary, so the bash's reason for keeping keywords out of `OPEN`
+ * still holds: `grep -F 'if cd ../main; then' README.md` has no boundary before
+ * `if` and passes, while `if cd ../main; then …` at a boundary halts.
+ */
+const PREFIX = String.raw`((time([[:space:]]+-p)?|!|if|then|else|elif|do|while|until)[[:space:]]+)*`;
 /** Leading `FOO=bar` assignments. */
 const ENV = String.raw`([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)*`;
 /**
@@ -136,12 +162,12 @@ const EXEC = `(${LAUNCH})((/[^[:space:]]*/)?(sh|bash|zsh|dash|ksh)([[:space:]]+-
 /** `eval` runs in the CURRENT shell: its payload's final cwd persists. */
 const EVAL = String.raw`eval[[:space:]]+`;
 
-const EVENT_RE = `${OPEN}(${ENV}${EXEC}|${ENV}${VERB}[[:space:]]+|${DIR})${TOK}`;
+const EVENT_RE = `${OPEN}${PREFIX}(${ENV}${EXEC}|${ENV}${VERB}[[:space:]]+|${DIR})${TOK}`;
 const BOUNDARY_STRIP_RE = String.raw`^(&&|&|;|[|][|]|[|]|[(]|[{])?[[:space:]]*`;
-const CLASS_EVAL_RE = `^${ENV}${EVAL}`;
-const CLASS_EXEC_RE = `^${ENV}${EXEC}`;
-const CLASS_DIR_RE = `^${DIR}`;
-const CLASS_VERB_RE = `^${ENV}${VERB}[[:space:]]+`;
+const CLASS_EVAL_RE = `^${PREFIX}${ENV}${EVAL}`;
+const CLASS_EXEC_RE = `^${PREFIX}${ENV}${EXEC}`;
+const CLASS_DIR_RE = `^${PREFIX}${DIR}`;
+const CLASS_VERB_RE = `^${PREFIX}${ENV}${VERB}[[:space:]]+`;
 const LAUNCH_DIR_RE = `(^|[[:space:]])(-C|--chdir)([[:space:]]+|=)${TOK}`;
 const LAUNCH_DIR_STRIP_RE = String.raw`^[[:space:]]*(-C|--chdir)([[:space:]]+|=)`;
 
@@ -153,6 +179,7 @@ export const CONTAINMENT_CODE = Object.freeze({
   NAMES_MAIN_CHECKOUT: 'names_main_checkout',
   COMMAND_TOO_LARGE: 'command_too_large',
   COMMAND_INVALID: 'command_invalid',
+  UNWRAP_TOO_DEEP: 'unwrap_too_deep',
   INTERNAL_ERROR: 'internal_error',
 } as const);
 
@@ -222,6 +249,28 @@ export function resetsCwd(s: string): boolean {
     } else if (ch === "'") q = '';
   }
   return false;
+}
+
+/**
+ * The rest of the simple command `s` starts in: up to the first unquoted
+ * `;`, `&`, `|`, `)` or newline. `eval` joins ALL of its arguments into the
+ * text it runs, so its payload is every word up to here, not just the first.
+ */
+export function restOfSimpleCommand(s: string): string {
+  const c = Array.from(s);
+  let q = '';
+  let out = '';
+  for (let i = 0; i < c.length; i += 1) {
+    const ch = c[i];
+    if (q === '') {
+      if (ch === ';' || ch === '&' || ch === '|' || ch === ')' || ch === '\n') break;
+      if (ch === "'" || ch === '"') q = ch;
+      else if (ch === '\\') { out += ch + (c[i + 1] ?? ''); i += 1; continue; }
+    } else if (ch === q) q = '';
+    else if (q === '"' && ch === '\\') { out += ch + (c[i + 1] ?? ''); i += 1; continue; }
+    out += ch;
+  }
+  return out;
 }
 
 // ─── Path resolution the way the shell lands (bash _resolve / _norm) ────────
@@ -373,10 +422,17 @@ function scan(cmd: string, depth: number, roots: ContainmentRoots, state: ScanSt
     const quoted = body.startsWith(prefix) ? body.slice(prefix.length) : body;
     const target = unquote(quoted);
 
+    if ((kind === 'E' || kind === 'W') && depth >= MAX_UNWRAP_DEPTH) {
+      throw new Halt({ ok: false, code: CONTAINMENT_CODE.UNWRAP_TOO_DEEP, target, detail: `payloads nested more than ${MAX_UNWRAP_DEPTH} deep` });
+    }
     if (kind === 'E') {
-      if (depth < MAX_UNWRAP_DEPTH) scan(target, depth + 1, roots, state);
+      // `eval` runs the words it is given joined by spaces: `eval cd ../main` and
+      // `eval eval 'cd ../main'` carry the target in the words AFTER the first
+      // (review finding). The rest of this simple command is rescanned as one text.
+      const tail = grepOnlyMatching(TOK, restOfSimpleCommand(rest.split('\n')[0])).map(unquote);
+      scan([target, ...tail].filter((w) => w !== '').join(' '), depth + 1, roots, state);
     } else if (kind === 'W') {
-      if (depth < MAX_UNWRAP_DEPTH) {
+      {
         const saved = state.cur;
         // EXEC outlives DIR in leftmost-longest, so a wrapper reached through
         // `env -C/--chdir` lands here: validate that launcher relocation, start

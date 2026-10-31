@@ -14,7 +14,7 @@ const {
   buildAutomatedFixture, AUTOMATED_HALT_ROWS, AUTOMATED_PASS_ROWS, commandOf,
 } = require('./helpers/worktree-guard-corpus.cjs');
 const {
-  checkAutomatedCommand, unquote, resetsCwd, normalizeLexical, MAX_COMMAND_CHARS, CONTAINMENT_CODE,
+  checkAutomatedCommand, unquote, resetsCwd, normalizeLexical, restOfSimpleCommand, MAX_COMMAND_CHARS, MAX_UNWRAP_DEPTH, CONTAINMENT_CODE,
 } = require('../gsd-core/bin/lib/automated-command-containment.cjs');
 
 describe('shell-text helpers (the bash _unquote / _resets_cwd / _norm)', () => {
@@ -75,6 +75,22 @@ describe('the #4767 corpus, verb side', { skip: process.platform === 'win32' ? '
     assert.equal(checkAutomatedCommand(pad(MAX_COMMAND_CHARS - 1), roots()).code, CONTAINMENT_CODE.OK);
     assert.equal(checkAutomatedCommand(pad(MAX_COMMAND_CHARS), roots()).code, CONTAINMENT_CODE.OK);
     assert.equal(checkAutomatedCommand(pad(MAX_COMMAND_CHARS + 1), roots()).code, CONTAINMENT_CODE.COMMAND_TOO_LARGE);
+  });
+
+  test('the unwrap depth bound: limit - 1 and limit scan, limit + 1 refuses unwrap_too_deep', () => {
+    const evals = (n) => `${'eval '.repeat(n)}ls`;
+    assert.equal(checkAutomatedCommand(evals(MAX_UNWRAP_DEPTH - 1), roots()).code, CONTAINMENT_CODE.OK);
+    assert.equal(checkAutomatedCommand(evals(MAX_UNWRAP_DEPTH), roots()).code, CONTAINMENT_CODE.OK);
+    assert.equal(checkAutomatedCommand(evals(MAX_UNWRAP_DEPTH + 1), roots()).code, CONTAINMENT_CODE.UNWRAP_TOO_DEEP);
+    // An interpreter payload shares the bound: `sh -c` reached at depth limit - 1 unwraps, at limit refuses.
+    assert.equal(checkAutomatedCommand(`${'eval '.repeat(MAX_UNWRAP_DEPTH - 1)}sh -c ls`, roots()).code, CONTAINMENT_CODE.OK);
+    assert.equal(checkAutomatedCommand(`${'eval '.repeat(MAX_UNWRAP_DEPTH)}sh -c ls`, roots()).code, CONTAINMENT_CODE.UNWRAP_TOO_DEEP);
+  });
+
+  test('restOfSimpleCommand stops at the first unquoted boundary', () => {
+    assert.equal(restOfSimpleCommand(" ../m 'a;b' && ls"), " ../m 'a;b' ");
+    assert.equal(restOfSimpleCommand(' x | y'), ' x ');
+    assert.equal(restOfSimpleCommand(' x\\;y; z'), ' x\\;y');
   });
 
   test('a NUL byte is refused, never scanned', () => {

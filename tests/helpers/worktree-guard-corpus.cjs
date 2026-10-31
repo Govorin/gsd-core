@@ -174,6 +174,18 @@ const AUTOMATED_HALT_ROWS = [
     [`the recognised interpreter ${n} -c`, (c) => `${n} -c "cd ${c.main} && ls"`]
   )),
   ['the recognised interpreter eval', (c) => `eval "cd ${c.main} && ls"`],
+  // Review findings after the bash was retired: eval's later words, cd options, and the
+  // prefixes that run the next command in the same shell.
+  ['eval with an unquoted payload', 'eval cd ../main'],
+  ['eval nested in eval', "eval eval 'cd ../main'"],
+  ['cd -P with a target after the option', 'cd -P ../main && ls'],
+  ['cd -L -e after builtin', 'builtin cd -L -e ../main'],
+  ['pushd -n', 'pushd -n ../main'],
+  ['time ahead of cd', 'time cd ../main'],
+  ['time -p ahead of cd', 'time -p cd ../main'],
+  ['! ahead of cd', '! cd ../main'],
+  ['if ahead of cd at a boundary', 'if cd ../main; then ls; fi'],
+  ['while ahead of cd after a boundary', 'true; while cd ../main; do break; done'],
 ];
 
 /** Rows the bash step 0c guard PASSED, silently. */
@@ -231,6 +243,9 @@ const AUTOMATED_PASS_ROWS = [
   ['eval named by absolute path', (c) => `/bin/eval "cd ${c.main} && ls"`],
   ['an unrecognised interpreter (awk)', (c) => `awk -c "cd ${c.main} && ls"`],
   ['an unrecognised interpreter (php)', (c) => `php -c "cd ${c.main} && ls"`],
+  ['eval whose later words stay inside', 'eval cd scripts && cd ..'],
+  ['four nested evals, at the depth bound', 'eval eval eval eval ls'],
+  ['cd -- into the worktree', 'cd -- scripts'],
 ];
 
 /** Materialise a row's command against a built fixture. */

@@ -87,6 +87,7 @@ export const GUARD_CODE = Object.freeze({
   NAMES_MAIN_CHECKOUT: 'names_main_checkout',
   COMMAND_TOO_LARGE: 'command_too_large',
   COMMAND_INVALID: 'command_invalid',
+  UNWRAP_TOO_DEEP: 'unwrap_too_deep',
   // pin
   PIN_UNBOUND: 'pin_unbound',
   PIN_NOT_ABSOLUTE: 'pin_not_absolute',

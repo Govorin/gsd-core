@@ -141,10 +141,15 @@ descending order of how likely a planner is to reach them:
   `/` are resolved; this is the widest gap.
 - **Anything the shell builds at run time** — `cd $VAR`, `cd "$(…)"`, `~`,
   `bash -c "$CMD"`. `check verify-command-paths` reports these as `dynamic_path`.
-- **A command boundary outside `&&` `&` `;` `|` `(` `{`.** Control keywords
-  (`if cd ../main; then …`) are deliberately not boundaries: the scan is quote-blind, so
-  `grep -F 'if cd ../main; then' README.md` would halt on prose. The same quote-blindness
-  makes `echo 'note; bash -c "cd ../main"'` halt — an over-halt, in the loud direction.
+- **A `cd` the shell completes from its own state** — bare `cd`, `cd -`, `CDPATH`, an alias
+  or function defined elsewhere, a sourced script (`. ./x.sh`), a file a tool runs
+  (`npm test`'s script, `bash x.sh`): the text holds no target.
+- **A command boundary outside `&&` `&` `;` `|` `(` `{` and line start.** After a boundary,
+  `time`, `!` and `if`/`then`/`else`/`elif`/`do`/`while`/`until` are read as prefixes;
+  elsewhere they are words, so `grep -F 'if cd ../main; then' README.md` passes. The scan is
+  quote-blind, so `echo 'note; bash -c "cd ../main"'` halts — an over-halt, in the loud
+  direction. `eval` rescans all its words (`eval cd ../main` halts); an `eval` behind
+  `exec`/`command` is not seen.
 - **A launcher outside `env` `timeout` `nohup` `stdbuf` `nice` `ionice` `setsid`.**
   `command` and `exec` are excluded so `command -v bash` (a name probe) does not halt.
 - **An interpreter outside the recognized set.** Recognized, each named by a bare word OR an
@@ -156,8 +161,9 @@ descending order of how likely a planner is to reach them:
   every name in them against the verb, so prose that claims or disclaims coverage the scan
   does not have fails it.
 - **An interpreter option that takes an operand** (`bash -O extglob -c`), a launcher or
-  directory-flag spelling outside each tool's grammar (`env -S '…'`), wrapping nested more
-  than four deep, and a non-shell payload whose path is computed (`os.path.join(root, '..')`).
+  directory-flag spelling outside each tool's grammar (`env -S '…'`), and a non-shell payload
+  whose path is computed (`os.path.join(root, '..')`). Wrapping nested more than four deep
+  refuses (`unwrap_too_deep`).
 - **A payload behind a relocating launcher is scanned from the command's cwd**
   (`env -C scripts bash -c 'cd ..'` over-halts), and a pass-through argument spelling a
   directory flag over-halts (`npm run x -- --prefix=../main/`) — both in the loud direction.
