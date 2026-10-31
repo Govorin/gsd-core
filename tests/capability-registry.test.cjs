@@ -6122,8 +6122,8 @@ describe('ADR-1244 D2: validator extraction generative parity', () => {
  * #2532 — workflow.ui_review is used in autonomous.md but missing from config validation
  * #2533 — workflow.max_discuss_passes is used in discuss-phase.md but missing from VALID_CONFIG_KEYS
  * #2535 — sub_repos and plan_checker legacy keys need CONFIG_KEY_SUGGESTIONS migration hints
- * #3162 — resolve_model_ids missing from VALID_CONFIG_KEYS; workflow._auto_chain_active must be
- *          accepted by isValidConfigKey (written by workflows) without being user-visible
+ * #3162 — resolve_model_ids missing from VALID_CONFIG_KEYS; workflow._auto_chain_active was
+ *          accepted by isValidConfigKey until X5 moved it to run state (now refused)
  * #1747 — buildNewProjectConfig emits four search-provider keys (tavily_search, ref_search,
  *          perplexity, jina) that research-provider.cts consumes but were missing from
  *          VALID_CONFIG_KEYS, causing /gsd-settings unknown-key warnings on fresh projects
@@ -6183,11 +6183,11 @@ describe('VALID_CONFIG_KEYS correctness', () => {
     );
   });
 
-  test('#3162: workflow._auto_chain_active must be accepted by isValidConfigKey (written by workflows)', () => {
+  test('#3162/X5: workflow._auto_chain_active is no longer a config key (it moved to auto-chain run state)', () => {
     assert.strictEqual(
       isValidConfigKey('workflow._auto_chain_active'),
-      true,
-      'workflow._auto_chain_active is written by plan-phase, execute-phase, discuss-phase, transition workflows via config-set'
+      false,
+      'the auto-chain flag lives in .gsd/ (gsd-tools auto-chain set|clear), not in versioned config'
     );
   });
 });

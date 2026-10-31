@@ -8,7 +8,7 @@ Plans execute autonomously. Checkpoints formalize interaction points where human
 2. **Claude sets up the verification environment** - Start dev servers, seed databases, configure env vars
 3. **User only does what requires human judgment** - Visual checks, UX evaluation, "does this feel right?"
 4. **Secrets come from user, automation comes from Claude** - Ask for API keys, then Claude uses them via CLI
-5. **Auto-mode bypasses verification checkpoints, and decision checkpoints with a declared `auto_select`** — When `workflow._auto_chain_active` or `workflow.auto_advance` is true in config: human-verify auto-approves; a `checkpoint:decision` carrying `auto_select="<option-id>"` auto-selects that named option; a `checkpoint:decision` with NO `auto_select` escalates to a human instead of guessing by position (#4095); human-action still stops (auth gates cannot be automated)
+5. **Auto-mode bypasses verification checkpoints, and decision checkpoints with a declared `auto_select`** — When an auto-chain run is active (`auto-chain status`) or `workflow.auto_advance` is true in config: human-verify auto-approves; a `checkpoint:decision` carrying `auto_select="<option-id>"` auto-selects that named option; a `checkpoint:decision` with NO `auto_select` escalates to a human instead of guessing by position (#4095); human-action still stops (auth gates cannot be automated)
 6. **`gate="blocking-human"` is never auto-approved** — a checkpoint carrying this gate stops for a human in *every* mode, including auto-mode, regardless of its type. Rule 5 does not apply to it. The executor's precondition-unmet checkpoint (a task's `<precondition>` evaluated false — unmet `user_setup` step, missing env var, absent prior-phase artifact) reports this gate (#3210).
 
 **The `gate` attribute:**
@@ -824,7 +824,7 @@ gsd_run run-with-timeout 30 -- bash -c 'until node -e "fetch(\"http://localhost:
 </task>
 ```
 
-**Auto-mode behavior:** When `workflow._auto_chain_active` or `workflow.auto_advance` is true, the TDD review checkpoint auto-approves (advisory gate — never blocks).
+**Auto-mode behavior:** When an auto-chain run is active or `workflow.auto_advance` is true, the TDD review checkpoint auto-approves (advisory gate — never blocks).
 </type>
 
 <summary>

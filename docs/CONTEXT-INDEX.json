@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 360,
+  "count": 363,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,6 +22,7 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
+    "RUNSTATE": 3,
     "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
@@ -1349,6 +1350,21 @@
       "id": "RULESET.WORKFLOW_SIZE_BUDGET",
       "klass": "RULESET",
       "value": "workflow size enforcement (#1074; BYTES not lines per #717; LF-normalized per #683) = differential attribution size ratchet (PRIMARY anti-creep since #2724/ADR-2719 §4: tests/emitted-attribution.test.cjs's real-tree test reports growth in any gsd-core/workflows/*.md with its exact byte delta vs `next`, no committed snapshot, requires an `Emitted-Drift-Ack-Growth:` commit trailer on the PR's own commits (ADR-3942, superseding ADR-2719 §3's fragment model — key is the bare filename, reason follows ` — `)) + loose tier hard caps (outer red lines, NEVER raised on approach: XL<=98304 / LARGE<=61440 / DEFAULT<=40960) + discuss-phase<32000; a file that grew fails the differential guard — add an ack entry naming the file and reason, justify the growth in the PR (or extract LAZILY-loaded content; eager @-imports don't reduce loaded context); crossing a hard cap means EXTRACT, not bump. The prior per-file baseline (tests/workflow-size-baseline.json, `npm run size:baseline`) is REMOVED by #2724. Its new-file cap (ADR-1610 Decision point 3, un-baselined files <=32768, the Codex anchor) is REVIVED inside the differential's size ratchet itself (`NEW_FILE_CAP` in tests/helpers/emitted-diff.cjs) rather than lost: \"not yet baselined\" is exactly \"present in sizeCurrent, absent from sizeBaseline\", a signal the ratchet already computes for its own reasons. NOT ack-able — same as the tier hard caps, the fix is extraction. Narrower than the original: this check cannot see XL/LARGE tiering (tests/workflow-size-budget.test.cjs's classification, invisible to the pure differential module), so a legitimately large NEW file must extract rather than tier in, one release earlier than an existing file would need to — a disclosed, deliberate simplification"
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.legacy",
+      "klass": "RUNSTATE",
+      "value": "workflow._auto_chain_active in config.json is never read (it cannot tell a live chain from a crashed one); auto-chain set|clear delete it from the scope and root config, byte-identical when absent; config-set refuses the key (CONFIG_INVALID_KEY) and names the verb"
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.location",
+      "klass": "RUNSTATE",
+      "value": ".gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...); no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)"
+    },
+    {
+      "id": "RUNSTATE.SEAM.gsd-run-dir",
+      "klass": "RUNSTATE",
+      "value": "<project>/.gsd/ is the tool-owned run directory (src/gsd-run-dir.cts ensureGsdRunDir + writeJsonAtomic); state that belongs to one run of a workflow lives there, never in versioned .planning/config.json; the owner refuses a symlinked or escaping .gsd, seeds .gsd/.gitignore with '*' or adds its own rules once, by rename, under '# gsd-core <marker>' in an existing one; writers: the dispatch-isolation sentinel (gsd-tools.cjs) and the auto-chain state"
     },
     {
       "id": "SEAM.bracket-roadmap-normalization.enforced-by",

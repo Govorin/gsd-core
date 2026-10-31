@@ -2727,15 +2727,14 @@ describe('#2192: init plan-phase includes auto-advance config to prevent separat
     assert.strictEqual(output.auto_advance, true, 'auto_advance should reflect config value');
   });
 
-  test('init plan-phase reflects auto_chain_active true when set in config', () => {
-    const configPath = path.join(tmpDir, '.planning', 'config.json');
-    const cfg = { workflow: { _auto_chain_active: true } };
-    fs.writeFileSync(configPath, JSON.stringify(cfg, null, 2));
+  test('init plan-phase reflects auto_chain_active true when an auto-chain run is recorded', () => {
+    const set = runGsdTools('auto-chain set', tmpDir);
+    assert.ok(set.success, `Command failed: ${set.error}`);
 
     const result = runGsdTools('init plan-phase 1', tmpDir);
     assert.ok(result.success, `Command failed: ${result.error}`);
     const output = JSON.parse(result.output);
-    assert.strictEqual(output.auto_chain_active, true, 'auto_chain_active should reflect config value');
+    assert.strictEqual(output.auto_chain_active, true, 'auto_chain_active should reflect the run state');
   });
 });
 

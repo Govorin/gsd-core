@@ -999,6 +999,12 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
     routeCheckCommand({ args, cwd, raw });
   }
 
+  // X5: the auto-chain flag is run state under .gsd/, not a key in the versioned
+  // .planning/config.json; `check auto-mode` reads it back.
+  function routeAutoChain({ args, cwd, raw }) {
+    require('./lib/auto-chain-state.cjs').cmdAutoChain(cwd, args.slice(1), raw);
+  }
+
   function routeFindPhase({ args, cwd, raw, error }) {
     // Phase 6 (#3575): dispatch via SDK executeForCjs when available.
           // SDK handler: findPhase in sdk/src/query/phase.ts.
@@ -4868,6 +4874,7 @@ const HOST_COMMAND_ROUTERS = {
     'agent': routeAgent,
     'smart-entry': routeSmartEntry,
     'check': routeCheck,
+    'auto-chain': routeAutoChain,
     'find-phase': routeFindPhase,
     // #4906 Phase 5 (#4661): commit-scope selection for /gsd:undo --phase/--plan.
     'select-revert-commits': routeSelectRevertCommits,
@@ -5219,7 +5226,7 @@ function runWithTimeout(argv) {
 // independently hand-maintained sites and nothing previously caught them
 // drifting apart when a query command was added to only one or two.
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
-  'Commands: agent, agent-skills, api-coverage, arch, assumption-delta, audit-open, audit-uat, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
+  'Commands: agent, agent-skills, api-coverage, arch, assumption-delta, audit-open, audit-uat, auto-chain, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
   'config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, resolve-package-manager, ' +
   'context-predicates, current-timestamp, detect-custom-files, diagrams, discuss, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +

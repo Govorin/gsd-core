@@ -167,10 +167,10 @@ mkdir -p .planning
 gsd_run query commit "chore: add project config" --files .planning/config.json
 ```
 
-**Persist auto-advance chain flag to config (survives context compaction):**
+**Record the auto-advance chain as run state (survives context compaction, stays out of version control):**
 
 ```bash
-gsd_run query config-set workflow._auto_chain_active true
+gsd_run query auto-chain set
 ```
 
 Proceed to Step 4 (skip Steps 3 and 5).

@@ -156,7 +156,7 @@ export interface InvocationFacts {
   /**
    * Whether `discuss-phase-assumptions.md`'s `auto_advance` step should
    * dispatch (#2994): `--auto` flag OR a consolidated auto-mode config fact
-   * (`workflow._auto_chain_active` OR `workflow.auto_advance`). Same
+   * (the auto-chain run state OR `workflow.auto_advance`). Same
    * discipline as {@link chunkedMode} — the disjunction is resolved by the
    * caller (`cmdInitDiscussPhaseAssumptions`, the init seam) into this
    * single boolean BEFORE it reaches this module. Absent/undefined is

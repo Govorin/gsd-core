@@ -37,23 +37,30 @@ describe('plan-phase chain flag preservation (#1620)', () => {
 
   test('plan-phase sync-flag guard checks both --auto AND --chain', () => {
     const content = readPlan();
-    // The guard that clears _auto_chain_active must require BOTH flags to be absent
+    // The guard that clears the auto-chain run state must require BOTH flags to be absent
     assert.ok(
       content.includes('if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]; then'),
       'plan-phase should check for both --auto and --chain before clearing chain flag'
     );
   });
 
-  test('plan-phase persists chain flag to config before auto-advancing', () => {
+  test('plan-phase records the chain as run state before auto-advancing', () => {
     const content = readPlan();
-    // Plan-phase must persist the chain flag (config-set workflow._auto_chain_active true)
+    // X5: the chain is run state (`auto-chain set`, kept in .gsd/), never a versioned config write
     assert.ok(
-      content.includes('config-set workflow._auto_chain_active true'),
-      'plan-phase should persist chain flag via config-set workflow._auto_chain_active true'
+      content.includes('gsd_run query auto-chain set'),
+      'plan-phase should record the chain via gsd_run query auto-chain set'
     );
   });
 
-  test('plan-phase and discuss-phase use the same guard pattern for clearing _auto_chain_active', () => {
+  test('no workflow writes the retired config key (X5)', () => {
+    for (const content of [readPlan(), readDiscuss()]) {
+      assert.ok(!content.includes('config-set workflow._auto_chain_active'), 'the chain flag must not be written into versioned config');
+      assert.ok(content.includes('gsd_run query auto-chain clear'), 'the manual-invocation guard must clear the run state');
+    }
+  });
+
+  test('plan-phase and discuss-phase use the same guard pattern for clearing the auto-chain', () => {
     const planContent = readPlan();
     const discussContent = readDiscuss();
 

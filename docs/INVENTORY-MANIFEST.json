@@ -385,6 +385,7 @@
       "assumption-delta.cjs",
       "audit-command-router.cjs",
       "audit.cjs",
+      "auto-chain-state.cjs",
       "automated-command-containment.cjs",
       "broken-windows.cjs",
       "capability-activation.cjs",

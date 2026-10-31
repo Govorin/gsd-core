@@ -9,7 +9,7 @@
 2. **Claude 设置验证环境** - 启动开发服务器、填充数据库、配置环境变量
 3. **用户只做需要人工判断的事** - 视觉检查、UX 评估、"这个感觉对吗？"
 4. **密钥来自用户，自动化来自 Claude** - 询问 API 密钥，然后 Claude 通过 CLI 使用它们
-5. **自动模式绕过验证/决策检查点** — 当 config 中 `workflow._auto_chain_active` 或 `workflow.auto_advance` 为 true 时：human-verify 自动批准，decision 自动选择第一个选项，human-action 仍会停止（认证门控无法自动化）
+5. **自动模式绕过验证/决策检查点** — 当 auto-chain 运行处于活动状态（`auto-chain status`）或 config 中 `workflow.auto_advance` 为 true 时：human-verify 自动批准，decision 自动选择第一个选项，human-action 仍会停止（认证门控无法自动化）
 
 ## 检查点类型
 

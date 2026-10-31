@@ -677,7 +677,7 @@ $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
    if [[ ! "$GSD_ARGS" =~ --auto ]]; then
-     gsd_run query config-set workflow._auto_chain_active false || true
+     gsd_run query auto-chain clear || true
    fi
    ```
 3. Read consolidated auto-mode (`active` = chain flag OR user preference):
@@ -688,7 +688,7 @@ GSD_ARGS=${GSD_ARGS%$'\n'}
 
 **If `--auto` flag present AND `AUTO_MODE` is not true:**
 ```bash
-gsd_run query config-set workflow._auto_chain_active true
+gsd_run query auto-chain set
 ```
 
 <!-- gsd:section id="auto-advance-dispatch" when="state:auto-advance-active" -->

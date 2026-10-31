@@ -226,8 +226,10 @@ describe('compound-fact folding at the init seam — matrix §B', () => {
 
   // B8: cmdInitDiscussPhaseAssumptions folds --auto OR consolidated auto-mode config.
   describe('cmdInitDiscussPhaseAssumptions folds --auto flag OR config auto-mode (row B8)', () => {
-    test('no --auto flag, but config workflow._auto_chain_active=true, still includes auto-advance-dispatch', () => {
-      writeConfig(tmpDir, { workflow: { _auto_chain_active: true } });
+    test('no --auto flag, but an active auto-chain run, still includes auto-advance-dispatch', () => {
+      writeConfig(tmpDir, {});
+      fs.mkdirSync(path.join(tmpDir, '.gsd', 'auto-chain'), { recursive: true });
+      fs.writeFileSync(path.join(tmpDir, '.gsd', 'auto-chain', 'active.json'), JSON.stringify({ active: true }));
       const output = runInitJson(['init', 'discuss-phase-assumptions', '99'], tmpDir);
       assert.ok(output.section_manifest.included.includes('auto-advance-dispatch'));
     });

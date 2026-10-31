@@ -52,6 +52,7 @@ import { formatGsdSlash, resolveRuntime } from './runtime-slash.cjs';
 import { resolveReportedRuntime } from './host-runtime-detection.cjs';
 import { tryWithinRoot, loadTrustedGlobalRoots, PathAcceptance } from './security.cjs';
 import { getGlobalSkillDir, getGlobalSkillDisplayPath, getGlobalSkillsBase, getGlobalConfigDir } from './runtime-homes.cjs';
+import { readAutoChainActive } from './auto-chain-state.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- frontmatter.cjs is an export= CommonJS module
 import frontmatterMod = require('./frontmatter.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- verification.cjs is an export= CommonJS module
@@ -1362,7 +1363,7 @@ function cmdInitPlanPhase(
     commit_docs: config.commit_docs,
     text_mode: config.text_mode,
     auto_advance: !!(config.auto_advance),
-    auto_chain_active: !!(config._auto_chain_active),
+    auto_chain_active: readAutoChainActive(cwd),
     mode: config.mode || 'interactive',
 
     phase_found: !!phaseInfo,
@@ -2295,7 +2296,7 @@ function cmdInitReview(
  * One further fact is resolved and exposed here that `init.phase-op` never
  * carried: `state:auto-advance-active` — the workflow's own `auto_advance`
  * step resolves `--auto` OR a consolidated `check auto-mode --pick active`
- * fact (itself `workflow._auto_chain_active` OR `workflow.auto_advance`) via
+ * fact (itself the auto-chain run state OR `workflow.auto_advance`) via
  * a runtime `gsd_run` call; that identical disjunction is folded into ONE
  * boolean FACT here (same discipline as `state:chunked-mode` /
  * `state:plan-strategy-converge`), exposed as `auto_advance_active`.
@@ -2330,10 +2331,10 @@ function cmdInitDiscussPhaseAssumptions(
 
   // #2994: mirrors discuss-phase-assumptions.md's own auto_advance step
   // resolver — `--auto` flag OR the consolidated `check auto-mode --pick
-  // active` fact (workflow._auto_chain_active OR workflow.auto_advance).
+  // active` fact (the auto-chain run state OR workflow.auto_advance).
   const autoAdvanceActive =
     options['auto'] === true ||
-    readConfigJsonBoolean(cwd, ['workflow', '_auto_chain_active']) ||
+    readAutoChainActive(cwd) ||
     readConfigJsonBoolean(cwd, ['workflow', 'auto_advance']);
 
   const result: Record<string, unknown> = {

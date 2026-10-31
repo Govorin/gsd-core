@@ -14,7 +14,7 @@ $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
    if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]; then
-     gsd_run query config-set workflow._auto_chain_active false || true
+     gsd_run query auto-chain clear || true
    fi
    ```
 
@@ -22,14 +22,14 @@ Set local variables from INIT (parsed once in step 1):
 - `AUTO_CHAIN` = `auto_chain_active` from INIT JSON (boolean, default false)
 - `AUTO_CFG` = `auto_advance` from INIT JSON (boolean, default false)
 
-**If `--auto` or `--chain` flag present AND `AUTO_CHAIN` is not true:** Persist chain flag to config (handles direct invocation without prior discuss-phase):
+**If `--auto` or `--chain` flag present AND `AUTO_CHAIN` is not true:** Record the chain as run state (handles direct invocation without prior discuss-phase):
 ```bash
 IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
 if ([[ "$GSD_ARGS" =~ --auto ]] || [[ "$GSD_ARGS" =~ --chain ]]) && [[ "$AUTO_CHAIN" != "true" ]]; then
-  gsd_run query config-set workflow._auto_chain_active true
+  gsd_run query auto-chain set
 fi
 ```
 

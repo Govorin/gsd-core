@@ -1,15 +1,19 @@
 /**
- * `check auto-mode` state — whether the workflow's auto-advance / auto-chain flags are on
- * (#5139, epic #5056, design D5). Not a gate: it reports configuration.
+ * `check auto-mode` state — whether the workflow's auto-advance preference or an auto-chain run
+ * is on (#5139, epic #5056, design D5). Not a gate: it reports state.
  *
- * Reads `workflow.auto_advance` and `workflow._auto_chain_active` NESTED-ONLY, through the same
- * reader as the gates (`gate-config.cts`), so `check auto-mode` answers exactly what
- * `config-get workflow.auto_advance` / `config-get workflow._auto_chain_active` answer. A
- * top-level `auto_advance` / `_auto_chain_active` is never read. Returns plain data; the router
- * formats it.
+ * `auto_advance` is configuration: `workflow.auto_advance`, read NESTED-ONLY through the same
+ * reader as the gates (`gate-config.cts`), so it answers exactly what `config-get
+ * workflow.auto_advance` answers; a top-level `auto_advance` is never read.
+ *
+ * `auto_chain_active` is run state (X5): the scope's `.gsd/auto-chain` record, read through
+ * `auto-chain-state.cts`, so it answers exactly what `auto-chain status` answers. The retired
+ * `workflow._auto_chain_active` config key is never read. Returns plain data; the router formats
+ * it. The shape is a public contract other readers (hooks, workflows) depend on.
  */
 
 import { readWorkflowConfigValue } from './gate-config.cjs';
+import { readAutoChainActive } from './auto-chain-state.cjs';
 
 export interface AutoModeState {
   active: boolean;
@@ -25,7 +29,7 @@ function flag(projectDir: string, dotKey: string): boolean {
 
 export function readAutoModeState(projectDir: string): AutoModeState {
   const autoAdvance = flag(projectDir, 'workflow.auto_advance');
-  const autoChainActive = flag(projectDir, 'workflow._auto_chain_active');
+  const autoChainActive = readAutoChainActive(projectDir);
   let source: AutoModeState['source'] = 'none';
   if (autoChainActive && autoAdvance) source = 'both';
   else if (autoChainActive) source = 'auto_chain';

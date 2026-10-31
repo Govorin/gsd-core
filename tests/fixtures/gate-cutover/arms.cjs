@@ -354,8 +354,12 @@ function buildApiNoPhases(root) {
   write(root, '.planning/config.json', `${JSON.stringify({ workflow: { api_coverage_gate: true } })}\n`);
 }
 
-function buildAuto(config) {
-  return (root) => write(root, '.planning/config.json', `${JSON.stringify(config)}\n`);
+// X5: an auto-chain run is run state (`.gsd/auto-chain/active.json`), not a config key.
+function buildAuto(config, { chain = false } = {}) {
+  return (root) => {
+    write(root, '.planning/config.json', `${JSON.stringify(config)}\n`);
+    if (chain) write(root, '.gsd/auto-chain/active.json', `${JSON.stringify({ active: true, since: '2026-01-01T00:00:00.000Z', scope: '' })}\n`);
+  };
 }
 
 function buildBare(root) {
@@ -498,10 +502,10 @@ const FIXTURES = {
   pred: buildPredicate,
   api: buildApi,
   'api-no-phases': buildApiNoPhases,
-  'auto-both': buildAuto({ workflow: { auto_advance: true, _auto_chain_active: true } }),
+  'auto-both': buildAuto({ workflow: { auto_advance: true } }, { chain: true }),
   'auto-none': buildAuto({}),
   'auto-advance': buildAuto({ workflow: { auto_advance: true } }),
-  'auto-chain': buildAuto({ workflow: { _auto_chain_active: true } }),
+  'auto-chain': buildAuto({}, { chain: true }),
   bare: buildBare,
 };
 

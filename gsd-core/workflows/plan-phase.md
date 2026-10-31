@@ -1514,7 +1514,7 @@ Route to `<offer_next>` OR `auto_advance` depending on flags/config.
 
 ## 15. Auto-Advance Check
 
-Read and execute `gsd-core/workflows/plan-phase/steps/auto-advance-check.md` — it parses `--auto` / `--chain` from `$ARGUMENTS`, syncs the ephemeral `workflow._auto_chain_active` flag with the invocation, and, when auto-advance applies, launches execute-phase through the Skill tool (flat, `--no-transition`) and handles its return. Otherwise route to `<offer_next>`.
+Read and execute `gsd-core/workflows/plan-phase/steps/auto-advance-check.md` — it parses `--auto` / `--chain` from `$ARGUMENTS`, syncs the auto-chain run state (`auto-chain set|clear`) with the invocation, and, when auto-advance applies, launches execute-phase through the Skill tool (flat, `--no-transition`) and handles its return. Otherwise route to `<offer_next>`.
 
 </process>
 

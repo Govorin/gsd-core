@@ -8,8 +8,7 @@
  * is never a value), the active workstream's config first, then the project root's, and a missing,
  * unreadable or non-object config is simply "the key is absent".
  *
- * The lookup is NESTED-ONLY. A top-level `context_coverage_gate` / `auto_advance` /
- * `_auto_chain_active` is never read — `config-get workflow.<key>` does not answer it either, so a
+ * The lookup is NESTED-ONLY. A top-level `context_coverage_gate` / `auto_advance` is never read — `config-get workflow.<key>` does not answer it either, so a
  * gate and `config-get` can no longer disagree about the same config file (#4978).
  */
 
