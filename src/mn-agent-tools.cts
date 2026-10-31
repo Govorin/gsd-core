@@ -20,6 +20,13 @@
  * enabled. The same two files `agent_tools` is read from, so one install sees
  * one answer.
  *
+ * A block may also name `reference`: a file in `gsd-core/references/` that
+ * says when to use the grants. Each agent that gets the grants then gets one
+ * pointer line at the end of its body, naming the grants and the file (ADR-5210
+ * amendment, 2026-11-01). The pointer is added before the path rewrites, so
+ * every runtime sees its own path, and it rides the same activation key as the
+ * grants: on together, off together. `agents/*.md` stays upstream's bytes.
+ *
  * Every fs touch goes through the shared install-effort-resolver readers,
  * which route through `installFs()`.
  */
@@ -36,6 +43,24 @@ const { _readGsdConfigFile, _findAncestorGsdConfigPath } = installEffortResolver
 
 /** agent name -> grants, in declaration order (capability id order, then grant order). */
 type AgentToolGrants = Record<string, string[]>;
+
+/** One capability's pointer for one agent: the grants it names and the reference file. */
+interface AgentReference {
+  capability: string;
+  grants: string[];
+  reference: string;
+}
+
+/** agent name -> pointers, in capability id order. */
+type AgentReferences = Record<string, AgentReference[]>;
+
+/** A validated, active `agentTools` block. */
+interface ActiveBlock {
+  id: string;
+  grants: string[];
+  agents: string[];
+  reference: string | null;
+}
 
 /** Reads a dotted config key; `undefined` means "not set anywhere". */
 type ConfigValueReader = (dottedKey: string) => unknown;
@@ -75,21 +100,28 @@ function readDotted(config: Record<string, unknown> | null, dottedKey: string): 
   return Object.prototype.hasOwnProperty.call(config, dottedKey) ? config[dottedKey] : undefined;
 }
 
+/** A file name directly in `gsd-core/references/`: no directory part, no traversal. */
+function isUsableReference(entry: unknown): entry is string {
+  return typeof entry === 'string' && /^[a-z0-9][a-z0-9-]*\.md$/.test(entry);
+}
+
 /**
- * Pure: collect every first-party capability's `agentTools` into per-agent
- * grant lists. A capability whose activation key resolves to anything but
- * `false` contributes (absent = enabled); a malformed `agentTools` block or
- * grant contributes nothing rather than half of itself.
+ * Pure: every first-party capability's `agentTools` block that is well-formed
+ * and active, in capability id order. A capability whose activation key
+ * resolves to anything but `false` contributes (absent = enabled); a malformed
+ * block — a bad grant, agent name or reference — contributes nothing rather
+ * than half of itself.
  */
-function resolveCapabilityAgentTools(registry: unknown, readConfigValue: ConfigValueReader): AgentToolGrants {
-  const result: AgentToolGrants = Object.create(null) as AgentToolGrants;
+function activeAgentToolBlocks(registry: unknown, readConfigValue: ConfigValueReader): ActiveBlock[] {
+  const blocks: ActiveBlock[] = [];
   const capabilities = isPlainObject(registry) && isPlainObject(registry['capabilities']) ? registry['capabilities'] : {};
   for (const id of Object.keys(capabilities).sort()) {
     const cap = capabilities[id];
     if (!isPlainObject(cap) || !isPlainObject(cap['agentTools'])) continue;
-    const { grants, agents } = cap['agentTools'];
+    const { grants, agents, reference } = cap['agentTools'];
     if (!Array.isArray(grants) || !grants.every(isUsableGrant)) continue;
     if (!Array.isArray(agents) || !agents.every((a) => typeof a === 'string' && /^[a-z0-9][a-z0-9-]*$/.test(a))) continue;
+    if (reference !== undefined && !isUsableReference(reference)) continue;
 
     const activationKey = typeof cap['activationKey'] === 'string' ? cap['activationKey'] : null;
     if (activationKey !== null) {
@@ -104,7 +136,16 @@ function resolveCapabilityAgentTools(registry: unknown, readConfigValue: ConfigV
       if (effective !== undefined && !effective) continue;
     }
 
-    for (const agent of agents as string[]) {
+    blocks.push({ id, grants, agents: agents as string[], reference: reference ?? null });
+  }
+  return blocks;
+}
+
+/** Pure: per-agent grant lists from the active blocks; a grant two blocks share is kept once. */
+function resolveCapabilityAgentTools(registry: unknown, readConfigValue: ConfigValueReader): AgentToolGrants {
+  const result: AgentToolGrants = Object.create(null) as AgentToolGrants;
+  for (const { grants, agents } of activeAgentToolBlocks(registry, readConfigValue)) {
+    for (const agent of agents) {
       const list = result[agent] ?? (result[agent] = []);
       for (const grant of grants) if (!list.includes(grant)) list.push(grant);
     }
@@ -112,22 +153,61 @@ function resolveCapabilityAgentTools(registry: unknown, readConfigValue: ConfigV
   return result;
 }
 
-/**
- * The grants for one staged agent file stem. A `.compact` variant is the same
- * agent with a shorter body (ADR-4139), so it gets the same grants.
- */
+/** Pure: per-agent pointers from the active blocks that name a reference. */
+function resolveCapabilityAgentReferences(registry: unknown, readConfigValue: ConfigValueReader): AgentReferences {
+  const result: AgentReferences = Object.create(null) as AgentReferences;
+  for (const { id, grants, agents, reference } of activeAgentToolBlocks(registry, readConfigValue)) {
+    if (reference === null) continue;
+    for (const agent of agents) {
+      (result[agent] ?? (result[agent] = [])).push({ capability: id, grants: [...grants], reference });
+    }
+  }
+  return result;
+}
+
+/** A `.compact` variant is the same agent with a shorter body (ADR-4139). */
+function baseAgentName(agentName: string): string {
+  return agentName.endsWith('.compact') ? agentName.slice(0, -'.compact'.length) : agentName;
+}
+
+/** The grants for one staged agent file stem; a `.compact` variant gets its agent's. */
 function grantsForAgent(grants: AgentToolGrants | null, agentName: string): string[] {
   if (!grants) return [];
-  const base = agentName.endsWith('.compact') ? agentName.slice(0, -'.compact'.length) : agentName;
+  const base = baseAgentName(agentName);
   return Object.prototype.hasOwnProperty.call(grants, base) ? grants[base] : [];
 }
 
+/** The pointers for one staged agent file stem; a `.compact` variant gets its agent's. */
+function referencesForAgent(references: AgentReferences | null, agentName: string): AgentReference[] {
+  if (!references) return [];
+  const base = baseAgentName(agentName);
+  return Object.prototype.hasOwnProperty.call(references, base) ? references[base] : [];
+}
+
+/** The one line a pointer renders to. `~/.claude/` is rewritten per runtime by the path step after it. */
+function renderReferencePointer({ grants, reference }: AgentReference): string {
+  const tools = grants.map((grant) => `\`${grant}\``).join(', ');
+  return `**Granted at install:** if your tools include ${tools}, Read \`~/.claude/gsd-core/references/${reference}\` before you start; it says when to use them.`;
+}
+
 /**
- * Impure entry point for the installer: the frozen registry plus the two
- * config files, resolved for the install rooted at `targetDir` (walks up to
- * the nearest `.planning/`; `null` reads only the global defaults).
+ * Append one pointer line per reference at the end of the agent body, after a
+ * blank line, in the content's own line ending. No references: the content is
+ * returned unchanged, byte for byte.
  */
-function readCapabilityAgentTools(targetDir: string | null = null, options: ReadOptions = {}): AgentToolGrants {
+function appendAgentReferences(content: string, references: AgentReference[]): string {
+  if (references.length === 0) return content;
+  const eol = content.includes('\r\n') ? '\r\n' : '\n';
+  const body = content.endsWith(eol) ? content : content + eol;
+  return body + eol + references.map(renderReferencePointer).join(eol) + eol;
+}
+
+/**
+ * The frozen registry (or the test seam's) and a config reader resolved for
+ * the install rooted at `targetDir` (walks up to the nearest `.planning/`;
+ * `null` reads only the global defaults). Each file is read at most once.
+ */
+function installContext(targetDir: string | null, options: ReadOptions): { registry: unknown; readConfigValue: ConfigValueReader } {
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- generated first-party registry, loaded at call time
   const registry: unknown = options.registry !== undefined ? options.registry : (require('./capability-registry.cjs') as unknown);
   const home = resolveGsdHome(options.homedir ? options.homedir() : os.homedir());
@@ -145,11 +225,27 @@ function readCapabilityAgentTools(targetDir: string | null = null, options: Read
     }
     return readDotted(globalConfig, dottedKey);
   };
+  return { registry, readConfigValue };
+}
+
+/** Impure entry point for the installer: the grants, per agent. */
+function readCapabilityAgentTools(targetDir: string | null = null, options: ReadOptions = {}): AgentToolGrants {
+  const { registry, readConfigValue } = installContext(targetDir, options);
   return resolveCapabilityAgentTools(registry, readConfigValue);
+}
+
+/** Impure entry point for the installer: the reference pointers, per agent. */
+function readCapabilityAgentReferences(targetDir: string | null = null, options: ReadOptions = {}): AgentReferences {
+  const { registry, readConfigValue } = installContext(targetDir, options);
+  return resolveCapabilityAgentReferences(registry, readConfigValue);
 }
 
 export = {
   resolveCapabilityAgentTools,
+  resolveCapabilityAgentReferences,
   readCapabilityAgentTools,
+  readCapabilityAgentReferences,
   grantsForAgent,
+  referencesForAgent,
+  appendAgentReferences,
 };

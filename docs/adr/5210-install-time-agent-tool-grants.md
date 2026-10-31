@@ -5,6 +5,7 @@
 - **Issue:** none — the fork files no upstream issues; the number follows ADR-5209. The open question it closes is in `.plans/mn-fork-worklog.md` (the upstream 1.18 sync, "Not done here, owner decision", option 1).
 - **Amends:** nothing. Narrows how this fork reads [ADR-1244](1244-capability-ecosystem.md) D2 for first-party capabilities (§4). Builds on [ADR-857](857-capability-system.md) and [ADR-894](894-capability-declaration-format.md) (capability declaration), and on upstream #4032 (`agent_tools`, `appendAgentTools`).
 - **Supersedes:** nothing.
+- **Amended:** 2026-11-01 — `agentTools.reference`, a pointer line to a shipped reference (second user: `capabilities/mn-nx-tasks`); see the amendment at the end.
 
 ## Context
 
@@ -59,3 +60,27 @@ The capability's `activationKey`, `code_navigation.enabled` (default `true`; abs
 - Adding a grant to an agent is now an edit to `agentTools.agents`. `tests/mn-code-navigation.install.test.cjs` fails if a canonical agent declares a grant the capability owns, or if a listed agent does not exist or has no `tools:` key.
 - The verifier contract is now a fork diff in `verify-phase-goal.md` (one line) instead of in `agents/gsd-verifier.md` (three blocks). A future upstream rewrite of that spawn prompt has to carry the line. `tests/mn-verifier-contract-pointer.test.cjs` fails if the line is lost.
 - A Claude Code plugin install takes no agents from the package (`.claude-plugin/plugin.json` ships only skills), so no install path skips the staging step.
+
+## Amendment (2026-11-01): a block may name the reference that says when to use its grants
+
+A grant gives an agent a tool; it does not tell the agent when to reach for it. The code-navigation families did not need that, because the global instructions already route structural questions to them. The second capability, `mn-nx-tasks` (`mcp__nx-tasks__*`, the screens of the Nx runs the user has going in a terminal), does: an executor that never thinks to read the watcher's output gains nothing from the grant.
+
+The obvious carriers each fail one way:
+
+- **Inlining into `agents/*.md`** is what this ADR moved away from: a fork diff in upstream files, and bytes `gsd-verifier` (49 109 B of a 49 152 B cap) does not have.
+- **A `contributions` fragment** reaches only the roles a loop point publishes (`executor`, `verifier`, …). `gsd-debugger` and `gsd-dom-verifier` are not among them, and a contribution is gated by a config key at render time, not by whether the grant was installed.
+- **A line in each spawn prompt** means one edit per workflow that spawns the agent (execute-phase, quick, quick-batch, debug, …), each under its own size budget, and none of them knows whether the grant was installed.
+
+**Decision.** `agentTools` takes an optional `reference`: a file name directly in `gsd-core/references/` (`/^[a-z0-9][a-z0-9-]*\.md$/`). Each agent that gets the block's grants also gets one line at the end of its body:
+
+```
+**Granted at install:** if your tools include `mcp__nx-tasks__*`, Read `~/.claude/gsd-core/references/nx-live-stack.md` before you start; it says when to use them.
+```
+
+- The line is rendered by `src/mn-agent-tools.cts` from the grants and the file name; a capability cannot inject free text into a first-party agent.
+- It is appended in `stageAgentsForRuntimeWithConverter` right after section composition, before the path rewrites, so each runtime gets its own path (an absolute `<config>/gsd-core/references/…` for a Claude install, `__GSD_PI_ENGINE_ROOT__/…` in the Pi package). It applies on the no-`agentCtx` path too, like the grants.
+- It rides the block's activation key: grant and pointer land together and are dropped together. A malformed `reference` voids the whole block, grants included, as a malformed grant does.
+- Several blocks with references give several lines, in capability id order. A block without `reference` adds nothing to the body, so `mn-code-navigation`'s emitted agents are byte-identical.
+- The pointer stays on runtimes whose converter drops the grant (ZCode, Pi, OpenCode, the rules-based ones). It is worded as a condition on the agent's own tool list, so there it is a no-op instruction of about 170 B; filtering it per runtime would be a second copy of each converter's MCP policy (§3).
+
+**Consequences.** A granted agent pays one Read of the reference per spawn (`nx-live-stack.md`, 2.2 KB) when the tools are present; the reference opens with the cheapest check (`nx_running_tasks`) and says to stop when it lists no run. `tests/mn-nx-tasks.install.test.cjs` pins the declaration, the rendering, the staging order (code navigation, then nx-tasks, then the user's `agent_tools`) and the installed Claude agents with the key on and off.
