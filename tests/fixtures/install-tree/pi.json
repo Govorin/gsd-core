@@ -602,6 +602,7 @@
   "gsd-hooks/gsd-path-export.js",
   "gsd-hooks/gsd-phase-boundary.sh",
   "gsd-hooks/gsd-pin-invariants.js",
+  "gsd-hooks/gsd-planning-delete-guard.js",
   "gsd-hooks/gsd-prohibition-guard.js",
   "gsd-hooks/gsd-prompt-guard.js",
   "gsd-hooks/gsd-read-guard.js",

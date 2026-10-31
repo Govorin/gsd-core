@@ -3616,13 +3616,13 @@ describe('bug #3981: blocking-guard timeout budget + migration', () => {
     }
   });
 
-  test('mn fork write guards at timeout:5 are migrated to 120 where they are registered', () => {
+  test('mn fork blocking guards at timeout:5 are migrated to 120 where they are registered', () => {
     // Registration skips an entry that is already present, so only the
     // migration can lift an existing 5 s fork guard — and a timed-out guard
     // does not block (#3981). Kimi never registers them (its config.toml is
     // driven by the shared list), so the fork list is separate from it.
     const { FORK_BLOCKING_GUARD_NAMES, BLOCKING_GUARD_NAMES } = require('../gsd-core/bin/lib/runtime-hooks-surface.cjs');
-    assert.deepEqual([...FORK_BLOCKING_GUARD_NAMES], ['gsd-prohibition-guard', 'gsd-test-tamper-guard']);
+    assert.deepEqual([...FORK_BLOCKING_GUARD_NAMES], ['gsd-prohibition-guard', 'gsd-test-tamper-guard', 'gsd-planning-delete-guard']);
     assert.ok(FORK_BLOCKING_GUARD_NAMES.every((n) => !BLOCKING_GUARD_NAMES.includes(n)),
       'the fork guards must stay out of the shared list that drives Kimi');
     const localCmd = (hookFile) => `node ${path.join(targetDir, 'hooks', hookFile)}`;

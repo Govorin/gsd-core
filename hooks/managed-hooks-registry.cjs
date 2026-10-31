@@ -36,6 +36,7 @@ const MANAGED_HOOKS = [
   'gsd-node-runner.sh',
   'gsd-phase-boundary.sh',
   'gsd-pin-invariants.js',
+  'gsd-planning-delete-guard.js',
   'gsd-prohibition-guard.js',
   'gsd-prompt-guard.js',
   'gsd-read-guard.js',

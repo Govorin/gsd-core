@@ -63,6 +63,7 @@ export const BUNDLED_GSD_HOOK_FILES: ReadonlySet<string> = Object.freeze(new Set
   // mn fork enforcement hooks (shipped via scripts/build-hooks.js HOOKS_TO_COPY).
   'hooks/gsd-exit-gate.js',
   'hooks/gsd-pin-invariants.js',
+  'hooks/gsd-planning-delete-guard.js',
   'hooks/gsd-prohibition-guard.js',
   'hooks/gsd-test-tamper-guard.js',
   'hooks/gsd-worktree-provision.js',

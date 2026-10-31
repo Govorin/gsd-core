@@ -3279,6 +3279,11 @@ const capabilities = {
         ],
         "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
       },
+      "workflow.planning_delete_guard": {
+        "type": "boolean",
+        "default": true,
+        "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, REQUIREMENTS.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/ and moving files within it stay allowed, because workflows do both. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
+      },
       "workflow.exit_gate": {
         "type": "string",
         "default": "",
@@ -6636,6 +6641,7 @@ const configKeys = {
   "workflow.clean_state_enforce": "mn-verify-gate",
   "workflow.prohibition_guard": "mn-verify-gate",
   "workflow.test_tamper_guard": "mn-verify-gate",
+  "workflow.planning_delete_guard": "mn-verify-gate",
   "workflow.exit_gate": "mn-verify-gate",
   "workflow.exit_gate_agents": "mn-verify-gate",
   "workflow.exit_gate_max_retries": "mn-verify-gate",
@@ -7378,6 +7384,12 @@ const configSchema = {
     "type": "string",
     "default": "off",
     "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
+  },
+  "workflow.planning_delete_guard": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, REQUIREMENTS.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/ and moving files within it stay allowed, because workflows do both. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
   },
   "workflow.exit_gate": {
     "owner": "mn-verify-gate",
