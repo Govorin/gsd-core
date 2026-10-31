@@ -26,6 +26,10 @@
 //            (`permissionDecision: "ask"`); the model cannot self-approve.
 //   "deny" — the same write is blocked outright. For unattended runs, where
 //            "ask" has no one to ask and times out into a default.
+//   While auto mode is active (`gsd_run check auto-mode`), "ask" is answered
+//   "deny" with a reason that says so: nobody is there to approve, and a
+//   waiting write stalled recorded autonomous runs for hours
+//   (hooks/lib/unattended-ask.js, shared with the test tamper guard).
 //
 // Always allowed regardless of mode, because blocking them would break the
 // workflow itself rather than protect it:
@@ -58,6 +62,7 @@
 const fs = require('fs');
 const path = require('path');
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
+const { askOrDeny } = require('./lib/unattended-ask.js');
 
 /** Modes, in the order of increasing strictness. */
 const MODE_OFF = 'off';
@@ -436,9 +441,11 @@ function matchesDeclaration(target, entry) {
  * seam convention established by gsd-agent-isolation-guard.js.
  *
  * Returns `{ action: 'allow' }` or
- * `{ action: 'ask' | 'deny', reason, targetPath, phaseDir, declaredCount }`.
+ * `{ action: 'ask' | 'deny', reason, unattended, targetPath, phaseDir, declaredCount }`;
+ * `unattended` marks an "ask" answered "deny" because auto mode is active.
+ * `isAutoRun(planningRoot)` overrides the auto-mode reader (tests).
  */
-function evaluateWrite(data, { cwd: cwdOverride } = {}) {
+function evaluateWrite(data, { cwd: cwdOverride, isAutoRun } = {}) {
   if (!data || typeof data !== 'object') return { action: 'allow' };
   const payload = normalizeKimiPayload(data);
 
@@ -462,17 +469,16 @@ function evaluateWrite(data, { cwd: cwdOverride } = {}) {
   if (!active) return { action: 'allow' }; // no phase in progress
   if (active.error) {
     return {
-      action: mode === MODE_DENY ? 'deny' : 'ask',
-      targetPath: rawPath,
-      phaseDir: null,
-      declaredCount: 0,
-      readError: active.error.code ? String(active.error.code) : 'UNKNOWN',
-      reason:
+      ...askOrDeny(mode, planningRoot,
         `Prohibition guard: could not read this project's phase directory under ` +
         `'${planningRoot}/.planning/phases' (${active.error.code || 'unknown read error'}), so ` +
         `the declared scope of the running phase is unknown. workflow.prohibition_guard is ` +
         `"${mode}", and a guard that cannot verify must not answer "in scope". Retry once the ` +
-        `directory is readable.`,
+        `directory is readable.`, isAutoRun),
+      targetPath: rawPath,
+      phaseDir: null,
+      declaredCount: 0,
+      readError: active.error.code ? String(active.error.code) : 'UNKNOWN',
     };
   }
 
@@ -480,16 +486,15 @@ function evaluateWrite(data, { cwd: cwdOverride } = {}) {
   const collected = collectDeclared(phaseDir);
   if (collected.error) {
     return {
-      action: mode === MODE_DENY ? 'deny' : 'ask',
+      ...askOrDeny(mode, planningRoot,
+        `Prohibition guard: could not read the plans in '${phaseDir}' ` +
+        `(${collected.error.code || 'unknown read error'}), so this phase's declared file scope ` +
+        `is unknown. workflow.prohibition_guard is "${mode}", and a guard that cannot verify ` +
+        `must not answer "in scope". Retry once the plans are readable.`, isAutoRun),
       targetPath: rawPath,
       phaseDir,
       declaredCount: 0,
       readError: collected.error.code ? String(collected.error.code) : 'UNKNOWN',
-      reason:
-        `Prohibition guard: could not read the plans in '${phaseDir}' ` +
-        `(${collected.error.code || 'unknown read error'}), so this phase's declared file scope ` +
-        `is unknown. workflow.prohibition_guard is "${mode}", and a guard that cannot verify ` +
-        `must not answer "in scope". Retry once the plans are readable.`,
     };
   }
 
@@ -531,11 +536,10 @@ function evaluateWrite(data, { cwd: cwdOverride } = {}) {
     `the answer can still be "don't" rather than "revert".`;
 
   return {
-    action: mode === MODE_DENY ? 'deny' : 'ask',
+    ...askOrDeny(mode, planningRoot, reason, isAutoRun),
     targetPath: relative,
     phaseDir,
     declaredCount: declared.length,
-    reason,
   };
 }
 
@@ -584,6 +588,7 @@ function main() {
       targetPath: decision.targetPath,
       declaredCount: decision.declaredCount,
       readError: decision.readError,
+      unattended: decision.unattended || undefined,
       reason: decision.reason,
     };
     // Kimi feeds stderr (not stdout) back to the model on exit 2, so a deny
