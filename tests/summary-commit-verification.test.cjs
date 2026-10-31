@@ -23,11 +23,13 @@ describe('#3968 — measured commit claims', () => {
   test('executor measures commits, never narrates them', () => {
     const executor = read('agents/gsd-executor.md');
     // The ledger: HEAD captured at the plan's first commit, once per plan.
-    assert.ok(executor.includes('gsd-plan-head-before'),
+    assert.ok(executor.includes('the ledger persists on disk'),
       'the ledger must persist on disk (each Bash call is a fresh shell — a variable measures zero)');
-    assert.ok(executor.includes('git rev-list --count'),
-      'the SUMMARY commit count must come from git rev-list --count, not narration');
-    assert.ok(executor.includes('plan_head_before: ${PLAN_HEAD_BEFORE}'),
+    // ADR-5211: the ledger is the `worktree plan-ledger` verb, which records once and measures
+    // `git rev-list --count <base>..HEAD` itself (tests/worktree-guard.test.cjs drives it).
+    assert.ok(executor.includes('{GSD_TOOLS_CMD} worktree plan-ledger --phase {phase} --plan {plan}'),
+      'the SUMMARY commit count must come from the measuring ledger verb, not narration');
+    assert.ok(executor.includes('`plan_head_before: <detail.plan_head_before>`'),
       'the base is recorded in the frontmatter so the verifier reconciles with the same instrument');
     // A measured zero WITH code changes is a HALT, never a narrated success.
     assert.ok(/HALT — do not write the\s+SUMMARY/i.test(executor),
@@ -81,13 +83,12 @@ describe('#4670 — bounded commit-claim reconciliation', () => {
   test('executor records plan_head_after — the plan window bound (#4670)', () => {
     const executor = read('agents/gsd-executor.md');
     assert.ok(
-      executor.includes('plan_head_after: ${PLAN_HEAD_AFTER}'),
+      executor.includes('`plan_head_after: <detail.plan_head_after>`'),
       'the SUMMARY frontmatter must carry plan_head_after, captured at the measurement moment'
     );
-    assert.ok(
-      /PLAN_HEAD_AFTER=\$\(git rev-parse HEAD\)/.test(executor),
-      'PLAN_HEAD_AFTER must be captured from HEAD at the same measurement moment as the count'
-    );
+    // The verb reports plan_head_after and commits from the same call — one measurement moment.
+    const { planLedger } = require('../gsd-core/bin/lib/worktree-guard.cjs');
+    assert.equal(typeof planLedger, 'function');
   });
 
   test('verify-work bounds the commit-claim window to the plan own history (#4670)', () => {

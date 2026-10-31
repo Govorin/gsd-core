@@ -878,8 +878,8 @@ Fork-local (ADR-5210). Install-time tool grants a first-party capability declare
 `SEAM.worktree-safety-policy.enforced-by=test:tests/worktree-safety.test.cjs`
 `WORKTREE.GUARD.files=[src/worktree-guard.cts, src/automated-command-containment.cts, src/posix-ere.cts, src/worktree-agent-branch.cts]`
 `WORKTREE.GUARD.interface=[guardBranch, guardPreCommit, guardSentinel, guardAbsPath, guardAutomated, guardPin, planLedger, runGuardCli, runPlanLedgerCli, checkAutomatedCommand]`
-`WORKTREE.GUARD.cli=gsd-tools worktree guard <branch|pre-commit|sentinel|abs-path|automated|pin> [flags] | gsd-tools worktree plan-ledger --phase <p> --plan <n>`
-`WORKTREE.GUARD.exit=branch refusal 42 (#48); every other refusal 1; pass 0; applies:false marks a pass where the guard does not apply`
+`WORKTREE.GUARD.cli=gsd-tools worktree guard <branch|pre-commit|sentinel|abs-path|automated|pin> [flags] | gsd-tools worktree plan-ledger --phase <p> --plan <n> | gsd-tools worktree materialize --from <sha> --path <p>... [--optional-path <p>...] (quick's isolated plan materialisation; exit 42)`
+`WORKTREE.GUARD.exit=branch and materialize refusals 42 (#48); every other refusal 1; pass 0; applies:false marks a pass where the guard does not apply`
 `WORKTREE.GUARD.fail-closed=git missing, timing out or answering empty, an unknown stage, a missing/repeated/unknown flag, an internal error: all refusals, never ok (ADR-3409)`
 `WORKTREE.GUARD.cwd=git runs against invokingCwd (the caller's worktree); only the protected-branch config reads the remapped project root`
 `WORKTREE.GUARD.branch-policy-owner=src/worktree-agent-branch.cts (AGENT_BRANCH_RE, FALLBACK_PROTECTED_BRANCH_RE); worktree-safety.cts imports it`
@@ -887,7 +887,8 @@ Fork-local (ADR-5210). Install-time tool grants a first-party capability declare
 `WORKTREE.GUARD.0c-semantics=verbatim ERE port evaluated leftmost-longest by the vendored RE2 (LONGEST_MATCH) behind posix-ere.cts; JS RegExp leftmost-first would change which text a scan extracts`
 `WORKTREE.GUARD.strengthenings=[unresolvable roots refuse (bash took an empty root and passed), empty sentinel refuses (bash passed forever), abs-path resolves symlinks and .. via tryWithinRoot (bash compared string prefixes)]`
 `WORKTREE.GUARD.launch=init.execute-phase / init.quick / init.quick-batch report gsd_tools_cmd = node '<realpath of the gsd-tools.cjs beside src/gsd-tools-invocation.cts>' (forward slashes, POSIX-quoted; null when unresolvable = HALT); gsd-tools worktree tools-cmd [--raw] gives the same for workflows without an init; the orchestrator substitutes it for {GSD_TOOLS_CMD} at dispatch`
-`WORKTREE.GUARD.test-anchors=[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs]`
+`WORKTREE.GUARD.test-anchors=[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs, tests/gsd-tools-invocation.test.cjs, tests/worktree-dispatch-shell-forms.test.cjs]`
+`WORKTREE.GUARD.shell-form=every mandatory block a worktree sub-agent runs, after substitution, passes tests/helpers/isolation-shell-form.cjs (no $(…)/backticks, no computed git/node/sed args, no cd … &&, no git -C, no unbound placeholder); the frozen bash is its positive control`
 `SEAM.worktree-guard-verbs.owns=the worktree guard verbs — one typed owner per guard (ADR-5211, ADR-3473)`
 `SEAM.worktree-guard-verbs.enforced-by=test:tests/worktree-guard.test.cjs`
 `PLANNING.PATH.PARITY.project-scope=.planning/<project> (never .planning/projects/<project>); mirror planning-workspace.cjs planningDir()`

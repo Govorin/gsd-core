@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 359,
+  "count": 360,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -27,7 +27,7 @@
     "SETTINGS-HOOKS": 6,
     "WAVE": 5,
     "WORKSTREAM": 5,
-    "WORKTREE": 24
+    "WORKTREE": 25
   },
   "predicates": [
     {
@@ -1723,7 +1723,7 @@
     {
       "id": "WORKTREE.GUARD.cli",
       "klass": "WORKTREE",
-      "value": "gsd-tools worktree guard <branch|pre-commit|sentinel|abs-path|automated|pin> [flags] | gsd-tools worktree plan-ledger --phase <p> --plan <n>"
+      "value": "gsd-tools worktree guard <branch|pre-commit|sentinel|abs-path|automated|pin> [flags] | gsd-tools worktree plan-ledger --phase <p> --plan <n> | gsd-tools worktree materialize --from <sha> --path <p>... [--optional-path <p>...] (quick's isolated plan materialisation; exit 42)"
     },
     {
       "id": "WORKTREE.GUARD.cwd",
@@ -1733,7 +1733,7 @@
     {
       "id": "WORKTREE.GUARD.exit",
       "klass": "WORKTREE",
-      "value": "branch refusal 42 (#48); every other refusal 1; pass 0; applies:false marks a pass where the guard does not apply"
+      "value": "branch and materialize refusals 42 (#48); every other refusal 1; pass 0; applies:false marks a pass where the guard does not apply"
     },
     {
       "id": "WORKTREE.GUARD.fail-closed",
@@ -1756,6 +1756,11 @@
       "value": "init.execute-phase / init.quick / init.quick-batch report gsd_tools_cmd = node '<realpath of the gsd-tools.cjs beside src/gsd-tools-invocation.cts>' (forward slashes, POSIX-quoted; null when unresolvable = HALT); gsd-tools worktree tools-cmd [--raw] gives the same for workflows without an init; the orchestrator substitutes it for {GSD_TOOLS_CMD} at dispatch"
     },
     {
+      "id": "WORKTREE.GUARD.shell-form",
+      "klass": "WORKTREE",
+      "value": "every mandatory block a worktree sub-agent runs, after substitution, passes tests/helpers/isolation-shell-form.cjs (no $(…)/backticks, no computed git/node/sed args, no cd … &&, no git -C, no unbound placeholder); the frozen bash is its positive control"
+    },
+    {
       "id": "WORKTREE.GUARD.strengthenings",
       "klass": "WORKTREE",
       "value": "[unresolvable roots refuse (bash took an empty root and passed), empty sentinel refuses (bash passed forever), abs-path resolves symlinks and .. via tryWithinRoot (bash compared string prefixes)]"
@@ -1763,7 +1768,7 @@
     {
       "id": "WORKTREE.GUARD.test-anchors",
       "klass": "WORKTREE",
-      "value": "[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs]"
+      "value": "[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs, tests/gsd-tools-invocation.test.cjs, tests/worktree-dispatch-shell-forms.test.cjs]"
     },
     {
       "id": "WORKTREE.SEAM.caller-rule",

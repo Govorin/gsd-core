@@ -4,9 +4,10 @@
  * ADR-5211 — differential: the old bash guards against the verbs that replace
  * them, over the whole corpus each guard was driven against.
  *
- * The bash lives on as frozen snapshots in tests/fixtures/legacy-worktree-guards/
- * (taken from worktree-path-safety.md, worktree-branch-check.md and
- * gsd-executor.md). For every row both run against the same real git fixture
+ * The bash lives on as frozen snapshots in tests/fixtures/legacy-worktree-guards/,
+ * taken byte for byte from worktree-path-safety.md, worktree-branch-check.md and
+ * gsd-executor.md at 5794b63a9, the last commit that shipped them (wave 1 of
+ * ADR-5211 asserted the equality while both existed). For every row both run against the same real git fixture
  * and the EXIT CODES must agree. Where the verb is deliberately stricter than
  * the bash — a fail-open the bash had — the row says so and asserts the exact
  * pair, so a divergence is a recorded decision rather than drift.
@@ -26,7 +27,6 @@ const {
 } = require('./helpers/worktree-guard-corpus.cjs');
 const guard = require('../gsd-core/bin/lib/worktree-guard.cjs');
 
-const ROOT = path.join(__dirname, '..');
 const LEGACY = path.join(__dirname, 'fixtures', 'legacy-worktree-guards');
 const legacy = (name) => fs.readFileSync(path.join(LEGACY, name), 'utf8');
 const gitEnv = { ...process.env, ...GIT_IDENTITY_ENV };
@@ -47,29 +47,6 @@ function bash(script, cwd, env = {}, { strict = false } = {}) {
   });
   return r.exitCode;
 }
-
-/** The fenced ```bash block after `marker` in a shipped markdown file. */
-function shippedBlock(rel, marker) {
-  const src = fs.readFileSync(path.join(ROOT, rel), 'utf8');
-  const at = src.indexOf(marker);
-  assert.notEqual(at, -1, `${rel}: ${marker} not found`);
-  const open = src.indexOf('```bash\n', at) + 8;
-  return `${src.slice(open, src.indexOf('\n```', open))}\n`;
-}
-
-describe('the frozen snapshots are the shipped guards, byte for byte', () => {
-  for (const [file, rel, marker] of [
-    ['automated-0c.sh', 'gsd-core/references/worktree-path-safety.md', '## `<automated>` command guard — step 0c (#4767)'],
-    ['pin-0p.sh', 'gsd-core/references/worktree-path-safety.md', '## Supplied-root pin — step 0p'],
-    ['branch-check.sh', 'gsd-core/references/worktree-branch-check.md', '<worktree_branch_check>'],
-    ['sentinel-0a.sh', 'agents/gsd-executor.md', '**0a. cwd-drift assertion'],
-    ['abs-path-0b.sh', 'agents/gsd-executor.md', '**0b. absolute-path safety'],
-    ['pre-commit-0.sh', 'agents/gsd-executor.md', '**0. Pre-commit HEAD safety assertion'],
-    ['plan-ledger.sh', 'agents/gsd-executor.md', '**0c. Plan commit ledger'],
-  ]) {
-    test(`${file} = ${rel}`, () => assert.equal(legacy(file), shippedBlock(rel, marker)));
-  }
-});
 
 describe('step 0c — <automated> containment: bash vs verb', POSIX_ONLY, () => {
   let fx;

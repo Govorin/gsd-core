@@ -48,7 +48,7 @@ export const GUARD_STAGES = Object.freeze(['branch', 'pre-commit', 'sentinel', '
 export type GuardStage = (typeof GUARD_STAGES)[number];
 
 /** Exit code of a refusal, per stage. `branch` keeps the #48 exit 42. */
-export const REFUSAL_EXIT: Readonly<Record<GuardStage | 'plan-ledger' | 'unknown', number>> = Object.freeze({
+export const REFUSAL_EXIT: Readonly<Record<GuardStage | 'plan-ledger' | 'materialize' | 'unknown', number>> = Object.freeze({
   branch: 42,
   'pre-commit': 1,
   sentinel: 1,
@@ -56,6 +56,7 @@ export const REFUSAL_EXIT: Readonly<Record<GuardStage | 'plan-ledger' | 'unknown
   automated: 1,
   pin: 1,
   'plan-ledger': 1,
+  materialize: 42,
   unknown: 1,
 });
 
@@ -92,13 +93,17 @@ export const GUARD_CODE = Object.freeze({
   ROOT_MISMATCH: 'root_mismatch',
   // plan-ledger
   LEDGER_CORRUPT: 'ledger_corrupt',
+  // materialize
+  PATH_OUTSIDE_WORKTREE: 'path_outside_worktree',
+  NOT_IN_COMMIT: 'not_in_commit',
+  WRITE_FAILED: 'write_failed',
 } as const);
 
 export type GuardCode = (typeof GUARD_CODE)[keyof typeof GUARD_CODE];
 
 export interface GuardResult {
   ok: boolean;
-  stage: GuardStage | 'plan-ledger' | null;
+  stage: GuardStage | 'plan-ledger' | 'materialize' | null;
   code: GuardCode;
   exit_code: number;
   applies: boolean;
@@ -117,6 +122,7 @@ export interface GuardDeps {
 
 const GIT_TIMEOUT_MS = 10_000;
 const FULL_SHA_RE = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
+const COMMIT_RE = /^[0-9a-f]{7,64}$/;
 const LEDGER_TOKEN_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SENTINEL_FILE = 'gsd-spawn-toplevel';
 const UNBOUND_PIN = '{PINNED_ROOT}';
@@ -442,6 +448,58 @@ export function planLedger(cwd: string, opts: { phase: string; plan: string }, d
   return pass(stage, { ledger, created, plan_head_before: before, plan_head_after: head.out, commits: Number(count.out) });
 }
 
+/**
+ * Materialise planning files from a commit into the worktree (quick's isolated
+ * dispatch: the PLAN.md the orchestrator committed before spawning, plus its
+ * optional CONTEXT/RESEARCH companions). A file already present is left alone.
+ * A `--path` that cannot be produced refuses with exit 42 (the quick contract);
+ * an `--optional-path` absent from the commit is skipped. Every path is
+ * worktree-relative and must stay inside the worktree (ADR-4650).
+ */
+export function materializeFromCommit(
+  cwd: string,
+  opts: { commit: string; paths: string[]; optionalPaths: string[] },
+  deps: GuardDeps = {},
+): GuardResult {
+  const stage = 'materialize' as const;
+  if (!COMMIT_RE.test(opts.commit)) return refuse(stage, GUARD_CODE.USAGE, { reason: '--from must be a commit SHA', from: opts.commit });
+  const roots = containmentRoots('automated', cwd, deps);
+  if (isResult(roots)) return { ...roots, stage, exit_code: REFUSAL_EXIT[stage] };
+  const written: string[] = [];
+  const present: string[] = [];
+  const skipped: string[] = [];
+  const all = [...opts.paths.map((p) => ({ p, required: true })), ...opts.optionalPaths.map((p) => ({ p, required: false }))];
+  for (const { p, required } of all) {
+    // `init` anchors quick_dir on the orchestrator's checkout (#2376), so an
+    // absolute path under the MAIN checkout names the same repository path; it
+    // is rebased onto this worktree. Anything else must already be inside it.
+    const inMain = path.isAbsolute(p) ? tryWithinRoot(p, roots.mainRoot, PathAcceptance.AbsoluteInsideRoot) : null;
+    const relative = inMain !== null && tryWithinRoot(p, roots.worktreeRoot, PathAcceptance.AbsoluteInsideRoot) === null
+      ? path.relative(fs.realpathSync.native(roots.mainRoot), inMain)
+      : p;
+    const target = tryWithinRoot(relative, roots.worktreeRoot, path.isAbsolute(relative) ? PathAcceptance.AbsoluteInsideRoot : PathAcceptance.RelativeOnly);
+    if (target === null) return refuse(stage, GUARD_CODE.PATH_OUTSIDE_WORKTREE, { path: p, root: roots.worktreeRoot });
+    if (fs.existsSync(target)) { present.push(p); continue; }
+    const rel = posixNormalize(path.relative(fs.realpathSync.native(roots.worktreeRoot), target));
+    // `git restore --source` writes the blob into the working tree byte for byte
+    // (through git's own checkout filters) and leaves the index alone; a captured
+    // `git show` would pass through the seam's stdout trim.
+    try {
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+    } catch (e) {
+      return refuse(stage, GUARD_CODE.WRITE_FAILED, { path: p, reason: (e as Error).message });
+    }
+    const restoreArgs = ['restore', `--source=${opts.commit}`, '--worktree', '--', `:(literal)${rel}`];
+    const restored = runGit(deps, roots.worktreeRoot, restoreArgs);
+    if (restored.kind !== 'ok') {
+      if (!required && restored.kind === 'exit') { skipped.push(p); continue; }
+      return refuse(stage, restored.kind === 'exit' ? GUARD_CODE.NOT_IN_COMMIT : GUARD_CODE.GIT_UNAVAILABLE, { path: p, from: opts.commit, ...gitDetail(restored, restoreArgs) });
+    }
+    written.push(p);
+  }
+  return pass(stage, { from: opts.commit, written, present, skipped });
+}
+
 // ─── CLI ────────────────────────────────────────────────────────────────────
 
 /** Flags each stage accepts: value-taking, repeatable, boolean. */
@@ -544,6 +602,20 @@ export function runPlanLedgerCli(invokingCwd: string, args: string[], deps: Guar
   }
 }
 
+/** Run `worktree materialize --from <sha> --path <p>... [--optional-path <p>...]`. Never throws. */
+export function runMaterializeCli(invokingCwd: string, args: string[], deps: GuardDeps = {}): GuardResult {
+  const parsed = parseFlags(args, { values: ['--from'], repeat: ['--path', '--optional-path'], booleans: [] });
+  if ('error' in parsed) return refuse('materialize', GUARD_CODE.USAGE, { reason: parsed.error });
+  const commit = parsed.values.get('--from');
+  const paths = parsed.repeated.get('--path') ?? [];
+  if (commit === undefined || paths.length === 0) return refuse('materialize', GUARD_CODE.USAGE, { reason: '--from and at least one --path are required' });
+  try {
+    return materializeFromCommit(invokingCwd, { commit, paths, optionalPaths: parsed.repeated.get('--optional-path') ?? [] }, deps);
+  } catch (e) {
+    return refuse('materialize', GUARD_CODE.INTERNAL_ERROR, { reason: e instanceof Error ? e.message : String(e) });
+  }
+}
+
 function writeStdoutSync(s: string): void {
   const buf = Buffer.from(s, 'utf8');
   let offset = 0;
@@ -558,13 +630,20 @@ function writeStdoutSync(s: string): void {
 export function emitGuardResult(result: GuardResult): void {
   writeStdoutSync(`${JSON.stringify(result, null, 2)}\n`);
   if (!result.ok) {
-    process.stderr.write(`gsd-tools worktree ${result.stage === 'plan-ledger' ? 'plan-ledger' : `guard ${result.stage ?? '<stage>'}`}: REFUSED (${result.code}); HALT — do not self-recover.\n`);
+    const verb = result.stage === 'plan-ledger' || result.stage === 'materialize' ? result.stage : `guard ${result.stage ?? '<stage>'}`;
+    process.stderr.write(`gsd-tools worktree ${verb}: REFUSED (${result.code}); HALT — do not self-recover.\n`);
   }
   process.exitCode = result.exit_code;
 }
 
 export function cmdWorktreeGuard(invokingCwd: string, configCwd: string, args: string[]): GuardResult {
   const result = runGuardCli(invokingCwd, configCwd, args);
+  emitGuardResult(result);
+  return result;
+}
+
+export function cmdWorktreeMaterialize(invokingCwd: string, args: string[]): GuardResult {
+  const result = runMaterializeCli(invokingCwd, args);
   emitGuardResult(result);
   return result;
 }

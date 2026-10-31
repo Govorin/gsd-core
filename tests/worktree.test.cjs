@@ -178,9 +178,10 @@ describe('canonical worktree-branch-check fragment is the single source of truth
     assert.ok(/\brelease\b/.test(block), 'fragment protected-ref alternation must include release');
   });
 
-  test('fragment block positive allow-list matches ^((worktree-)?agent-|worktree-wf_) pattern', () => {
-    const allowListRe = /grep\s+-Eq?\s+'\^\(\(worktree-\)\?agent-\|worktree-wf_/;
-    assert.ok(allowListRe.test(block), 'fragment block must enforce a positive allow-list matching ^((worktree-)?agent-|worktree-wf_) (#3021)');
+  test('fragment block delegates the positive allow-list to the guard verb, whose policy is ^((worktree-)?agent-|worktree-wf_) (#3021, ADR-5211)', () => {
+    assert.ok(block.includes('worktree guard branch'), 'fragment block must run the branch guard verb');
+    const { AGENT_BRANCH_RE } = require('../gsd-core/bin/lib/worktree-agent-branch.cjs');
+    assert.equal(AGENT_BRANCH_RE.source, '^((worktree-)?agent-|worktree-wf_)[A-Za-z0-9._/-]+$');
   });
 
   test('fragment block contains update-ref prohibition text', () => {
@@ -188,7 +189,7 @@ describe('canonical worktree-branch-check fragment is the single source of truth
   });
 
   test('fragment block asserts an allowed base set and fails closed with exit 42 (#48, #1265)', () => {
-    assert.ok(block.includes('git rev-parse HEAD') && block.includes('{EXPECTED_BASE}'), 'fragment must assert HEAD against {EXPECTED_BASE} (#48)');
+    assert.ok(block.includes('--expected-base {EXPECTED_BASE}'), 'fragment must assert HEAD against {EXPECTED_BASE} (#48)');
     assert.ok(block.includes('{EXPECTED_BASE_ALTERNATE}'), 'fragment must support one orchestrator-approved alternate base for quick parent/plan forks (#1265)');
     assert.ok(/exit 42/.test(block), 'fragment must fail closed with exit 42 on mismatch (#48)');
   });

@@ -471,3 +471,52 @@ describe('worktree plan-ledger (#3968)', () => {
     assert.equal(r.json.code, GUARD_CODE.LEDGER_CORRUPT);
   });
 });
+
+// ─── materialize ────────────────────────────────────────────────────────────
+
+describe('worktree materialize (quick isolated dispatch, exit 42)', () => {
+  let repo;
+  let commit;
+  before(() => {
+    repo = makeRepo();
+    fs.mkdirSync(path.join(repo.main, '.planning', 'quick', 'q1'), { recursive: true });
+    fs.writeFileSync(path.join(repo.main, '.planning', 'quick', 'q1', 'q1-PLAN.md'), 'plan\n\n');
+    git(['add', '.planning'], repo.main);
+    git(['commit', '-q', '-m', 'plan'], repo.main);
+    commit = git(['rev-parse', 'HEAD'], repo.main);
+  });
+  after(() => cleanup(repo.tmp));
+
+  test('writes a missing plan byte for byte, and leaves it alone on a second run', () => {
+    const args = ['materialize', '--from', commit, '--path', '.planning/quick/q1/q1-PLAN.md', '--optional-path', '.planning/quick/q1/q1-CONTEXT.md'];
+    const first = verb(repo.wt, args);
+    assert.equal(first.exitCode, 0);
+    assert.deepEqual(first.json.detail.written, ['.planning/quick/q1/q1-PLAN.md']);
+    assert.deepEqual(first.json.detail.skipped, ['.planning/quick/q1/q1-CONTEXT.md']);
+    assert.equal(fs.readFileSync(path.join(repo.wt, '.planning', 'quick', 'q1', 'q1-PLAN.md'), 'utf8'), 'plan\n\n');
+    const second = verb(repo.wt, args);
+    assert.deepEqual(second.json.detail.present, ['.planning/quick/q1/q1-PLAN.md']);
+  });
+
+  test('an absolute path under the main checkout (init anchors quick_dir there, #2376) is rebased onto the worktree', () => {
+    const wtPlan = path.join(repo.wt, '.planning', 'quick', 'q1', 'q1-PLAN.md');
+    if (fs.existsSync(wtPlan)) fs.unlinkSync(wtPlan);
+    const r = verb(repo.wt, ['materialize', '--from', commit, '--path', path.join(repo.main, '.planning', 'quick', 'q1', 'q1-PLAN.md')]);
+    assert.equal(r.exitCode, 0);
+    assert.equal(fs.readFileSync(wtPlan, 'utf8'), 'plan\n\n');
+  });
+
+  for (const [label, args, code] of [
+    ['a required path the commit lacks', (c) => ['--from', c, '--path', '.planning/quick/q1/missing.md'], GUARD_CODE.NOT_IN_COMMIT],
+    ['a path escaping the worktree', (c) => ['--from', c, '--path', '../main/x.md'], GUARD_CODE.PATH_OUTSIDE_WORKTREE],
+    ['an absolute path outside both checkouts', (c) => ['--from', c, '--path', '/etc/x.md'], GUARD_CODE.PATH_OUTSIDE_WORKTREE],
+    ['a non-SHA commit', () => ['--from', 'HEAD', '--path', 'x.md'], GUARD_CODE.USAGE],
+    ['no --path', (c) => ['--from', c], GUARD_CODE.USAGE],
+  ]) {
+    test(`${label} → ${code}, exit 42`, () => {
+      const r = verb(repo.wt, ['materialize', ...args(commit)]);
+      assert.equal(r.exitCode, 42);
+      assert.equal(r.json.code, code);
+    });
+  }
+});

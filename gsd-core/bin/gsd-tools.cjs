@@ -3490,6 +3490,10 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
             require('./lib/worktree-guard.cjs').cmdWorktreePlanLedger(invokingCwd || cwd, args.slice(2));
             return;
           }
+          if (subcommand === 'materialize') {
+            require('./lib/worktree-guard.cjs').cmdWorktreeMaterialize(invokingCwd || cwd, args.slice(2));
+            return;
+          }
           if (subcommand === 'tools-cmd') {
             require('./lib/gsd-tools-invocation.cjs').cmdGsdToolsCmd(raw);
             return;
@@ -3514,7 +3518,7 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
           } else if (subcommand === 'create') {
             worktreeSafety.cmdWorktreeCreate(cwd, args.slice(2));
           } else {
-            error('Unknown worktree subcommand. Available: cleanup-wave, record-agent, reap-orphans, base-check, set-baseref, create, worker-record, worker-status, worker-complete, guard, plan-ledger, tools-cmd', ERROR_REASON.SDK_UNKNOWN_COMMAND);
+            error('Unknown worktree subcommand. Available: cleanup-wave, record-agent, reap-orphans, base-check, set-baseref, create, worker-record, worker-status, worker-complete, guard, plan-ledger, materialize, tools-cmd', ERROR_REASON.SDK_UNKNOWN_COMMAND);
           }
   }
 

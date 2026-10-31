@@ -86,6 +86,7 @@ EXEC_CONCURRENCY=$(printf '%s' "$QB_EXEC_CONC_JSON" | node -e 'let s="";process.
    ```bash
    SLUG=$(gsd_run query generate-slug "$description" --raw)
    ITEM_DIR="${quick_dir}/${quick_id}-${SLUG}"
+   EXPECTED_BASE=$(git rev-parse HEAD)   # this item's spawn base, for its branch check
    ```
 
    **`isolation == "harness-worktree"`:** one `Agent()` per message,
@@ -97,6 +98,14 @@ EXEC_CONCURRENCY=$(printf '%s' "$QB_EXEC_CONC_JSON" | node -e 'let s="";process.
    Agent(
      prompt="
    Execute quick-batch item ${quick_id}.
+
+   <worktree_branch_check>
+   ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): read \`gsd-core/references/worktree-branch-check.md\`, substitute \`{GSD_TOOLS_CMD}\` with \`${gsd_tools_cmd}\`, \`{EXPECTED_BASE}\` with ${EXPECTED_BASE} and \`{EXPECTED_BASE_ALTERNATE}\` with the empty string, and replace this note with that fragment's runnable block — the same verify-only, fail-closed (exit 42) guard \`/gsd:quick\` embeds.
+   </worktree_branch_check>
+
+   <gsd_tools_launcher>
+   ${gsd_tools_cmd}
+   </gsd_tools_launcher>
 
    <required_reading>
    - ${ITEM_DIR}/${quick_id}-PLAN.md (Plan)

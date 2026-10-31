@@ -104,6 +104,7 @@ GSD_ARGS=${GSD_ARGS%$'\n'}
 GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 AGENT_SKILLS_DEBUGGER=$(gsd_run query agent-skills gsd-debugger ${GSD_WS:+--ws=${GSD_WS##* }})
 EXPECTED_BASE=$(git rev-parse HEAD)
+GSD_TOOLS_CMD=$(gsd_run worktree tools-cmd --raw 2>/dev/null || true)   # ADR-5211: the guard's literal launch
 ```
 
 **Pre-dispatch worktree base-check (#2649, mirrors execute-phase #683/#1369 and quick #1941).**
@@ -176,7 +177,7 @@ Create: .planning/debug/{slug}.md
 
 Print: `◆ Spawning diagnostics agent... (each runs in a subagent — no output until they return, ~1–5 min; expected, not a freeze)`
 
-Before spawning, materialize the guard into WORKTREE_GUARD: read `gsd-core/references/worktree-branch-check.md`, substitute `{EXPECTED_BASE}` with `$EXPECTED_BASE`, and use the resulting `<worktree_branch_check>` block (the runnable guard) as WORKTREE_GUARD below.
+Before spawning, materialize the guard into WORKTREE_GUARD: read `gsd-core/references/worktree-branch-check.md`, substitute `{GSD_TOOLS_CMD}` with `$GSD_TOOLS_CMD`, `{EXPECTED_BASE}` with `$EXPECTED_BASE` and `{EXPECTED_BASE_ALTERNATE}` with the empty string (an empty `$GSD_TOOLS_CMD` here is a halt: the agents' guard could not run), and use the resulting `<worktree_branch_check>` block (the runnable guard) as WORKTREE_GUARD below.
 
 **Only when `ISOLATION = "harness-worktree"`.** When `ISOLATION = "none"` the agent runs on
 the main working tree, where the guard's HEAD assertion cannot hold — set `WORKTREE_GUARD` to
