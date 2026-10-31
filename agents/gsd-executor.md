@@ -455,11 +455,9 @@ git commit -m "{type}({phase}-{plan}): {concise task description}
 
 **6. Post-commit deletion check:** After recording the hash, verify the commit did not accidentally delete tracked files:
 ```bash
-DELETIONS=$(git show --first-parent --diff-filter=D --name-only --pretty=format: HEAD 2>/dev/null || true)
-if [ -n "$DELETIONS" ]; then
-  echo "WARNING: Commit includes file deletions: $DELETIONS"
-fi
+git show --first-parent --diff-filter=D --name-only --pretty=format: HEAD
 ```
+Any path it prints is a file this commit deleted (no output: none).
 Intentional deletions (e.g., removing a deprecated file as part of the task) are expected — document them in the Summary. Unexpected deletions are a Rule 1 bug: revert and fix before proceeding.
 
 **7. Check for untracked files:** After running scripts or tools, check `git status --short | grep '^??'`. For any new untracked files: commit if intentional, add to `.gitignore` if generated/runtime output. Never leave generated files untracked.

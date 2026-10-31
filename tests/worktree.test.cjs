@@ -460,10 +460,11 @@ describe('bug-2075: worktree deletion safeguards', () => {
         'gsd-executor.md must include --diff-filter=D to detect accidental file deletions after each commit'
       );
 
-      // Must have a warning about unexpected deletions
+      // Must say what the output means (ADR-5211: a plain git call, no $(…) capture) and
+      // what to do about an unexpected deletion.
       assert.ok(
-        content.includes('DELETIONS') || content.includes('WARNING'),
-        'gsd-executor.md must emit a warning when a commit includes unexpected file deletions'
+        content.includes('Any path it prints is a file this commit deleted') && content.includes('Unexpected deletions are a Rule 1 bug'),
+        'gsd-executor.md must say how to read the deletion check and act on an unexpected deletion'
       );
     });
   });

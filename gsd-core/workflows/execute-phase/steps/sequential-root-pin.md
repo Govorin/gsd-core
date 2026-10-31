@@ -18,7 +18,7 @@ composition contract — the dispatched prompt must carry the bound, runnable gu
 do not pass this instruction through in its place.
 
 In this dispatch's `<required_reading>`, also replace the self-derivation line
-`PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)` with
+``PROJECT_ROOT` = `git rev-parse --show-toplevel` output`` with
 `PROJECT_ROOT='<the same literal $ORCHESTRATOR_WT>'` — a sequential executor must never
 re-derive its root from its own (possibly drifted) cwd. This substitution is sequential-mode
 ONLY: worktree-mode dispatches keep the self-derived line — an isolated executor's own

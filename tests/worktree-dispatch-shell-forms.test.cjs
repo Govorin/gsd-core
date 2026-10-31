@@ -75,6 +75,7 @@ const MANDATORY = [
     '**0. Pre-commit HEAD safety assertion',
     '**0c. Plan commit ledger',
     '**`commits:` is measured, never narrated',
+    '**6. Post-commit deletion check',
   ].map((m) => [`gsd-executor.md ${m}`, bashAfter(executor, m)]),
   // quick.md's isolated preamble, with the orchestrator's template values bound.
   ['quick.md plan materialisation', escapedBashAfter(quick, 'FIRST ACTION after the worktree branch check')
@@ -95,6 +96,19 @@ describe('every mandatory worktree block passes the isolation shell-form model a
       assert.deepEqual(verdict.violations, [], `${label} would be refused inside an isolated agent`);
     });
   }
+});
+
+describe('the executor prompt derives its root without a capture (review: refused form)', () => {
+  test('execute-phase.md required_reading names the plain git call, no $(…)', () => {
+    const src = read('gsd-core/workflows/execute-phase.md');
+    const at = src.indexOf('First resolve repo root so every path is anchored');
+    assert.notEqual(at, -1);
+    const rootLine = splitLines(src.slice(at))[1];
+    assert.ok(rootLine.includes('git rev-parse --show-toplevel'), rootLine);
+    assert.ok(!rootLine.includes('$('), rootLine);
+    // The sequential substitution looks for that exact line.
+    assert.ok(read('gsd-core/workflows/execute-phase/steps/sequential-root-pin.md').includes(rootLine.trim().split('\\`').join('`')));
+  });
 });
 
 describe('the launcher block exists only where a dispatch fills it (review: tag collision)', () => {

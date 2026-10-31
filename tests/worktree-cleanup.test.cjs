@@ -576,8 +576,8 @@ describe('worktree commit safety hardening (#1977)', () => {
     const content = fs.readFileSync(EXECUTOR_AGENT_PATH, 'utf-8');
     assert.ok(content.includes('--diff-filter=D'), 'must include --diff-filter=D deletion verification');
     assert.ok(
-      content.includes('WARNING') || content.includes('DELETIONS'),
-      'must warn when a commit includes file deletions'
+      content.includes('Any path it prints is a file this commit deleted'),
+      'must say how to read the deletion check (ADR-5211: a plain git call, no $(…) capture)'
     );
   });
 

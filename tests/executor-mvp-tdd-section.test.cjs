@@ -227,7 +227,7 @@ describe('bug #3099: absolute-path safety guidance in gsd-executor.md', () => {
     // must be told to compute the root BEFORE reading the listed files
     // (#3423 note: execute-phase carries several such blocks, so a bare
     // indexOf on the tag can anchor to the wrong one).
-    const prIdx = executePhaseSrc.indexOf('PROJECT_ROOT=$(git rev-parse --show-toplevel');
+    const prIdx = executePhaseSrc.indexOf('\\`PROJECT_ROOT\\` = \\`git rev-parse --show-toplevel\\` output');
     assert.ok(prIdx !== -1, 'executor dispatch must compute PROJECT_ROOT in the prompt');
     const filesIdx = executePhaseSrc.lastIndexOf('<required_reading>', prIdx);
     assert.ok(filesIdx !== -1, 'required_reading block not found before the PROJECT_ROOT computation');
@@ -545,7 +545,7 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
       executePhaseSrc.indexOf('**Sequential mode**'),
     );
     assert.ok(isolated.length > 0, 'worktree-mode dispatch slice not found');
-    assert.match(isolated, /PROJECT_ROOT=\$\(git rev-parse --show-toplevel/, 'isolated executor keeps its own (correct) root derivation');
+    assert.ok(isolated.includes('PROJECT_ROOT\\` = \\`git rev-parse --show-toplevel\\` output'), 'isolated executor keeps its own (correct) root derivation');
     assert.doesNotMatch(isolated, /<project_root_pin>/, 'isolated prompt must not inherit the orchestrator root');
   });
 });

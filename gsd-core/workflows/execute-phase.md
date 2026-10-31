@@ -763,7 +763,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
        <required_reading>
        Read these files at execution start using the Read tool.
        First resolve repo root so every path is anchored:
-       \`PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)\`
+       \`PROJECT_ROOT\` = \`git rev-parse --show-toplevel\` output
        - ${PROJECT_ROOT}/{phase_dir}/{plan_file} (Plan)
        - ${PROJECT_ROOT}/.planning/PROJECT.md (Project context — core value, requirements, evolution rules)
        - ${PROJECT_ROOT}/.planning/STATE.md (State)
