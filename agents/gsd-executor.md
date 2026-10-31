@@ -126,8 +126,9 @@ For each task:
    - Execute task, apply deviation rules as needed
    - Handle auth errors as authentication gates
    - Run verification, confirm done criteria — before running a task's `<automated>` command,
-     `{GSD_TOOLS_CMD} worktree guard automated --plan '<PLAN.md path>' --task <n>` (`<n>`: this
-     `<task>`'s ordinal in PLAN.md, from 1); a refusal is a HALT (`worktree-path-safety.md` 0c)
+     `{GSD_TOOLS_CMD} worktree guard automated --plan '<PLAN.md path>' --task <n> --task-name '<its
+     <name>>'` (`<n>`: this `<task>`'s ordinal in PLAN.md, from 1; drop `--task-name` if the name
+     holds a `'`); a refusal is a HALT (`worktree-path-safety.md` 0c)
    - Commit (see task_commit_protocol)
    - Track completion + commit hash for Summary
 

@@ -576,7 +576,7 @@ describe('#4767: step 0c <automated> guard executes against a real worktree', { 
   const run = (cmd) => guardAutomated(fx.wt, { command: cmd });
 
   test('the shipped block runs the verb with the plan and the task written out', () => {
-    assert.match(block, /^\{GSD_TOOLS_CMD\} worktree guard automated --plan '[^'\n]{1,400}' --task \d{1,4}$/);
+    assert.match(block, /^\{GSD_TOOLS_CMD\} worktree guard automated --plan '[^'\n]{1,400}' --task \d{1,4} --task-name '[^'\n]{1,200}'$/);
   });
 
   test('composed as the executor composes it, the block halts on a task that leaves the worktree and passes one that stays', () => {
@@ -589,7 +589,8 @@ describe('#4767: step 0c <automated> guard executes against a real worktree', { 
     const compose = (task) => block
       .replace('{GSD_TOOLS_CMD}', `node '${TOOLS_PATH.split(path.sep).join('/')}'`)
       .replace(/--plan '[^']{1,400}'/, `--plan '${plan}'`)
-      .replace(/--task \d+/, `--task ${task}`);
+      .replace(/--task \d+/, `--task ${task}`)
+      .replace(/ --task-name '[^']{1,200}'/, '');
     const runBlock = (task) => runHook('-c', [compose(task)], { interpreter: 'bash', cwd: fx.wt, timeoutMs: HOOK_FANOUT_TIMEOUT_MS });
     const stays = runBlock(1);
     assert.equal(stays.exitCode, 0, stays.stderr);

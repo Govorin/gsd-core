@@ -113,10 +113,12 @@ command. Run as written, `cd /abs/main-checkout/… && <test>` leaves the worktr
 against the main tree, and **passes on code this worktree changed and the main tree did
 not** — a green verify that verified nothing. Before executing a task's `<automated>`
 commands, have the verb read them from the plan by task number — the `<task>`'s ordinal in
-PLAN.md, counted from 1 in document order — and scan them:
+PLAN.md, counted from 1 in document order, ignoring fenced code and HTML comments — and its
+`<name>`, which must match (`task_mismatch` otherwise; drop `--task-name` if the name holds a
+`'`), and scan them:
 
 ```bash
-{GSD_TOOLS_CMD} worktree guard automated --plan '/path/to/the/PLAN.md' --task 2
+{GSD_TOOLS_CMD} worktree guard automated --plan '/path/to/the/PLAN.md' --task 2 --task-name 'Task 2: …'
 ```
 
 It refuses `relocates_outside_worktree` (a `cd`/`pushd`, a tool's directory flag, or an
