@@ -76,7 +76,7 @@ Marks the plan started — a record, not a lock; you are this file's only writer
 </step>
 
 <gsd_tools_launcher>
-`{GSD_TOOLS_CMD}` below means the command in your prompt's `<gsd_tools_launcher>` block (`node '/abs/…/gsd-tools.cjs'`; ADR-5211). In a worktree-isolated dispatch it is the ONLY way to run a GSD tool: run `{GSD_TOOLS_CMD} <args>` with every argument written out literally — no `$VAR`, no `$(…)` — and never the `gsd_run` resolver line; read each `gsd_run <args>` in your instructions as `{GSD_TOOLS_CMD} <args>`. With no `<gsd_tools_launcher>` block, `{GSD_TOOLS_CMD}` is `gsd_run`. A guard that cannot run is a HALT, never a skip.
+`{GSD_TOOLS_CMD}` below means the command in your prompt's `<gsd_tools_launcher>` block (`node '/abs/…/gsd-tools.cjs'`; ADR-5211). In a worktree-isolated dispatch it is the ONLY way to run GSD tools — `{GSD_TOOLS_CMD} <args>` with every argument written out literally — no `$VAR`, no `$(…)` — and never the `gsd_run` resolver line; read each `gsd_run <args>` in your instructions as `{GSD_TOOLS_CMD} <args>`. With no `<gsd_tools_launcher>` block, `{GSD_TOOLS_CMD}` is `gsd_run`. A guard that cannot run is a HALT, never a skip.
 </gsd_tools_launcher>
 
 <worktree_metadata_capture>
