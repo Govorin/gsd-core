@@ -29,4 +29,4 @@ claude plugin install gsd-deck@gsd-mods
 
 ## Откуда данные
 
-Мод ничего не пишет в `.planning/`. Он читает `STATE.md` напрямую и для проекта в фокусе запускает `node gsd-tools.cjs smart-entry --json | progress json | state-snapshot | list-todos --project-dir <dir>`. `gsd-tools.cjs` ищется сначала в `<cwd>/.claude/gsd-core/bin/`, потом в `~/.claude/gsd-core/bin/`, потом в `~/.claude/get-shit-done/bin/`.
+Мод ничего не пишет в `.planning/`. Он читает `STATE.md` напрямую и для проекта в фокусе запускает `node gsd-tools.cjs smart-entry --json | progress json | state-snapshot | list-todos --project-dir <dir>`. `gsd-tools.cjs` ищется сначала в `<cwd>/.claude/gsd-core/bin/`, потом в `~/.claude/gsd-core/bin/`, потом в `~/.claude/get-shit-done/bin/`. <!-- gsd-allow-legacy-name: pre-rename install -->

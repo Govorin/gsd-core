@@ -277,7 +277,7 @@ export async function locateTools($: EngineInterface, cwd: string): Promise<stri
   const candidates = [
     join(cwd, '.claude/gsd-core/bin/gsd-tools.cjs'),
     join(home, '.claude/gsd-core/bin/gsd-tools.cjs'),
-    join(home, '.claude/get-shit-done/bin/gsd-tools.cjs'),
+    join(home, '.claude/get-shit-done/bin/gsd-tools.cjs'), // pre-rename install; gsd-allow-legacy-name
   ]
   for (const candidate of candidates) {
     if (await $.fs.exists(candidate).catch(() => false)) return candidate
