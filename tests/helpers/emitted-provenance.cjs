@@ -394,6 +394,10 @@ const PROVENANCE_RULES = [
     // install.js:2344 — `yamlPath: agents/subagents/${subagent.name}.yaml`.
     pattern: /^subagents\/([^/]+)\.(md|yaml)$/,
     sources: (m) => [`agents/${m[1]}.md`],
+    // Fork (ADR-5210 amendment): the subagent .md is the staged agent body, so a
+    // declared reference pointer moves it without touching agents/<name>.md. Kimi
+    // drops MCP grants, so before the pointer nothing here moved it.
+    transforms: FORK_AGENT_GRANT_SRCS,
   },
   {
     id: 'hooks-built',
