@@ -95,6 +95,7 @@ export const GUARD_CODE = Object.freeze({
   ROOT_MISMATCH: 'root_mismatch',
   // plan-ledger
   LEDGER_CORRUPT: 'ledger_corrupt',
+  LEDGER_STALE: 'ledger_stale',
   // materialize
   PATH_OUTSIDE_WORKTREE: 'path_outside_worktree',
   NOT_IN_COMMIT: 'not_in_commit',
@@ -346,7 +347,7 @@ export function guardAbsPath(cwd: string, opts: { paths: string[] }, deps: Guard
 }
 
 /** Worktree root (git's spelling) and the physical main-checkout root, or the refusal. */
-function containmentRoots(stage: GuardStage, cwd: string, deps: GuardDeps): { worktreeRoot: string; mainRoot: string } | GuardResult {
+function containmentRoots(stage: GuardStage | 'materialize', cwd: string, deps: GuardDeps): { worktreeRoot: string; mainRoot: string } | GuardResult {
   const top = showToplevel(deps, cwd);
   if (top.kind !== 'ok') return refuse(stage, GUARD_CODE.ROOT_UNRESOLVED, gitDetail(top, ['rev-parse', '--show-toplevel']));
   const common = runGit(deps, cwd, ['rev-parse', '--git-common-dir']);
@@ -474,6 +475,16 @@ export function planLedger(cwd: string, opts: { phase: string; plan: string }, d
     return refuse(stage, GUARD_CODE.LEDGER_CORRUPT, { ledger, reason: (e as Error).message });
   }
   if (!FULL_SHA_RE.test(before)) return refuse(stage, GUARD_CODE.LEDGER_CORRUPT, { ledger, recorded: before });
+  // A recorded base that HEAD no longer descends from (a reset, a rebase, a ledger
+  // left by an earlier attempt of the same plan id) makes `<base>..HEAD` count
+  // commits that are not this plan's. Refuse rather than rewrite the ledger: a
+  // rewrite would re-measure from the current HEAD and report 0 for commits that
+  // exist, which is exactly the narrated count #3968 forbids.
+  const ancestry = runGit(deps, cwd, ['merge-base', '--is-ancestor', before, 'HEAD']);
+  if (ancestry.kind === 'exit' && ancestry.exitCode === 1) {
+    return refuse(stage, GUARD_CODE.LEDGER_STALE, { ledger, plan_head_before: before, plan_head_after: head.out });
+  }
+  if (ancestry.kind !== 'ok') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, gitDetail(ancestry, ['merge-base', '--is-ancestor', before, 'HEAD']));
   const count = runGit(deps, cwd, ['rev-list', '--count', `${before}..HEAD`]);
   if (count.kind !== 'ok' || !/^\d+$/.test(count.out)) {
     return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, count.kind === 'ok' ? { git: 'rev-list --count', output: count.out } : gitDetail(count, ['rev-list', '--count', `${before}..HEAD`]));
@@ -496,10 +507,10 @@ export function materializeFromCommit(
 ): GuardResult {
   const stage = 'materialize' as const;
   if (!COMMIT_RE.test(opts.commit)) return refuse(stage, GUARD_CODE.USAGE, { reason: '--from must be a commit SHA', from: opts.commit });
-  const roots = containmentRoots('automated', cwd, deps);
-  if (isResult(roots)) return { ...roots, stage, exit_code: REFUSAL_EXIT[stage] };
+  const roots = containmentRoots(stage, cwd, deps);
+  if (isResult(roots)) return roots;
   const written: string[] = [];
-  const present: string[] = [];
+  const alreadyPresent: string[] = [];
   const skipped: string[] = [];
   const all = [...opts.paths.map((p) => ({ p, required: true })), ...opts.optionalPaths.map((p) => ({ p, required: false }))];
   for (const { p, required } of all) {
@@ -512,11 +523,19 @@ export function materializeFromCommit(
       : p;
     const target = tryWithinRoot(relative, roots.worktreeRoot, path.isAbsolute(relative) ? PathAcceptance.AbsoluteInsideRoot : PathAcceptance.RelativeOnly);
     if (target === null) return refuse(stage, GUARD_CODE.PATH_OUTSIDE_WORKTREE, { path: p, root: roots.worktreeRoot });
-    if (fs.existsSync(target)) { present.push(p); continue; }
+    if (fs.existsSync(target)) { alreadyPresent.push(p); continue; }
     const rel = posixNormalize(path.relative(fs.realpathSync.native(roots.worktreeRoot), target));
-    // `git restore --source` writes the blob into the working tree byte for byte
-    // (through git's own checkout filters) and leaves the index alone; a captured
-    // `git show` would pass through the seam's stdout trim.
+    const spec = `${opts.commit}:${rel}`;
+    const present = runGit(deps, roots.worktreeRoot, ['cat-file', '-e', spec]);
+    if (present.kind !== 'ok') {
+      if (present.kind === 'unavailable') return refuse(stage, GUARD_CODE.GIT_UNAVAILABLE, { path: p, ...gitDetail(present, ['cat-file', '-e', spec]) });
+      if (!required) { skipped.push(p); continue; }
+      return refuse(stage, GUARD_CODE.NOT_IN_COMMIT, { path: p, from: opts.commit, ...gitDetail(present, ['cat-file', '-e', spec]) });
+    }
+    // Only now that the blob exists is a directory created for it — a skipped
+    // optional path leaves no empty directory behind. `git restore --source`
+    // writes the blob byte for byte (through git's checkout filters) and leaves
+    // the index alone; a captured `git show` would pass through the seam's trim.
     try {
       fs.mkdirSync(path.dirname(target), { recursive: true });
     } catch (e) {
@@ -525,12 +544,11 @@ export function materializeFromCommit(
     const restoreArgs = ['restore', `--source=${opts.commit}`, '--worktree', '--', `:(literal)${rel}`];
     const restored = runGit(deps, roots.worktreeRoot, restoreArgs);
     if (restored.kind !== 'ok') {
-      if (!required && restored.kind === 'exit') { skipped.push(p); continue; }
-      return refuse(stage, restored.kind === 'exit' ? GUARD_CODE.NOT_IN_COMMIT : GUARD_CODE.GIT_UNAVAILABLE, { path: p, from: opts.commit, ...gitDetail(restored, restoreArgs) });
+      return refuse(stage, restored.kind === 'exit' ? GUARD_CODE.WRITE_FAILED : GUARD_CODE.GIT_UNAVAILABLE, { path: p, from: opts.commit, ...gitDetail(restored, restoreArgs) });
     }
     written.push(p);
   }
-  return pass(stage, { from: opts.commit, written, present, skipped });
+  return pass(stage, { from: opts.commit, written, present: alreadyPresent, skipped });
 }
 
 // ─── CLI ────────────────────────────────────────────────────────────────────

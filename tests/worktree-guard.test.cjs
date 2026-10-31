@@ -572,6 +572,23 @@ describe('worktree plan-ledger (#3968)', () => {
     assert.equal(other.json.detail.commits, 0);
   });
 
+  // Review nit: a recorded base HEAD no longer descends from counted foreign commits.
+  test('a recorded base HEAD no longer descends from refuses ledger_stale and keeps the ledger', () => {
+    const first = verb(repo.wt, ['plan-ledger', '--phase', '5', '--plan', '01']);
+    git(['commit', '-q', '--allow-empty', '-m', 'c'], repo.wt);
+    const moved = verb(repo.wt, ['plan-ledger', '--phase', '5', '--plan', '02']);
+    git(['reset', '-q', '--hard', first.json.detail.plan_head_before], repo.wt);
+    git(['commit', '-q', '--allow-empty', '-m', 'diverged'], repo.wt);
+    const stale = verb(repo.wt, ['plan-ledger', '--phase', '5', '--plan', '02']);
+    assert.equal(stale.exitCode, 1);
+    assert.equal(stale.json.code, GUARD_CODE.LEDGER_STALE);
+    assert.equal(stale.json.detail.plan_head_before, moved.json.detail.plan_head_before);
+    const again = verb(repo.wt, ['plan-ledger', '--phase', '5', '--plan', '02']);
+    assert.equal(again.json.code, GUARD_CODE.LEDGER_STALE, 'the ledger is not rewritten');
+    // A base HEAD still descends from keeps measuring.
+    assert.equal(verb(repo.wt, ['plan-ledger', '--phase', '5', '--plan', '01']).json.detail.commits, 1);
+  });
+
   test('a ledger that does not hold a SHA is corrupt', () => {
     const gitDir = git(['rev-parse', '--absolute-git-dir'], repo.wt);
     fs.writeFileSync(path.join(gitDir, 'gsd-plan-head-before-9-01'), 'garbage\n');
@@ -602,6 +619,7 @@ describe('worktree materialize (quick isolated dispatch, exit 42)', () => {
     assert.equal(first.exitCode, 0);
     assert.deepEqual(first.json.detail.written, ['.planning/quick/q1/q1-PLAN.md']);
     assert.deepEqual(first.json.detail.skipped, ['.planning/quick/q1/q1-CONTEXT.md']);
+    assert.equal(fs.existsSync(path.join(repo.wt, '.planning', 'quick', 'q1', 'q1-CONTEXT.md')), false);
     assert.equal(fs.readFileSync(path.join(repo.wt, '.planning', 'quick', 'q1', 'q1-PLAN.md'), 'utf8'), 'plan\n\n');
     const second = verb(repo.wt, args);
     assert.deepEqual(second.json.detail.present, ['.planning/quick/q1/q1-PLAN.md']);
@@ -613,6 +631,19 @@ describe('worktree materialize (quick isolated dispatch, exit 42)', () => {
     const r = verb(repo.wt, ['materialize', '--from', commit, '--path', path.join(repo.main, '.planning', 'quick', 'q1', 'q1-PLAN.md')]);
     assert.equal(r.exitCode, 0);
     assert.equal(fs.readFileSync(wtPlan, 'utf8'), 'plan\n\n');
+  });
+
+  test('a skipped optional path in a directory that does not exist leaves no empty directory', () => {
+    const r = verb(repo.wt, ['materialize', '--from', commit, '--path', '.planning/quick/q1/q1-PLAN.md', '--optional-path', '.planning/quick/q9/deep/q9-RESEARCH.md']);
+    assert.equal(r.exitCode, 0);
+    assert.deepEqual(r.json.detail.skipped, ['.planning/quick/q9/deep/q9-RESEARCH.md']);
+    assert.equal(fs.existsSync(path.join(repo.wt, '.planning', 'quick', 'q9')), false);
+  });
+
+  test('a refusal from the root lookup carries the materialize stage and exit 42', () => {
+    const r = guard.materializeFromCommit(repo.tmp, { commit, paths: ['x.md'], optionalPaths: [] });
+    assert.equal(r.stage, 'materialize');
+    assert.equal(r.exit_code, 42);
   });
 
   for (const [label, args, code] of [
