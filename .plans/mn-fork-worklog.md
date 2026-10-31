@@ -1071,6 +1071,53 @@ adds only `roadmap_record`; `roadmap graph` (both scopes) the same document.
 text in it is now ~370 B; the next upstream growth there needs another fork move, not a trim of
 upstream text.
 
+### nx-tasks grants and their reference pointer (2026-11-01)
+
+Branch `feat/nx-tasks-capability` from `3f7b3376d`. The mn monorepo has its own MCP server,
+`nx-tasks` (`~/IdeaProjects/mn/apps/mcp/nx-tasks`, registered at local scope for that project),
+that reads the screens of the Nx runs the user has going in a terminal through the Nx Console IPC
+socket: `nx_running_tasks`, `nx_task_output`, `nx_wait_for`. ADR-5210 amended.
+
+- **Capability.** `capabilities/mn-nx-tasks/capability.json`, key `nx_tasks.enabled` (default
+  true), `agentTools.grants: ["mcp__nx-tasks__*"]` for `gsd-executor`, `gsd-debugger`,
+  `gsd-verifier`, `gsd-dom-verifier`. Left out: `gsd-debug-session-manager` (relays checkpoints and
+  spawns debuggers, which get the grant; it applies no fix itself) and `gsd-integration-checker`
+  (traces wiring statically, runs nothing). `gsd-code-fixer` would fit the executor's reason; not
+  added, it was not asked for.
+- **Mechanism.** `src/mn-agent-tools.cts` already merged every first-party `agentTools` block in
+  capability id order, so the grant needed no change: `mn-code-navigation` < `mn-nx-tasks`, code
+  navigation stays first and whole. New: optional `agentTools.reference` (a file name in
+  `gsd-core/references/`) → one rendered pointer line at the end of each granted agent's body,
+  appended before the path rewrites, same activation key. Contributions were not usable (no loop
+  point publishes the debugger or the DOM verifier; their gate is a config key, not the grant);
+  spawn-prompt lines would be one edit per spawning workflow.
+- **Reference.** `gsd-core/references/nx-live-stack.md` (2 220 B): per role when to read output or
+  wait, the limits (runs started before the server or by the agent without `--tui` are unseen;
+  never start/restart/kill/`pkill` the user's services).
+- **Runtimes** (a scratch install of all 18, executor and DOM verifier): the name stays in Claude,
+  Copilot, Hermes, Qwen; Kilo maps it to `nx-tasks_*: allow`; Antigravity, Augment, Cline,
+  CodeBuddy, Codex `.md`, Cursor, OpenCode, Pi, Trae, Windsurf, ZCode drop it — the same policy the
+  code-navigation grants get. The pointer is on every runtime's agent (it is a condition on the
+  agent's own tools, a no-op where the grant is gone). Kimi and Kimi Code emit no agent file of
+  that name.
+- **Bytes.** `agents/*.md`, workflows, budgets: unchanged. Installed granted agents grow by the
+  pointer (~180 B with the absolute Claude path) plus `, mcp__nx-tasks__*` on `tools:`.
+- **Tests.** `tests/mn-nx-tasks.install.test.cjs` (new, 17 cases; the pointer is checked by exact equality — an installed body with the key on is
+  the body with it off plus the one line, so no allow-test-rule marker). `mn-code-navigation` expects every
+  declared block now (its oracle reads all `capability.json`), its executor allowlist names
+  `mcp__nx-tasks__*`, and its staging case moved to `gsd-planner` (code navigation only).
+  Three upstream tests met the pointer: `cline-install` (engine scan for `~/.claude/` paths) exempts
+  `mn-agent-tools.cjs` beside `runtime-artifact-conversion.cjs` (same pre-rewrite template; the
+  installed Cline agents carry the rewritten path); `runtime-converters`' stub converter now
+  rewrites every `~/.claude/`; `emitted-provenance`'s Kimi subagent rule names the agent-grant
+  sources (Kimi drops MCP grants, so only the pointer moves `agents/subagents/*.md`).
+- **Gates.** `npm run build`, `regen:derived`, `lint:generated-sync` green; `lint:ci` 52/53, the one
+  red is `lint-vendored-deps` (node_modules is a symlink into the main checkout); affected
+  (base `3f7b3376d`, 605 files) 32 362 tests: 32 291 pass, 66 skipped, 5 red before the three test
+  fixes — the
+  three above, `emitted-attribution` against the stale default base and the vendored-deps manifest
+  (same symlink); emitted attribution against `upstream/next` 148/148, no ack trailer.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
