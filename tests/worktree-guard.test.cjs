@@ -487,6 +487,21 @@ describe('guard automated (step 0c, #4767) — the plan is read by the verb', ()
     assert.equal(bad.json.detail.task_name, 'Task 1: inside');
   });
 
+  // Re-review: a task name carrying backticks and $( ) — single-quoted, the shell passes it
+  // verbatim and the guard compares it exactly (the shell-form model rates the line safe too).
+  test('a task name with backticks and $( ), single-quoted through bash, matches exactly', () => {
+    const odd = path.join(repo.wt, 'ODD.md');
+    const name = 'Run `make` and $(date) as-is';
+    fs.writeFileSync(odd, `<task><name>${name}</name><verify><automated>npm test</automated></verify></task>\n`);
+    const { runHook } = require('./helpers/process-seam.cjs');
+    const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
+    const { TOOLS_PATH } = require('./helpers.cjs');
+    const line = `node '${TOOLS_PATH.split(path.sep).join('/')}' worktree guard automated --plan '${odd}' --task 1 --task-name '${name}'`;
+    const r = runHook('-c', [line], { interpreter: 'bash', cwd: repo.wt, timeoutMs: PROBE_TIMEOUT_MS });
+    assert.equal(r.exitCode, 0, r.stdout + r.stderr);
+    assert.equal(JSON.parse(r.stdout).detail.task_name, name);
+  });
+
   test('--task-name without --plan/--task is a usage refusal', () => {
     assert.equal(verb(repo.wt, ['guard', 'automated', '--command', 'ls', '--task-name', 'x']).json.code, GUARD_CODE.USAGE);
   });

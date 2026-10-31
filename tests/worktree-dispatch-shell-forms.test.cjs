@@ -220,6 +220,13 @@ describe('positive control: the bash these blocks replaced is refused by the mod
     });
   }
 
+  test('a single-quoted task name holding backticks and $( ) is a literal, not a substitution', () => {
+    const line = "node '/opt/gsd/gsd-tools.cjs' worktree guard automated --plan '/srv/p/PLAN.md' --task 2 --task-name 'Run `make` and $(date)'";
+    assert.deepEqual(classifyIsolationShellForm(line).violations, []);
+    // Control: the same name unquoted is a substitution.
+    assert.equal(classifyIsolationShellForm(line.replace("'Run `make` and $(date)'", 'Run `make` and $(date)')).ok, false);
+  });
+
   for (const line of ["git rev-parse --show-toplevel", "node '/abs/gsd-tools.cjs' worktree guard branch --expected-base x || exit 42", "sed -n 1,3p README.md"]) {
     test(`a form the probes accepted passes: ${line}`, () => {
       assert.equal(classifyIsolationShellForm(line).ok, true);
