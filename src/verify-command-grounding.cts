@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { extractTaggedBlocks, stripFencedCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
+import { extractTaggedBlocks, stripInlineCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
 import { tryWithinRootLexical } from './security.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
 import phaseIdMod = require('./phase-id.cjs');
@@ -193,12 +193,50 @@ const AUTOMATED_OPENER_RE = /<automated[^>]{0,200}>/g;
  * blocks, `automated_unclosed` when a task's `<automated` openers outnumber its
  * closed blocks, `walk_bound` when MAX_BLOCK_WALK cut the walk short.
  *
- * Fenced code (``` and ~~~) and HTML comments are removed FIRST: a plan that
+ * Fenced code (``` and ~~~, at any indent), HTML comments and inline code
+ * spans in prose are removed FIRST: a plan that
  * shows an example `<task>` in a fence or a comment must not shift the real
  * ordinals (review: an example fenced before task 1 was checked as task 1). An
  * unterminated fence or comment hides an unknown amount of the plan, so it is
  * `fence_unclosed` / `comment_unclosed`, never a guess.
  */
+/**
+ * Fenced code at ANY indentation. CommonMark's `stripFencedCode` stops at three
+ * spaces (four is an indented code block), so a fence nested in a list item
+ * (`1. Example:` then `    ```xml`) stayed in and its example `<task>` took a
+ * real ordinal. Real tasks never live in a fence, so the fail-safe reading for
+ * task numbering is: any line of three or more backticks or tildes opens a fence,
+ * a run of the same character at least as long closes it. Null when one is left open.
+ */
+function stripFencesAnyIndent(text: string): string | null {
+  const kept: string[] = [];
+  let open: { char: string; len: number } | null = null;
+  for (const raw of text.split('\n')) {
+    const m = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(raw.replace(/\r$/, ''));
+    if (m) {
+      const char = m[1][0];
+      if (open === null) {
+        if (!(char === '`' && m[2].includes('`'))) { open = { char, len: m[1].length }; continue; }
+      } else {
+        if (char === open.char && m[1].length >= open.len && /^\s*$/.test(m[2])) open = null;
+        continue;
+      }
+    }
+    if (open === null) kept.push(raw);
+  }
+  return open === null ? kept.join('\n') : null;
+}
+
+/**
+ * Inline code spans in prose (`` Use `<task>` blocks ``) would count as task
+ * openers. They are removed with their delimiter-length rule (stripInlineCode),
+ * except on lines that carry an `<automated>` tag, whose command text — backticks
+ * included — must reach the scan unchanged.
+ */
+function stripProseInlineCode(text: string): string {
+  return text.split('\n').map((line) => (line.includes('<automated') ? line : stripInlineCode(line))).join('\n');
+}
+
 function stripHtmlComments(text: string): string | null {
   let out = '';
   let from = 0;
@@ -215,10 +253,11 @@ function stripHtmlComments(text: string): string | null {
 function extractAutomatedCommandsByTask(planText: unknown):
   { ok: true; tasks: PlanTaskCommands[] } | { ok: false; reason: PlanTaskReadFailure; task?: number } {
   if (typeof planText !== 'string' || planText.length === 0) return { ok: true, tasks: [] };
-  const unfenced = stripFencedCode(planText);
-  if (unfenced.unterminatedFence) return { ok: false, reason: 'fence_unclosed' };
-  const text = stripHtmlComments(unfenced.text);
-  if (text === null) return { ok: false, reason: 'comment_unclosed' };
+  const unfenced = stripFencesAnyIndent(planText);
+  if (unfenced === null) return { ok: false, reason: 'fence_unclosed' };
+  const uncommented = stripHtmlComments(unfenced);
+  if (uncommented === null) return { ok: false, reason: 'comment_unclosed' };
+  const text = stripProseInlineCode(uncommented);
   const bodies = extractTaggedBlocks(text, 'task', true);
   const openers = (text.match(TASK_OPENER_RE) ?? []).length;
   if (openers !== bodies.length) return { ok: false, reason: 'task_unclosed' };

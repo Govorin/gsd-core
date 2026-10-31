@@ -1388,6 +1388,31 @@ describe('extractAutomatedCommandsByTask (ADR-5211) — ordinals never shift, co
     });
   }
 
+  // Re-review: a fence indented four or more spaces inside a list item survived CommonMark
+  // stripping, and its example <task> took ordinal 1.
+  for (const indent of ['    ', '      ', '\t']) {
+    test(`an example task in a fence indented ${JSON.stringify(indent)} inside a list item is not a task`, () => {
+      const plan = ['1. Example:', `${indent}\`\`\`xml`, `${indent}<task><name>example</name><automated>ls</automated></task>`, `${indent}\`\`\``,
+        task('real', '<automated>cd ../main && npm test</automated>')].join('\n');
+      assert.deepEqual(extractAutomatedCommandsByTask(plan), { ok: true, tasks: [{ name: 'real', commands: ['cd ../main && npm test'] }] });
+    });
+  }
+
+  test('an indented fence left open is still fence_unclosed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n1. x:\n    ~~~\n${task('B', '')}`), { ok: false, reason: 'fence_unclosed' });
+  });
+
+  test('a <task> mention inside inline code in prose is not an opener (any delimiter length)', () => {
+    for (const prose of ['Use `<task>` blocks.', 'Use ``<task> with ` inside`` here.', 'Pair `<task>` with `</task>`.']) {
+      assert.deepEqual(extractAutomatedCommandsByTask(`${prose}\n${task('real', '<automated>ls</automated>')}`), { ok: true, tasks: [{ name: 'real', commands: ['ls'] }] }, prose);
+    }
+  });
+
+  test('backticks in an <automated> command reach the scan unchanged', () => {
+    const r = extractAutomatedCommandsByTask(task('A', '<automated>test "`pwd`" = x && cd `echo ../main`</automated>'));
+    assert.deepEqual(r.tasks[0].commands, ['test "`pwd`" = x && cd `echo ../main`']);
+  });
+
   test('an unterminated fence or comment hides the rest of the plan: refused, never guessed', () => {
     assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n\`\`\`\n${task('B', '')}`), { ok: false, reason: 'fence_unclosed' });
     assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n<!-- ${task('B', '')}`), { ok: false, reason: 'comment_unclosed' });
