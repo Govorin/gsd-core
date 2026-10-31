@@ -224,6 +224,9 @@ describe('Cline install (local)', () => {
           // Converter source contains literal Claude source-path templates used before
           // runtime-specific install rewrites; this test is only for deployed Cline payload leaks.
           if (entry.name === 'runtime-artifact-conversion.cjs') continue;
+          // Fork (ADR-5210 amendment): the reference pointer is rendered with the same
+          // canonical ~/.claude/ template, before the path rewrites that turn it into Cline's.
+          if (entry.name === 'mn-agent-tools.cjs') continue;
           const content = fs.readFileSync(fullPath, 'utf8');
           // Check for GSD install paths that should have been substituted.
           // profile-pipeline.cjs intentionally references ~/.claude/projects (Claude Code
