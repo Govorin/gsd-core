@@ -1349,3 +1349,37 @@ describe('property-based invariants', () => {
     });
   });
 });
+
+// ─── ADR-5211: per-task extraction for the worktree guard, fail-closed ───────
+
+describe('extractAutomatedCommandsByTask (ADR-5211) — ordinals never shift, commands never drop', () => {
+  const { extractAutomatedCommandsByTask } = require('../gsd-core/bin/lib/verify-command-grounding.cjs');
+  const task = (name, body) => `<task type="auto"><name>${name}</name>${body}</task>`;
+
+  test('reads every task with its name and commands, in order', () => {
+    const r = extractAutomatedCommandsByTask([
+      task('A', '<verify><automated>npm test</automated></verify>'),
+      task('B', '<done>x</done>'),
+      task('C', '<automated>a</automated><automated>b</automated>'),
+    ].join('\n'));
+    assert.deepEqual(r, { ok: true, tasks: [
+      { name: 'A', commands: ['npm test'] }, { name: 'B', commands: [] }, { name: 'C', commands: ['a', 'b'] },
+    ] });
+  });
+
+  test('an unclosed <task> anywhere is task_unclosed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`<task><name>A</name>\n${task('B', '')}`), { ok: false, reason: 'task_unclosed' });
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n<task type="auto"><name>B</name>`), { ok: false, reason: 'task_unclosed' });
+  });
+
+  test('an unclosed <automated> names its task', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}${task('B', '<automated>cd ..')}`), { ok: false, reason: 'automated_unclosed', task: 2 });
+  });
+
+  test('the block-walk bound: limit - 1 and limit read, limit + 1 refuses walk_bound', () => {
+    const many = (n) => task('A', '<automated>x</automated>'.repeat(n));
+    assert.equal(extractAutomatedCommandsByTask(many(19999)).ok, true);
+    assert.equal(extractAutomatedCommandsByTask(many(20000)).ok, true);
+    assert.deepEqual(extractAutomatedCommandsByTask(many(20001)), { ok: false, reason: 'walk_bound', task: 1 });
+  });
+});

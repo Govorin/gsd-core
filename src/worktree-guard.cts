@@ -81,6 +81,7 @@ export const GUARD_CODE = Object.freeze({
   OUTSIDE_WORKTREE: 'outside_worktree',
   PLAN_OUTSIDE_PROJECT: 'plan_outside_project',
   PLAN_UNREADABLE: 'plan_unreadable',
+  PLAN_MALFORMED: 'plan_malformed',
   TASK_NOT_FOUND: 'task_not_found',
   RELOCATES_OUTSIDE_WORKTREE: 'relocates_outside_worktree',
   NAMES_MAIN_CHECKOUT: 'names_main_checkout',
@@ -346,6 +347,9 @@ export function guardAutomated(cwd: string, opts: AutomatedOptions, deps: GuardD
   if (isResult(roots)) return roots;
   let commands: string[];
   let source: Record<string, unknown>;
+  if (opts.command === undefined && (opts.plan === undefined || opts.task === undefined || !/^[1-9][0-9]*$/.test(opts.task))) {
+    return refuse('automated', GUARD_CODE.USAGE, { reason: 'give --plan <PLAN.md> --task <n> (1-based <task> ordinal), or --command <text>', task: opts.task ?? null });
+  }
   if (opts.command !== undefined) {
     commands = [opts.command];
     source = { source: 'command' };
@@ -362,12 +366,15 @@ export function guardAutomated(cwd: string, opts: AutomatedOptions, deps: GuardD
       return refuse('automated', GUARD_CODE.PLAN_UNREADABLE, { plan: planArg, reason: (e as Error).message });
     }
     const index = Number(opts.task) - 1;
-    const perTask = verifyCommandGrounding.extractAutomatedCommandsByTask(text);
-    if (index < 0 || index >= perTask.length) {
-      return refuse('automated', GUARD_CODE.TASK_NOT_FOUND, { plan: planArg, task: opts.task, tasks_in_plan: perTask.length });
+    const read = verifyCommandGrounding.extractAutomatedCommandsByTask(text);
+    if (!read.ok) {
+      return refuse('automated', GUARD_CODE.PLAN_MALFORMED, { plan: planArg, task: opts.task, reason: read.reason, at_task: read.task ?? null });
     }
-    commands = perTask[index];
-    source = { source: 'plan', plan: planArg, task: opts.task };
+    if (index < 0 || index >= read.tasks.length) {
+      return refuse('automated', GUARD_CODE.TASK_NOT_FOUND, { plan: planArg, task: opts.task, tasks_in_plan: read.tasks.length });
+    }
+    commands = read.tasks[index].commands;
+    source = { source: 'plan', plan: planArg, task: opts.task, task_name: read.tasks[index].name };
     if (commands.length === 0) return pass('automated', { ...source, commands: 0 }, false);
   }
   for (let i = 0; i < commands.length; i += 1) {

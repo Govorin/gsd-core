@@ -175,24 +175,44 @@ function extractAutomatedFromText(
   return true;
 }
 
+/** One `<task>` of a plan, as the worktree guard reads it. */
+interface PlanTaskCommands { name: string; commands: string[] }
+
+/** Why a plan's task list cannot be read reliably enough to guard by ordinal. */
+type PlanTaskReadFailure = 'task_unclosed' | 'automated_unclosed' | 'walk_bound';
+
+const TASK_OPENER_RE = /<task(?:\s[^>]{0,1000})?>/g;
+const AUTOMATED_OPENER_RE = /<automated[^>]{0,200}>/g;
+
 /**
- * The `<automated>` commands of each `<task>` in document order: element `i`
- * holds task `i + 1`'s commands (empty when it has none). ADR-5211: the
- * worktree guard's `automated` stage reads the plan itself, by task ordinal,
- * through this one extraction owner instead of a second `<automated>` grammar.
- * Never throws; a non-string plan yields `[]`.
+ * The `<automated>` commands of each `<task>` in document order, FAIL-CLOSED
+ * (ADR-5211): the worktree guard's `automated` stage picks a task by ordinal,
+ * so a `<task>` or `<automated>` the block grammar cannot close would silently
+ * shift every later ordinal or drop a command. Either is reported, never
+ * skipped: `task_unclosed` when the opening `<task` tags outnumber the closed
+ * blocks, `automated_unclosed` when a task's `<automated` openers outnumber its
+ * closed blocks, `walk_bound` when MAX_BLOCK_WALK cut the walk short.
  */
-function extractAutomatedCommandsByTask(planText: unknown): string[][] {
-  if (typeof planText !== 'string' || planText.length === 0) return [];
+function extractAutomatedCommandsByTask(planText: unknown):
+  { ok: true; tasks: PlanTaskCommands[] } | { ok: false; reason: PlanTaskReadFailure; task?: number } {
+  if (typeof planText !== 'string' || planText.length === 0) return { ok: true, tasks: [] };
+  const bodies = extractTaggedBlocks(planText, 'task', true);
+  const openers = (planText.match(TASK_OPENER_RE) ?? []).length;
+  if (openers !== bodies.length) return { ok: false, reason: 'task_unclosed' };
   const guard = { n: 0 };
-  const perTask: string[][] = [];
-  for (const body of extractTaggedBlocks(planText, 'task', true)) {
+  const tasks: PlanTaskCommands[] = [];
+  for (let i = 0; i < bodies.length; i += 1) {
+    const body = bodies[i];
+    const opened = (body.match(AUTOMATED_OPENER_RE) ?? []).length;
+    AUTOMATED_BLOCK_RE.lastIndex = 0;
+    const closed = (body.match(AUTOMATED_BLOCK_RE) ?? []).length;
+    if (opened !== closed) return { ok: false, reason: 'automated_unclosed', task: i + 1 };
     const found: AutomatedCommand[] = [];
-    const complete = extractAutomatedFromText(body, '', found, guard);
-    perTask.push(found.map((c) => c.command));
-    if (!complete) break;
+    if (!extractAutomatedFromText(body, '', found, guard)) return { ok: false, reason: 'walk_bound', task: i + 1 };
+    const nameMatch = TASK_NAME_RE.exec(body);
+    tasks.push({ name: nameMatch ? nameMatch[1].trim() : '', commands: found.map((c) => c.command) });
   }
-  return perTask;
+  return { ok: true, tasks };
 }
 
 /**

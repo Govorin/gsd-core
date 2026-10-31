@@ -394,6 +394,43 @@ describe('guard automated (step 0c, #4767) — the plan is read by the verb', ()
     assert.equal(r.json.code, GUARD_CODE.PLAN_OUTSIDE_PROJECT);
   });
 
+  test('the passing task names itself in detail', () => {
+    assert.equal(verb(repo.wt, ['guard', 'automated', '--plan', plan, '--task', '1']).json.detail.task_name, 'Task 1: inside');
+  });
+
+  // Review BLOCKER: an unclosed <task> made the block grammar skip it, so every later ordinal
+  // shifted and the guard checked another task's command — and passed.
+  test('an unclosed <task> refuses plan_malformed instead of shifting the ordinals', () => {
+    const bad = path.join(repo.wt, 'BAD-TASK.md');
+    fs.writeFileSync(bad, [
+      `<task><name>T1</name><verify><automated>cd ${repo.main} && npm test</automated></verify>`,
+      '<task><name>T2</name><verify><automated>npm test</automated></verify></task>',
+      '',
+    ].join('\n'));
+    for (const task of ['1', '2']) {
+      const r = verb(repo.wt, ['guard', 'automated', '--plan', bad, '--task', task]);
+      assert.equal(r.exitCode, 1);
+      assert.equal(r.json.code, GUARD_CODE.PLAN_MALFORMED);
+      assert.equal(r.json.detail.reason, 'task_unclosed');
+    }
+  });
+
+  test('an unclosed <automated> refuses plan_malformed instead of passing as not applicable', () => {
+    const bad = path.join(repo.wt, 'BAD-AUTOMATED.md');
+    fs.writeFileSync(bad, `<task><name>T1</name><verify><automated>cd ${repo.main} && npm test</verify></task>\n`);
+    const r = verb(repo.wt, ['guard', 'automated', '--plan', bad, '--task', '1']);
+    assert.equal(r.json.code, GUARD_CODE.PLAN_MALFORMED);
+    assert.equal(r.json.detail.reason, 'automated_unclosed');
+  });
+
+  test('called without a task (or a non-ordinal one) the stage function refuses usage, never throws', () => {
+    for (const task of [undefined, 'x', '0']) {
+      const r = guard.guardAutomated(repo.wt, { plan, task });
+      assert.equal(r.code, GUARD_CODE.USAGE);
+      assert.equal(r.exit_code, 1);
+    }
+  });
+
   test('a missing plan is unreadable, not empty', () => {
     const r = verb(repo.wt, ['guard', 'automated', '--plan', 'NOPE.md', '--task', '1']);
     assert.equal(r.json.code, GUARD_CODE.PLAN_UNREADABLE);
