@@ -1,6 +1,6 @@
 # Accumulated lessons the planner reads
 
-Read by `/gsd-plan-phase` (cross-phase context, 1M model enrichment) beside the three most recent
+Read by `/gsd:plan-phase` (cross-phase context, 1M model enrichment) beside the three most recent
 phases' LEARNINGS.md. Load each file that exists, regardless of recency; skip silently if absent.
 
 - `.planning/LEARNINGS-DIGEST.md` — the accumulated distillation of earlier phases' lessons
