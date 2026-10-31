@@ -466,6 +466,31 @@ describe('guard automated (step 0c, #4767) — the plan is read by the verb', ()
     assert.equal(r.json.code, GUARD_CODE.PLAN_OUTSIDE_PROJECT);
   });
 
+  // Review: a fenced example <task> ahead of task 1 was checked instead of task 1.
+  test('a fenced example task ahead of task 1 does not take its ordinal', () => {
+    const fenced = path.join(repo.wt, 'FENCED.md');
+    fs.writeFileSync(fenced, [
+      '```xml', '<task><name>example</name><verify><automated>ls</automated></verify></task>', '```',
+      `<task><name>Task 1: real</name><verify><automated>cd ${repo.main} && npm test</automated></verify></task>`, '',
+    ].join('\n'));
+    const r = verb(repo.wt, ['guard', 'automated', '--plan', fenced, '--task', '1']);
+    assert.equal(r.json.code, GUARD_CODE.RELOCATES_OUTSIDE_WORKTREE);
+    assert.equal(r.json.detail.task_name, 'Task 1: real');
+  });
+
+  test('--task-name pins the ordinal: a match checks the task, a mismatch refuses task_mismatch', () => {
+    const ok = verb(repo.wt, ['guard', 'automated', '--plan', plan, '--task', '1', '--task-name', 'Task 1: inside']);
+    assert.equal(ok.exitCode, 0);
+    const bad = verb(repo.wt, ['guard', 'automated', '--plan', plan, '--task', '1', '--task-name', 'Task 2: leaves']);
+    assert.equal(bad.exitCode, 1);
+    assert.equal(bad.json.code, GUARD_CODE.TASK_MISMATCH);
+    assert.equal(bad.json.detail.task_name, 'Task 1: inside');
+  });
+
+  test('--task-name without --plan/--task is a usage refusal', () => {
+    assert.equal(verb(repo.wt, ['guard', 'automated', '--command', 'ls', '--task-name', 'x']).json.code, GUARD_CODE.USAGE);
+  });
+
   test('the passing task names itself in detail', () => {
     assert.equal(verb(repo.wt, ['guard', 'automated', '--plan', plan, '--task', '1']).json.detail.task_name, 'Task 1: inside');
   });

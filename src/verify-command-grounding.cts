@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { extractTaggedBlocks, stripTaggedBlocks } from './markdown-sectionizer.cjs';
+import { extractTaggedBlocks, stripFencedCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
 import { tryWithinRootLexical } from './security.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
 import phaseIdMod = require('./phase-id.cjs');
@@ -179,7 +179,7 @@ function extractAutomatedFromText(
 interface PlanTaskCommands { name: string; commands: string[] }
 
 /** Why a plan's task list cannot be read reliably enough to guard by ordinal. */
-type PlanTaskReadFailure = 'task_unclosed' | 'automated_unclosed' | 'walk_bound';
+type PlanTaskReadFailure = 'fence_unclosed' | 'comment_unclosed' | 'task_unclosed' | 'automated_unclosed' | 'walk_bound';
 
 const TASK_OPENER_RE = /<task(?:\s[^>]{0,1000})?>/g;
 const AUTOMATED_OPENER_RE = /<automated[^>]{0,200}>/g;
@@ -192,12 +192,35 @@ const AUTOMATED_OPENER_RE = /<automated[^>]{0,200}>/g;
  * skipped: `task_unclosed` when the opening `<task` tags outnumber the closed
  * blocks, `automated_unclosed` when a task's `<automated` openers outnumber its
  * closed blocks, `walk_bound` when MAX_BLOCK_WALK cut the walk short.
+ *
+ * Fenced code (``` and ~~~) and HTML comments are removed FIRST: a plan that
+ * shows an example `<task>` in a fence or a comment must not shift the real
+ * ordinals (review: an example fenced before task 1 was checked as task 1). An
+ * unterminated fence or comment hides an unknown amount of the plan, so it is
+ * `fence_unclosed` / `comment_unclosed`, never a guess.
  */
+function stripHtmlComments(text: string): string | null {
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf('<!--', from);
+    if (open === -1) return out + text.slice(from);
+    const close = text.indexOf('-->', open + 4);
+    if (close === -1) return null;
+    out += text.slice(from, open);
+    from = close + 3;
+  }
+}
+
 function extractAutomatedCommandsByTask(planText: unknown):
   { ok: true; tasks: PlanTaskCommands[] } | { ok: false; reason: PlanTaskReadFailure; task?: number } {
   if (typeof planText !== 'string' || planText.length === 0) return { ok: true, tasks: [] };
-  const bodies = extractTaggedBlocks(planText, 'task', true);
-  const openers = (planText.match(TASK_OPENER_RE) ?? []).length;
+  const unfenced = stripFencedCode(planText);
+  if (unfenced.unterminatedFence) return { ok: false, reason: 'fence_unclosed' };
+  const text = stripHtmlComments(unfenced.text);
+  if (text === null) return { ok: false, reason: 'comment_unclosed' };
+  const bodies = extractTaggedBlocks(text, 'task', true);
+  const openers = (text.match(TASK_OPENER_RE) ?? []).length;
   if (openers !== bodies.length) return { ok: false, reason: 'task_unclosed' };
   const guard = { n: 0 };
   const tasks: PlanTaskCommands[] = [];

@@ -1376,6 +1376,23 @@ describe('extractAutomatedCommandsByTask (ADR-5211) — ordinals never shift, co
     assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}${task('B', '<automated>cd ..')}`), { ok: false, reason: 'automated_unclosed', task: 2 });
   });
 
+  // Review: an example <task> shown in a fence or comment shifted every real ordinal.
+  for (const [label, example] of [
+    ['a ``` fence', '```xml\n<task><name>example</name><automated>ls</automated></task>\n```'],
+    ['a ~~~ fence', '~~~\n<task><name>example</name><automated>ls</automated></task>\n~~~'],
+    ['an HTML comment', '<!-- <task><name>example</name><automated>ls</automated></task> -->'],
+  ]) {
+    test(`an example task in ${label} is not a task`, () => {
+      const r = extractAutomatedCommandsByTask(`${example}\n${task('real', '<automated>cd ../main && npm test</automated>')}`);
+      assert.deepEqual(r, { ok: true, tasks: [{ name: 'real', commands: ['cd ../main && npm test'] }] });
+    });
+  }
+
+  test('an unterminated fence or comment hides the rest of the plan: refused, never guessed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n\`\`\`\n${task('B', '')}`), { ok: false, reason: 'fence_unclosed' });
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n<!-- ${task('B', '')}`), { ok: false, reason: 'comment_unclosed' });
+  });
+
   test('the block-walk bound: limit - 1 and limit read, limit + 1 refuses walk_bound', () => {
     const many = (n) => task('A', '<automated>x</automated>'.repeat(n));
     assert.equal(extractAutomatedCommandsByTask(many(19999)).ok, true);

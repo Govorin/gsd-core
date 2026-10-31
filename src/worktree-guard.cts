@@ -83,6 +83,7 @@ export const GUARD_CODE = Object.freeze({
   PLAN_UNREADABLE: 'plan_unreadable',
   PLAN_MALFORMED: 'plan_malformed',
   TASK_NOT_FOUND: 'task_not_found',
+  TASK_MISMATCH: 'task_mismatch',
   RELOCATES_OUTSIDE_WORKTREE: 'relocates_outside_worktree',
   NAMES_MAIN_CHECKOUT: 'names_main_checkout',
   COMMAND_TOO_LARGE: 'command_too_large',
@@ -361,7 +362,7 @@ function containmentRoots(stage: GuardStage | 'materialize', cwd: string, deps: 
   return { worktreeRoot: top.out, mainRoot };
 }
 
-export interface AutomatedOptions { command?: string; plan?: string; task?: string }
+export interface AutomatedOptions { command?: string; plan?: string; task?: string; taskName?: string }
 
 /**
  * `<automated>` containment (step 0c, #4767). The executor names the plan and
@@ -399,6 +400,12 @@ export function guardAutomated(cwd: string, opts: AutomatedOptions, deps: GuardD
     }
     if (index < 0 || index >= read.tasks.length) {
       return refuse('automated', GUARD_CODE.TASK_NOT_FOUND, { plan: planArg, task: opts.task, tasks_in_plan: read.tasks.length });
+    }
+    // `--task-name` pins the ordinal to the task the executor means: a plan whose
+    // numbering differs from what the executor counted refuses instead of checking
+    // the wrong task's command.
+    if (opts.taskName !== undefined && opts.taskName.trim() !== read.tasks[index].name) {
+      return refuse('automated', GUARD_CODE.TASK_MISMATCH, { plan: planArg, task: opts.task, expected_name: opts.taskName.trim(), task_name: read.tasks[index].name });
     }
     commands = read.tasks[index].commands;
     source = { source: 'plan', plan: planArg, task: opts.task, task_name: read.tasks[index].name };
@@ -569,7 +576,7 @@ const STAGE_FLAGS: Readonly<Record<GuardStage, { values: string[]; repeat: strin
   'pre-commit': { values: [], repeat: [], booleans: ['--sequential'] },
   sentinel: { values: [], repeat: [], booleans: [] },
   'abs-path': { values: [], repeat: ['--path'], booleans: [] },
-  automated: { values: ['--plan', '--task', '--command'], repeat: [], booleans: [] },
+  automated: { values: ['--plan', '--task', '--task-name', '--command'], repeat: [], booleans: [] },
   pin: { values: ['--root'], repeat: [], booleans: [] },
 });
 
@@ -630,13 +637,14 @@ export function runGuardCli(invokingCwd: string, configCwd: string, args: string
         const command = parsed.values.get('--command');
         const plan = parsed.values.get('--plan');
         const task = parsed.values.get('--task');
-        const byPlan = plan !== undefined || task !== undefined;
+        const taskName = parsed.values.get('--task-name');
+        const byPlan = plan !== undefined || task !== undefined || taskName !== undefined;
         if (command !== undefined && byPlan) return refuse(stage, GUARD_CODE.USAGE, { reason: '--command and --plan/--task are exclusive' });
         if (command === undefined && (plan === undefined || task === undefined)) {
           return refuse(stage, GUARD_CODE.USAGE, { reason: 'give --plan <PLAN.md> --task <n>, or --command <text>' });
         }
         if (task !== undefined && !/^[1-9][0-9]*$/.test(task)) return refuse(stage, GUARD_CODE.USAGE, { reason: '--task is a 1-based task ordinal', task });
-        return guardAutomated(invokingCwd, { command, plan, task }, deps);
+        return guardAutomated(invokingCwd, { command, plan, task, taskName }, deps);
       }
       case 'pin': {
         const root = parsed.values.get('--root');
