@@ -32,9 +32,16 @@ describe('resolveGsdToolsInvocation', () => {
     assert.equal(inv.gsd_tools_path, fs.realpathSync.native(TOOLS_PATH).split(path.sep).join('/'));
   });
 
-  test('a single quote in the path is escaped the POSIX way', () => {
+  // Review nit: the `'\\''` splice was never run past the host's isolation check, so an
+  // install path with a single quote yields no literal, and says why.
+  test('a single quote in the path yields no literal, with a reason', () => {
     const inv = resolveGsdToolsInvocation({ ...identity, toolPath: "/a b/it's/gsd-tools.cjs" });
-    assert.equal(inv.gsd_tools_cmd, "node '/a b/it'\\''s/gsd-tools.cjs'");
+    assert.equal(inv.gsd_tools_cmd, null);
+    assert.equal(typeof inv.gsd_tools_cmd_reason, 'string');
+  });
+
+  test('a resolvable path carries no reason', () => {
+    assert.equal(resolveGsdToolsInvocation().gsd_tools_cmd_reason, null);
   });
 
   test('a Windows path is projected to forward slashes for git-bash', () => {
@@ -49,16 +56,16 @@ describe('resolveGsdToolsInvocation', () => {
   });
 
   test('an unresolvable tool yields nulls, never a guessed path', () => {
-    assert.deepEqual(resolveGsdToolsInvocation({ toolPath: '/nonexistent/gsd-tools.cjs' }), { gsd_tools_path: null, gsd_tools_cmd: null });
-    assert.deepEqual(resolveGsdToolsInvocation({ realpath: (p) => p, isFile: () => false }), { gsd_tools_path: null, gsd_tools_cmd: null });
+    assert.equal(resolveGsdToolsInvocation({ toolPath: '/nonexistent/gsd-tools.cjs' }).gsd_tools_cmd, null);
+    assert.equal(resolveGsdToolsInvocation({ realpath: (p) => p, isFile: () => false }).gsd_tools_cmd, null);
   });
 });
 
 describe('the literal survives the shell', { skip: process.platform === 'win32' ? 'bash round trip is POSIX-only here' : false }, () => {
-  test('a path with a space and a quote reaches node intact', (t) => {
+  test('a path with spaces reaches node intact', (t) => {
     const dir = createTempDir('gsd-invocation-quote-');
     t.after(() => cleanup(dir));
-    const weird = path.join(dir, "it's a dir");
+    const weird = path.join(dir, 'a dir with spaces');
     fs.mkdirSync(weird);
     const script = path.join(weird, 'echo-argv.cjs');
     fs.writeFileSync(script, 'process.stdout.write(JSON.stringify({ self: __filename, args: process.argv.slice(2) }));\n');

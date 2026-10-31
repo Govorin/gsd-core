@@ -32,13 +32,15 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { escapeSingleQuotedShellLiteral, posixNormalize } from './shell-command-projection.cjs';
+import { posixNormalize } from './shell-command-projection.cjs';
 
 export interface GsdToolsInvocation {
   /** Realpath of the gsd-tools.cjs this module ships beside, in forward-slash form. */
   gsd_tools_path: string | null;
   /** `node '<gsd_tools_path>'`, ready to prefix literal arguments; null when unresolvable. */
   gsd_tools_cmd: string | null;
+  /** Why `gsd_tools_cmd` is null; null when it is set. */
+  gsd_tools_cmd_reason: string | null;
 }
 
 export interface InvocationDeps {
@@ -69,17 +71,20 @@ export function resolveGsdToolsInvocation(deps: InvocationDeps = {}): GsdToolsIn
   try {
     resolved = realpath(toolPath);
   } catch {
-    return { gsd_tools_path: null, gsd_tools_cmd: null };
+    return { gsd_tools_path: null, gsd_tools_cmd: null, gsd_tools_cmd_reason: `cannot resolve ${toolPath}` };
   }
-  if (!isFile(resolved)) return { gsd_tools_path: null, gsd_tools_cmd: null };
+  if (!isFile(resolved)) return { gsd_tools_path: null, gsd_tools_cmd: null, gsd_tools_cmd_reason: `${resolved} is not a file` };
   // Forward slashes on every platform: git-bash, the shell Claude Code drives on
   // Windows, takes `C:/…`, and a backslash inside the quoted literal would be
   // one more transit hazard for nothing (#4254's Windows lesson).
   const forward = posixNormalize(resolved);
-  return {
-    gsd_tools_path: forward,
-    gsd_tools_cmd: `node '${escapeSingleQuotedShellLiteral(forward)}'`,
-  };
+  // A single quote would need the `'\''` splice, a form no host isolation probe
+  // has exercised (probes P1-P3 covered plain and quoted literal paths only).
+  // No literal is better than one the host might refuse mid-guard: the dispatch halts.
+  if (forward.includes("'")) {
+    return { gsd_tools_path: forward, gsd_tools_cmd: null, gsd_tools_cmd_reason: 'the install path contains a single quote, which the launch literal does not carry; reinstall to a path without one' };
+  }
+  return { gsd_tools_path: forward, gsd_tools_cmd: `node '${forward}'`, gsd_tools_cmd_reason: null };
 }
 
 /** `gsd-tools worktree tools-cmd`: the invocation as JSON, or with `--raw` the command alone. */
