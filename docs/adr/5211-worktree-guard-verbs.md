@@ -34,6 +34,7 @@ Three non-fixes:
 - `quick-batch`'s harness-worktree dispatch now carries the branch check it never had.
 - The prompt depends on `init` exposing `gsd_tools_cmd`. A gsd-tools older than this ADR has no guard verbs: a mid-run version skew needs a reinstall, and a missing verb is a HALT, never a skip.
 - Main-session workflows keep the `gsd_run` resolver; only sub-agent guard blocks changed.
+- **Residual risk: `execute-plan.md`.** The parallel executor's prompt inlines `execute-plan.md`, which is full of `X=$(gsd_run …)` captures and `gsd_run` calls with shell variables. Inside isolation those forms are refused; the executor's launcher rule tells it to run each as `{GSD_TOOLS_CMD} <args>` with the values written out, but that is an instruction to translate, not text that already passes. The mandatory guard steps no longer depend on it; the bookkeeping steps (frontmatter status, state recording) still do. Rewriting that workflow is a separate change.
 - Defence in depth stays: Claude Code's own check, the `gsd-worktree-path-guard` hook, the verbs.
 - `--local` installs use the same literal: probe P2 showed the host accepts a script path inside the shared checkout.
 
