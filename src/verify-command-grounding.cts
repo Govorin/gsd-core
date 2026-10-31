@@ -176,6 +176,26 @@ function extractAutomatedFromText(
 }
 
 /**
+ * The `<automated>` commands of each `<task>` in document order: element `i`
+ * holds task `i + 1`'s commands (empty when it has none). ADR-5211: the
+ * worktree guard's `automated` stage reads the plan itself, by task ordinal,
+ * through this one extraction owner instead of a second `<automated>` grammar.
+ * Never throws; a non-string plan yields `[]`.
+ */
+function extractAutomatedCommandsByTask(planText: unknown): string[][] {
+  if (typeof planText !== 'string' || planText.length === 0) return [];
+  const guard = { n: 0 };
+  const perTask: string[][] = [];
+  for (const body of extractTaggedBlocks(planText, 'task', true)) {
+    const found: AutomatedCommand[] = [];
+    const complete = extractAutomatedFromText(body, '', found, guard);
+    perTask.push(found.map((c) => c.command));
+    if (!complete) break;
+  }
+  return perTask;
+}
+
+/**
  * Extract every `<automated>…</automated>` command from PLAN.md text,
  * attaching the owning `<task><name>` when the block sits inside a
  * `<task>…</task>`. Never throws; a non-string or blank plan yields `[]`.
@@ -1061,6 +1081,7 @@ function harvestPriorVerifyCommands(options: HarvestOptions): HarvestResult {
 
 export = {
   extractAutomatedCommands,
+  extractAutomatedCommandsByTask,
   resolveVerifyCommandTarget,
   probePhaseVerifyCommands,
   harvestPriorVerifyCommands,

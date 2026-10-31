@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 345,
+  "count": 358,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,12 +22,12 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
-    "SEAM": 44,
+    "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
     "WAVE": 5,
     "WORKSTREAM": 5,
-    "WORKTREE": 12
+    "WORKTREE": 23
   },
   "predicates": [
     {
@@ -1561,6 +1561,16 @@
       "value": "VERIFICATION_STATUS (src/verification.cts) is the closed verification-status vocabulary and VERIFICATION_ROUTES its only routing table (ADR-5057 Phase 4, #5118)"
     },
     {
+      "id": "SEAM.worktree-guard-verbs.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/worktree-guard.test.cjs"
+    },
+    {
+      "id": "SEAM.worktree-guard-verbs.owns",
+      "klass": "SEAM",
+      "value": "the worktree guard verbs — one typed owner per guard (ADR-5211, ADR-3473)"
+    },
+    {
       "id": "SEAM.worktree-safety-policy.enforced-by",
       "klass": "SEAM",
       "value": "test:tests/worktree-safety.test.cjs"
@@ -1694,6 +1704,61 @@
       "id": "WORKSTREAM.REGRESSION.test-anchor",
       "klass": "WORKSTREAM",
       "value": "tests/workstream.test.cjs::normalizes --migrate-name to a valid workstream slug"
+    },
+    {
+      "id": "WORKTREE.GUARD.0c-semantics",
+      "klass": "WORKTREE",
+      "value": "verbatim ERE port evaluated leftmost-longest by the vendored RE2 (LONGEST_MATCH) behind posix-ere.cts; JS RegExp leftmost-first would change which text a scan extracts"
+    },
+    {
+      "id": "WORKTREE.GUARD.automated-source",
+      "klass": "WORKTREE",
+      "value": "the verb reads <automated> by task ordinal via verify-command-grounding.extractAutomatedCommandsByTask; --command checks literal text"
+    },
+    {
+      "id": "WORKTREE.GUARD.branch-policy-owner",
+      "klass": "WORKTREE",
+      "value": "src/worktree-agent-branch.cts (AGENT_BRANCH_RE, FALLBACK_PROTECTED_BRANCH_RE); worktree-safety.cts imports it"
+    },
+    {
+      "id": "WORKTREE.GUARD.cli",
+      "klass": "WORKTREE",
+      "value": "gsd-tools worktree guard <branch|pre-commit|sentinel|abs-path|automated|pin> [flags] | gsd-tools worktree plan-ledger --phase <p> --plan <n>"
+    },
+    {
+      "id": "WORKTREE.GUARD.cwd",
+      "klass": "WORKTREE",
+      "value": "git runs against invokingCwd (the caller's worktree); only the protected-branch config reads the remapped project root"
+    },
+    {
+      "id": "WORKTREE.GUARD.exit",
+      "klass": "WORKTREE",
+      "value": "branch refusal 42 (#48); every other refusal 1; pass 0; applies:false marks a pass where the guard does not apply"
+    },
+    {
+      "id": "WORKTREE.GUARD.fail-closed",
+      "klass": "WORKTREE",
+      "value": "git missing, timing out or answering empty, an unknown stage, a missing/repeated/unknown flag, an internal error: all refusals, never ok (ADR-3409)"
+    },
+    {
+      "id": "WORKTREE.GUARD.files",
+      "klass": "WORKTREE",
+      "value": "[src/worktree-guard.cts, src/automated-command-containment.cts, src/posix-ere.cts, src/worktree-agent-branch.cts]"
+    },
+    {
+      "id": "WORKTREE.GUARD.interface",
+      "klass": "WORKTREE",
+      "value": "[guardBranch, guardPreCommit, guardSentinel, guardAbsPath, guardAutomated, guardPin, planLedger, runGuardCli, runPlanLedgerCli, checkAutomatedCommand]"
+    },
+    {
+      "id": "WORKTREE.GUARD.strengthenings",
+      "klass": "WORKTREE",
+      "value": "[unresolvable roots refuse (bash took an empty root and passed), empty sentinel refuses (bash passed forever), abs-path resolves symlinks and .. via tryWithinRoot (bash compared string prefixes)]"
+    },
+    {
+      "id": "WORKTREE.GUARD.test-anchors",
+      "klass": "WORKTREE",
+      "value": "[tests/worktree-guard.test.cjs, tests/automated-command-containment.test.cjs, tests/posix-ere.test.cjs, tests/worktree-guard-differential.slow.test.cjs]"
     },
     {
       "id": "WORKTREE.SEAM.caller-rule",
