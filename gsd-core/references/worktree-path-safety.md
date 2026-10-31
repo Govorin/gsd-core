@@ -8,8 +8,8 @@ Every guard is a gsd-tools `worktree guard <stage>` verb (ADR-5211). Claude Code
 ≥ 2.1.310 refuses `$(git …)`, `git -C`, `cd … &&` and variables in git or node
 arguments inside an `isolation="worktree"` agent, so the checks run in node and
 you run ONE literal command. `{GSD_TOOLS_CMD}` is the launcher your prompt's
-`<gsd_tools_launcher>` block names (`node '/abs/…/gsd-tools.cjs'`; with no such
-block, `gsd_run`); write every argument out literally — no `$VAR`, no `$(…)`.
+`<gsd_tools_launcher>` block names (a literal `node '<absolute path>'`; with no
+such block, `gsd_run`); write every argument out literally — no `$VAR`, no `$(…)`.
 Each verb prints JSON
 `{ok, stage, code, exit_code, applies, detail}` and exits non-zero on a refusal.
 A non-zero exit, or a guard that cannot run at all, is a HALT — never a skip,

@@ -14,6 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { classifyIsolationShellForm } = require('./helpers/isolation-shell-form.cjs');
+const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -94,6 +95,27 @@ describe('every mandatory worktree block passes the isolation shell-form model a
       assert.deepEqual(verdict.violations, [], `${label} would be refused inside an isolated agent`);
     });
   }
+});
+
+describe('the launcher block exists only where a dispatch fills it (review: tag collision)', () => {
+  // A block is the tag on a line of its own; a backticked mention in prose is not one.
+  const blocks = (src) => splitLines(src).filter((l) => l.trim() === '<gsd_tools_launcher>').length;
+  test('the executor role names the block but carries none of its own, so "no block → gsd_run" can fire', () => {
+    assert.equal(blocks(executor), 0);
+    assert.equal(splitLines(executor).filter((l) => l.trim() === '<gsd_tools_launcher_rule>').length, 1);
+  });
+  test('the dispatches that fill it carry exactly one block, around the placeholder', () => {
+    for (const [rel, filled] of [
+      ['gsd-core/workflows/execute-phase.md', '{GSD_TOOLS_CMD}'],
+      ['gsd-core/workflows/quick.md', '${gsd_tools_cmd}'],
+      ['gsd-core/workflows/quick-batch/steps/worktree-dispatch.md', '${gsd_tools_cmd}'],
+    ]) {
+      const src = read(rel);
+      assert.equal(blocks(src), 1, rel);
+      const inner = src.slice(src.indexOf('<gsd_tools_launcher>') + '<gsd_tools_launcher>'.length, src.indexOf('</gsd_tools_launcher>')).trim();
+      assert.equal(inner, filled, rel);
+    }
+  });
 });
 
 describe('quick.md plan materialisation survives a path with spaces (review: unquoted --path)', { skip: process.platform === 'win32' ? 'bash round trip is POSIX-only here' : false }, () => {
