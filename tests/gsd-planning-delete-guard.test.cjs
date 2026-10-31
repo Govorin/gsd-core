@@ -40,6 +40,9 @@ function makeTree(root, config = {}) {
   fs.mkdirSync(path.join(planning, 'phases', '01-a'), { recursive: true });
   fs.mkdirSync(path.join(planning, 'debug', 'resolved'), { recursive: true });
   fs.mkdirSync(path.join(planning, 'milestones'), { recursive: true });
+  fs.mkdirSync(path.join(planning, 'codebase'), { recursive: true });
+  fs.writeFileSync(path.join(planning, 'codebase', 'STACK.md'), '# stack\n');
+  fs.mkdirSync(path.join(planning, 'tmp'), { recursive: true });
   fs.writeFileSync(path.join(planning, 'config.json'), JSON.stringify(config));
   fs.writeFileSync(path.join(planning, 'STATE.md'), '---\nstatus: executing\n---\n');
   fs.writeFileSync(path.join(planning, 'current-agent-id.txt'), 'a1\n');
@@ -163,13 +166,13 @@ describe('gsd-planning-delete-guard: denied forms', () => {
     assertDenied(`rm -rf "${path.join(root, 'wt', '.planning')}"`, proj, 'planning-dir');
   });
 
-  test('denies removing the project, an ancestor of it, or a checkout holding a .planning', () => {
+  test('denies removing or moving the project or an ancestor of it', () => {
     assertDenied(`rm -rf "${proj}"`, proj, 'planning-ancestor');
     assertDenied('rm -rf ../proj', proj, 'planning-ancestor');
     assertDenied(`rm -rf ${root}`, proj, 'planning-ancestor');
-    assertDenied('rm -rf ../wt', proj, 'planning-ancestor');
+    assertDenied('rm -rf /', proj, 'planning-ancestor');
     assertDenied('rmdir ../proj', proj, 'planning-ancestor');
-    assertDenied('mv ../wt /tmp/gone', proj, 'planning-ancestor');
+    assertDenied('mv ../proj /tmp/gone', proj, 'planning-ancestor');
   });
 });
 
@@ -188,7 +191,8 @@ describe('gsd-planning-delete-guard: the effective cwd', () => {
     assertDenied('pushd .planning >/dev/null && rm -f STATE.md', proj, 'planning-state-file');
     assertDenied('cd src && rm -rf ../.planning', proj, 'planning-dir');
     assertDenied('cd .. && rm -rf proj', proj, 'planning-ancestor');
-    assertDenied(`cd ${root} && rm -rf wt`, proj, 'planning-ancestor');
+    // the project a cd lands in counts too, not only the session's
+    assertDenied(`cd ${path.join(root, 'wt')} && rm -rf ../wt`, proj, 'planning-ancestor');
   });
 
   test('a session that starts inside .planning resolves from there', () => {
@@ -235,6 +239,10 @@ describe('gsd-planning-delete-guard: allowed forms', () => {
     'rm -rf ../other',
     'rm -rf "$TMPDIR/gsd-x"',
     'rm -rf /tmp/foo',
+    // a directory outside the session's project is not judged by holding some
+    // other .planning: /gsd-remove-workspace deletes exactly that
+    'rm -rf ../wt',
+    'mv ../wt ../wt-archived',
     // what GSD's own workflows do under .planning (execute-plan, new-milestone,
     // discuss-phase, debugger, check-todos, cleanup, reset-phase-safety,
     // complete-milestone, planning-config)
@@ -249,6 +257,15 @@ describe('gsd-planning-delete-guard: allowed forms', () => {
     'find .planning/phases -mindepth 1 -maxdepth 1 -type d -exec mv {} "${phase_archive_path}/" \\;',
     'mv "$TODO_FILE" "$COMPLETED_DIR/"',
     'mv /tmp/x .planning/STATE.md',
+    // map-codebase "Refresh" deletes .planning/codebase/; docs-update clears
+    // .planning/tmp/verify-*.json; complete-milestone deletes REQUIREMENTS.md
+    'rm -rf .planning/codebase',
+    'rm -rf ./.planning/codebase/',
+    'find .planning/codebase -type f -delete',
+    'rm -rf .planning/tmp',
+    'rm -f .planning/tmp/verify-*.json',
+    'rm .planning/REQUIREMENTS.md',
+    'git rm -f .planning/REQUIREMENTS.md',
     'git rm .planning/REQUIREMENTS.md',
     'git rm -r --cached .planning/',
     // dry runs, exclusions, narrow finds, reads
@@ -299,7 +316,7 @@ describe('gsd-planning-delete-guard: workflow.planning_delete_guard', () => {
     if (root) cleanup(root);
     root = createTempDir('gsd-pdg-');
     const proj = makeTree(root);
-    if (config === null) fs.rmSync(path.join(proj, '.planning', 'config.json'));
+    if (config === null) fs.unlinkSync(path.join(proj, '.planning', 'config.json'));
     else if (typeof config === 'string') fs.writeFileSync(path.join(proj, '.planning', 'config.json'), config);
     else fs.writeFileSync(path.join(proj, '.planning', 'config.json'), JSON.stringify(config));
     return proj;

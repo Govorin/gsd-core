@@ -15,14 +15,17 @@
 //     scan resolves: `.planning`, `./.planning/`, an absolute path, a path in
 //     another tree (`/x/wt/.planning`, `"$WT/.planning"`), a glob or brace that
 //     selects it (`.plan*`, `.*`, `{a,.planning}`) — code planning-dir;
-//   • a recursive removal of a directory that contains a project's
-//     `.planning/` — the project root or one of its ancestors as resolved from
-//     the session cwd, or any existing directory with a `.planning` child (a
-//     worktree: use `git worktree remove`) — code planning-ancestor;
+//   • a recursive removal of a directory that contains the project's
+//     `.planning/` — the project root or one of its ancestors, the project
+//     found from the session cwd or from a `cd` in the command
+//     — code planning-ancestor;
 //   • a recursive removal of a directory inside `.planning/`
-//     (`rm -rf .planning/phases`) — code planning-subtree;
+//     (`rm -rf .planning/phases`), except the two GSD regenerates:
+//     `.planning/codebase` (map-codebase "Refresh" deletes it) and
+//     `.planning/tmp` — code planning-subtree;
 //   • removing a core state file (config.json, STATE.md, ROADMAP.md,
-//     PROJECT.md, REQUIREMENTS.md, MILESTONES.md) — code planning-state-file;
+//     PROJECT.md, MILESTONES.md) — code planning-state-file. REQUIREMENTS.md is
+//     not one: complete-milestone deletes it for the next milestone;
 //   • moving a directory or a core state file from inside `.planning/` to a
 //     place outside it — code planning-move-out.
 // Commands judged: rm, unlink, shred, rmdir (the directory itself or an
@@ -36,9 +39,13 @@
 // non-state file under `.planning/` (`rm -f .planning/current-agent-id.txt`,
 // a checkpoint, a scratch file), moving files and directories within
 // `.planning/` (`mv .planning/debug/x.md .planning/debug/resolved/`, the phase
-// archive in /gsd-cleanup), moving a file into `.planning/`, and plain
-// `git rm .planning/REQUIREMENTS.md` (complete-milestone). Names that only look
-// similar are not `.planning`: `.planning-old`, `docs/.planning.md`.
+// archive in /gsd-cleanup), moving a file into `.planning/`, removing
+// `.planning/codebase` or `.planning/tmp`, and removing REQUIREMENTS.md
+// (complete-milestone). A directory outside the session's project that only
+// holds some other `.planning` (a workspace, a test fixture under /tmp) is not
+// judged by what it contains — /gsd-remove-workspace deletes exactly that.
+// Names that only look similar are not `.planning`: `.planning-old`,
+// `docs/.planning.md`.
 //
 // How a target is resolved: the command is read by the secret read guard's
 // scanner (`tokenize` + `resolveCommand`, exported by gsd-secret-read-guard.js
@@ -112,8 +119,13 @@ const PLANNING_DIR_NAME = '.planning';
 // Core state files: losing one loses the project's position, not a scratch
 // artifact. Compared case-insensitively (macOS and Windows filesystems).
 const STATE_FILES = new Set([
-  'config.json', 'state.md', 'roadmap.md', 'project.md', 'requirements.md', 'milestones.md',
+  'config.json', 'state.md', 'roadmap.md', 'project.md', 'milestones.md',
 ]);
+
+// Directories directly under `.planning/` that GSD regenerates and its own
+// workflows delete whole: map-codebase "Refresh" deletes `.planning/codebase/`;
+// `.planning/tmp/` holds scratch output (docs-update's verify-*.json).
+const REGENERATED_DIRS = new Set(['codebase', 'tmp']);
 
 // Single-target removers: each removes the named file (shred only with -u,
 // treated as removing either way — overwriting a state file loses it too).
@@ -201,15 +213,6 @@ function isDirectory(p) {
   }
 }
 
-function exists(p) {
-  try {
-    fs.lstatSync(p);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Where a path sits relative to `.planning`, from its segments alone:
  *   { kind: 'planning-dir' }                 the directory itself
@@ -222,6 +225,11 @@ function planningPosition(segments, join) {
   if (i === -1) return null;
   if (i === segments.length - 1) return { kind: 'planning-dir', planningDir: join(segments) };
   return { kind: 'inside', planningDir: join(segments.slice(0, i + 1)), rest: segments.slice(i + 1) };
+}
+
+/** Is this position inside one of the directories GSD regenerates? */
+function isRegenerated(position) {
+  return position.kind === 'inside' && REGENERATED_DIRS.has(position.rest[0].toLowerCase());
 }
 
 /**
@@ -252,7 +260,6 @@ function classifyTarget(target, ctx) {
       return { kind: 'ancestor', root };
     }
   }
-  if (isDirectory(abs) && exists(path.join(abs, PLANNING_DIR_NAME))) return { kind: 'ancestor', root: abs };
   return { kind: 'outside', abs };
 }
 
@@ -319,7 +326,7 @@ function checkRemoval(targets, recursive, ctx, command) {
     const c = classifyTarget(target, ctx);
     if (c.kind === 'planning-dir') return hit('planning-dir', target, command);
     if (c.kind === 'ancestor' && recursive) return hit('planning-ancestor', target, command);
-    if (c.kind !== 'inside') continue;
+    if (c.kind !== 'inside' || isRegenerated(c)) continue;
     const base = c.rest[c.rest.length - 1].toLowerCase();
     if (recursive) {
       // `rm -rf` on a single file is common reflex; judge by what is on disk.
@@ -398,7 +405,7 @@ function checkMv(operands, ctx) {
     const c = classifyTarget(source, ctx);
     if (c.kind === 'planning-dir') return hit('planning-dir', source, 'mv');
     if (c.kind === 'ancestor') return hit('planning-ancestor', source, 'mv');
-    if (c.kind !== 'inside') continue;
+    if (c.kind !== 'inside' || isRegenerated(c)) continue;
     // Within .planning (the debug/resolved and phase-archive moves) or to a
     // destination the scan cannot place: allowed.
     if ((destPos.kind === 'inside' || destPos.kind === 'planning-dir')
@@ -430,13 +437,13 @@ function fnmatchRegex(pattern, insensitive) {
       }
     } else if (ch === '\\' && i + 1 < pattern.length) {
       i++;
-      out += pattern[i].replace(/[.+^${}()|[\]\\*?]/g, '\\$&');
+      out += (/[.+^${}()|[\]\\*?]/.test(pattern[i]) ? '\\' : '') + pattern[i];
     } else out += ch.replace(/[.+^${}()|\\]/g, '\\$&');
   }
   return new RegExp(out + '$', insensitive ? 'i' : '');
 }
 
-const STATE_FILE_PROBES = ['config.json', 'STATE.md', 'ROADMAP.md', 'PROJECT.md', 'REQUIREMENTS.md', 'MILESTONES.md'];
+const STATE_FILE_PROBES = ['config.json', 'STATE.md', 'ROADMAP.md', 'PROJECT.md', 'MILESTONES.md'];
 
 /**
  * What find test `test` with `pattern` selects of a project's planning state:
@@ -491,6 +498,7 @@ function checkFindExpression(starts, expression, deleting, ctx, command) {
   }
   for (const start of starts) {
     const c = classifyTarget(start, ctx);
+    if (isRegenerated(c)) continue;
     if (c.kind === 'planning-dir' || c.kind === 'inside') return hit('planning-subtree', start, command);
     // A test that selects `.planning` by name deletes it under any start
     // (`find ~/work -name .planning -exec rm -rf {} +`).
@@ -584,6 +592,7 @@ function checkGit(operands, ctx) {
     const specs = pathspecs.length ? pathspecs : [{ text: '.', quoted: 'none' }];
     for (const target of targetsOf(specs, gitCwd)) {
       const c = classifyTarget(target, gctx);
+      if (isRegenerated(c)) continue;
       if (c.kind === 'planning-dir' || c.kind === 'inside') return hit(c.kind === 'inside' ? 'planning-subtree' : 'planning-dir', target, 'git clean');
       if (c.kind === 'ancestor' && !excludesPlanning) return hit('planning-ancestor', target, 'git clean');
     }

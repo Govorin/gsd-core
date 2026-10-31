@@ -3282,7 +3282,7 @@ const capabilities = {
       "workflow.planning_delete_guard": {
         "type": "boolean",
         "default": true,
-        "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, REQUIREMENTS.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/ and moving files within it stay allowed, because workflows do both. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
+        "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/, removing the regenerated .planning/codebase and .planning/tmp, and moving files within .planning/ stay allowed, because workflows do all three. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
       },
       "workflow.exit_gate": {
         "type": "string",
@@ -7389,7 +7389,7 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "boolean",
     "default": true,
-    "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, REQUIREMENTS.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/ and moving files within it stay allowed, because workflows do both. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
+    "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/, removing the regenerated .planning/codebase and .planning/tmp, and moving files within .planning/ stay allowed, because workflows do all three. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
   },
   "workflow.exit_gate": {
     "owner": "mn-verify-gate",
