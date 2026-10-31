@@ -165,6 +165,11 @@ Assign the composed prompt to a shell variable so it can be passed as one argume
 #      compare it verbatim against the sentinel the per-plan gate wrote, so a
 #      paraphrase or omission costs the dispatch its recorded isolation
 #      decision.
+#   2b. Do NOT substitute {GSD_TOOLS_CMD} and add no <gsd_tools_launcher>
+#      block (ADR-5211): this child is a process outside the host's
+#      isolation check, and this prompt is single-quoted, so it cannot carry
+#      node '<path>'. With no block the executor reads {GSD_TOOLS_CMD} as
+#      gsd_run, which works here.
 #   3. Inline the gsd-executor ROLE DEFINITION: read `agents/gsd-executor.md`
 #      (resolved against the install root the same way the harness runtime
 #      resolves subagent types) and inline it verbatim at the provenance

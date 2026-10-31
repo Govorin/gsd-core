@@ -111,6 +111,31 @@ describe('the executor prompt derives its root without a capture (review: refuse
   });
 });
 
+describe('prompt contract around the guard verbs (review round 2026-11-01)', () => {
+  test('the launcher rule comes before the first gsd_run the executor meets', () => {
+    assert.ok(executor.indexOf('<gsd_tools_launcher_rule>') < executor.indexOf('gsd_run'));
+  });
+  test('the automated check is part of running verification, before the commit step', () => {
+    const tasks = executor.slice(executor.indexOf('<step name="execute_tasks">'));
+    const check = tasks.indexOf('worktree guard automated');
+    assert.ok(check !== -1 && check < tasks.indexOf('Commit (see task_commit_protocol)'));
+    assert.ok(tasks.slice(check, check + 300).includes('ordinal in PLAN.md, from 1'));
+  });
+  test('the orchestrator-worktree dispatch carries no launcher block and says why', () => {
+    const src = read('gsd-core/workflows/execute-phase/steps/executor-isolation-dispatch.md');
+    assert.equal(splitLines(src).filter((l) => l.trim() === '<gsd_tools_launcher>').length, 0);
+    assert.ok(src.includes('Do NOT substitute {GSD_TOOLS_CMD}'));
+  });
+  test('no dispatch text promises a FATAL: line the guard verb never prints', () => {
+    for (const rel of ['gsd-core/workflows/execute-plan.md', 'gsd-core/workflows/execute-phase/steps/worktree-recovery-policy.md']) {
+      assert.ok(!read(rel).includes('prints `FATAL:`'), rel);
+    }
+  });
+  test('the sequential pin step names no launcher block the sequential prompt lacks', () => {
+    assert.ok(!read('gsd-core/workflows/execute-phase/steps/sequential-root-pin.md').includes('<gsd_tools_launcher>'));
+  });
+});
+
 describe('the launcher block exists only where a dispatch fills it (review: tag collision)', () => {
   // A block is the tag on a line of its own; a backticked mention in prose is not one.
   const blocks = (src) => splitLines(src).filter((l) => l.trim() === '<gsd_tools_launcher>').length;

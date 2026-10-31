@@ -112,8 +112,8 @@ arrives: the planner saw absolute paths in its own context and wrote one into th
 command. Run as written, `cd /abs/main-checkout/… && <test>` leaves the worktree, runs
 against the main tree, and **passes on code this worktree changed and the main tree did
 not** — a green verify that verified nothing. Before executing a task's `<automated>`
-commands, have the verb read them from the plan by task number (1-based, in document
-order) and scan them:
+commands, have the verb read them from the plan by task number — the `<task>`'s ordinal in
+PLAN.md, counted from 1 in document order — and scan them:
 
 ```bash
 {GSD_TOOLS_CMD} worktree guard automated --plan '/path/to/the/PLAN.md' --task 2
