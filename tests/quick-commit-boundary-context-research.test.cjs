@@ -119,15 +119,18 @@ describe('#4996: quick.md executor materializes and reads CONTEXT.md/RESEARCH.md
     const promptEnd = content.indexOf('subagent_type="gsd-executor"', promptStart);
     const executorPrompt = content.slice(promptStart, promptEnd);
 
+    // ADR-5211: the plan commit is materialised by the `worktree materialize` verb (git with a
+    // computed argument is refused inside an isolated agent); CONTEXT/RESEARCH are optional paths.
+    const materialize = executorPrompt.indexOf('worktree materialize --from ${QUICK_PLAN_COMMIT}');
     assert.ok(
-      executorPrompt.includes('QUICK_PLAN_COMMIT') &&
-        /CONTEXT\.md/.test(executorPrompt) &&
-        executorPrompt.indexOf('git show') < executorPrompt.indexOf('<required_reading>'),
+      materialize !== -1 &&
+        executorPrompt.includes("--optional-path '${QUICK_DIR}/${quick_id}-CONTEXT.md'") &&
+        materialize < executorPrompt.indexOf('<required_reading>'),
       'executor prompt must materialize CONTEXT.md from QUICK_PLAN_COMMIT before ' +
         'required_reading can prime paths, the same way it already does for PLAN.md (#4996)'
     );
     assert.ok(
-      executorPrompt.includes('QUICK_PLAN_COMMIT') && /RESEARCH\.md/.test(executorPrompt),
+      executorPrompt.includes("--optional-path '${QUICK_DIR}/${quick_id}-RESEARCH.md'"),
       'executor prompt must materialize RESEARCH.md from QUICK_PLAN_COMMIT the same way ' +
         'it already does for PLAN.md (#4996)'
     );
@@ -139,8 +142,8 @@ describe('#4996: quick.md executor materializes and reads CONTEXT.md/RESEARCH.md
     const promptEnd = content.indexOf('subagent_type="gsd-executor"', promptStart);
     const executorPrompt = content.slice(promptStart, promptEnd);
     assert.ok(
-      executorPrompt.includes('git show') && executorPrompt.includes('QUICK_PLAN_COMMIT'),
-      'PLAN.md materialization via git show <plan-commit>:<plan-path> must remain (#1265, #4996)'
+      executorPrompt.includes("worktree materialize --from ${QUICK_PLAN_COMMIT} --path '${QUICK_DIR}/${quick_id}-PLAN.md'"),
+      'PLAN.md materialization from the plan commit must remain (#1265, #4996)'
     );
   });
 

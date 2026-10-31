@@ -92,6 +92,19 @@ function isWorkstreamForwardingSweepLine(sign, body, addedBodies, removedBodies)
  * gate. Any OTHER line — ordinary quick prose, steps, contracts — still trips
  * this row exactly as before.
  */
+// ADR-5211 sixth mechanical-sweep carve-out: the worktree-guard-verb sweep gives every
+// worktree executor dispatch -- quick-batch's included -- the branch-check embed, the
+// `<gsd_tools_launcher>` block and the `gsd_tools_cmd` init field. A line that carries one of
+// those markers, or a removed line whose replacement only appends one, is that sweep -- not
+// quick-batch phase work. Any OTHER line still trips this row.
+const GUARD_VERB_SWEEP = /gsd_tools_cmd|GSD_TOOLS_CMD|gsd_tools_launcher|worktree_branch_check|worktree-branch-check\.md|EXPECTED_BASE/;
+function isGuardVerbSweepLine(sign, body, addedBodies) {
+  if (GUARD_VERB_SWEEP.test(body)) return true;
+  if (sign !== '-') return false;
+  const stem = body.replace(/\.$/, '');
+  return [...addedBodies].some((a) => a.startsWith(stem) && GUARD_VERB_SWEEP.test(a.slice(stem.length)));
+}
+
 function editsBeyondSharedDirective(base, file) {
   const diff = git(['diff', '--unified=0', `${base}...HEAD`, '--', file]);
   const diffLines = diff.split('\n');
@@ -104,6 +117,7 @@ function editsBeyondSharedDirective(base, file) {
     if (!/^[+-]/.test(line) || line.startsWith('+++') || line.startsWith('---')) return false;
     const body = line.slice(1).trim();
     if (isWorkstreamForwardingSweepLine(line[0], body, addedBodies, removedBodies)) return false;
+    if (isGuardVerbSweepLine(line[0], body, addedBodies)) return false;
     if (body === '' || body === INLINE_RESPONSE_LANGUAGE_DIRECTIVE) return false;
     if (body === CANONICAL_LAUNCHER_PREAMBLE.trim()) return false;
     if (looksLikeLauncherPreambleLine(body)) return false;
@@ -158,8 +172,10 @@ describe('quick-batch: /gsd:quick command + workflow stay byte-identical (row 48
     // the surface, but one that touches all of it. So a path counts only when
     // its diff says something other than the coverage contract.
     const isPhaseWork = (p) => editsBeyondSharedDirective(resolved.ref, p);
+    // A workflow map is generated from its workflow (scripts/gen-workflow-maps.cjs): a
+    // regenerated map follows whatever its source did, so it is never phase work of its own.
     const touchesQuickBatch = changed.some((p) =>
-      /quick-batch/.test(p) && !p.startsWith('tests/') && isPhaseWork(p));
+      /quick-batch/.test(p) && !p.startsWith('tests/') && !p.includes('/workflow-maps/') && isPhaseWork(p));
     if (!touchesQuickBatch) {
       t.skip(
         `branch does no quick-batch phase work (${changed.length} changed paths; any ` +

@@ -11,24 +11,30 @@
  *
  * The orchestrator tells each executor by value, in that executor's own prompt, which kind of
  * dispatch it is: a `<sequential_execution>` block on a sequential dispatch, a
- * `<worktree_branch_check>` block on an isolated one. The executor sets one literal in the Step 0
- * snippet from that block; with no block (unknown) the allow-list applies, so the guard still fails
- * closed. No shared state (a sentinel file, an environment variable) carries the decision, so two
- * plans in one wave cannot overwrite each other's.
+ * `<worktree_branch_check>` block on an isolated one. The executor adds `--sequential` to the Step 0
+ * guard verb (ADR-5211: `worktree guard pre-commit`) only from that block; with no block (unknown)
+ * the allow-list applies, so the guard still fails closed. No shared state (a sentinel file, an
+ * environment variable) carries the decision, so two plans in one wave cannot overwrite each other's.
+ *
+ * These run the shipped Step 0 block, launcher substituted the way the orchestrator substitutes
+ * it, against real repositories — a linked worktree and a main checkout.
  */
 
 const { describe, test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
-const { cleanup } = require('./helpers.cjs');
+const { cleanup, createTempDir, TOOLS_PATH } = require('./helpers.cjs');
+const { runHook } = require('./helpers/process-seam.cjs');
+const { gitOrThrow } = require('./helpers/git-fixture.cjs');
+const { GIT_IDENTITY_ENV } = require('./helpers/worktree-guard-corpus.cjs');
 const { splitLines } = require('../gsd-core/bin/lib/text-lines.cjs');
 const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
 
 const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf-8');
+const gitEnv = { ...process.env, ...GIT_IDENTITY_ENV };
+const git = (args, cwd) => gitOrThrow(args, { cwd, env: gitEnv }).trim();
 
 /** The first ```bash block after the "Pre-commit HEAD safety assertion" heading in the executor. */
 function extractStep0Bash() {
@@ -46,62 +52,69 @@ function extractStep0Bash() {
 }
 
 const BASH = extractStep0Bash();
+const LAUNCHER = `node '${TOOLS_PATH.split(path.sep).join('/')}'`;
 
-/** What the executor does with the snippet: set the literal from its prompt, then run it. */
+/** What the executor does with the snippet: the launcher from its prompt, `--sequential` only from the block. */
 function asExecutorWouldRun(sequentialBlockInPrompt) {
-  if (!sequentialBlockInPrompt) return BASH;
-  assert.match(BASH, /^SEQUENTIAL=false\b/m, 'Step 0 must expose the SEQUENTIAL literal the executor sets');
-  return BASH.replace(/^SEQUENTIAL=false\b/m, 'SEQUENTIAL=true');
+  assert.match(BASH, /^\{GSD_TOOLS_CMD\} worktree guard pre-commit$/m, 'Step 0 must run the pre-commit guard verb');
+  const command = BASH.replace('{GSD_TOOLS_CMD}', LAUNCHER);
+  return sequentialBlockInPrompt ? command.replace('worktree guard pre-commit', 'worktree guard pre-commit --sequential') : command;
 }
 
-function runStep0(t, { branch, sequential, linkedWorktree = true, protectedBranch = false }) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4799-'));
+function runStep0(t, { branch, sequential, linkedWorktree = true }) {
+  const dir = createTempDir('gsd-4799-');
   t.after(() => cleanup(dir));
-  if (linkedWorktree) fs.writeFileSync(path.join(dir, '.git'), 'gitdir: /nonexistent\n');
-  else fs.mkdirSync(path.join(dir, '.git'));
-  const script = path.join(dir, 'guard.sh');
-  fs.writeFileSync(script, [
-    '#!/usr/bin/env bash',
-    'git() {',
-    '  if [ "$1" = symbolic-ref ]; then printf "%s\\n" "refs/heads/' + branch + '"; return 0',
-    '  elif [ "$1" = rev-parse ] && [ "$2" = --abbrev-ref ]; then printf "%s\\n" "' + branch + '"; return 0',
-    '  else printf "unexpected git invocation: %s\\n" "$*" >&2; return 97; fi',
-    '}',
-    'gsd_run() { printf "%s\\n" "' + (protectedBranch ? 'true' : 'false') + '"; }',
-    asExecutorWouldRun(sequential),
-    'printf "GUARD_PASSED\\n"',
-  ].join('\n'), { mode: 0o755 });
-  return spawnSync('bash', [script], { cwd: dir, encoding: 'utf-8', timeout: PROBE_TIMEOUT_MS });
+  const main = path.join(dir, 'main');
+  git(['init', '-q', main], dir);
+  git(['commit', '-q', '--allow-empty', '-m', 'init'], main);
+  // The project's configured base branch is protected (#3819); pin it so the default branch
+  // name of the host's git does not decide the row.
+  fs.mkdirSync(path.join(main, '.planning'));
+  fs.writeFileSync(path.join(main, '.planning', 'config.json'), JSON.stringify({ git: { base_branch: 'main' } }));
+  let cwd = main;
+  if (linkedWorktree) {
+    cwd = path.join(dir, 'wt');
+    git(['worktree', 'add', '-q', '--detach', cwd], main);
+  }
+  const head = git(['rev-parse', 'HEAD'], cwd);
+  git(['update-ref', `refs/heads/${branch}`, head], cwd);
+  git(['symbolic-ref', 'HEAD', `refs/heads/${branch}`], cwd);
+  const r = runHook('-c', [`set -e\n${asExecutorWouldRun(sequential)}\nprintf 'GUARD_PASSED\n'`], {
+    interpreter: 'bash', cwd, timeoutMs: PROBE_TIMEOUT_MS, env: gitEnv,
+  });
+  const json = JSON.parse(r.stdout.slice(0, r.stdout.lastIndexOf('}') + 1));
+  return { status: r.exitCode, json, passed: r.stdout.endsWith('GUARD_PASSED\n') };
 }
 
 describe('#4799 executor Step 0: the branch allow-list follows the dispatch, not the physical worktree', () => {
   test('sequential dispatch in a linked phase worktree on feature/phase-48 may commit', (t) => {
     const r = runStep0(t, { branch: 'feature/phase-48', sequential: true });
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /GUARD_PASSED/);
+    assert.equal(r.status, 0);
+    assert.equal(r.passed, true);
   });
 
   test('sequential dispatch still refuses a protected branch', (t) => {
-    const r = runStep0(t, { branch: 'main', sequential: true, protectedBranch: true });
+    const r = runStep0(t, { branch: 'main', sequential: true });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /protected\/default branch/);
+    assert.equal(r.json.code, 'protected_branch');
   });
 
   test('isolated dispatch (no sequential block) on a non-agent branch is still refused', (t) => {
     const r = runStep0(t, { branch: 'feature/phase-48', sequential: false });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /not in the agent-\* \/ worktree-agent-\* \/ worktree-wf_\* namespace/);
+    assert.equal(r.json.code, 'namespace_mismatch');
   });
 
   test('isolated dispatch on an agent-* branch may commit', (t) => {
     const r = runStep0(t, { branch: 'agent-42', sequential: false });
-    assert.equal(r.status, 0, r.stderr);
-    assert.match(r.stdout, /GUARD_PASSED/);
+    assert.equal(r.status, 0);
+    assert.equal(r.passed, true);
   });
 
-  test('an executor that cannot tell which dispatch it is (literal left at its default) fails closed', (t) => {
+  test('an executor that cannot tell which dispatch it is (no --sequential) fails closed', (t) => {
     const r = runStep0(t, { branch: 'feature/phase-48', sequential: false });
     assert.equal(r.status, 1);
+    assert.equal(r.passed, false);
   });
 
   for (const [branch, expected] of [['agent-', 1], ['agent-x', 0], ['xagent-1', 1], ['worktree-agent-7', 0], ['worktree-wf_abc', 0]]) {

@@ -1349,3 +1349,79 @@ describe('property-based invariants', () => {
     });
   });
 });
+
+// ─── ADR-5211: per-task extraction for the worktree guard, fail-closed ───────
+
+describe('extractAutomatedCommandsByTask (ADR-5211) — ordinals never shift, commands never drop', () => {
+  const { extractAutomatedCommandsByTask } = require('../gsd-core/bin/lib/verify-command-grounding.cjs');
+  const task = (name, body) => `<task type="auto"><name>${name}</name>${body}</task>`;
+
+  test('reads every task with its name and commands, in order', () => {
+    const r = extractAutomatedCommandsByTask([
+      task('A', '<verify><automated>npm test</automated></verify>'),
+      task('B', '<done>x</done>'),
+      task('C', '<automated>a</automated><automated>b</automated>'),
+    ].join('\n'));
+    assert.deepEqual(r, { ok: true, tasks: [
+      { name: 'A', commands: ['npm test'] }, { name: 'B', commands: [] }, { name: 'C', commands: ['a', 'b'] },
+    ] });
+  });
+
+  test('an unclosed <task> anywhere is task_unclosed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`<task><name>A</name>\n${task('B', '')}`), { ok: false, reason: 'task_unclosed' });
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n<task type="auto"><name>B</name>`), { ok: false, reason: 'task_unclosed' });
+  });
+
+  test('an unclosed <automated> names its task', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}${task('B', '<automated>cd ..')}`), { ok: false, reason: 'automated_unclosed', task: 2 });
+  });
+
+  // Review: an example <task> shown in a fence or comment shifted every real ordinal.
+  for (const [label, example] of [
+    ['a ``` fence', '```xml\n<task><name>example</name><automated>ls</automated></task>\n```'],
+    ['a ~~~ fence', '~~~\n<task><name>example</name><automated>ls</automated></task>\n~~~'],
+    ['an HTML comment', '<!-- <task><name>example</name><automated>ls</automated></task> -->'],
+  ]) {
+    test(`an example task in ${label} is not a task`, () => {
+      const r = extractAutomatedCommandsByTask(`${example}\n${task('real', '<automated>cd ../main && npm test</automated>')}`);
+      assert.deepEqual(r, { ok: true, tasks: [{ name: 'real', commands: ['cd ../main && npm test'] }] });
+    });
+  }
+
+  // Re-review: a fence indented four or more spaces inside a list item survived CommonMark
+  // stripping, and its example <task> took ordinal 1.
+  for (const indent of ['    ', '      ', '\t']) {
+    test(`an example task in a fence indented ${JSON.stringify(indent)} inside a list item is not a task`, () => {
+      const plan = ['1. Example:', `${indent}\`\`\`xml`, `${indent}<task><name>example</name><automated>ls</automated></task>`, `${indent}\`\`\``,
+        task('real', '<automated>cd ../main && npm test</automated>')].join('\n');
+      assert.deepEqual(extractAutomatedCommandsByTask(plan), { ok: true, tasks: [{ name: 'real', commands: ['cd ../main && npm test'] }] });
+    });
+  }
+
+  test('an indented fence left open is still fence_unclosed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n1. x:\n    ~~~\n${task('B', '')}`), { ok: false, reason: 'fence_unclosed' });
+  });
+
+  test('a <task> mention inside inline code in prose is not an opener (any delimiter length)', () => {
+    for (const prose of ['Use `<task>` blocks.', 'Use ``<task> with ` inside`` here.', 'Pair `<task>` with `</task>`.']) {
+      assert.deepEqual(extractAutomatedCommandsByTask(`${prose}\n${task('real', '<automated>ls</automated>')}`), { ok: true, tasks: [{ name: 'real', commands: ['ls'] }] }, prose);
+    }
+  });
+
+  test('backticks in an <automated> command reach the scan unchanged', () => {
+    const r = extractAutomatedCommandsByTask(task('A', '<automated>test "`pwd`" = x && cd `echo ../main`</automated>'));
+    assert.deepEqual(r.tasks[0].commands, ['test "`pwd`" = x && cd `echo ../main`']);
+  });
+
+  test('an unterminated fence or comment hides the rest of the plan: refused, never guessed', () => {
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n\`\`\`\n${task('B', '')}`), { ok: false, reason: 'fence_unclosed' });
+    assert.deepEqual(extractAutomatedCommandsByTask(`${task('A', '')}\n<!-- ${task('B', '')}`), { ok: false, reason: 'comment_unclosed' });
+  });
+
+  test('the block-walk bound: limit - 1 and limit read, limit + 1 refuses walk_bound', () => {
+    const many = (n) => task('A', '<automated>x</automated>'.repeat(n));
+    assert.equal(extractAutomatedCommandsByTask(many(19999)).ok, true);
+    assert.equal(extractAutomatedCommandsByTask(many(20000)).ok, true);
+    assert.deepEqual(extractAutomatedCommandsByTask(many(20001)), { ok: false, reason: 'walk_bound', task: 1 });
+  });
+});

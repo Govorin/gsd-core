@@ -98,7 +98,7 @@ if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 AGENT_SKILLS=$(gsd_run query agent-skills gsd-executor ${GSD_WS:+--ws=${GSD_WS##* }})
 ```
 
-Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `padded_phase`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `requirements_path`, `section_manifest`, `threat_id_duplicate_count`.
+Parse JSON for: `executor_model`, `verifier_model`, `commit_docs`, `parallelization`, `branching_strategy`, `branch_name`, `phase_found`, `phase_dir`, `phase_number`, `padded_phase`, `phase_name`, `phase_slug`, `plans`, `incomplete_plans`, `plan_count`, `incomplete_count`, `state_exists`, `roadmap_exists`, `phase_req_ids`, `response_language`, `requirements_path`, `section_manifest`, `threat_id_duplicate_count`, `gsd_tools_cmd` (ADR-5211: fills every `{GSD_TOOLS_CMD}` in executor prompts and inlined files; null → halt).
 
 **Threat-ID gate (#4683):** if `threat_id_duplicate_count` is non-zero, read and execute `execute-phase/steps/threat-id-gate.md` BEFORE any dispatch — it is a hard stop (the full duplicate list is in `threat_id_duplicates`).
 
@@ -722,9 +722,13 @@ increases monotonically across waves. `{status}` is `complete` (success),
        </objective>
 
        <worktree_branch_check>
-       ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): before this dispatch, read `gsd-core/references/worktree-branch-check.md`, substitute `{EXPECTED_BASE}` with the base SHA captured above ({EXPECTED_BASE}), and replace this note with that fragment's `<worktree_branch_check>` block so the dispatched prompt carries the runnable guard verbatim — do not pass this instruction through in its place.
+       ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): replace this note with the `<worktree_branch_check>` block of `gsd-core/references/worktree-branch-check.md`, bound per its orchestrator contract (`{EXPECTED_BASE}` = base SHA above) — never pass this note through.
        Per-commit HEAD/cwd-drift/path-guard: `agents/gsd-executor.md` steps 0/0a/0b + `gsd-core/references/worktree-path-safety.md` (in <execution_context>).
        </worktree_branch_check>
+
+       <gsd_tools_launcher>
+       {GSD_TOOLS_CMD}
+       </gsd_tools_launcher>
 
        <parallel_execution>
        You are running as a PARALLEL executor agent in a git worktree. Worktree path safety (cwd-drift, absolute-path guards) is in `worktree-path-safety.md` (loaded below).
@@ -759,7 +763,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
        <required_reading>
        Read these files at execution start using the Read tool.
        First resolve repo root so every path is anchored:
-       \`PROJECT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)\`
+       \`PROJECT_ROOT\` = \`git rev-parse --show-toplevel\` output
        - ${PROJECT_ROOT}/{phase_dir}/{plan_file} (Plan)
        - ${PROJECT_ROOT}/.planning/PROJECT.md (Project context — core value, requirements, evolution rules)
        - ${PROJECT_ROOT}/.planning/STATE.md (State)
@@ -810,7 +814,7 @@ increases monotonically across waves. `{status}` is `complete` (success),
 
    ```
        <sequential_execution>
-       You are running as a SEQUENTIAL executor agent on the main working tree (set SEQUENTIAL=true in your Step 0 commit guard; a linked phase worktree on the configured branch is allowed, #4799).
+       You are running as a SEQUENTIAL executor agent on the main working tree (pass `--sequential` to your Step 0 commit guard; a linked phase worktree on the configured branch is allowed, #4799).
        Use normal git commits (with hooks). Do NOT use --no-verify.
        Run the `<project_root_pin>` guard before your first Edit/Write and before every commit (#4254).
        REQUIRED ORDER: Write SUMMARY.md → commit → only then any narration. No text between Write and commit (truncation risk; #2070 rescue is not primary defense).

@@ -135,65 +135,32 @@ describe('bug #2924: worktree HEAD attachment + destructive recovery', () => {
       assert.ok(block, 'worktree-branch-check.md must contain a <worktree_branch_check> block');
     });
 
-    test('block invokes `git symbolic-ref` to inspect HEAD attachment', () => {
+    test('block invokes the `worktree guard branch` verb with the dispatch placeholders (ADR-5211)', () => {
       const codeBlocks = extractFencedCodeBlocks(block);
       const allStatements = codeBlocks.flatMap(({ body }) => shellStatements(body));
       const idx = findCommandIndex(allStatements, (cmd) =>
-        cmd[0] === 'git' && cmd[1] === 'symbolic-ref' && cmd.includes('HEAD')
+        cmd[0] === '{GSD_TOOLS_CMD}' && cmd.slice(1, 4).join(' ') === 'worktree guard branch'
+        && cmd[cmd.indexOf('--expected-base') + 1] === '{EXPECTED_BASE}'
       );
-      assert.notStrictEqual(
-        idx, -1,
-        'worktree_branch_check must run `git symbolic-ref ... HEAD` to verify HEAD attachment before any reset'
-      );
+      assert.notStrictEqual(idx, -1, 'the branch check must run `{GSD_TOOLS_CMD} worktree guard branch --expected-base {EXPECTED_BASE}`');
     });
 
-    test('block is verify-only: HEAD assertion present, no git reset, fails closed (#48)', () => {
+    test('block is verify-only: the guard verb, no git reset, fails closed (#48)', () => {
       const codeBlocks = extractFencedCodeBlocks(block);
       const allStatements = codeBlocks.flatMap(({ body }) => shellStatements(body));
-      const symbolicRefIdx = findCommandIndex(allStatements, (cmd) => cmd[0] === 'git' && cmd[1] === 'symbolic-ref' && cmd.includes('HEAD'));
       const resetIdx = findCommandIndex(allStatements, (cmd) => cmd[0] === 'git' && cmd[1] === 'reset');
-      assert.notStrictEqual(symbolicRefIdx, -1, 'symbolic-ref HEAD-attachment check must exist');
+      const exitIdx = findCommandIndex(allStatements, (cmd) => cmd[0] === 'exit' && cmd[1] === '42');
       assert.strictEqual(resetIdx, -1, 'fragment must be verify-only — no git reset self-recovery (#48)');
-      assert.ok(/exit 42/.test(block), 'fragment must fail closed with exit 42 (#48)');
+      assert.notStrictEqual(exitIdx, -1, 'fragment must fail closed with exit 42 (#48)');
     });
 
-    test('block names protected branches that must NOT be the agent branch', () => {
-      // The protected-branch list must be enforced by name. Parse it out of the
-      // shell scripts and verify required names are present.
-      const codeBlocks = extractFencedCodeBlocks(block);
-      const scripts = codeBlocks.map(({ body }) => body).join('\n');
-      // Look for an assignment whose value is a regex/list naming protected refs.
-      // Acceptable forms: PROTECTED_BRANCHES_RE='...' or grep -Eq '^(main|...)$'
-      // Parse the alternation list out of the grep -E pattern so we assert
-      // structurally on the protected-branch enumeration rather than via
-      // raw substring matching (release/* contains regex-special chars and
-      // can't be safely tested with `\b...\b`).
-      const altMatch = scripts.match(/grep\s+-Eq?\s+'\^\(([^)]+)\)\$'/);
-      assert.ok(
-        altMatch,
-        'worktree_branch_check must contain a `grep -Eq` protected-branch alternation pattern'
-      );
-      const branches = altMatch[1].split('|').map((b) => b.trim());
-      const required = ['main', 'master', 'develop', 'trunk', 'release/.*'];
-      for (const name of required) {
-        assert.ok(
-          branches.includes(name),
-          `worktree_branch_check protected-branch alternation must include '${name}' (found: ${branches.join(', ')})`
-        );
+    test('the guard\'s policy: protected names refused, the agent namespace allowed (#2924, #3021)', () => {
+      const { AGENT_BRANCH_RE, FALLBACK_PROTECTED_BRANCH_RE } = require('../gsd-core/bin/lib/worktree-agent-branch.cjs');
+      for (const name of ['main', 'master', 'develop', 'trunk', 'release/1.0']) {
+        assert.ok(FALLBACK_PROTECTED_BRANCH_RE.test(name), `${name} must be protected`);
       }
-    });
-
-    test('block enforces positive worktree-agent-* allow-list (#2924 hardening)', () => {
-      const codeBlocks = extractFencedCodeBlocks(block);
-      const scripts = codeBlocks.map(({ body }) => body).join('\n');
-      // Allow-list must reference the canonical Claude Code worktree-agent-<id>
-      // namespace via a regex assertion (grep -Eq '^worktree-agent-...').
-      // #3021: allow-list now includes worktree-wf_* alongside agent-*/worktree-agent-*
-      const allowListRe = /grep\s+-Eq?\s+'\^\(\(worktree-\)\?agent-\|worktree-wf_/;
-      assert.ok(
-        allowListRe.test(scripts),
-        'worktree_branch_check must enforce a positive allow-list matching ^((worktree-)?agent-|worktree-wf_) (#2924/#3021 hardening)'
-      );
+      for (const name of ['agent-1', 'worktree-agent-1', 'worktree-wf_run-1']) assert.ok(AGENT_BRANCH_RE.test(name), name);
+      for (const name of ['feature/x', 'agent-', 'xagent-1']) assert.ok(!AGENT_BRANCH_RE.test(name), name);
     });
 
     test('block forbids `git update-ref` self-recovery in its guidance text', () => {
@@ -288,32 +255,23 @@ describe('bug #2924: worktree HEAD attachment + destructive recovery', () => {
       assert.ok(block, 'worktree-branch-check.md must contain a <worktree_branch_check> block');
     });
 
-    test('block references `git symbolic-ref` for HEAD attachment assertion', () => {
-      // Search the block from the canonical fragment as a token stream of statements.
+    test('block invokes the `worktree guard branch` verb with the dispatch placeholders (ADR-5211)', () => {
       const codeBlocks = extractFencedCodeBlocks(block);
       const allStatements = codeBlocks.flatMap(({ body }) => shellStatements(body));
       const idx = findCommandIndex(allStatements, (cmd) =>
-        cmd[0] === 'git' && cmd[1] === 'symbolic-ref' && cmd.includes('HEAD')
+        cmd[0] === '{GSD_TOOLS_CMD}' && cmd.slice(1, 4).join(' ') === 'worktree guard branch'
+        && cmd[cmd.indexOf('--expected-base') + 1] === '{EXPECTED_BASE}'
       );
-      assert.notStrictEqual(
-        idx, -1,
-        'quick.md worktree_branch_check must run `git symbolic-ref ... HEAD`'
-      );
+      assert.notStrictEqual(idx, -1, 'the branch check must run `{GSD_TOOLS_CMD} worktree guard branch --expected-base {EXPECTED_BASE}`');
     });
 
-    test('block is verify-only: HEAD assertion present, no git reset, fails closed (#48)', () => {
-      // Verify-only contract: symbolic-ref exists, no git reset at all, fails closed with exit 42.
+    test('block is verify-only: the guard verb, no git reset, fails closed (#48)', () => {
       const codeBlocks = extractFencedCodeBlocks(block);
       const allStatements = codeBlocks.flatMap(({ body }) => shellStatements(body));
-      const symbolicRefIdx = findCommandIndex(allStatements, (cmd) =>
-        cmd[0] === 'git' && cmd[1] === 'symbolic-ref' && cmd.includes('HEAD')
-      );
-      const resetIdx = findCommandIndex(allStatements, (cmd) =>
-        cmd[0] === 'git' && cmd[1] === 'reset'
-      );
-      assert.notStrictEqual(symbolicRefIdx, -1, 'symbolic-ref HEAD-attachment check must exist');
+      const resetIdx = findCommandIndex(allStatements, (cmd) => cmd[0] === 'git' && cmd[1] === 'reset');
+      const exitIdx = findCommandIndex(allStatements, (cmd) => cmd[0] === 'exit' && cmd[1] === '42');
       assert.strictEqual(resetIdx, -1, 'fragment must be verify-only — no git reset self-recovery (#48)');
-      assert.ok(/exit 42/.test(block), 'fragment must fail closed with exit 42 (#48)');
+      assert.notStrictEqual(exitIdx, -1, 'fragment must fail closed with exit 42 (#48)');
     });
 
     test('block forbids `git update-ref` self-recovery', () => {
@@ -323,13 +281,6 @@ describe('bug #2924: worktree HEAD attachment + destructive recovery', () => {
       );
     });
 
-    test('block enforces positive worktree-agent-* allow-list (#2924 hardening)', () => {
-      const allowListRe = /grep\s+-Eq?\s+'\^\(\(worktree-\)\?agent-\|worktree-wf_/;
-      assert.ok(
-        allowListRe.test(block),
-        'quick.md worktree_branch_check must enforce a positive allow-list matching ^((worktree-)?agent-|worktree-wf_) (#2924/#3021 hardening)'
-      );
-    });
   });
 
   describe('quick.md pre-dispatch plan commit no longer hard-codes --no-verify', () => {
@@ -411,14 +362,13 @@ describe('bug #2924: worktree HEAD attachment + destructive recovery', () => {
       assert.ok(block, 'gsd-executor.md must contain a <task_commit_protocol> block');
     });
 
-    test('step 0 enforces positive worktree-agent-* allow-list (#2924 hardening)', () => {
+    test('step 0 runs the pre-commit guard verb, which owns the agent allow-list (#2924, ADR-5211)', () => {
       const codeBlocks = extractFencedCodeBlocks(block);
-      const scripts = codeBlocks.map(({ body }) => body).join('\n');
-      const allowListRe = /grep\s+-Eq?\s+'\^\(\(worktree-\)\?agent-\|worktree-wf_/;
-      assert.ok(
-        allowListRe.test(scripts),
-        'task_commit_protocol step 0 must enforce a positive allow-list matching ^((worktree-)?agent-|worktree-wf_) in addition to the protected-ref deny-list (#2924/#3021 hardening)'
+      const allStatements = codeBlocks.flatMap(({ body }) => shellStatements(body));
+      const idx = findCommandIndex(allStatements, (cmd) =>
+        cmd[0] === '{GSD_TOOLS_CMD}' && cmd.slice(1, 4).join(' ') === 'worktree guard pre-commit'
       );
+      assert.notStrictEqual(idx, -1, 'task_commit_protocol step 0 must run `{GSD_TOOLS_CMD} worktree guard pre-commit`');
     });
   });
 
@@ -626,8 +576,8 @@ describe('worktree commit safety hardening (#1977)', () => {
     const content = fs.readFileSync(EXECUTOR_AGENT_PATH, 'utf-8');
     assert.ok(content.includes('--diff-filter=D'), 'must include --diff-filter=D deletion verification');
     assert.ok(
-      content.includes('WARNING') || content.includes('DELETIONS'),
-      'must warn when a commit includes file deletions'
+      content.includes('Any path it prints is a file this commit deleted'),
+      'must say how to read the deletion check (ADR-5211: a plain git call, no $(…) capture)'
     );
   });
 
@@ -701,7 +651,7 @@ describe('bug #3384: worktree cleanup workflow contracts', () => {
     assert.match(content, /<worktree_metadata_capture>/);
     assert.match(content, /git rev-parse --show-toplevel/);
     assert.match(content, /git rev-parse --abbrev-ref HEAD/);
-    assert.match(content, /GSD_WORKTREE_EXPECTED_BASE=\$\(git rev-parse HEAD\)/);
+    assert.match(content, /git rev-parse HEAD/);
     assert.match(content, /<worktree_metadata>/);
     assert.match(content, /"worktree_path":/);
     assert.match(content, /"branch":/);

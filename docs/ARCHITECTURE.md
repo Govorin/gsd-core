@@ -602,6 +602,18 @@ Each executor gets:
 - The specific PLAN.md to execute
 - Project context (PROJECT.md, STATE.md)
 - Phase context (CONTEXT.md, RESEARCH.md if available)
+- A `<gsd_tools_launcher>` block: the literal `node '<path>'` that launches this
+  gsd-tools (`gsd_tools_cmd` from `init`, substituted for `{GSD_TOOLS_CMD}` at dispatch)
+
+**Worktree guards are verbs (ADR-5211).** A sub-agent in a worktree runs its mandatory
+checks — the spawn-time branch check, the pre-commit HEAD check, the cwd-drift sentinel,
+the absolute-path and `<automated>` containment checks, the supplied-root pin, the plan
+commit ledger — as `{GSD_TOOLS_CMD} worktree guard <stage>` / `worktree plan-ledger`
+calls with literal arguments. Claude Code ≥ 2.1.310 refuses `$(git …)`, `git -C`,
+`cd … &&` and computed git/node arguments inside `isolation="worktree"`, so the checks run
+in node (`src/worktree-guard.cts`), print typed JSON, and keep the old exit codes (42 for
+the branch check, 1 otherwise); any fault of the verb is a refusal. Main-session workflows
+keep the `gsd_run` resolver.
 
 ### Adaptive Context Enrichment (1M Models)
 

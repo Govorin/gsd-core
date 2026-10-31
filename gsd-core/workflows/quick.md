@@ -135,7 +135,7 @@ AGENT_SKILLS_VERIFIER=$(gsd_run query agent-skills gsd-verifier ${GSD_WS:+--ws=$
 AGENT_SKILLS_RESEARCHER=$(gsd_run query agent-skills gsd-phase-researcher ${GSD_WS:+--ws=${GSD_WS##* }})
 ```
 
-Parse JSON for: `planner_model`, `executor_model`, `checker_model`, `verifier_model`, `reviewer_model`, `researcher_model`, `commit_docs`, `branch_name`, `quick_id`, `slug`, `date`, `timestamp`, `quick_dir`, `task_dir`, `roadmap_exists`, `planning_exists`, `response_language`.
+Parse JSON for: `planner_model`, `executor_model`, `checker_model`, `verifier_model`, `reviewer_model`, `researcher_model`, `commit_docs`, `branch_name`, `quick_id`, `slug`, `date`, `timestamp`, `quick_dir`, `task_dir`, `roadmap_exists`, `planning_exists`, `response_language`, `gsd_tools_cmd` (ADR-5211: substituted for `{GSD_TOOLS_CMD}` in the executor prompt; null → halt before dispatch).
 
 `init.quick` does not emit dedicated `state_path`/`project_path` fields, so derive them from the already-absolute `quick_dir` (#2376 — files handed to a spawned subagent must resolve regardless of that subagent's own cwd):
 ```bash
@@ -439,43 +439,23 @@ Execute quick task ${quick_id}.
 
 ${ISOLATION === "harness-worktree" ? `
 <worktree_branch_check>
-ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): before this dispatch, read \`gsd-core/references/worktree-branch-check.md\`, substitute \`{EXPECTED_BASE}\` with the base SHA captured above (${EXPECTED_BASE}), substitute \`{EXPECTED_BASE_ALTERNATE}\` with \`${QUICK_PLAN_PARENT}\` when it differs from \`${EXPECTED_BASE}\` (otherwise empty), and replace this note with that fragment's \`<worktree_branch_check>\` block so the dispatched prompt carries the runnable guard verbatim — do not pass this instruction through in its place.
+ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): before this dispatch, read \`gsd-core/references/worktree-branch-check.md\`, substitute \`{GSD_TOOLS_CMD}\` with \`${gsd_tools_cmd}\` and \`{EXPECTED_BASE}\` with the base SHA captured above (${EXPECTED_BASE}), substitute \`{EXPECTED_BASE_ALTERNATE}\` with \`${QUICK_PLAN_PARENT}\` when it differs from \`${EXPECTED_BASE}\` (otherwise empty), and replace this note with that fragment's \`<worktree_branch_check>\` block so the dispatched prompt carries the runnable guard verbatim — do not pass this instruction through in its place.
 </worktree_branch_check>
 
-FIRST ACTION after the worktree branch check: ensure the quick PLAN.md exists at a worktree-rooted relative path before any Read/Edit/Write path can be primed. If \`${QUICK_DIR}/${quick_id}-PLAN.md\` is absent, materialize it from the shared git object store:
+FIRST ACTION after the worktree branch check: ensure the quick PLAN.md exists at a worktree-rooted relative path before any Read/Edit/Write path can be primed. Materialize it (and its optional context/research) from the commit that recorded it; a file already present is left alone, a file that commit lacks but the main checkout holds (\`commit_docs: false\`, gitignored \`.planning/\`) comes back in \`detail.read_from_main\` — read it at that absolute path — and any non-zero exit is a HALT (exit 42). Paths are shell-single-quoted; a path containing \`'\` halts the dispatch instead:
 
 \`\`\`bash
-QUICK_PLAN_COMMIT="${QUICK_PLAN_COMMIT}"
-QUICK_PLAN_PATH="${QUICK_DIR}/${quick_id}-PLAN.md"
-if [ ! -f "$QUICK_PLAN_PATH" ]; then
-  mkdir -p "$(dirname "$QUICK_PLAN_PATH")"
-  git show "${QUICK_PLAN_COMMIT}:${QUICK_PLAN_PATH}" > "$QUICK_PLAN_PATH" || {
-    echo "FATAL: unable to materialize quick plan from ${QUICK_PLAN_COMMIT}:${QUICK_PLAN_PATH}; refusing to continue." >&2
-    exit 42
-  }
-fi
-${DISCUSS_MODE ? `QUICK_CONTEXT_PATH="${QUICK_DIR}/${quick_id}-CONTEXT.md"
-if [ ! -f "$QUICK_CONTEXT_PATH" ] && git cat-file -e "${QUICK_PLAN_COMMIT}:$QUICK_CONTEXT_PATH" 2>/dev/null; then
-  mkdir -p "$(dirname "$QUICK_CONTEXT_PATH")"
-  git show "${QUICK_PLAN_COMMIT}:$QUICK_CONTEXT_PATH" > "$QUICK_CONTEXT_PATH" || {
-    echo "FATAL: unable to materialize quick context from ${QUICK_PLAN_COMMIT}:$QUICK_CONTEXT_PATH; refusing to continue." >&2
-    exit 42
-  }
-fi
-` : ''}${RESEARCH_MODE ? `QUICK_RESEARCH_PATH="${QUICK_DIR}/${quick_id}-RESEARCH.md"
-if [ ! -f "$QUICK_RESEARCH_PATH" ] && git cat-file -e "${QUICK_PLAN_COMMIT}:$QUICK_RESEARCH_PATH" 2>/dev/null; then
-  mkdir -p "$(dirname "$QUICK_RESEARCH_PATH")"
-  git show "${QUICK_PLAN_COMMIT}:$QUICK_RESEARCH_PATH" > "$QUICK_RESEARCH_PATH" || {
-    echo "FATAL: unable to materialize quick research from ${QUICK_PLAN_COMMIT}:$QUICK_RESEARCH_PATH; refusing to continue." >&2
-    exit 42
-  }
-fi
-` : ''}\`\`\`
+${gsd_tools_cmd} worktree materialize --from ${QUICK_PLAN_COMMIT} --path '${QUICK_DIR}/${quick_id}-PLAN.md'${DISCUSS_MODE ? ` --optional-path '${QUICK_DIR}/${quick_id}-CONTEXT.md'` : ''}${RESEARCH_MODE ? ` --optional-path '${QUICK_DIR}/${quick_id}-RESEARCH.md'` : ''} || exit 42
+\`\`\`
 ` : `
 <sequential_execution>
-You are running as a SEQUENTIAL executor agent on the main working tree (set SEQUENTIAL=true in your Step 0 commit guard; a linked worktree on the configured branch is allowed, #4799).
+You are running as a SEQUENTIAL executor agent on the main working tree (pass \`--sequential\` to your Step 0 commit guard; a linked worktree on the configured branch is allowed, #4799).
 </sequential_execution>
 `}
+
+<gsd_tools_launcher>
+${gsd_tools_cmd}
+</gsd_tools_launcher>
 
 <required_reading>
 - ${QUICK_DIR}/${quick_id}-PLAN.md (Plan)

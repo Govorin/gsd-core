@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { extractTaggedBlocks, stripTaggedBlocks } from './markdown-sectionizer.cjs';
+import { extractTaggedBlocks, stripInlineCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
 import { tryWithinRootLexical } from './security.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
 import phaseIdMod = require('./phase-id.cjs');
@@ -173,6 +173,108 @@ function extractAutomatedFromText(
     if (guard.n > MAX_BLOCK_WALK) return false;
   }
   return true;
+}
+
+/** One `<task>` of a plan, as the worktree guard reads it. */
+interface PlanTaskCommands { name: string; commands: string[] }
+
+/** Why a plan's task list cannot be read reliably enough to guard by ordinal. */
+type PlanTaskReadFailure = 'fence_unclosed' | 'comment_unclosed' | 'task_unclosed' | 'automated_unclosed' | 'walk_bound';
+
+const TASK_OPENER_RE = /<task(?:\s[^>]{0,1000})?>/g;
+const AUTOMATED_OPENER_RE = /<automated[^>]{0,200}>/g;
+
+/**
+ * The `<automated>` commands of each `<task>` in document order, FAIL-CLOSED
+ * (ADR-5211): the worktree guard's `automated` stage picks a task by ordinal,
+ * so a `<task>` or `<automated>` the block grammar cannot close would silently
+ * shift every later ordinal or drop a command. Either is reported, never
+ * skipped: `task_unclosed` when the opening `<task` tags outnumber the closed
+ * blocks, `automated_unclosed` when a task's `<automated` openers outnumber its
+ * closed blocks, `walk_bound` when MAX_BLOCK_WALK cut the walk short.
+ *
+ * Fenced code (``` and ~~~, at any indent), HTML comments and inline code
+ * spans in prose are removed FIRST: a plan that
+ * shows an example `<task>` in a fence or a comment must not shift the real
+ * ordinals (review: an example fenced before task 1 was checked as task 1). An
+ * unterminated fence or comment hides an unknown amount of the plan, so it is
+ * `fence_unclosed` / `comment_unclosed`, never a guess.
+ */
+/**
+ * Fenced code at ANY indentation. CommonMark's `stripFencedCode` stops at three
+ * spaces (four is an indented code block), so a fence nested in a list item
+ * (`1. Example:` then `    ```xml`) stayed in and its example `<task>` took a
+ * real ordinal. Real tasks never live in a fence, so the fail-safe reading for
+ * task numbering is: any line of three or more backticks or tildes opens a fence,
+ * a run of the same character at least as long closes it. Null when one is left open.
+ */
+function stripFencesAnyIndent(text: string): string | null {
+  const kept: string[] = [];
+  let open: { char: string; len: number } | null = null;
+  for (const raw of text.split('\n')) {
+    const m = /^[ \t]*(`{3,}|~{3,})(.*)$/.exec(raw.replace(/\r$/, ''));
+    if (m) {
+      const char = m[1][0];
+      if (open === null) {
+        if (!(char === '`' && m[2].includes('`'))) { open = { char, len: m[1].length }; continue; }
+      } else {
+        if (char === open.char && m[1].length >= open.len && /^\s*$/.test(m[2])) open = null;
+        continue;
+      }
+    }
+    if (open === null) kept.push(raw);
+  }
+  return open === null ? kept.join('\n') : null;
+}
+
+/**
+ * Inline code spans in prose (`` Use `<task>` blocks ``) would count as task
+ * openers. They are removed with their delimiter-length rule (stripInlineCode),
+ * except on lines that carry an `<automated>` tag, whose command text — backticks
+ * included — must reach the scan unchanged.
+ */
+function stripProseInlineCode(text: string): string {
+  return text.split('\n').map((line) => (line.includes('<automated') ? line : stripInlineCode(line))).join('\n');
+}
+
+function stripHtmlComments(text: string): string | null {
+  let out = '';
+  let from = 0;
+  for (;;) {
+    const open = text.indexOf('<!--', from);
+    if (open === -1) return out + text.slice(from);
+    const close = text.indexOf('-->', open + 4);
+    if (close === -1) return null;
+    out += text.slice(from, open);
+    from = close + 3;
+  }
+}
+
+function extractAutomatedCommandsByTask(planText: unknown):
+  { ok: true; tasks: PlanTaskCommands[] } | { ok: false; reason: PlanTaskReadFailure; task?: number } {
+  if (typeof planText !== 'string' || planText.length === 0) return { ok: true, tasks: [] };
+  const unfenced = stripFencesAnyIndent(planText);
+  if (unfenced === null) return { ok: false, reason: 'fence_unclosed' };
+  const uncommented = stripHtmlComments(unfenced);
+  if (uncommented === null) return { ok: false, reason: 'comment_unclosed' };
+  const text = stripProseInlineCode(uncommented);
+  const bodies = extractTaggedBlocks(text, 'task', true);
+  const openers = (text.match(TASK_OPENER_RE) ?? []).length;
+  if (openers !== bodies.length) return { ok: false, reason: 'task_unclosed' };
+  const guard = { n: 0 };
+  const tasks: PlanTaskCommands[] = [];
+  for (let i = 0; i < bodies.length; i += 1) {
+    const body = bodies[i];
+    const opened = (body.match(AUTOMATED_OPENER_RE) ?? []).length;
+    AUTOMATED_BLOCK_RE.lastIndex = 0;
+    const closed = (body.match(AUTOMATED_BLOCK_RE) ?? []).length;
+    if (opened !== closed) return { ok: false, reason: 'automated_unclosed', task: i + 1 };
+    const found: AutomatedCommand[] = [];
+    if (!extractAutomatedFromText(body, '', found, guard)) return { ok: false, reason: 'walk_bound', task: i + 1 };
+    const nameMatch = TASK_NAME_RE.exec(body);
+    tasks.push({ name: nameMatch ? nameMatch[1].trim() : '', commands: found.map((c) => c.command) });
+  }
+  return { ok: true, tasks };
 }
 
 /**
@@ -1061,6 +1163,7 @@ function harvestPriorVerifyCommands(options: HarvestOptions): HarvestResult {
 
 export = {
   extractAutomatedCommands,
+  extractAutomatedCommandsByTask,
   resolveVerifyCommandTarget,
   probePhaseVerifyCommands,
   harvestPriorVerifyCommands,

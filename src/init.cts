@@ -11,6 +11,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { execGit, platformWriteSync, platformReadSync, toNativePath, posixNormalize } from './shell-command-projection.cjs';
 import { realClock } from './clock.cjs';
+import { resolveGsdToolsInvocation } from './gsd-tools-invocation.cjs';
 import { escapeRegex } from './pattern.cjs';
 import { isBoxCharChecked, isPhaseEntryChecked, phaseEntryRegExp } from './phase-entry-grammar.cjs';
 import { collectSection } from './markdown-sectionizer.cjs';
@@ -1134,6 +1135,9 @@ function cmdInitExecutePhase(
   const result: Record<string, unknown> = {
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
+    // ADR-5211: the literal launch of this gsd-tools, substituted for
+    // {GSD_TOOLS_CMD} in a worktree sub-agent's prompt at dispatch.
+    ...resolveGsdToolsInvocation(),
 
     tdd_mode: options['tdd'] || Boolean(config.tdd_mode) || false,
     commit_docs: config.commit_docs,
@@ -1830,6 +1834,8 @@ function cmdInitQuick(
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
+    // ADR-5211: {GSD_TOOLS_CMD} for worktree sub-agents (see cmdInitExecutePhase).
+    ...resolveGsdToolsInvocation(),
     // #3936: Step 4.75 dispatches gsd-phase-researcher; resolve its own tier
     // (parity with cmdInitPlanPhase) so the research spawn stops pinning
     // planner_model.
@@ -1907,6 +1913,8 @@ function cmdInitQuickBatch(
     executor_model: resolveModelInternal(cwd, 'gsd-executor'),
     checker_model: resolveModelInternal(cwd, 'gsd-plan-checker'),
     verifier_model: resolveModelInternal(cwd, 'gsd-verifier'),
+    // ADR-5211: {GSD_TOOLS_CMD} for worktree sub-agents (see cmdInitExecutePhase).
+    ...resolveGsdToolsInvocation(),
     researcher_model: resolveModelInternal(cwd, 'gsd-phase-researcher'),
     reviewer_model: resolveModelInternal(cwd, 'gsd-code-reviewer'),
 

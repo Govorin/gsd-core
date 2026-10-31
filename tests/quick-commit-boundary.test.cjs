@@ -214,12 +214,13 @@ describe('quick.md pre-dispatch PLAN.md commit (#2432)', () => {
     const promptEnd = content.indexOf('subagent_type="gsd-executor"', promptStart);
     const executorPrompt = content.slice(promptStart, promptEnd);
 
+    const materialize = executorPrompt.indexOf("worktree materialize --from ${QUICK_PLAN_COMMIT} --path '${QUICK_DIR}/${quick_id}-PLAN.md'");
     assert.ok(
-      executorPrompt.includes('git show') && executorPrompt.includes('QUICK_PLAN_COMMIT'),
-      'executor prompt must materialize PLAN.md from git show <plan-commit>:<plan-path> when absent (#1265)'
+      materialize !== -1,
+      'executor prompt must materialize PLAN.md from the plan commit when absent (#1265, ADR-5211)'
     );
     assert.ok(
-      executorPrompt.indexOf('git show') < executorPrompt.indexOf('<required_reading>'),
+      materialize < executorPrompt.indexOf('<required_reading>'),
       'PLAN.md materialization must be a first action before files_to_read can prime paths (#1265)'
     );
   });

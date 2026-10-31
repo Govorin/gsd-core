@@ -3477,8 +3477,27 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
           }
   }
 
-  function routeWorktree({ args, cwd, raw, error }) {
+  function routeWorktree({ args, cwd, raw, error, invokingCwd }) {
     const subcommand = args[1];
+          // ADR-5211: the guard verbs check the worktree the CALLER stands in, so
+          // git runs against the pre-remap cwd; only configuration (the
+          // protected-branch answer) is read from the remapped project root.
+          if (subcommand === 'guard') {
+            require('./lib/worktree-guard.cjs').cmdWorktreeGuard(invokingCwd || cwd, cwd, args.slice(2));
+            return;
+          }
+          if (subcommand === 'plan-ledger') {
+            require('./lib/worktree-guard.cjs').cmdWorktreePlanLedger(invokingCwd || cwd, args.slice(2));
+            return;
+          }
+          if (subcommand === 'materialize') {
+            require('./lib/worktree-guard.cjs').cmdWorktreeMaterialize(invokingCwd || cwd, args.slice(2));
+            return;
+          }
+          if (subcommand === 'tools-cmd') {
+            require('./lib/gsd-tools-invocation.cjs').cmdGsdToolsCmd(raw);
+            return;
+          }
           const worktreeSafety = require('./lib/worktree-safety.cjs');
           if (subcommand === 'cleanup-wave') {
             worktreeSafety.cmdWorktreeCleanupWave(cwd, args.slice(2));
@@ -3499,7 +3518,7 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
           } else if (subcommand === 'create') {
             worktreeSafety.cmdWorktreeCreate(cwd, args.slice(2));
           } else {
-            error('Unknown worktree subcommand. Available: cleanup-wave, record-agent, reap-orphans, base-check, set-baseref, create, worker-record, worker-status, worker-complete', ERROR_REASON.SDK_UNKNOWN_COMMAND);
+            error('Unknown worktree subcommand. Available: cleanup-wave, record-agent, reap-orphans, base-check, set-baseref, create, worker-record, worker-status, worker-complete, guard, plan-ledger, materialize, tools-cmd', ERROR_REASON.SDK_UNKNOWN_COMMAND);
           }
   }
 

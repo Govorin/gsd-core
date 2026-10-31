@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execGit as execGitSeam, posixNormalize, type SpawnResultOutput } from './shell-command-projection.cjs';
 import { isContainedIn } from './security.cjs';
+import { AGENT_BRANCH_RE } from './worktree-agent-branch.cjs';
 
 // Default timeout for worktree-related git subprocess calls.
 // 10 s is generous enough for normal git operations on large repos while still
@@ -33,8 +34,9 @@ const DEFAULT_MERGE_TIMEOUT_MS = 10 * 60 * 1000;
 
 // #3021: accept the Workflow tool's worktree-wf_<runid>-<n> naming convention
 // (claude-orchestration's isolation:"worktree" emission) alongside the
-// existing agent-<id> / worktree-agent-<id> shapes.
-const WORKTREE_AGENT_BRANCH_RE = /^((worktree-)?agent-|worktree-wf_)[A-Za-z0-9._/-]+$/;
+// existing agent-<id> / worktree-agent-<id> shapes. ADR-5211: the pattern is
+// owned by worktree-agent-branch.cts, shared with the worktree guard verbs.
+const WORKTREE_AGENT_BRANCH_RE = AGENT_BRANCH_RE;
 const WORKTREE_AGENT_BRANCH_PATTERN = WORKTREE_AGENT_BRANCH_RE.source;
 
 // GitResult now aliases the canonical SpawnResultOutput (shell-command-projection.cts),

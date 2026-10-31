@@ -156,13 +156,13 @@ describe('bug #3097: cwd-drift sentinel in gsd-executor.md', () => {
     );
   });
 
-  test('sentinel uses git rev-parse --git-dir to detect worktree', () => {
+  test('sentinel runs the guard verb, which detects a linked worktree by its git dir', () => {
     const protocolIdx = executorSrc.indexOf('<task_commit_protocol>');
     const protocolEnd = executorSrc.indexOf('</task_commit_protocol>');
     const protocol = executorSrc.slice(protocolIdx, protocolEnd);
     assert.ok(
-      protocol.includes('rev-parse --git-dir') || protocol.includes('worktrees/'),
-      'cwd-drift detection does not use git rev-parse --git-dir or .git/worktrees/ pattern',
+      protocol.includes('{GSD_TOOLS_CMD} worktree guard sentinel'),
+      'cwd-drift detection must run the sentinel guard verb (ADR-5211)',
     );
   });
 
@@ -206,8 +206,8 @@ describe('bug #3099: absolute-path safety guidance in gsd-executor.md', () => {
     // the rewrite is forbidden.
     const ref = fs.readFileSync(path.join(ROOT, 'gsd-core', 'references', 'worktree-path-safety.md'), 'utf8');
     assert.ok(/## `<automated>` command guard — step 0c \(#4767\)/.test(ref), 'worktree-path-safety.md lacks the step 0c section');
-    assert.ok(/FATAL: <automated> command names/.test(ref), 'step 0c has no loud halt for an <automated> command outside the worktree');
-    assert.ok(/never\s+rewrite the prefix silently/.test(ref), 'step 0c must forbid silently rewriting the command');
+    assert.ok(ref.includes('{GSD_TOOLS_CMD} worktree guard automated --plan'), 'step 0c must run the automated guard verb before an <automated> command');
+    assert.ok(/never rewrite the command \(#3050\)/.test(ref), 'step 0c must forbid silently rewriting the command');
   });
 
   test('execute-phase.md parallel_execution block references path safety', () => {
@@ -227,7 +227,7 @@ describe('bug #3099: absolute-path safety guidance in gsd-executor.md', () => {
     // must be told to compute the root BEFORE reading the listed files
     // (#3423 note: execute-phase carries several such blocks, so a bare
     // indexOf on the tag can anchor to the wrong one).
-    const prIdx = executePhaseSrc.indexOf('PROJECT_ROOT=$(git rev-parse --show-toplevel');
+    const prIdx = executePhaseSrc.indexOf('\\`PROJECT_ROOT\\` = \\`git rev-parse --show-toplevel\\` output');
     assert.ok(prIdx !== -1, 'executor dispatch must compute PROJECT_ROOT in the prompt');
     const filesIdx = executePhaseSrc.lastIndexOf('<required_reading>', prIdx);
     assert.ok(filesIdx !== -1, 'required_reading block not found before the PROJECT_ROOT computation');
@@ -285,7 +285,7 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
   const pinStepPath = path.join(ROOT, 'gsd-core', 'workflows', 'execute-phase', 'steps', 'sequential-root-pin.md');
   const safetySrc = fs.readFileSync(safetyRefPath, 'utf8');
   const pinStepSrc = fs.readFileSync(pinStepPath, 'utf8');
-  const { createTempGitProject, cleanup } = require('./helpers.cjs');
+  const { createTempGitProject, cleanup, TOOLS_PATH } = require('./helpers.cjs');
   const { runHook } = require('./helpers/process-seam.cjs');
   const { gitOrThrow } = require('./helpers/git-fixture.cjs');
   const { HOOK_FANOUT_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
@@ -304,20 +304,27 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
   // shell-single-quoted literal with `'\''` escaping for embedded quotes.
   const shellQuote = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
 
+  // ADR-5211: the guard is the `worktree guard pin` verb; the orchestrator substitutes the launcher
+  // (`gsd_tools_cmd` from init) and the shell-quoted pin at build time.
+  const LAUNCHER = `node '${TOOLS_PATH.split(path.sep).join('/')}'`;
   function composeGuard(pinQuotedLiteral) {
-    return extractPinGuard().replace("PINNED_ROOT='{PINNED_ROOT}'", `PINNED_ROOT=${pinQuotedLiteral}`);
+    const guard = extractPinGuard().replace('{GSD_TOOLS_CMD}', LAUNCHER);
+    return pinQuotedLiteral === null ? guard : guard.replace('{PINNED_ROOT}', pinQuotedLiteral);
   }
 
-  // Run the composed guard in `cwd`; `probe` (optional bash line) runs only if
-  // the guard passes — proving the write barrier, not just the exit code.
-  function runPinGuard(cwd, pin, probe) {
-    return runHook('-c', [composeGuard(shellQuote(pin)) + (probe ? `\n${probe}` : '')], {
+  // Run the composed guard in `cwd` the way an executor's Bash call does, stopping at a refusal;
+  // `probe` (optional bash line) runs only if the guard passes — proving the write barrier, not
+  // just the exit code. Returns the exit code and the verb's typed JSON.
+  function runComposed(cwd, composed, probe) {
+    const r = runHook('-c', [`set -e\n${composed}` + (probe ? `\n${probe}` : '')], {
       interpreter: 'bash',
       cwd,
       timeoutMs: HOOK_FANOUT_TIMEOUT_MS,
       env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
     });
+    return { exitCode: r.exitCode, json: JSON.parse(r.stdout), stderr: r.stderr };
   }
+  const runPinGuard = (cwd, pin, probe) => runComposed(cwd, composeGuard(shellQuote(pin)), probe);
 
   // Fixture: a primary checkout plus a linked worktree (the orchestrator's
   // lane). Sibling path — a worktree inside the primary's tree would show up
@@ -353,21 +360,12 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
       const res = runPinGuard(primary, lane, `printf 'W' > ${shellQuote(marker)}`);
       assert.equal(res.exitCode, 1, `mismatched root must halt, got:\n${res.stdout}\n${res.stderr}`);
       assert.equal(fs.existsSync(marker), false, 'no write may run after a root mismatch');
-      assert.match(res.stderr, /FATAL[^\n]*#4254/);
-      // Loud detection: the FATAL names BOTH roots — the pinned lane and the
-      // actual (wrong) primary checkout. The primary's basename is unique to
-      // it (the lane appends '-orchestrator-wt'), so matching it inside the
-      // Actual-root line proves the right checkout is being named.
-      assert.match(res.stderr, /Pinned root:[^\n]*orchestrator-wt/, 'FATAL must name the pinned root');
-      const { escapeRegex } = require('../gsd-core/bin/lib/pattern.cjs');
-      const primaryName = escapeRegex(path.basename(primary));
-      assert.match(res.stderr, new RegExp(`Actual root:[^\\n]*${primaryName}`), 'FATAL must name the actual (wrong) root');
-      assert.doesNotMatch(res.stderr, new RegExp(`Actual root:[^\\n]*orchestrator-wt`), 'the actual root must NOT be the pinned lane');
-      // The FATAL self-describes its stage (and, on capture failures, git's own
-      // stderr) — the discriminator whose absence let this class of failure read
-      // as "capture returns empty" when the form gate was what fired on Windows.
-      assert.match(res.stderr, /Guard stage: root-mismatch/, 'drifted cwd is a root mismatch, not a capture or form failure');
-      assert.match(res.stderr, /Diagnostic: actual=.*pinned=.*superproject=<none>/, 'the mismatch diagnostic names both roots and the absent superproject');
+      // Loud detection, typed: the refusal names its code and BOTH roots — the pinned lane and the
+      // actual (wrong) primary checkout — and the absent superproject.
+      assert.equal(res.json.code, 'root_mismatch', 'drifted cwd is a root mismatch, not a capture or form failure');
+      assert.equal(path.basename(res.json.detail.pinned_root), path.basename(lane), 'the refusal must name the pinned root');
+      assert.equal(path.basename(res.json.detail.actual_root), path.basename(primary), 'the refusal must name the actual (wrong) root');
+      assert.equal(res.json.detail.superproject, null);
     } finally {
       cleanup(primary);
     }
@@ -390,17 +388,13 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
     try {
       const marker = path.join(lane, 'write-marker');
       // Unexpanded: the orchestrator never performed the build-time substitution.
-      const unexpanded = runHook('-c', [extractPinGuard() + `\nprintf 'W' > ${shellQuote(marker)}`], {
-        interpreter: 'bash', cwd: lane, timeoutMs: HOOK_FANOUT_TIMEOUT_MS,
-      });
+      const unexpanded = runComposed(lane, composeGuard(null), `printf 'W' > ${shellQuote(marker)}`);
       assert.equal(unexpanded.exitCode, 1, 'an unexpanded {PINNED_ROOT} must halt');
-      assert.match(unexpanded.stderr, /Guard stage: pin-unbound/, 'an unexpanded pin halts at the pin-unbound stage');
+      assert.equal(unexpanded.json.code, 'pin_unbound', 'an unexpanded pin halts as pin_unbound');
       // Empty: substituted to nothing — indistinguishable from a forgotten transplant.
-      const empty = runHook('-c', [composeGuard("''") + `\nprintf 'W' > ${shellQuote(marker)}`], {
-        interpreter: 'bash', cwd: lane, timeoutMs: HOOK_FANOUT_TIMEOUT_MS,
-      });
+      const empty = runComposed(lane, composeGuard("''"), `printf 'W' > ${shellQuote(marker)}`);
       assert.equal(empty.exitCode, 1, 'an empty pin must halt');
-      assert.match(empty.stderr, /Guard stage: pin-unbound/, 'an empty pin halts at the pin-unbound stage');
+      assert.equal(empty.json.code, 'pin_unbound', 'an empty pin halts as pin_unbound');
       assert.equal(fs.existsSync(marker), false);
     } finally {
       cleanup(primary);
@@ -495,7 +489,7 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
       // and the FATAL says so at the form-gate stage.
       const rel = runPinGuard(lane, 'relative/path');
       assert.equal(rel.exitCode, 1);
-      assert.match(rel.stderr, /Guard stage: form-gate/, 'a relative pin must halt at the form gate');
+      assert.equal(rel.json.code, 'pin_not_absolute', 'a relative pin must halt at the form gate');
       // The drive-letter forms Windows produces must be ACCEPTED by the shipped
       // guard's absolute-form gate and then fail only on the git lookup — never
       // on the form rejection: the forward-slash form git EMITS (C:/…) and the
@@ -510,21 +504,12 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
       for (const driveForm of ['C:/definitely/not/a/repo', 'C:\\definitely\\not\\a\\repo']) {
         const res = runPinGuard(lane, driveForm);
         assert.equal(res.exitCode, 1, `nonexistent drive-letter pin must fail closed (${driveForm})`);
-        assert.match(
-          res.stderr, /Guard stage: pinned-capture/,
-          `drive form ${driveForm} must pass the form gate and halt at the pinned-capture stage, got:\n${res.stderr}`,
-        );
-        assert.match(res.stderr, /Diagnostic: git -C <pinned root> rev-parse --show-toplevel failed:/, 'the capture failure carries git stderr');
+        assert.equal(res.json.code, 'pin_unresolved', `drive form ${driveForm} must pass the form gate and halt at the git lookup`);
+        assert.equal(typeof res.json.detail.git_stderr === 'string' || typeof res.json.detail.reason === 'string', true, 'the lookup failure carries git\'s own answer');
       }
-      // Transit hardening, pinned on the shipped text itself: the guard must
-      // generate its backslash comparator at RUNTIME (printf octal) and must not
-      // contain a doubled backslash anywhere — a backslash written twice does
-      // not survive the Windows command-line round-trip into bash (it arrives
-      // halved, rewriting any escape pattern that relies on it). Two earlier
-      // pattern spellings failed the Windows CI leg on exactly this.
-      const guardBody = extractPinGuard();
-      assert.doesNotMatch(guardBody, /\\\\/, 'the shipped guard must contain no doubled backslash (Windows transit halves it)');
-      assert.match(guardBody, /printf '\\134'/, 'the drive-form gate must generate its backslash comparator at runtime');
+      // Transit hardening: a backslash in the shipped text does not survive the Windows
+      // command-line round-trip into bash (it arrives halved) — the verb's block carries none.
+      assert.doesNotMatch(extractPinGuard(), /\\/, 'the shipped guard must contain no backslash (Windows transit halves it)');
     } finally {
       cleanup(primary);
     }
@@ -560,129 +545,66 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
       executePhaseSrc.indexOf('**Sequential mode**'),
     );
     assert.ok(isolated.length > 0, 'worktree-mode dispatch slice not found');
-    assert.match(isolated, /PROJECT_ROOT=\$\(git rev-parse --show-toplevel/, 'isolated executor keeps its own (correct) root derivation');
+    assert.ok(isolated.includes('PROJECT_ROOT\\` = \\`git rev-parse --show-toplevel\\` output'), 'isolated executor keeps its own (correct) root derivation');
     assert.doesNotMatch(isolated, /<project_root_pin>/, 'isolated prompt must not inherit the orchestrator root');
   });
 });
 
 // #4767 — the <automated> command guard (worktree-path-safety.md step 0c) is EXECUTED, not merely
-// grepped for: the fenced bash block is extracted verbatim and driven against a real linked
-// worktree, so a regex regression in the guard fails here rather than in a maintainer's plan run.
+// grepped for. Since ADR-5211 the guard is the `worktree guard automated` verb: the shipped block is
+// composed the way the orchestrator and executor compose it and run through bash against a real
+// linked worktree, and the boundary prose is driven against the verb. The full #4767 corpus runs in
+// tests/automated-command-containment.test.cjs and, against the frozen bash, in
+// tests/worktree-guard-differential.slow.test.cjs until ADR-5211 wave 4 retired the bash.
 describe('#4767: step 0c <automated> guard executes against a real worktree', { skip: process.platform === 'win32' ? 'bash + git worktree harness is POSIX-only' : false }, () => {
-  const os = require('node:os');
   const { before, after } = require('node:test');
-  const { spawnSync } = require('node:child_process');
-  const { cleanup } = require('./helpers.cjs');
+  const { cleanup, TOOLS_PATH } = require('./helpers.cjs');
+  const { runHook } = require('./helpers/process-seam.cjs');
+  const { HOOK_FANOUT_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
+  const { buildAutomatedFixture } = require('./helpers/worktree-guard-corpus.cjs');
+  const { guardAutomated } = require('../gsd-core/bin/lib/worktree-guard.cjs');
   const REPO_ROOT = path.join(__dirname, '..');
-  const SPAWN_TIMEOUT_MS = 30_000;
   const refSrc = fs.readFileSync(path.join(REPO_ROOT, 'gsd-core', 'references', 'worktree-path-safety.md'), 'utf8');
   const sectionIdx = refSrc.indexOf('## `<automated>` command guard — step 0c (#4767)');
   assert.ok(sectionIdx !== -1, 'step 0c section not found');
   const fenceOpen = refSrc.indexOf('```bash\n', sectionIdx);
-  const fenceClose = refSrc.indexOf('\n```', fenceOpen + 8);
-  const guard = refSrc.slice(fenceOpen + 8, fenceClose);
+  const block = refSrc.slice(fenceOpen + 8, refSrc.indexOf('\n```', fenceOpen + 8));
 
-  let tmp;
-  let main;
-  let wt;
-  before(() => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4767-guard-'));
-    main = path.join(tmp, 'main');
-    wt = path.join(tmp, 'wt');
-    const git = (args, cwd) => {
-      const r = spawnSync('git', args, { cwd, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'x', GIT_AUTHOR_EMAIL: 'x@x', GIT_COMMITTER_NAME: 'x', GIT_COMMITTER_EMAIL: 'x@x' } });
-      assert.equal(r.status, 0, `git ${args.join(' ')} failed: ${r.stderr}`);
-    };
-    git(['init', '-q', main], tmp);
-    git(['commit', '-q', '--allow-empty', '-m', 'init'], main);
-    git(['worktree', 'add', '-q', wt, '-b', 'wt'], main);
-    fs.mkdirSync(path.join(wt, 'scripts'), { recursive: true });
-    fs.mkdirSync(path.join(wt, 'scripts dir'), { recursive: true });
-    fs.mkdirSync(path.join(main, 'scripts'), { recursive: true });
-    // A symlink INSIDE the worktree that lands in the main checkout — lexically contained, really not.
-    fs.symlinkSync(main, path.join(wt, 'main-link'));
-    fs.symlinkSync(main, path.join(wt, 'scripts copy'));
-    fs.symlinkSync(main, path.join(wt, "O'Reilly"));
-    fs.symlinkSync(main, path.join(wt, 'a"b'));
-    fs.symlinkSync(main, path.join(wt, 'release=main'));
-    fs.symlinkSync(path.join(main, '.git', 'HEAD'), path.join(wt, 'main-head'));
-    fs.writeFileSync(path.join(wt, 'README.md'), 'x\n');
-    // #4767 round 2 — a readable file in the MAIN checkout, so an interpreter-wrapped absolute file
-    // argument (`eval "cat <main>/secret.txt"`) names something that really exists outside the worktree.
-    fs.writeFileSync(path.join(main, 'secret.txt'), 'SECRET\n');
+  let fx;
+  before(() => { fx = buildAutomatedFixture('gsd-4767-guard-'); });
+  after(() => { if (fx) cleanup(fx.tmp); });
+  const run = (cmd) => guardAutomated(fx.wt, { command: cmd });
+
+  test('the shipped block runs the verb with the plan and the task written out', () => {
+    assert.match(block, /^\{GSD_TOOLS_CMD\} worktree guard automated --plan '[^'\n]{1,400}' --task \d{1,4} --task-name '[^'\n]{1,200}'$/);
   });
-  after(() => { if (tmp) cleanup(tmp); });
 
-  // Some hosts/containers (this repo's Debian-based gsd-test Tester Image, confirmed via a live
-  // diagnostic run on that bench) source /etc/bash.bashrc UNCONDITIONALLY for every bash
-  // invocation, interactive or not — a Debian-specific patch, not something gated by an
-  // environment variable. That file's own non-interactive no-op guard is its line 7,
-  // `[ -z "$PS1" ] && return`, which assumes $PS1 is either set (interactive) or tolerably unset.
-  //
-  // Passing `-u` (nounset) as one of BASH's OWN INVOCATION FLAGS makes it active during bash's own
-  // startup — including this unconditional bashrc sourcing — so referencing the never-inherited
-  // (confirmed: bash discards an inherited PS1 for non-interactive shells entirely, even when
-  // explicitly set in the spawned environment — `declare -p PS1` reports "not found" regardless)
-  // $PS1 there is a hard "unbound variable" error, printed to stderr. This broke every "must be
-  // silent" assertion in this file (39 subtests) and is bash's own startup noise, unrelated to the
-  // guard under test.
-  //
-  // Fix: `set -eu` as the FIRST STATEMENT of the `-c` script body, instead of `-eu` as bash's own
-  // CLI flags. Bash's startup (and its unconditional bashrc sourcing) runs to completion under
-  // bash's normal, non-nounset default BEFORE the `-c` script body's first line ever executes — so
-  // the crash never happens — while the GUARD SCRIPT ITSELF (everything after `set -eu;`) still
-  // runs under the exact same errexit+nounset semantics this suite intends to verify (an
-  // executor's real shell may have both on). Verified directly against a real sourced file
-  // carrying the exact `[ -z "$PS1" ] && return` idiom: the old `-eu` CLI-flag form leaks the
-  // error, the new `set -eu;`-as-first-statement form does not.
-  const run = (cmd) => spawnSync('bash', ['-c', `set -eu; ${guard}`], { cwd: wt, encoding: 'utf8', timeout: SPAWN_TIMEOUT_MS, env: { ...process.env, AUTOMATED_CMD: cmd } });
-  const realMain = () => fs.realpathSync(main);
-  const realWt = () => fs.realpathSync(wt);
-
-  test('spells literal ERE operators portably for BSD sed and grep', () => {
-    // POSIX does not define backslash-escaping these ERE operators. GNU accepts
-    // the old `\\|` / `\\(` / `\\{` spelling, while macOS BSD sed rejects the
-    // expanded boundary strip with "unbalanced brackets" and disables the scan.
-    assert.ok(!guard.includes("_OPEN='(^|&&|&|;|\\||\\(|\\{)"), 'grep boundary carries GNU-only escaped ERE operators');
-    assert.ok(!guard.includes('sed -E "s/^(&&|&|;|\\||\\(|\\{)?'), 'sed boundary carries GNU-only escaped ERE operators');
-    assert.match(guard, /_OPEN='\(\^\|&&\|&\|;\|\[\|\]\[\|\]\|\[\|\]\|\[\(\]\|\[\{\]\)/);
-    assert.equal(
-      [...guard.matchAll(/sed -E "s\/\^\(&&\|&\|;\|\[\|\]\[\|\]\|\[\|\]\|\[\(\]\|\[\{\]\)\?/g)].length,
-      1,
-      'the ordered event scan must use POSIX-portable bracket expressions',
-    );
-    assert.ok(!guard.includes('sed -E "s#^${_ENV}${_EVAL}'), 'classification must not expand composed EREs into BSD sed');
-    assert.match(guard, /_P=\$\(printf '%s' "\$BODY" \| grep -oE "\^\$\{_ENV\}\$\{_EVAL\}"\)/, 'classification should reuse portable grep and strip its match literally');
-    assert.match(guard, /_resets_cwd "\$BFR" \|\| _resets_cwd "\$RAW"/, 'the event scan must retain resets across intervening unrecognized commands');
+  test('composed as the executor composes it, the block halts on a task that leaves the worktree and passes one that stays', () => {
+    const plan = path.join(fx.wt, 'PLAN.md');
+    fs.writeFileSync(plan, [
+      '<task><name>T1</name><verify><automated>npm test</automated></verify></task>',
+      `<task><name>T2</name><verify><automated>cd ${fx.main}/scripts && npm test</automated></verify></task>`,
+      '',
+    ].join('\n'));
+    const compose = (task) => block
+      .replace('{GSD_TOOLS_CMD}', `node '${TOOLS_PATH.split(path.sep).join('/')}'`)
+      .replace(/--plan '[^']{1,400}'/, `--plan '${plan}'`)
+      .replace(/--task \d+/, `--task ${task}`)
+      .replace(/ --task-name '[^']{1,200}'/, '');
+    const runBlock = (task) => runHook('-c', [compose(task)], { interpreter: 'bash', cwd: fx.wt, timeoutMs: HOOK_FANOUT_TIMEOUT_MS });
+    const stays = runBlock(1);
+    assert.equal(stays.exitCode, 0, stays.stderr);
+    const leaves = runBlock(2);
+    assert.equal(leaves.exitCode, 1);
+    assert.equal(JSON.parse(leaves.stdout).code, 'relocates_outside_worktree');
   });
 
   test('the boundary section’s two interpreter lists match the guard’s behaviour (#4785)', () => {
-    // The reference's own closing line says the enumerations are the parts that rot. This checks that
-    // claim BEHAVIOURALLY: every name the prose lists as Recognized really halts, and every name it
-    // lists as Not recognized really passes. It does NOT parse `_EXEC`.
-    //
-    // WHY NOT, because the obvious design is to derive the names from the regex and diff them, and
-    // that is what this test did for four revisions. The pre-push review broke it four times, each
-    // time with a different ERE shape the parser did not model: a section-wide `includes` satisfied by
-    // a name in the UNSUPPORTED half (`awk`); a span-scoped `includes` satisfied by substring nesting
-    // (`ash` inside `bash`/`dash`); an end-anchored optional-expansion that silently dropped `a?sh`;
-    // and, after that was made fail-closed, a bare OUTER alternative (`...|ash|eval)`) that sits
-    // outside the groups the fail-closed arm inspects. Four driven evasions of four parsers is the
-    // finding: a test that re-implements a shell ERE will keep losing to the next shape, and every
-    // loss is a FALSE GREEN on the exact question it exists to answer.
-    //
-    // So the guarantee is narrowed to one that is TRUE and driven. STATE THE RESIDUAL PLAINLY: this
-    // does not catch an interpreter added to `_EXEC` and documented nowhere — nothing here enumerates
-    // `_EXEC` any more. What it does catch is the direction that actually misleads a reader of the
-    // boundary section: prose that claims coverage the guard does not have, or disclaims coverage it
-    // does. `perl -e` was silently covered while the prose implied otherwise; that is this shape.
-    //
-    // TWO FURTHER RESIDUALS, named because an incomplete disclosure is its own defect. (a) Each
-    // ordinary name is exercised as `<name> -c` only; the prose's claims about OTHER option forms and
-    // path spellings are unchecked except for the three explicit controls at the end of this test.
-    // (b) This reads the two delimited spans and nothing else, so a coverage claim made elsewhere in
-    // the section is not driven. Both were named by the pre-push review rather than assumed absent.
-    const boundaryIdx = refSrc.indexOf('### What this guard does NOT see');
+    // The reference's boundary section names the interpreters the scan unwraps and the ones it does
+    // not. This checks that claim BEHAVIOURALLY against the verb: every name listed as Recognized
+    // really halts, every name listed as Not recognized really passes. It does not parse the grammar
+    // (four driven evasions of four ERE parsers were the finding that retired that design, #4785).
+    const boundaryIdx = refSrc.indexOf('### What the automated stage does NOT see');
     assert.ok(boundaryIdx !== -1, 'the step 0c boundary section is missing');
     const boundary = refSrc.slice(boundaryIdx);
     const recogIdx = boundary.indexOf('Recognized,');
@@ -726,263 +648,17 @@ describe('#4767: step 0c <automated> guard executes against a real worktree', { 
       assert.ok(!recognized.includes(n), `'${n}' appears in BOTH lists — the two halves disagree`);
     }
 
-    // `eval` is a shell builtin with no `-c`; everything else takes a short-option cluster. The guard
-    // never EXECUTES the command, so no interpreter needs to be installed for these rows.
-    const payload = `cd ${realMain()} && ls`;
+    const payload = `cd ${fx.main} && ls`;
     for (const n of recognized) {
       const cmd = n === 'eval' ? `eval "${payload}"` : `${n} -c "${payload}"`;
-      assert.notEqual(run(cmd).status, 0,
-        `the prose lists '${n}' as Recognized, but the guard did NOT halt on \`${cmd}\``);
+      assert.equal(run(cmd).ok, false, `the prose lists '${n}' as Recognized, but the guard did NOT halt on \`${cmd}\``);
     }
     for (const n of unsupported) {
       const cmd = `${n} -c "${payload}"`;
-      assert.equal(run(cmd).status, 0,
-        `the prose lists '${n}' as Not recognized, but the guard halted on \`${cmd}\``);
+      assert.equal(run(cmd).ok, true, `the prose lists '${n}' as Not recognized, but the guard halted on \`${cmd}\``);
     }
-    // The prose's own two distinctions, pinned: an absolute-path interpreter IS unwrapped, while the
-    // `eval` branch carries no absolute-path form, and the option is a CLUSTER rather than a literal.
-    assert.notEqual(run(`/bin/bash -c "${payload}"`).status, 0, 'an absolute-path shell must still halt');
-    assert.equal(run(`/bin/eval "${payload}"`).status, 0, 'the prose says `eval` has no absolute-path form');
-    assert.notEqual(run(`python -abc "${payload}"`).status, 0, 'the prose says the option is a cluster, not a literal -c');
-  });
-
-  test('halts on a cd into the main checkout (the #4767 shape)', () => {
-    const r = run(`cd ${realMain()}/scripts/verify && python3 -m pytest -q`);
-    assert.equal(r.status, 1);
-    assert.match(r.stderr, /FATAL: <automated> command relocates to .* outside the worktree/);
-  });
-
-  for (const [label, cmd] of [
-    ['npm --prefix <outside>', 'npm --prefix /srv/other run lint'],
-    ['npm --prefix=<outside>', 'npm --prefix=/srv/other run lint'],
-    ['npm run … --prefix <outside>', 'npm run lint --prefix /srv/other'],
-    ['a subshell-wrapped cd', '(cd /srv/other && make)'],
-    ['a path carrying ERE metacharacters', 'cd /srv/c++/a(b)/[1] && make'],
-    ['a backslash-escaped space', 'cd /srv/other/path\\ with\\ space && ls'],
-    ['cd followed by `;`', 'cd /srv/other; B=x; test -f "$B"'],
-    ['builtin cd', 'builtin cd /srv/other && ls'],
-    ['command cd', 'command cd /srv/other && ls'],
-    ['pushd', 'pushd /srv/other && ls'],
-    ['cd --', 'cd -- /srv/other && ls'],
-    ['an env-prefixed cd', 'FOO=1 cd /srv/other && ls'],
-    ['a target containing `=`', 'cd /srv/other/a=/x && ls'],
-    ['a relative hop out of the worktree', 'cd ../main && ls'],
-    ['a symlink inside the worktree that resolves to main', () => `cd ${realWt()}/main-link && ls`],
-    ['an in-worktree `..` path that resolves to main', () => `cd ${realWt()}/../main && ls`],
-    ['a bare absolute file argument under main', () => `python3 -m pytest ${realMain()}/scripts -q`],
-    ['a double-quoted target with a space that resolves to main', () => `cd "${realWt()}/scripts copy" && ls`],
-    ['a single-quoted outside target with a space', "cd '/srv/other/my dir' && ls"],
-    ['a file read through an in-worktree symlink into main', () => `cat ${realWt()}/main-link/.git/HEAD`],
-    ['a relative cd through the symlink', 'cd main-link && ls'],
-    ['a quoted prefix with an unquoted suffix', () => `cd "${realWt()}"/main-link && ls`],
-    ['an escaped single quote in the path', () => `cd ${realWt()}/O\\'Reilly && ls`],
-    ['an escaped double quote in the path', () => `cd ${realWt()}/a\\"b && ls`],
-    ['a symlinked FILE whose target is in main', () => `cat ${realWt()}/main-head`],
-    ['a chained cd whose second hop leaves the worktree', 'cd scripts && cd ../.. && ls'],
-    ['a chained cd that reaches main relatively', 'cd scripts && cd ../../main && ls'],
-    ['an interpreter after a backgrounded cd starts from the parent cwd', "cd scripts & bash -c 'cd ..'"],
-    ['an interpreter after a piped cd starts from the parent cwd', "cd scripts | bash -c 'cd ..'"],
-    ['an unrecognized command after a backgrounded cd does not consume the cwd reset', "cd scripts & echo x && bash -c 'cd ..'"],
-    ['an unrecognized command after a piped cd does not consume the cwd reset', "cd scripts | cat && bash -c 'cd ..'"],
-    ['an earlier interpreter payload is not contaminated by a later outer cd', "cd scripts && bash -c 'cd ../.. && test -d main' && cd deeper"],
-    ['a subprocess interpreter cannot relocate its parent shell', "bash -c 'cd scripts' && cd .."],
-    ['a launcher cannot turn eval into a cwd-persistent shell builtin', "env eval 'cd scripts'; cd .."],
-    ['env -C outside is not hidden by its wrapped interpreter', "env -C ../main bash -c 'echo ok'"],
-    ['env --chdir= outside is not hidden by its wrapped interpreter', "env --chdir=../main sh -c 'echo ok'"],
-    ['a timeout wrapper cannot hide env -C outside', "timeout 5 env -C ../main bash -c 'echo ok'"],
-    ['a later env -C cannot hide an earlier outside launcher relocation', "env -C ../main env -C ../wt bash -c 'echo ok'"],
-    ['a quoted env -C launcher target still exposes its payload', "env -C 'scripts dir' bash -c 'cd ../..'"],
-    ['a quoted env --chdir launcher target still exposes its payload', "env --chdir 'scripts dir' sh -c 'cd ../..'"],
-    ['an equals-form quoted env --chdir target still exposes its payload', "env --chdir='scripts dir' sh -c 'cd ../..'"],
-    ['npm --prefix ../.. after a cd (resolved from the reached cwd)', 'cd scripts && npm --prefix ../.. test'],
-    ['a double-quoted name containing an apostrophe', `cd "O'Reilly" && ls`],
-    ['a path containing a literal =', () => `cd ${realWt()}/release=main && ls`],
-    ['an env assignment whose value is a main-checkout path', () => `FOO=${realMain()}/x env | cat`],
-    // #4767 round 2 — command-string interpreters. `eval`/`sh -c`/`bash -c` bury the relocating verb
-    // inside ONE opaque quoted token, which defeats BOTH scans at once: the verb never sits at a
-    // boundary the relocating-verb scan recognizes, and the catch-all tokenizer swallows the whole
-    // quoted span, which after unquoting does not begin with `/`. Every row below exits 0 against the
-    // round-1 guard (verified as a negative control) and halts against this one.
-    ['eval wrapping a cd into main', () => `eval "cd ${realMain()} && ls"`],
-    ['eval wrapping a RELATIVE cd out of the worktree', "eval 'cd ../main && ls'"],
-    ['sh -c wrapping a cd into main', () => `sh -c "cd ${realMain()} && ls"`],
-    ['bash -c wrapping a cd into main', () => `bash -c 'cd ${realMain()} && ls'`],
-    ['eval wrapping an absolute FILE argument under main', () => `eval "cat ${realMain()}/secret.txt"`],
-    ['sh -c wrapping an absolute FILE argument under main', () => `sh -c "cat ${realMain()}/secret.txt"`],
-    ['zsh -c wrapping a cd into main', () => `zsh -c "cd ${realMain()} && ls"`],
-    ['a clustered short flag (sh -ec)', () => `sh -ec "cd ${realMain()} && ls"`],
-    ['python3 -c relocating via os.chdir', () => `python3 -c "import os;os.chdir('${realMain()}')"`],
-    ['node -e relocating via process.chdir', () => `node -e "process.chdir('${realMain()}')"`],
-    // The rest of `_EXEC`'s set, pinned because worktree-path-safety.md now STATES the ten it
-    // recognizes and a stated coverage claim with no row is prose. The guard never executes the
-    // command — it scans text — so none of these needs its interpreter installed.
-    ['perl -e relocating via chdir', () => `perl -e 'chdir "${realMain()}"'`],
-    ['ksh -c wrapping a cd into main', () => `ksh -c "cd ${realMain()} && ls"`],
-    ['a digit-less python -c relocating via os.chdir', () => `python -c "import os;os.chdir('${realMain()}')"`],
-    ['a wrapper nested inside a wrapper', () => `eval "sh -c 'cd ${realMain()} && ls'"`],
-    ['an interpreter reached after &&', () => `echo hi && eval "cd ${realMain()} && ls"`],
-    // …and the launcher forms a planner actually writes in front of one. `timeout` in particular is
-    // ordinary in a verify command, and a wrapper is no less a wrapper for having a launcher ahead of it.
-    ['a launcher (timeout) ahead of the interpreter', () => `timeout 60 bash -c "cd ${realMain()} && ls"`],
-    ['env ahead of the interpreter', () => `env bash -c "cd ${realMain()} && ls"`],
-    ['nohup ahead of the interpreter', () => `nohup sh -c "cd ${realMain()} && ls"`],
-    // …and the forms the round-2 adversarial pass found still open: an interpreter named by absolute
-    // path or carrying its own options, a recognised tool behind a launcher, and a shell CONTROL
-    // keyword as the command boundary.
-    ['an interpreter named by absolute path', () => `/bin/bash -c 'cd ${realMain()} && ls'`],
-    ['an interpreter carrying its own long option', () => `bash --noprofile -c 'cd ${realMain()} && ls'`],
-    ['a recognised tool behind a launcher', 'env npm --prefix ../main test'],
-    // …a launcher named by absolute path, or carrying an option with a SEPARATE operand.
-    ['a launcher named by absolute path', () => `/usr/bin/env bash -c "cd ${realMain()} && ls"`],
-    ['a launcher option with a separate operand', () => `env -u FOO bash -c "cd ${realMain()} && ls"`],
-    ['a long launcher option with an operand', () => `timeout --signal TERM 60 bash -c "cd ${realMain()} && ls"`],
-    ['stdbuf with an operand', () => `stdbuf -o L sh -c "cd ${realMain()} && ls"`],
-    // `env` is not only a launcher: --chdir / -C make it a relocating verb in its own right.
-    ['env --chdir, which relocates env itself', 'env --chdir=../main npm test'],
-    ['env -C, the same flag spelled short', 'env -C ../main npm test'],
-    ['env -C reached through a launcher', 'timeout 60 env -C ../main npm test'],
-    // A separate-operand option before the directory flag must not hide it: `-u FOO` consumed `FOO`
-    // generically and left `-C ../main` unseen. The env option grammar is scoped per consumer.
-    ['env -u before -C, which used to hide the flag', 'env -u FOO -C ../main npm test'],
-    ['the same, behind a launcher', 'timeout 60 env -u FOO -C ../main npm test'],
-    ['the long spellings of both', 'env --unset FOO --chdir=../main npm test'],
-    // `env -C <dir>` relocates AND launches: its payload must still be unwrapped.
-    ['a payload behind a relocating launcher', "env -C scripts bash -c 'cd ../../main && ls'"],
-    // Operand-taking options INTERLEAVED with ordinary ones. A grammar that allows only one contiguous
-    // run of them lets a generic option in the middle hide everything after it — including the `-C`.
-    ['interleaved env options hiding a -C', 'env -u FOO --debug -u BAR -C ../main npm test'],
-    ['interleaved env options before an interpreter', "env -u FOO --debug -u BAR bash -c 'cd ../main && ls'"],
-    ['interleaved timeout options', () => `timeout -k 5 --signal TERM 60 bash -c "cd ${realMain()} && ls"`],
-    ['interleaved stdbuf options', () => `stdbuf -o L -e L sh -c "cd ${realMain()} && ls"`],
-    // #4767 round 2 — a tool's own directory flag with a RELATIVE argument. The absolute form was
-    // already caught by the catch-all absolute-word scan; the relative form was invisible to both.
-    ['make -C relative, out of the worktree', 'make -C ../main/scripts test'],
-    ['git -C relative, out of the worktree', 'git -C ../main status'],
-    ['yarn --cwd relative, out of the worktree', 'yarn --cwd ../main test'],
-    ['pnpm -C relative, out of the worktree', 'pnpm -C ../main test'],
-    ['npx --prefix relative, out of the worktree', 'npx --prefix ../main tsc'],
-    // #4767 round 2 — a single `&` is a command boundary too; only `&&` was recognized.
-    ['a relative cd after a background operator', 'ls & cd ../main && ls'],
-  ]) {
-    test(`halts on ${label}`, () => {
-      const c = typeof cmd === 'function' ? cmd() : cmd;
-      const r = run(c);
-      assert.equal(r.status, 1, `expected a halt for: ${c}\nstderr: ${r.stderr}`);
-      assert.match(r.stderr, /FATAL: <automated> command (names|relocates to)/);
-    });
-  }
-
-  for (const [label, cmd] of [
-    ['a relative cd', 'cd scripts && ls 2>/dev/null'],
-    ['a relative cd into a directory that does not exist yet (Wave-0 scaffold)', 'cd future-scaffold && npm test'],
-    ['a relative cd into a nested not-yet-existing directory', 'cd scripts/new/deep && ls'],
-    ['a relative hop that lands back inside the worktree', 'cd ../wt/scripts && ls'],
-    ['absolute arguments under /tmp and $HOME that are not under main', 'ls /tmp /home 2>/dev/null; cd scripts'],
-    ['a trailing slash and a ./ prefix', 'cd scripts/ && cd ./scripts && ls'],
-    ['a cd onto an existing FILE inside the worktree', 'cd README.md'],
-    ['a glob in an absolute argument (no expansion during normalization)', 'ls /missing/*/deep; cd scripts'],
-    ['a quoted apostrophe in an ordinary argument', `grep -q 'x' README.md && echo "it's fine"`],
-    ['a chained cd that returns to the worktree root', 'cd scripts && cd .. && ls'],
-    ['a chained cd through not-yet-existing directories', 'cd future && cd deeper && ls'],
-    ['a chained cd followed by npm --prefix .', 'cd scripts && npm --prefix . test'],
-    ['a dynamic target the shell would expand (the probe owns these as dynamic_path)', 'cd "$(git rev-parse --show-toplevel)/scripts" && ls'],
-    ['an ordinary argument containing =', 'echo a=b=c && cd scripts'],
-    ['npm --prefix . and make -C inside the worktree', 'npm --prefix . run test && make -C scripts'],
-    ['npm --prefix .. after a cd (npm does not move the cwd)', 'cd scripts && npm --prefix .. test && cd .. && ls'],
-    ['an absolute cd inside the worktree', () => `cd ${realWt()}/scripts && ls`],
-    ['--prefix= inside the worktree', () => `npm run lint --prefix=${realWt()}/scripts`],
-    ['a system path that is not a relocating target', 'cat /etc/hosts | grep -c x'],
-    ['an absolute file argument outside both checkouts', 'ls /srv/other/plain && cd scripts'],
-    ['a redirect to /dev/null', 'test -f /usr/bin/env && echo ok'],
-    // #4767 round 2 — the interpreter class is UNWRAPPED and re-scanned, not rejected wholesale, so an
-    // ordinary portability wrapper whose payload stays inside the worktree must remain silent.
-    ['bash -c wrapping an in-worktree command', "bash -c 'npm test'"],
-    ['sh -c wrapping a relative cd that stays inside', "sh -c 'cd scripts && ls'"],
-    ['an eval payload whose cd relocates the current shell', "eval 'cd scripts' && cd .."],
-    ['nested in-worktree env -C launchers resolve sequentially', "env -C scripts env -C .. bash -c 'echo ok'"],
-    ['a quoted in-worktree env -C target with a safe payload', "env -C 'scripts dir' bash -c 'cd ..'"],
-    ['make -C inside the worktree', 'make -C scripts test'],
-    ['git -C inside the worktree', 'git -C scripts status'],
-    ['an interpreter payload the shell would build at run time (dynamic_path)', 'eval "cd $TARGET && ls"'],
-    ['node -e naming no path at all', "node -e 'console.log(1)'"],
-    ['a launcher ahead of an interpreter whose payload stays inside', "timeout 60 bash -c 'npm test'"],
-    // Two false positives the round-2 adversarial pass found and this round fixed. `--prefix` on `git`
-    // names archive MEMBERS, not a directory, so the flag set is tool-scoped; and interpreter text that
-    // is merely an ARGUMENT executes nothing, so the launcher set is named rather than a catch-all run.
-    ['git archive --prefix, which is not a directory flag', 'git archive --prefix=../main/ HEAD'],
-    ['interpreter text passed as an argument, not executed', "echo bash -c 'cd ../main && ls'"],
-    // Two more false positives the round-2 pass found. Control keywords are NOT in `_OPEN` precisely
-    // because these operators match raw text with no quote-awareness, and `command -v` is a name probe
-    // that executes nothing. Both rows fail if either widening is re-introduced.
-    ['a control keyword inside a quoted grep argument', "grep -F 'if cd ../main; then' README.md"],
-    ['command -v, a name probe that executes nothing', "command -v bash -c 'cd ../main && ls'"],
-    // A launcher option that takes NO operand must not swallow the command after it: `env -i echo …`
-    // runs echo, not the interpreter text it prints. Which options take an operand is tool-scoped.
-    ['an operandless launcher option before a harmless command', "env -i echo bash -c 'cd ../main && ls'"],
-    ['a launcher -- separator before a harmless command', "nohup -- echo bash -c 'cd ../main && ls'"],
-    ['a directory-flag spelling that is pass-through data', 'env printf -C ../main'],
-  ]) {
-    test(`passes ${label}`, () => {
-      const c = typeof cmd === 'function' ? cmd() : cmd;
-      const r = run(c);
-      assert.equal(r.status, 0, `expected a pass for: ${c}\nstderr: ${r.stderr}`);
-      assert.equal(r.stderr.trim(), '', 'a passing command must be silent');
-    });
-  }
-
-  test('the guard invocation tolerates a sourced startup file using the standard non-interactive guard idiom, even under -u with PS1 unset (regression: this exact idiom, as shipped in Debian\'s /etc/bash.bashrc, broke every "must be silent" assertion in this suite on the CI bench)', (t) => {
-    // /etc/bash.bashrc on this repo's Debian-based CI bench is sourced unconditionally for every
-    // bash invocation (not gated on interactivity — confirmed via a live diagnostic run on that
-    // bench), and its own non-interactive no-op guard is exactly this idiom (its real line 7):
-    //   [ -z "$PS1" ] && return
-    // BASH_ENV is used here as a portable, cross-platform way to inject a sourced startup file for
-    // this test; it is not the actual mechanism Debian's bash uses to reach /etc/bash.bashrc (which
-    // sources it unconditionally, with no environment variable involved at all — confirmed on the
-    // real bench), but it reliably exercises the identical failure mode (a sourced file's
-    // `[ -z "$PS1" ]` idiom erroring under `-u` when PS1 is unset).
-    const rcFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-4767-bashenv-')), 'noninteractive-guard.sh');
-    fs.writeFileSync(rcFile, '[ -z "$PS1" ] && return\necho "SHOULD NOT REACH HERE" >&2\n');
-    t.after(() => cleanup(path.dirname(rcFile)));
-
-    // CONTROL: reproduce the exact real-world failure. With PS1 truly unset and the startup file
-    // sourced under -u, the guard idiom itself must error — proves the failure mode is real on
-    // this platform's bash, not hypothetical, before trusting the row below.
-    // The locale is pinned: bash translates its own diagnostics, and the match below names the
-    // untranslated one.
-    const controlEnv = { ...process.env, BASH_ENV: rcFile, LC_ALL: 'C.UTF-8', LANGUAGE: '' };
-    delete controlEnv.PS1;
-    const unfiltered = spawnSync('bash', ['-eu', '-c', guard], {
-      cwd: wt,
-      encoding: 'utf8',
-      timeout: SPAWN_TIMEOUT_MS,
-      env: { ...controlEnv, AUTOMATED_CMD: 'echo hi' },
-    });
-    assert.match(
-      `${unfiltered.stdout}${unfiltered.stderr}`,
-      /PS1: unbound variable/,
-      'CONTROL: the standard [ -z "$PS1" ] guard idiom must actually fail under -u when PS1 is unset ' +
-      'on this platform, or this regression test proves nothing',
-    );
-
-    // FIX: the hermetic `run` helper moves `-eu` off bash's own invocation flags and into the
-    // script body (`bash -c 'set -eu; ...'`), so bash's own startup — including sourcing this
-    // BASH_ENV file — completes under bash's normal, non-nounset default before the guard script's
-    // first line ever runs. The same sourced file must therefore return cleanly with no error, even
-    // though BASH_ENV is set in the ambient environment this test just injected, and regardless of
-    // whether PS1 is set.
-    const prevBashEnv = process.env.BASH_ENV;
-    process.env.BASH_ENV = rcFile;
-    try {
-      const res = run('echo hi');
-      assert.doesNotMatch(
-        `${res.stdout}${res.stderr}`,
-        /PS1: unbound variable|SHOULD NOT REACH HERE/,
-        'the guard invocation must run -eu from within the script body so a sourced startup file\'s ' +
-        '[ -z "$PS1" ] guard does not error during bash\'s own startup, and must not execute past its ' +
-        'own return',
-      );
-    } finally {
-      if (prevBashEnv === undefined) delete process.env.BASH_ENV; else process.env.BASH_ENV = prevBashEnv;
-    }
+    assert.equal(run(`/bin/bash -c "${payload}"`).ok, false, 'an absolute-path shell must still halt');
+    assert.equal(run(`/bin/eval "${payload}"`).ok, true, 'the prose says `eval` has no absolute-path form');
+    assert.equal(run(`python -abc "${payload}"`).ok, false, 'the prose says the option is a cluster, not a literal -c');
   });
 });
