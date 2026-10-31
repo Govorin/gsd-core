@@ -272,8 +272,10 @@ describe('C: regression guard — version-bearing JSON files must be registered'
   // Semver-ish: matches X.Y.Z with optional pre-release/build metadata.
   const SEMVER = /^\d+\.\d+\.\d+(?:[-+].+)?$/;
 
-  // Paths to exclude from the guard
-  const EXCLUDED_PREFIXES = ['tests/', 'node_modules/', '.changeset/', 'docs/'];
+  // Paths to exclude from the guard. mods/ holds Claude Code mods the fork
+  // ships beside GSD (mods/gsd-deck); each carries its own release version,
+  // not GSD's, so the sync script must never stamp it.
+  const EXCLUDED_PREFIXES = ['tests/', 'node_modules/', '.changeset/', 'docs/', 'mods/'];
 
   test('every committed JSON with a semver top-level version is registered or explicitly allowed', (t) => {
     // Enumerate committed JSON files via git (no pathspec to avoid recursion quirks;
