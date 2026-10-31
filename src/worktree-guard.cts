@@ -544,8 +544,17 @@ export function materializeFromCommit(
       // there. The executor reads it at that absolute path; nothing is copied.
       const inMainCheckout = path.join(roots.mainRoot, rel);
       let mainFile = false;
-      try { mainFile = fs.statSync(inMainCheckout).isFile(); } catch { mainFile = false; }
-      if (mainFile) { readFromMain.push({ path: p, main_path: inMainCheckout }); continue; }
+      try { mainFile = fs.lstatSync(inMainCheckout).isSymbolicLink() || fs.statSync(inMainCheckout).isFile(); } catch { mainFile = false; }
+      if (mainFile) {
+        // The main-checkout copy must stay inside the main checkout after links are
+        // resolved: a link there to /etc/hosts is not the plan (ADR-4650).
+        const contained = tryWithinRoot(inMainCheckout, roots.mainRoot, PathAcceptance.AbsoluteInsideRoot);
+        let regular = false;
+        try { regular = contained !== null && fs.statSync(contained).isFile(); } catch { regular = false; }
+        if (!regular) return refuse(stage, GUARD_CODE.PATH_OUTSIDE_WORKTREE, { path: p, main_path: inMainCheckout, reason: 'the main-checkout copy resolves outside the main checkout' });
+        readFromMain.push({ path: p, main_path: contained as string });
+        continue;
+      }
       if (!required) { skipped.push(p); continue; }
       return refuse(stage, GUARD_CODE.NOT_IN_COMMIT, { path: p, from: opts.commit, ...gitDetail(present, ['cat-file', '-e', spec]) });
     }

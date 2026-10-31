@@ -675,6 +675,21 @@ describe('worktree materialize (quick isolated dispatch, exit 42)', () => {
     assert.equal(fs.existsSync(path.join(repo.wt, '.planning', 'quick', 'q2')), false, 'nothing is copied into the worktree');
   });
 
+  // Review nit: the main-checkout copy was stat'ed through links with no root check.
+  test('a main-checkout copy that links outside the main checkout is refused', () => {
+    const dir = path.join(repo.main, '.planning', 'quick', 'q3');
+    fs.mkdirSync(dir, { recursive: true });
+    const outside = path.join(repo.tmp, 'outside.md');
+    fs.writeFileSync(outside, 'not the plan\n');
+    fs.symlinkSync(outside, path.join(dir, 'q3-PLAN.md'));
+    for (const flag of ['--path', '--optional-path']) {
+      const args = flag === '--path' ? ['--path', '.planning/quick/q3/q3-PLAN.md'] : ['--path', '.planning/quick/q1/q1-PLAN.md', '--optional-path', '.planning/quick/q3/q3-PLAN.md'];
+      const r = verb(repo.wt, ['materialize', '--from', commit, ...args]);
+      assert.equal(r.exitCode, 42, flag);
+      assert.equal(r.json.code, GUARD_CODE.PATH_OUTSIDE_WORKTREE, flag);
+    }
+  });
+
   test('a skipped optional path in a directory that does not exist leaves no empty directory', () => {
     const r = verb(repo.wt, ['materialize', '--from', commit, '--path', '.planning/quick/q1/q1-PLAN.md', '--optional-path', '.planning/quick/q9/deep/q9-RESEARCH.md']);
     assert.equal(r.exitCode, 0);
