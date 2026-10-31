@@ -1408,6 +1408,13 @@ describe('extractAutomatedCommandsByTask (ADR-5211) — ordinals never shift, co
     }
   });
 
+  test('inline code in a task <name> survives verbatim, so --task-name copied from the plan matches', () => {
+    for (const name of ['Task 1: probe `name` with $(date) inside', 'Wire `<task>` parsing into `guard`', 'Use ``a ` b`` here']) {
+      const r = extractAutomatedCommandsByTask(`Use \`<task>\` blocks.\n${task(name, '<automated>ls</automated>')}`);
+      assert.deepEqual(r, { ok: true, tasks: [{ name, commands: ['ls'] }] }, name);
+    }
+  });
+
   test('backticks in an <automated> command reach the scan unchanged', () => {
     const r = extractAutomatedCommandsByTask(task('A', '<automated>test "`pwd`" = x && cd `echo ../main`</automated>'));
     assert.deepEqual(r.tasks[0].commands, ['test "`pwd`" = x && cd `echo ../main`']);
