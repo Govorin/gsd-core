@@ -96,6 +96,39 @@ describe('every mandatory worktree block passes the isolation shell-form model a
   }
 });
 
+describe('quick.md plan materialisation survives a path with spaces (review: unquoted --path)', { skip: process.platform === 'win32' ? 'bash round trip is POSIX-only here' : false }, () => {
+  test('the composed block, run through bash in a linked worktree, exits 0', (t) => {
+    const { createTempDir, cleanup, TOOLS_PATH } = require('./helpers.cjs');
+    const { gitOrThrow } = require('./helpers/git-fixture.cjs');
+    const { runHook } = require('./helpers/process-seam.cjs');
+    const { PROBE_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
+    const { GIT_IDENTITY_ENV } = require('./helpers/worktree-guard-corpus.cjs');
+    const env = { ...process.env, ...GIT_IDENTITY_ENV };
+    const tmp = createTempDir('gsd-quick-quoted-');
+    t.after(() => cleanup(tmp));
+    const main = path.join(tmp, 'main repo');
+    gitOrThrow(['init', '-q', main], { cwd: tmp, env });
+    const quickDir = path.join(main, '.planning', 'quick', '260101-a b');
+    fs.mkdirSync(quickDir, { recursive: true });
+    fs.writeFileSync(path.join(quickDir, '260101-x-PLAN.md'), 'plan\n');
+    gitOrThrow(['add', '.'], { cwd: main, env });
+    gitOrThrow(['commit', '-q', '-m', 'plan'], { cwd: main, env });
+    const commit = gitOrThrow(['rev-parse', 'HEAD'], { cwd: main, env }).trim();
+    const wt = path.join(tmp, 'wt');
+    gitOrThrow(['worktree', 'add', '-q', '--detach', wt, 'HEAD~0'], { cwd: main, env });
+    cleanup(path.join(wt, '.planning'));
+    const block = escapedBashAfter(quick, 'FIRST ACTION after the worktree branch check')
+      .replace(/\$\{(DISCUSS|RESEARCH)_MODE \? `[^`]{0,200}` : ''\}/g, '')
+      .split('${gsd_tools_cmd}').join(`node '${TOOLS_PATH.split(path.sep).join('/')}'`)
+      .split('${QUICK_PLAN_COMMIT}').join(commit)
+      .split('${QUICK_DIR}').join(quickDir)
+      .split('${quick_id}').join('260101-x');
+    const r = runHook('-c', [block], { interpreter: 'bash', cwd: wt, timeoutMs: PROBE_TIMEOUT_MS, env });
+    assert.equal(r.exitCode, 0, r.stdout + r.stderr);
+    assert.deepEqual(JSON.parse(r.stdout).detail.written, [path.join(quickDir, '260101-x-PLAN.md')]);
+  });
+});
+
 describe('positive control: the bash these blocks replaced is refused by the model', () => {
   // One line from each guard as it shipped before ADR-5211 (5794b63a9).
   for (const [guardName, line, rule] of [

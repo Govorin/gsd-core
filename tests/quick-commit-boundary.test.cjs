@@ -214,7 +214,7 @@ describe('quick.md pre-dispatch PLAN.md commit (#2432)', () => {
     const promptEnd = content.indexOf('subagent_type="gsd-executor"', promptStart);
     const executorPrompt = content.slice(promptStart, promptEnd);
 
-    const materialize = executorPrompt.indexOf('worktree materialize --from ${QUICK_PLAN_COMMIT} --path ${QUICK_DIR}/${quick_id}-PLAN.md');
+    const materialize = executorPrompt.indexOf("worktree materialize --from ${QUICK_PLAN_COMMIT} --path '${QUICK_DIR}/${quick_id}-PLAN.md'");
     assert.ok(
       materialize !== -1,
       'executor prompt must materialize PLAN.md from the plan commit when absent (#1265, ADR-5211)'

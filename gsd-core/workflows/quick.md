@@ -442,10 +442,10 @@ ${ISOLATION === "harness-worktree" ? `
 ORCHESTRATOR build-time embed (NOT a sub-agent runtime step): before this dispatch, read \`gsd-core/references/worktree-branch-check.md\`, substitute \`{GSD_TOOLS_CMD}\` with \`${gsd_tools_cmd}\` and \`{EXPECTED_BASE}\` with the base SHA captured above (${EXPECTED_BASE}), substitute \`{EXPECTED_BASE_ALTERNATE}\` with \`${QUICK_PLAN_PARENT}\` when it differs from \`${EXPECTED_BASE}\` (otherwise empty), and replace this note with that fragment's \`<worktree_branch_check>\` block so the dispatched prompt carries the runnable guard verbatim — do not pass this instruction through in its place.
 </worktree_branch_check>
 
-FIRST ACTION after the worktree branch check: ensure the quick PLAN.md exists at a worktree-rooted relative path before any Read/Edit/Write path can be primed. Materialize it (and its optional context/research) from the commit that recorded it; a file already present is left alone, a file that commit lacks but the main checkout holds (\`commit_docs: false\`, gitignored \`.planning/\`) comes back in \`detail.read_from_main\` — read it at that absolute path — and any non-zero exit is a HALT (exit 42):
+FIRST ACTION after the worktree branch check: ensure the quick PLAN.md exists at a worktree-rooted relative path before any Read/Edit/Write path can be primed. Materialize it (and its optional context/research) from the commit that recorded it; a file already present is left alone, a file that commit lacks but the main checkout holds (\`commit_docs: false\`, gitignored \`.planning/\`) comes back in \`detail.read_from_main\` — read it at that absolute path — and any non-zero exit is a HALT (exit 42). Paths are shell-single-quoted; a path containing \`'\` halts the dispatch instead:
 
 \`\`\`bash
-${gsd_tools_cmd} worktree materialize --from ${QUICK_PLAN_COMMIT} --path ${QUICK_DIR}/${quick_id}-PLAN.md${DISCUSS_MODE ? ` --optional-path ${QUICK_DIR}/${quick_id}-CONTEXT.md` : ''}${RESEARCH_MODE ? ` --optional-path ${QUICK_DIR}/${quick_id}-RESEARCH.md` : ''} || exit 42
+${gsd_tools_cmd} worktree materialize --from ${QUICK_PLAN_COMMIT} --path '${QUICK_DIR}/${quick_id}-PLAN.md'${DISCUSS_MODE ? ` --optional-path '${QUICK_DIR}/${quick_id}-CONTEXT.md'` : ''}${RESEARCH_MODE ? ` --optional-path '${QUICK_DIR}/${quick_id}-RESEARCH.md'` : ''} || exit 42
 \`\`\`
 ` : `
 <sequential_execution>
