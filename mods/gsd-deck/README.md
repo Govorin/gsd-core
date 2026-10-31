@@ -3,11 +3,11 @@
 Установка на любой машине (нужен Claude Code с поддержкой модов):
 
 ```
-claude plugin marketplace add Govorin/gsd-core
-claude plugin install gsd-deck@gsd-core
+claude plugin marketplace add https://raw.githubusercontent.com/Govorin/gsd-core/next/mods/marketplace.json
+claude plugin install gsd-deck@gsd-mods
 ```
 
-или одной командой в сессии: `/plugin install gsd-deck --marketplace Govorin/gsd-core`. Обновление: `claude plugin marketplace update gsd-core`, затем `/reload-plugins`.
+Скачивается только каталог `mods/marketplace.json` и папка мода (источник `git-subdir`), а не весь репозиторий GSD. Обновление: `claude plugin marketplace update gsd-mods`, `claude plugin update gsd-deck@gsd-mods`, затем `/reload-plugins`.
 
 Панель GSD для Claude Code. В ней видно состояние проектов `.planning/` в текущей сессии: какая фаза идёт, сколько планов сделано, что запускать дальше и какие GSD-воркфлоу и агенты работают сейчас.
 

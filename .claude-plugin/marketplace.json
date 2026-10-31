@@ -15,16 +15,6 @@
         "name": "open-gsd",
         "url": "https://github.com/open-gsd"
       }
-    },
-    {
-      "name": "gsd-deck",
-      "description": "GSD dashboard mod for Claude Code: every .planning project under the session, the focused one's phase, plans and next command, and the GSD workflows and agents running now.",
-      "version": "0.1.0",
-      "source": "./mods/gsd-deck",
-      "author": {
-        "name": "Govorin",
-        "url": "https://github.com/Govorin"
-      }
     }
   ]
 }

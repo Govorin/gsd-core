@@ -1,0 +1,25 @@
+{
+  "name": "gsd-mods",
+  "description": "Claude Code mods for GSD Core, served from the Govorin/gsd-core fork. Only this file and each mod's own folder are downloaded, never the whole repository.",
+  "owner": {
+    "name": "Govorin",
+    "url": "https://github.com/Govorin"
+  },
+  "plugins": [
+    {
+      "name": "gsd-deck",
+      "description": "GSD dashboard mod: every .planning project under the session, the focused one's phase, plans and next command, and the GSD workflows and agents running now.",
+      "version": "0.1.0",
+      "source": {
+        "source": "git-subdir",
+        "url": "https://github.com/Govorin/gsd-core.git",
+        "path": "mods/gsd-deck",
+        "ref": "next"
+      },
+      "author": {
+        "name": "Govorin",
+        "url": "https://github.com/Govorin"
+      }
+    }
+  ]
+}
