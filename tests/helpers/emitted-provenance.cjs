@@ -155,12 +155,14 @@ const KIMI_ROOT_AGENT_SRC = 'src/runtime-artifact-layout.cts';
  * changes the bytes.
  */
 // Fork (ADR-5210): capability-declared grants are appended to agents' tools: at
-// staging, so the declaration and the module applying it move every listed
-// agent's emitted bytes — the Copilot `.agent.md` rename included — without
-// touching its agents/*.md source.
+// staging, and a declared reference adds a pointer line to the body, so the
+// declarations and the module applying them move every listed agent's emitted
+// bytes — the Copilot `.agent.md` rename included — without touching its
+// agents/*.md source.
 const FORK_AGENT_GRANT_SRCS = [
   'src/mn-agent-tools.cts',
   'capabilities/mn-code-navigation/capability.json',
+  'capabilities/mn-nx-tasks/capability.json',
 ];
 
 const AGENT_TRANSFORM_SRCS = [

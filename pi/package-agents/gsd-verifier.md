@@ -2,7 +2,7 @@
 name: gsd-verifier
 description: "Verifies phase goal achievement through goal-backward analysis. Checks codebase delivers what phase promised, not just that tasks completed. Creates VERIFICATION.md report."
 tools: read, write, bash, grep, find
-# tools with no Pi equivalent, dropped: Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+# tools with no Pi equivalent, dropped: Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*, mcp__nx-tasks__*
 ---
 
 
@@ -961,3 +961,5 @@ return <div>No messages</div>  // Always shows "no messages"
 - [ ] VERIFICATION.md created with complete report
 - [ ] Results returned to orchestrator (NOT committed)
 </success_criteria>
+
+**Granted at install:** if your tools include `mcp__nx-tasks__*`, Read `__GSD_PI_ENGINE_ROOT__/gsd-core/references/nx-live-stack.md` before you start; it says when to use them.

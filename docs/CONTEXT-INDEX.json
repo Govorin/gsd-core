@@ -1,9 +1,9 @@
 {
   "schemaVersion": 1,
-  "count": 360,
+  "count": 362,
   "classes": {
     "ARCH": 1,
-    "CAPABILITY": 1,
+    "CAPABILITY": 3,
     "CI": 2,
     "CONFIG": 5,
     "CONTENT-ROOT": 6,
@@ -39,6 +39,16 @@
       "id": "CAPABILITY.AGENT_TOOLS",
       "klass": "CAPABILITY",
       "value": "capability.json agentTools {grants: string[], agents: string[]} — read ONLY from the frozen first-party registry (capability-registry.cjs), never the installed overlay; grants go FIRST in the appendAgentTools list (then agent_tools \"*\", then agent_tools.<agent>), before the runtime converter, so each converter's MCP policy is unchanged; a .compact stem gets its agent's grants; a grant already on the line is not added twice; the capability's activationKey gates it (nearest .planning/config.json, then ~/.gsd/defaults.json, then the key's declared default; only false disables); a malformed block contributes nothing; agents/*.md never carries a declared grant (tests/mn-code-navigation.install.test.cjs)"
+    },
+    {
+      "id": "CAPABILITY.AGENT_TOOLS.reference",
+      "klass": "CAPABILITY",
+      "value": "optional agentTools.reference, a file name directly in gsd-core/references/ (/^[a-z0-9][a-z0-9-]*\\.md$/); every agent the block grants (and its .compact stem) gets ONE line appended at the end of its body — \"**Granted at install:** if your tools include <grants>, Read ~/.claude/gsd-core/references/<file> before you start; it says when to use them.\" — rendered by mn-agent-tools.cts, never capability free text; appended before the path rewrites, so each runtime gets its own path; same activation key as the grants (on together, off together); a malformed reference voids the whole block; several blocks give several lines in capability id order; no reference = byte-identical body; the line stays on runtimes whose converter drops the grant (worded as a condition on the agent's own tools) (ADR-5210 amendment 2026-11-01, tests/mn-nx-tasks.install.test.cjs)"
+    },
+    {
+      "id": "CAPABILITY.NX_TASKS",
+      "klass": "CAPABILITY",
+      "value": "capabilities/mn-nx-tasks: grants mcp__nx-tasks__* to gsd-executor, gsd-debugger, gsd-verifier, gsd-dom-verifier (the agents that build, debug or live-check a running service; gsd-debug-session-manager only relays checkpoints and spawns debuggers, gsd-integration-checker traces wiring statically — both left out); reference gsd-core/references/nx-live-stack.md; key nx_tasks.enabled (default true); observes the user's terminal Nx runs only — never starts, restarts or kills them; an nx run the agent starts is unseen unless it passes --tui"
     },
     {
       "id": "CI.GATE.changeset-lint",
