@@ -3,7 +3,8 @@
 /**
  * ADR-5211 — automated-command-containment.cts: step 0c (#4767) as a typed
  * function. The whole #4767 corpus runs against it here, on its own; the
- * differential suite runs the same corpus against the frozen bash.
+ * same corpus ran differentially against the frozen bash until ADR-5211 wave 4
+ * (442 rows with 300 generated commands, identical verdicts).
  */
 
 const { describe, test, before, after } = require('node:test');

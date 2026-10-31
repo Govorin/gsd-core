@@ -6,7 +6,7 @@
  * check accepts: no `$(…)` or backticks, no computed git/node/sed arguments, no
  * `cd … &&`, no `git -C`, no placeholder left unbound. The classifier is a
  * conservative model of the probe table (tests/helpers/isolation-shell-form.cjs);
- * the frozen bash these blocks replaced is its positive control.
+ * lines of the bash these blocks replaced are its positive control.
  */
 
 const { describe, test } = require('node:test');
@@ -97,20 +97,20 @@ describe('every mandatory worktree block passes the isolation shell-form model a
 });
 
 describe('positive control: the bash these blocks replaced is refused by the model', () => {
-  const legacy = (f) => fs.readFileSync(path.join(__dirname, 'fixtures', 'legacy-worktree-guards', f), 'utf8');
-  for (const [file, rule] of [
-    ['branch-check.sh', 'command-substitution'],
-    ['sentinel-0a.sh', 'command-substitution'],
-    ['abs-path-0b.sh', 'command-substitution'],
-    ['pre-commit-0.sh', 'command-substitution'],
-    ['plan-ledger.sh', 'command-substitution'],
-    ['pin-0p.sh', 'command-substitution'],
-    ['automated-0c.sh', 'command-substitution'],
+  // One line from each guard as it shipped before ADR-5211 (5794b63a9).
+  for (const [guardName, line, rule] of [
+    ['worktree_branch_check', 'HEAD_REF=$(git symbolic-ref --quiet HEAD || echo "DETACHED")', 'command-substitution'],
+    ['step 0a sentinel', 'WT_GIT_DIR=$(git rev-parse --git-dir 2>/dev/null)', 'command-substitution'],
+    ['step 0b abs-path', 'WT_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)', 'command-substitution'],
+    ['step 0 pre-commit', 'IS_PROTECTED=$(gsd_run query git.base-branch --is-protected "$ACTUAL_BRANCH" 2>/dev/null) || IS_PROTECTED="__GSD_RUN_UNAVAILABLE__"', 'command-substitution'],
+    ['step 0c ledger', '_GSD_LEDGER="$(git rev-parse --git-dir)/gsd-plan-head-before-3-01"', 'command-substitution'],
+    ['step 0p pin', 'PINNED_TL=$(git -C "$PINNED_ROOT" rev-parse --show-toplevel 2>/dev/null)', 'command-substitution'],
+    ['quick plan materialisation', 'git show "${QUICK_PLAN_COMMIT}:${QUICK_PLAN_PATH}" > "$QUICK_PLAN_PATH"', 'computed-argument'],
   ]) {
-    test(`${file} is refused (${rule})`, () => {
-      const verdict = classifyIsolationShellForm(substitute(legacy(file)));
+    test(`the old ${guardName} is refused (${rule})`, () => {
+      const verdict = classifyIsolationShellForm(line);
       assert.equal(verdict.ok, false);
-      assert.ok(verdict.violations.some((v) => v.rule === rule), JSON.stringify(verdict.violations.slice(0, 3)));
+      assert.ok(verdict.violations.some((v) => v.rule === rule), JSON.stringify(verdict.violations));
     });
   }
 

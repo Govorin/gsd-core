@@ -555,7 +555,7 @@ describe('bug #4254: sequential executor supplied-root pin', () => {
 // composed the way the orchestrator and executor compose it and run through bash against a real
 // linked worktree, and the boundary prose is driven against the verb. The full #4767 corpus runs in
 // tests/automated-command-containment.test.cjs and, against the frozen bash, in
-// tests/worktree-guard-differential.slow.test.cjs.
+// tests/worktree-guard-differential.slow.test.cjs until ADR-5211 wave 4 retired the bash.
 describe('#4767: step 0c <automated> guard executes against a real worktree', { skip: process.platform === 'win32' ? 'bash + git worktree harness is POSIX-only' : false }, () => {
   const { before, after } = require('node:test');
   const { cleanup, TOOLS_PATH } = require('./helpers.cjs');

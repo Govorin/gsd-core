@@ -1,15 +1,15 @@
 'use strict';
 
 /**
- * The worktree-guard corpus (ADR-5211) — the commands, branches and roots the
- * guards were driven against while they were bash, kept as DATA so one corpus
- * drives both the verb's own tests and the differential run against the
- * frozen bash snapshots in tests/fixtures/legacy-worktree-guards/.
+ * The worktree-guard corpus (ADR-5211) — the commands and branches the guards
+ * were driven against while they were bash, kept as DATA. Until wave 4 it also
+ * drove a differential run against frozen bash snapshots; each row's verdict is
+ * the one that run settled.
  *
  * AUTOMATED_* rows came verbatim from tests/executor-mvp-tdd-section.test.cjs's
  * #4767 suite (every round of that guard's adversarial review is in them).
  * A row's command is a string or a function of the fixture's real paths
- * `{ main, wt }`. `expect` is the verdict the bash guard gave: 'halt' or 'pass'.
+ * `{ main, wt }`; the array a row sits in is its verdict: halt or pass.
  */
 
 const fs = require('node:fs');
@@ -233,35 +233,6 @@ const AUTOMATED_PASS_ROWS = [
   ['an unrecognised interpreter (php)', (c) => `php -c "cd ${c.main} && ls"`],
 ];
 
-/**
- * Deterministic generated commands for the differential run only: shell
- * fragments the grammar cares about (verbs, launchers, interpreters, boundaries,
- * quoted and escaped targets) recombined from a fixed seed. They carry no
- * expected verdict — the bash snapshot is the oracle.
- */
-function automatedFuzzRows(count = 300, seed = 12345) {
-  let state = seed;
-  const rnd = () => { state = (state * 1103515245 + 12345) & 0x7fffffff; return state / 0x7fffffff; };
-  const pick = (a) => a[Math.floor(rnd() * a.length)];
-  const words = ['cd', 'pushd', 'builtin cd', 'command cd', 'env', 'env -C', 'env --chdir=', 'timeout 5', 'nohup',
-    'stdbuf -o L', 'bash -c', 'sh -ec', 'eval', 'node -e', 'npm --prefix', 'git -C', 'make -C', 'yarn --cwd',
-    'FOO=1', 'echo', 'ls', 'cat', '&&', '||', ';', '|', '&', '(', ')', '{', '}'];
-  const args = ['../main', '..', 'scripts', '"scripts dir"', "'scripts dir'", 'main-link', 'main-link/..',
-    '../wt/scripts', "'cd ../main'", '"cd ../main && ls"', '/srv/x', '"$(pwd)"', 'a\\"b', 'x\\ y',
-    'release=main', "O\\'Reilly", '--prefix=../main', '-u FOO', '"a;b"', "'x|y'"];
-  const rows = [];
-  for (let i = 0; i < count; i += 1) {
-    const n = 2 + Math.floor(rnd() * 6);
-    const parts = [];
-    for (let j = 0; j < n; j += 1) parts.push(rnd() < 0.5 ? pick(words) : pick(args));
-    const absolute = rnd() < 0.25;
-    const tail = absolute ? pick(['x', 'scripts', '../wt', '.git/HEAD', 'secret.txt']) : null;
-    const text = parts.join(rnd() < 0.8 ? ' ' : '');
-    rows.push([`fuzz ${i}`, absolute ? (c) => `${text} ${c.main}/${tail}` : text]);
-  }
-  return rows;
-}
-
 /** Materialise a row's command against a built fixture. */
 function commandOf(row, fixture) {
   const cmd = row[1];
@@ -285,5 +256,4 @@ module.exports = {
   AUTOMATED_PASS_ROWS,
   BRANCH_ROWS,
   commandOf,
-  automatedFuzzRows,
 };
