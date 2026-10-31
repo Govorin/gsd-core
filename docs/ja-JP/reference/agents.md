@@ -409,7 +409,7 @@ GSD はマルチエージェントアーキテクチャを採用しており、�
 | advisor-researcher | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | research-synthesizer | ✓ | ✓ | | ✓ | | | | | |
 | planner | ✓ | ✓ | | ✓ | ✓ | ✓ | | ✓ | ✓ |
-| roadmapper | ✓ | ✓ | | ✓ | ✓ | ✓ | | | |
+| roadmapper | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | |
 | executor | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | | | |
 | plan-checker | ✓ | | | ✓ | ✓ | ✓ | | | |
 | integration-checker | ✓ | | | ✓ | ✓ | ✓ | | | |

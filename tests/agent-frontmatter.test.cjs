@@ -492,6 +492,9 @@ describe('EDITWRITE: section-writer agents must have both Write and Edit in tool
     'gsd-ui-researcher',
     'gsd-debug-session-manager',
     'gsd-planner', // #973: planner lacked Edit; whole-file Write truncated ROADMAP.md
+    // Step 9 revises ROADMAP.md/REQUIREMENTS.md in place ("Edit, not rewrite");
+    // without Edit the revision degrades to a whole-file Write the write-guard blocks.
+    'gsd-roadmapper',
   ];
 
   for (const agent of SECTION_WRITER_AGENTS) {
