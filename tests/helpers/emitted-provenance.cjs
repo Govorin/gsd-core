@@ -165,6 +165,19 @@ const FORK_AGENT_GRANT_SRCS = [
   'capabilities/mn-nx-tasks/capability.json',
 ];
 
+/** Every agent some first-party capability's agentTools block lists (read once, from the declarations). */
+let agentToolsAgentsCache = null;
+function agentToolsAgents() {
+  if (agentToolsAgentsCache) return agentToolsAgentsCache;
+  const fs = require('node:fs');
+  const dir = path.join(__dirname, '..', '..', 'capabilities');
+  agentToolsAgentsCache = new Set(fs.readdirSync(dir)
+    .map((id) => path.join(dir, id, 'capability.json'))
+    .filter((file) => fs.existsSync(file))
+    .flatMap((file) => JSON.parse(fs.readFileSync(file, 'utf8')).agentTools?.agents ?? []));
+  return agentToolsAgentsCache;
+}
+
 const AGENT_TRANSFORM_SRCS = [
   'src/runtime-artifact-conversion.cts',
   'src/install-effort-resolver.cts',
@@ -396,8 +409,11 @@ const PROVENANCE_RULES = [
     sources: (m) => [`agents/${m[1]}.md`],
     // Fork (ADR-5210 amendment): the subagent .md is the staged agent body, so a
     // declared reference pointer moves it without touching agents/<name>.md. Kimi
-    // drops MCP grants, so before the pointer nothing here moved it.
-    transforms: FORK_AGENT_GRANT_SRCS,
+    // drops MCP grants, so only that pointer can move it: the grant sources explain
+    // the .md of an agent some agentTools block lists, never a .yaml, never another agent.
+    transforms: (m) => (m[2] === 'md' && agentToolsAgents().has(m[1].replace(/\.compact$/, ''))
+      ? FORK_AGENT_GRANT_SRCS
+      : []),
   },
   {
     id: 'hooks-built',

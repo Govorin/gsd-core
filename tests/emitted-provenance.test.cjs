@@ -382,6 +382,19 @@ test('a rule with no transforms field still returns an empty array, never undefi
   assert.deepEqual(got.transforms, [], 'absence of transforms must be a stable empty array, not undefined');
 });
 
+test('Kimi subagents: the grant sources explain only the .md of an agent an agentTools block lists (fork, ADR-5210)', () => {
+  const grantSources = [
+    'src/mn-agent-tools.cts',
+    'capabilities/mn-code-navigation/capability.json',
+    'capabilities/mn-nx-tasks/capability.json',
+  ];
+  // gsd-debugger carries the nx-tasks reference pointer; its .md is the staged body.
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-debugger.md', 'kimi').transforms, grantSources);
+  // The .yaml descriptor carries no body, and an agent no block lists has no pointer.
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-debugger.yaml', 'kimi').transforms, []);
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-nyquist-auditor.md', 'kimi').transforms, []);
+});
+
 test('a FUNCTION-valued transforms field is invoked with (match, ctx) and its array is returned', () => {
   // hooks-built's `.cmd` special-case exercises this in production, but this test
   // pins the general contract with an injected rule so it does not depend on
