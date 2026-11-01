@@ -1,0 +1,5 @@
+---
+type: Added
+pr: 0
+---
+**Bash cannot delete .planning/ (Claude Code)** — a new PreToolUse guard, `gsd-planning-delete-guard.js`, denies a command that would remove or move the `.planning` directory, recursively remove a directory that holds it (the project or an ancestor) or a subtree of it, remove a state file (`config.json`, `STATE.md`, `ROADMAP.md`, `PROJECT.md`, `MILESTONES.md`), or move a directory or state file out of it — through `rm`, `unlink`, `shred`, `rmdir`, `mv`, `find -delete`/`-exec rm`, `git clean`, `git rm -f` and `xargs rm`, with relative targets resolved after `cd X &&`, globs expanded and `bash -c`/`$( )` read. A recorded run lost uncommitted config this way when a failed `cd` left `rm -rf .planning` to run in the main checkout. Removing a single scratch file, removing the regenerated `.planning/codebase` and `.planning/tmp`, and moving files within `.planning/` stay allowed, because workflows do all three. The deny says what to do instead (`gsd_run phase remove`, `/gsd-cleanup`, `git worktree remove`). Off switch: `workflow.planning_delete_guard: false`. Commands are read by the secret read guard's scanner, now exported for this.

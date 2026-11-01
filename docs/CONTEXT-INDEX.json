@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 362,
+  "count": 366,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 3,
@@ -21,8 +21,8 @@
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
     "RETRO": 14,
-    "RULESET": 62,
-    "SEAM": 46,
+    "RULESET": 64,
+    "SEAM": 48,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
     "WAVE": 5,
@@ -1186,6 +1186,16 @@
       "value": "~/.claude/hooks/test-memory-guard.sh fires on every Bash PreToolUse; if argv[0]∈{node|vitest|jest|mocha|tsx|ts-node|tap|ava|playwright|cypress} OR matches (npm|pnpm|yarn|bun) (run )?(t|test|tests|vitest|jest); blocks via hookSpecificOutput.permissionDecision=deny when sum(RSS of running matching procs, excluding tsserver|*-mcp|claude|Electron|...) ≥ 4 GiB OR when argv[0] basename matches a running process's argv[0]. Exception: node --version|-v|--help|-h|-p|-e are trivial probes and skip the check. Designed for a 24 GB Mac where prior accidental fan-out exhausted RAM"
     },
     {
+      "id": "RULESET.HOOK.PLANNING_DELETE_GUARD",
+      "klass": "RULESET",
+      "value": "fork: Bash that removes or moves .planning/, recursively removes a directory holding one (project, ancestor, a checkout with a .planning child) or a .planning subtree, removes a state file, or moves one out is denied (hooks/gsd-planning-delete-guard.js, Claude Code only, workflow.planning_delete_guard absent=on). A cd may fail: a target is judged under every possible cwd (past ; / newline / || / | the pre-cd cwd counts again); recursive removal of an absent .planning path fails closed. Exempt because workflows do them: one scratch file, moves within .planning, .planning/codebase and .planning/tmp, REQUIREMENTS.md, a run-time path ($WORKSPACE_PATH)"
+    },
+    {
+      "id": "RULESET.HOOK.UNATTENDED_ASK",
+      "klass": "RULESET",
+      "value": "fork: prohibition_guard / test_tamper_guard in \"ask\" answer deny only while the run-scoped auto-chain runs (readAutoModeState().auto_chain_active), never on workflow.auto_advance alone — a standing preference whose owner may be at the terminal (hooks/lib/unattended-ask.js); an unreadable state keeps ask"
+    },
+    {
       "id": "RULESET.MANIFEST-CANONICAL-KEY",
       "klass": "RULESET",
       "value": "docs/INVENTORY-MANIFEST.json has a single top-level key: families; ALL EIGHT families.* arrays (agents/commands/workflows/references/cli_modules/hooks flat, plus workflow_modes/workflow_steps nested — #2996, epic #1671 Phase 6.5) are canonical, consumed by test suites — tests/inventory-manifest-sync.test.cjs reads all eight, edit-phase/enh-2380/enh-2430 tests read commands+workflows; the six flat families are keyed by BARE BASENAME while the two nested families are keyed by <workflow>/<subdir>/<file> path, deliberately, because two workflows may each own a same-named step file and a basename key would silently drop one under a JSON-equality comparison; recursion is bounded at exactly one named subdirectory, never a general walk; the family tables live ONCE in scripts/gen-inventory-manifest.cjs and are IMPORTED by the test (the test formerly redeclared them, a DEFECT.GENERATIVE-FIX divergence that let a new family be verified by nobody while still reporting green); the old generated date field and the stale top-level workflows key are both gone; regen via node scripts/gen-inventory-manifest.cjs --write, AFTER build:lib; #3762 added the ROSTER half — tests/inventory-manifest-sync.test.cjs now also asserts every manifest entry has a hand-written row in docs/INVENTORY.md, via the pure matcher in tests/helpers/inventory-roster.cjs. Scope is the SIX FLAT families only, each searched inside its own `## ` section; workflow_steps/workflow_modes are DELIBERATELY exempt because docs/INVENTORY.md §\"Workflow Sub-Files\" is a shipped decision that they carry no hand-written per-file rows. Matching is whole-CELL-exact (never substring — the rostered host-integration-adapters/imperative-hook-bus.cjs must not satisfy the separate top-level hook-bus.cjs) and section-scoped (smart-entry.md and smart-entry.cjs are different families), EXCEPT commands, which match on the row's Source-column link to ../commands/gsd/<file>.md because the six ns-* namespace routers deliberately RENDER a name that is not their file stem (/gsd-workflow ← ns-workflow.md) — DEFECT.DISPLAY-VALUE-AS-IDENTITY. Landing the gate required backfilling 32 pre-existing unrostered surfaces on next"
@@ -1529,6 +1539,16 @@
       "id": "SEAM.runtime-descriptor-owner.owns",
       "klass": "SEAM",
       "value": "hostBehaviorsFor / assertKnownRuntime (src/runtime-name-policy.cts) are the single owners of a runtime's host behaviors and of refusing an unknown runtime id; no install or hook code compares a runtime-name literal (ADR-5057 §5, #5169)"
+    },
+    {
+      "id": "SEAM.shell-scan-owner.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/gsd-planning-delete-guard.test.cjs"
+    },
+    {
+      "id": "SEAM.shell-scan-owner.owns",
+      "klass": "SEAM",
+      "value": "fork:shell-scan-export. hooks/gsd-secret-read-guard.js is the one Bash command reader; required as a module it exports tokenize / resolveCommand / expandBraces / globAltToRegex / MAX_NESTING_DEPTH and leaves stdin alone. A second Bash-reading hook requires it instead of carrying a tokenizer (first: hooks/gsd-planning-delete-guard.js), loading it under its own crash policy"
     },
     {
       "id": "SEAM.shellcmdproj-win-binary-resolution.enforced-by",

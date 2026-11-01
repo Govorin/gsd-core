@@ -71,10 +71,11 @@ const HOOKS_TO_COPY = [
   // at runtime — those ship as part of the full gsd-core/ tree, not via this
   // list.
   'gsd-agent-isolation-guard.js',
-  // mn fork — enforcement layer. Each requires nothing beyond Node built-ins and
-  // ./lib/hook-exit.js (the ADR-3889 exit seam), which ships through
-  // HOOKS_SUBDIRS_TO_COPY like every upstream guard's; no sibling hook is
-  // required, so the #606 same-dir rule holds.
+  // mn fork — enforcement layer. Each requires Node built-ins and ./lib/
+  // (the ADR-3889 exit seam), which ships through HOOKS_SUBDIRS_TO_COPY like
+  // every upstream guard's; the planning delete guard alone also requires a
+  // sibling hook, gsd-secret-read-guard.js, shipped from this list, so the #606
+  // same-dir rule holds.
   //
   // Prohibition guard: blocks a write outside the running plan's declared
   // files_modified. blast-radius at verify:pre, moved to the write.
@@ -82,6 +83,11 @@ const HOOKS_TO_COPY = [
   // Test tamper guard: blocks a write that removes assertions or newly skips
   // tests. assertion-ratchet at verify:pre, moved to the write.
   'gsd-test-tamper-guard.js',
+  // Planning delete guard: denies Bash that would remove or move .planning/,
+  // a directory holding it, a subtree of it or a state file. Reads commands
+  // through gsd-secret-read-guard.js's scanner (one shell reader), so it
+  // requires that sibling — shipped from this same list (#606).
+  'gsd-planning-delete-guard.js',
   // Executor exit gate: runs the project's own check command when an executor
   // stops, and refuses the stop while it is red.
   'gsd-exit-gate.js',

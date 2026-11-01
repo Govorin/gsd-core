@@ -1129,6 +1129,34 @@ socket: `nx_running_tasks`, `nx_task_output`, `nx_wait_for`. ADR-5210 amended.
   the frozen registry (agents ship, grants land, the reference ships and reaches each agent).
   (5) Limits name the single-task case (`nx serve app` unseen without `NX_TUI=true`).
 
+### .planning delete guard and unattended ask (2026-11-01)
+
+Branch `feat/planning-guard-hooks` (review items S1/GYL-8, S2/GYL-3 of
+`.plans/gsd-usage-review-2026-10/REVIEW.md`).
+
+- **S1 — `hooks/gsd-planning-delete-guard.js`** (PreToolUse Bash, fork enforcement layer, Claude
+  Code only). Incident: a gsd-code-fixer's broken `cd` chain ran `rm -rf .planning` in the main
+  checkout and lost uncommitted config/state. Denies removing/moving `.planning`, recursive
+  removal of the project, an ancestor, a checkout with a `.planning` child or a `.planning`
+  subtree, removing a state file, moving one out; via rm/unlink/shred/rmdir/mv/find -delete/
+  git clean/git rm -f/xargs rm. Targets are judged under every possible cwd — a `cd` may fail,
+  so past `;`/newline/`||`/`|` the pre-cd cwd counts again; an absent recursive target under
+  `.planning` fails closed; `git clean` in an unplaceable directory fails closed; `:/` is the
+  repo root. Exempt (workflows do them): single scratch files, moves within `.planning`,
+  `.planning/codebase` (map-codebase Refresh), `.planning/tmp`, REQUIREMENTS.md
+  (complete-milestone), run-time paths (`rm -rf "$WORKSPACE_PATH"`). Commands are read by the
+  secret read guard's scanner, now exported (`fork:shell-scan-export`); a missing scanner falls
+  open. Off switch `workflow.planning_delete_guard: false`.
+- **S2 — `hooks/lib/unattended-ask.js`.** prohibition/test-tamper guards in `ask` answer `deny`
+  (reason kept, `unattended: true`) while the run-scoped auto-chain runs
+  (`readAutoModeState().auto_chain_active`); `workflow.auto_advance` alone keeps `ask`. Depends on
+  the auto-chain state move (`gsd-tools auto-chain set`, `.gsd/auto-chain/`) and on autonomous
+  holding that flag for the whole run; until then `/gsd-autonomous` prints a startup warning
+  for a guard left at `ask`.
+
+**Do not retry:** extracting the secret guard's tokenizer into `hooks/lib/` (every upstream change
+to it would conflict) — the require.main wrap + export is two lines of upstream diff.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length

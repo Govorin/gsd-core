@@ -547,6 +547,7 @@ const PI_HOOK_DISPOSITIONS = Object.freeze({
   // (FORK_ENFORCEMENT_RUNTIMES in src/runtime-hooks-surface.cts); the Pi bridge does not run it.
   'gsd-prohibition-guard.js': [{ claude: 'PreToolUse', status: 'unsupported', reason: 'fork enforcement layer, registered on Claude Code only; denies through the PreToolUse permissionDecision protocol' }],
   'gsd-test-tamper-guard.js': [{ claude: 'PreToolUse', status: 'unsupported', reason: 'fork enforcement layer, registered on Claude Code only; denies through the PreToolUse permissionDecision protocol' }],
+  'gsd-planning-delete-guard.js': [{ claude: 'PreToolUse', status: 'unsupported', reason: 'fork enforcement layer, registered on Claude Code only; denies through the PreToolUse permissionDecision protocol' }],
   'gsd-exit-gate.js': [{ claude: 'SubagentStop', status: 'unsupported', reason: 'fork enforcement layer, registered on Claude Code only; a dispatched Pi role is a separate process with no extensions' }],
   'gsd-pin-invariants.js': [{ claude: 'SessionStart', status: 'unsupported', reason: 'fork enforcement layer: re-injects plan invariants through SessionStart hookSpecificOutput after a Claude Code compaction; the Pi bridge carries no such injection' }],
   'gsd-worktree-provision.js': [

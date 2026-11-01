@@ -2910,11 +2910,13 @@ function applyForkEnforcementHooks(settings: any, opts: ApplySettingsJsonHooksOp
   // scans for exactly that shape.
   const prohibitionGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-prohibition-guard.js', hookOpts) : localCmd('gsd-prohibition-guard.js');
   const testTamperGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-test-tamper-guard.js', hookOpts) : localCmd('gsd-test-tamper-guard.js');
+  const planningDeleteGuardCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-planning-delete-guard.js', hookOpts) : localCmd('gsd-planning-delete-guard.js');
   const exitGateCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-exit-gate.js', hookOpts) : localCmd('gsd-exit-gate.js');
   const pinInvariantsCommand = isGlobal ? buildHookCommand(targetDir, 'gsd-pin-invariants.js', hookOpts) : localCmd('gsd-pin-invariants.js');
   const forkHooks: Array<{ file: string; command: string | null; event: string; matcher?: string; timeout: number; label: string }> = [
     { file: 'gsd-prohibition-guard.js', command: prohibitionGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'prohibition guard (writes outside files_modified)' },
     { file: 'gsd-test-tamper-guard.js', command: testTamperGuardCommand, event: preToolEvent, matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'test tamper guard (dropped assertions / new skips)' },
+    { file: 'gsd-planning-delete-guard.js', command: planningDeleteGuardCommand, event: preToolEvent, matcher: 'Bash', timeout: BLOCKING_GUARD_TIMEOUT_S, label: 'planning delete guard (rm / mv / git clean of .planning)' },
     { file: 'gsd-exit-gate.js', command: exitGateCommand, event: 'SubagentStop', timeout: FORK_EXIT_GATE_TIMEOUT_S, label: 'executor exit gate' },
     { file: 'gsd-pin-invariants.js', command: pinInvariantsCommand, event: 'SessionStart', timeout: FORK_PIN_TIMEOUT_S, label: 'invariant pin (session start and after compaction)' },
   ];
@@ -3374,14 +3376,15 @@ const BLOCKING_GUARD_NAMES: readonly string[] = [
 // intentional and explicit, not an accident of two hand-kept lists.
 const KIMI_UNREGISTERED_BLOCKING_GUARDS: readonly string[] = ['gsd-agent-isolation-guard'];
 
-// mn fork enforcement hooks (applySettingsJsonHooks). The two write guards are
-// blocking guards held to BLOCKING_GUARD_TIMEOUT_S, but they stay OUT of
+// mn fork enforcement hooks (applySettingsJsonHooks). The two write guards and
+// the planning delete guard (Bash) are blocking guards held to
+// BLOCKING_GUARD_TIMEOUT_S, but they stay OUT of
 // BLOCKING_GUARD_NAMES: that list also drives Kimi's config.toml, where the
 // fork guards are not registered. FORK_BLOCKING_GUARD_NAMES is their own list,
 // joined to the shared one by the settings.json 5 s → 120 s migration on the
 // runtimes in FORK_ENFORCEMENT_RUNTIMES.
 const FORK_ENFORCEMENT_RUNTIMES: ReadonlySet<string> = new Set(['claude']);
-const FORK_BLOCKING_GUARD_NAMES: readonly string[] = ['gsd-prohibition-guard', 'gsd-test-tamper-guard'];
+const FORK_BLOCKING_GUARD_NAMES: readonly string[] = ['gsd-prohibition-guard', 'gsd-test-tamper-guard', 'gsd-planning-delete-guard'];
 // The exit gate runs the project's check under its own 600 s default cap.
 const FORK_EXIT_GATE_TIMEOUT_S = 620;
 // The pin only reads .planning/ files and never blocks: a timed-out pin costs
@@ -3406,6 +3409,7 @@ const FORK_WORKTREE_REMOVE_TIMEOUT_S = 180;
 const FORK_ENFORCEMENT_SLOTS: ReadonlyArray<Readonly<{ event: string; file: string }>> = Object.freeze([
   Object.freeze({ event: 'pre', file: 'gsd-prohibition-guard.js' }),
   Object.freeze({ event: 'pre', file: 'gsd-test-tamper-guard.js' }),
+  Object.freeze({ event: 'pre', file: 'gsd-planning-delete-guard.js' }),
   Object.freeze({ event: 'SubagentStop', file: 'gsd-exit-gate.js' }),
   Object.freeze({ event: 'SessionStart', file: 'gsd-pin-invariants.js' }),
   Object.freeze({ event: 'WorktreeCreate', file: 'gsd-worktree-provision.js' }),

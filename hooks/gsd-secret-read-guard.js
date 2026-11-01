@@ -2000,6 +2000,14 @@ function normalizeKimiPayload(data) {
   return data;
 }
 
+// mn fork (fork:shell-scan-export): the Bash scanner above is the one shell
+// reader GSD ships, so gsd-planning-delete-guard.js reads commands through it
+// instead of carrying a second tokenizer. Required as a module it exports the
+// scanner and does not touch stdin; the body below is left unindented so an
+// upstream change to it still merges.
+module.exports = { tokenize, resolveCommand, expandBraces, globAltToRegex, MAX_NESTING_DEPTH };
+
+if (require.main === module) {
 let input = '';
 const stdinTimeout = setTimeout(() => allow(undefined), 3000);
 process.stdin.setEncoding('utf8');
@@ -2061,3 +2069,4 @@ process.stdin.on('end', () => {
     crash(ON_CRASH, undefined);
   }
 });
+}
