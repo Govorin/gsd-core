@@ -12,9 +12,12 @@
  *
  * Matrix per guard: ask+auto → deny (marked unattended), ask+manual → ask,
  * deny+auto and deny+manual → deny (not marked), off+auto → allow. The auto
- * signal is injected for the matrix (`isAutoRun`), and read for real — through
- * readAutoModeState, from `workflow.auto_advance` in config.json — on the
- * process-seam cases, where the exit code is the enforcement.
+ * signal is injected for the matrix (`isAutoRun`), and read for real through
+ * readAutoModeState on the process-seam cases, where the exit code is the
+ * enforcement: once from the persistent `workflow.auto_advance` setting, and
+ * once from an auto-chain set by `gsd-tools auto-chain set` — the chain is run
+ * state outside config.json, so it is set through its own verb, never by
+ * writing the file the tests do not own.
  */
 
 process.env.GSD_TEST_MODE = '1';
@@ -25,7 +28,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { runHook, OUTCOME } = require('./helpers/process-seam.cjs');
 const { QUICK_SPAWN_TIMEOUT_MS } = require('./helpers/timeouts.cjs');
-const { createTempDir, cleanup } = require('./helpers.cjs');
+const { createTempDir, cleanup, runGsdTools } = require('./helpers.cjs');
 
 const HOOKS_DIR = path.join(__dirname, '..', 'hooks');
 const prohibition = require(path.join(HOOKS_DIR, 'gsd-prohibition-guard.js'));
@@ -146,6 +149,25 @@ for (const guard of GUARDS) {
       assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
       assert.equal(out.unattended, true);
       assert.equal(r.stderr, out.reason);
+    });
+
+    test('through the hook: ask + an active auto-chain exits 2 with an unattended deny', (t) => {
+      writeConfig(dir, { [guard.key]: 'ask' });
+      const set = runGsdTools(['auto-chain', 'set'], dir);
+      if (!set.success) {
+        // The run-scoped chain verb lands with the auto-chain state move; until
+        // then auto_advance above is the only real signal to drive.
+        t.skip('gsd-tools auto-chain set is not available in this tree');
+        return;
+      }
+      const r = runHook(path.join(HOOKS_DIR, guard.file), [], {
+        input: JSON.stringify(guard.payload(dir)),
+        cwd: dir,
+        timeoutMs: QUICK_SPAWN_TIMEOUT_MS,
+      });
+      assert.equal(r.outcome, OUTCOME.EXITED);
+      assert.equal(r.exitCode, 2, `exit 2 is what blocks the call; stdout=${r.stdout}`);
+      assert.equal(JSON.parse(r.stdout).unattended, true);
     });
 
     test('through the hook: ask without auto mode exits 0 with an ask', () => {
