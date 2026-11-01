@@ -155,13 +155,28 @@ const KIMI_ROOT_AGENT_SRC = 'src/runtime-artifact-layout.cts';
  * changes the bytes.
  */
 // Fork (ADR-5210): capability-declared grants are appended to agents' tools: at
-// staging, so the declaration and the module applying it move every listed
-// agent's emitted bytes — the Copilot `.agent.md` rename included — without
-// touching its agents/*.md source.
+// staging, and a declared reference adds a pointer line to the body, so the
+// declarations and the module applying them move every listed agent's emitted
+// bytes — the Copilot `.agent.md` rename included — without touching its
+// agents/*.md source.
 const FORK_AGENT_GRANT_SRCS = [
   'src/mn-agent-tools.cts',
   'capabilities/mn-code-navigation/capability.json',
+  'capabilities/mn-nx-tasks/capability.json',
 ];
+
+/** Every agent some first-party capability's agentTools block lists (read once, from the declarations). */
+let agentToolsAgentsCache = null;
+function agentToolsAgents() {
+  if (agentToolsAgentsCache) return agentToolsAgentsCache;
+  const fs = require('node:fs');
+  const dir = path.join(__dirname, '..', '..', 'capabilities');
+  agentToolsAgentsCache = new Set(fs.readdirSync(dir)
+    .map((id) => path.join(dir, id, 'capability.json'))
+    .filter((file) => fs.existsSync(file))
+    .flatMap((file) => JSON.parse(fs.readFileSync(file, 'utf8')).agentTools?.agents ?? []));
+  return agentToolsAgentsCache;
+}
 
 const AGENT_TRANSFORM_SRCS = [
   'src/runtime-artifact-conversion.cts',
@@ -392,6 +407,13 @@ const PROVENANCE_RULES = [
     // install.js:2344 — `yamlPath: agents/subagents/${subagent.name}.yaml`.
     pattern: /^subagents\/([^/]+)\.(md|yaml)$/,
     sources: (m) => [`agents/${m[1]}.md`],
+    // Fork (ADR-5210 amendment): the subagent .md is the staged agent body, so a
+    // declared reference pointer moves it without touching agents/<name>.md. Kimi
+    // drops MCP grants, so only that pointer can move it: the grant sources explain
+    // the .md of an agent some agentTools block lists, never a .yaml, never another agent.
+    transforms: (m) => (m[2] === 'md' && agentToolsAgents().has(m[1].replace(/\.compact$/, ''))
+      ? FORK_AGENT_GRANT_SRCS
+      : []),
   },
   {
     id: 'hooks-built',

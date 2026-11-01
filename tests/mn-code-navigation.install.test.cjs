@@ -36,6 +36,15 @@ const CAPABILITY = JSON.parse(
 );
 const GRANTS = CAPABILITY.agentTools.grants;
 const LISTED = new Set(CAPABILITY.agentTools.agents);
+// Every first-party agentTools declaration, in capability id order — the order the
+// installer applies them. Read from the declarations, not the module, so the oracle
+// stays independent; code navigation is one of them (mn-nx-tasks is another).
+const CAPABILITIES_DIR = path.join(REPO_ROOT, 'capabilities');
+const DECLARED = fs.readdirSync(CAPABILITIES_DIR).sort()
+  .map((id) => path.join(CAPABILITIES_DIR, id, 'capability.json'))
+  .filter((file) => fs.existsSync(file))
+  .map((file) => JSON.parse(fs.readFileSync(file, 'utf8')).agentTools)
+  .filter(Boolean);
 
 function toolsOf(content) {
   const tools = parseFrontmatter(content).tools;
@@ -49,12 +58,21 @@ function canonicalTools(agentName) {
   return toolsOf(fs.readFileSync(path.join(AGENTS_DIR, `${agentName}.md`), 'utf8'));
 }
 
-/** What an installed agent's tools must be: canonical, then the grants it does not already declare. */
+/** What an installed agent's tools must be: canonical, then every declared grant it does not already carry. */
 function expectedTools(agentName) {
-  const base = canonicalTools(agentName);
-  if (!LISTED.has(agentName)) return base;
-  return [...base, ...GRANTS.filter((grant) => !base.includes(grant))];
+  const tools = [...canonicalTools(agentName)];
+  for (const { grants, agents } of DECLARED) {
+    if (!agents.includes(agentName)) continue;
+    for (const grant of grants) if (!tools.includes(grant)) tools.push(grant);
+  }
+  return tools;
 }
+
+/** The code-navigation part of an installed tools list, in order. */
+const navigationOf = (tools) => tools.filter((tool) => GRANTS.includes(tool));
+
+/** The expected tools with code navigation switched off: every other declaration still applies. */
+const withoutNavigation = (agentName) => expectedTools(agentName).filter((tool) => !GRANTS.includes(tool));
 
 function writeJson(file, value) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -109,21 +127,33 @@ describe('mn-code-navigation: the declaration', () => {
       registry: require('../gsd-core/bin/lib/capability-registry.cjs'),
       homedir: () => home,
     });
-    for (const agent of LISTED) assert.deepStrictEqual(grantsForAgent(grants, agent), GRANTS, agent);
+    for (const agent of LISTED) assert.deepStrictEqual(navigationOf(grantsForAgent(grants, agent)), GRANTS, agent);
   });
 
-  test('gsd-executor is granted code navigation only, never a browser family (#2856)', (t) => {
+  test('gsd-executor is granted reviewed MCP families only, never a browser family (#2856)', (t) => {
     // live-dom-uat guards the executor's tools: line, but the fork's grants now arrive at
-    // install. An allowlist here keeps that guard true for what the installer adds.
+    // install. An allowlist here keeps that guard true for what the installer adds:
+    // code navigation, and the nx-tasks screen reader (mn-nx-tasks), which reads the
+    // user's terminal runs and drives no browser.
     const home = createTempDir('gsd-mn-nav-executor-home-');
     t.after(() => cleanup(home));
     const grants = grantsForAgent(readCapabilityAgentTools(null, {
       registry: require('../gsd-core/bin/lib/capability-registry.cjs'),
       homedir: () => home,
     }), 'gsd-executor');
-    const navigation = ['mcp__atlas__*', 'mcp__plugin_serena_serena__*', 'mcp__codebase-memory-mcp__*'];
+    const reviewed = ['mcp__atlas__*', 'mcp__plugin_serena_serena__*', 'mcp__codebase-memory-mcp__*', 'mcp__nx-tasks__*'];
     assert.ok(grants.length > 0, 'the executor is among the granted agents');
-    assert.deepStrictEqual(grants.filter((grant) => !navigation.includes(grant)), []);
+    assert.deepStrictEqual(grants.filter((grant) => !reviewed.includes(grant)), []);
+  });
+
+  test('code navigation comes first and whole on every agent it lists, whatever else is declared', (t) => {
+    const home = createTempDir('gsd-mn-nav-order-home-');
+    t.after(() => cleanup(home));
+    const grants = readCapabilityAgentTools(null, {
+      registry: require('../gsd-core/bin/lib/capability-registry.cjs'),
+      homedir: () => home,
+    });
+    for (const agent of LISTED) assert.deepStrictEqual(grantsForAgent(grants, agent).slice(0, GRANTS.length), GRANTS, agent);
   });
 });
 
@@ -206,13 +236,14 @@ describe('mn-code-navigation: the staging pipeline', () => {
       if (savedGsdHome === undefined) delete process.env.GSD_HOME;
       else process.env.GSD_HOME = savedGsdHome;
     });
-    writeJson(path.join(home, '.gsd', 'defaults.json'), { agent_tools: { 'gsd-verifier': ['WebFetch', GRANTS[1]] } });
+    // gsd-planner: listed by code navigation alone, so its grants are the only capability ones.
+    writeJson(path.join(home, '.gsd', 'defaults.json'), { agent_tools: { 'gsd-planner': ['WebFetch', GRANTS[1]] } });
     // An upstream that already ships one of the grants on the line.
-    fs.writeFileSync(path.join(src, 'gsd-verifier.md'),
-      `---\nname: gsd-verifier\ntools: Read, ${GRANTS[0]}\n---\nbody\n`, 'utf8');
+    fs.writeFileSync(path.join(src, 'gsd-planner.md'),
+      `---\nname: gsd-planner\ntools: Read, ${GRANTS[0]}\n---\nbody\n`, 'utf8');
 
     const staged = stageAgentsForRuntimeWithConverter(src, { skills: '*' }, (content) => content);
-    const tools = toolsOf(fs.readFileSync(path.join(staged, 'gsd-verifier.md'), 'utf8'));
+    const tools = toolsOf(fs.readFileSync(path.join(staged, 'gsd-planner.md'), 'utf8'));
     assert.deepStrictEqual(tools, ['Read', ...GRANTS, 'WebFetch']);
   });
 });
@@ -234,12 +265,12 @@ describe('mn-code-navigation: installed agents', () => {
 
   test('Claude: code_navigation.enabled=false in the project config drops the grants', (t) => {
     const configDir = install(t, 'claude', { projectConfig: { code_navigation: { enabled: false } } });
-    assert.deepStrictEqual(installedTools(configDir, 'agents', 'gsd-verifier.md'), canonicalTools('gsd-verifier'));
+    assert.deepStrictEqual(installedTools(configDir, 'agents', 'gsd-verifier.md'), withoutNavigation('gsd-verifier'));
   });
 
   test('Claude: false in the global defaults drops them; true in the project config wins back', (t) => {
     const off = install(t, 'claude', { defaults: { code_navigation: { enabled: false } } });
-    assert.deepStrictEqual(installedTools(off, 'agents', 'gsd-executor.md'), canonicalTools('gsd-executor'));
+    assert.deepStrictEqual(installedTools(off, 'agents', 'gsd-executor.md'), withoutNavigation('gsd-executor'));
     const on = install(t, 'claude', {
       defaults: { code_navigation: { enabled: false } },
       projectConfig: { code_navigation: { enabled: true } },

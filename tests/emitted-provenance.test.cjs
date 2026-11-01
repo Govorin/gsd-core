@@ -375,10 +375,24 @@ test('#4482 runtime-note-filtered command and skill surfaces declare their conve
 });
 
 test('a rule with no transforms field still returns an empty array, never undefined', () => {
-  // Fork (ADR-5210): copilot-agent-rename now carries the capability-grant
-  // transforms, so the exemplar is Kimi's subagent rule, which still has none.
-  const got = attributeEmittedPath('agents/subagents/gsd-planner.yaml', 'kimi');
+  // Fork (ADR-5210): copilot-agent-rename and, since the reference pointer, Kimi's
+  // subagent rule carry the capability-grant transforms, so the exemplar is Kimi's
+  // root agent rule, which still has none.
+  const got = attributeEmittedPath('agents/gsd.yaml', 'kimi');
   assert.deepEqual(got.transforms, [], 'absence of transforms must be a stable empty array, not undefined');
+});
+
+test('Kimi subagents: the grant sources explain only the .md of an agent an agentTools block lists (fork, ADR-5210)', () => {
+  const grantSources = [
+    'src/mn-agent-tools.cts',
+    'capabilities/mn-code-navigation/capability.json',
+    'capabilities/mn-nx-tasks/capability.json',
+  ];
+  // gsd-debugger carries the nx-tasks reference pointer; its .md is the staged body.
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-debugger.md', 'kimi').transforms, grantSources);
+  // The .yaml descriptor carries no body, and an agent no block lists has no pointer.
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-debugger.yaml', 'kimi').transforms, []);
+  assert.deepEqual(attributeEmittedPath('agents/subagents/gsd-nyquist-auditor.md', 'kimi').transforms, []);
 });
 
 test('a FUNCTION-valued transforms field is invoked with (match, ctx) and its array is returned', () => {

@@ -2,7 +2,7 @@
 name: gsd-debugger
 description: "Investigates bugs using scientific method, manages debug sessions, handles checkpoints. Spawned by /gsd:debug orchestrator."
 tools: read, write, edit, bash, grep, find
-# tools with no Pi equivalent, dropped: Skill, WebSearch, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+# tools with no Pi equivalent, dropped: Skill, WebSearch, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*, mcp__nx-tasks__*
 ---
 
 
@@ -1272,3 +1272,5 @@ Never skip the red phase. A test that passes before the fix tells you nothing.
 - [ ] Fix verified against original symptoms
 - [ ] Appropriate return format based on mode
 </success_criteria>
+
+**Granted at install:** if your tools include `mcp__nx-tasks__*`, Read `__GSD_PI_ENGINE_ROOT__/gsd-core/references/nx-live-stack.md` before you start; it says when to use them.
