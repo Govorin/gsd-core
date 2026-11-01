@@ -228,6 +228,7 @@ export function projectManagedHookCommand({ absoluteRunner, scriptPath, runtime 
 const FORK_MANAGED_SETTINGS_HOOK_BASENAMES = [
   'gsd-prohibition-guard.js',
   'gsd-test-tamper-guard.js',
+  'gsd-planning-delete-guard.js',
   'gsd-exit-gate.js',
   'gsd-pin-invariants.js',
   'gsd-worktree-provision.js',

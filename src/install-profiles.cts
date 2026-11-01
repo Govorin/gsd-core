@@ -971,7 +971,8 @@ interface AgentCtx {
  *   1. applyAgentPathRewrites   (4 base ~/.claude/ regexes; skipped for copilot/antigravity)
  *   2. processAttribution       (Co-Authored-By policy)
  *   3. appendAgentTools         (#4032: validated agent_tools grants, before host conversion;
- *      fork: capability-declared grants first, ADR-5210)
+ *      fork: capability-declared grants first, ADR-5210; their reference pointers are
+ *      appended to the body before step 1, on both paths)
  *   4. converter               (runtime-specific frontmatter/body transform)
  *   5. applyAgentFrontmatterExtensions (#2875 Part 2: effort/disallowedTools,
  *      gated by hostBehaviors.agentFrontmatterExtensions — no-op for a runtime
@@ -1031,6 +1032,7 @@ function stageAgentsForRuntimeWithConverter(
     const cmdNames = agentCtx ? _readGsdCommandNames() : [];
     const agentTools = installModelOverrideResolver.readGsdEffectiveAgentTools(agentCtx?.projectDir ?? agentCtx?.targetDir ?? null);
     const capabilityTools = mnAgentTools.readCapabilityAgentTools(agentCtx?.projectDir ?? agentCtx?.targetDir ?? null);
+    const capabilityReferences = mnAgentTools.readCapabilityAgentReferences(agentCtx?.projectDir ?? agentCtx?.targetDir ?? null);
     for (const entry of entries) {
       if (!entry.isFile()) continue;
       if (!entry.name.endsWith('.md')) continue;
@@ -1050,6 +1052,9 @@ function stageAgentsForRuntimeWithConverter(
       // half-composed agent.
       content = _composeWorkflow(content, { sourcePath: agentSourcePath });
       const agentName = _deriveAgentName(entry.name);
+      // Fork (ADR-5210 amendment): the pointer to a granting capability's reference,
+      // before the path rewrites so its ~/.claude/ path becomes the runtime's.
+      content = mnAgentTools.appendAgentReferences(content, mnAgentTools.referencesForAgent(capabilityReferences, agentName));
       const grants = [
         ...mnAgentTools.grantsForAgent(capabilityTools, agentName),
         ...(agentTools?.['*'] || []),

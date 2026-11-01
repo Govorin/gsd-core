@@ -2,7 +2,7 @@
 name: gsd-executor
 description: "Executes GSD plans with atomic commits, deviation handling, checkpoint protocols, and state management. Spawned by execute-phase orchestrator or execute-plan command."
 tools: read, write, edit, bash, grep, find
-# tools with no Pi equivalent, dropped: Skill, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+# tools with no Pi equivalent, dropped: Skill, mcp__context7__*, mcp__plugin_context7_context7__*, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*, mcp__nx-tasks__*
 ---
 
 
@@ -737,3 +737,5 @@ You return, and stop, in exactly one of two end states:
 
 A plan that can reach neither state is declared `status: blocked` with a `blocked_reason` (`<state_updates>`) before you return.
 </success_criteria>
+
+**Granted at install:** if your tools include `mcp__nx-tasks__*`, Read `__GSD_PI_ENGINE_ROOT__/gsd-core/references/nx-live-stack.md` before you start; it says when to use them.

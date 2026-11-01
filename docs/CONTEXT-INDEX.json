@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "count": 368,
+  "count": 384,
   "classes": {
     "ARCH": 1,
-    "CAPABILITY": 1,
+    "CAPABILITY": 3,
     "CI": 2,
-    "CONFIG": 5,
+    "CONFIG": 8,
     "CONTENT-ROOT": 6,
     "EXEC": 8,
     "GSD-RESEARCH": 6,
@@ -21,11 +21,12 @@
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
     "RETRO": 14,
-    "RULESET": 62,
+    "RULESET": 64,
     "RUNSTATE": 6,
-    "SEAM": 46,
+    "SEAM": 50,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
+    "TOOL": 5,
     "UAT": 2,
     "WAVE": 5,
     "WORKSTREAM": 5,
@@ -43,6 +44,16 @@
       "value": "capability.json agentTools {grants: string[], agents: string[]} — read ONLY from the frozen first-party registry (capability-registry.cjs), never the installed overlay; grants go FIRST in the appendAgentTools list (then agent_tools \"*\", then agent_tools.<agent>), before the runtime converter, so each converter's MCP policy is unchanged; a .compact stem gets its agent's grants; a grant already on the line is not added twice; the capability's activationKey gates it (nearest .planning/config.json, then ~/.gsd/defaults.json, then the key's declared default; only false disables); a malformed block contributes nothing; agents/*.md never carries a declared grant (tests/mn-code-navigation.install.test.cjs)"
     },
     {
+      "id": "CAPABILITY.AGENT_TOOLS.reference",
+      "klass": "CAPABILITY",
+      "value": "optional agentTools.reference, a file name directly in gsd-core/references/ (/^[a-z0-9][a-z0-9-]*\\.md$/); every agent the block grants (and its .compact stem) gets ONE line appended at the end of its body — \"**Granted at install:** if your tools include <grants>, Read ~/.claude/gsd-core/references/<file> before you start; it says when to use them.\" — rendered by mn-agent-tools.cts, never capability free text; appended before the path rewrites, so each runtime gets its own path; same activation key as the grants (on together, off together); a malformed reference voids the whole block; several blocks give several lines in capability id order; no reference = byte-identical body; the line stays on runtimes whose converter drops the grant (worded as a condition on the agent's own tools) (ADR-5210 amendment 2026-11-01, tests/mn-nx-tasks.install.test.cjs)"
+    },
+    {
+      "id": "CAPABILITY.NX_TASKS",
+      "klass": "CAPABILITY",
+      "value": "capabilities/mn-nx-tasks: grants mcp__nx-tasks__* to gsd-executor, gsd-code-fixer, gsd-debugger, gsd-verifier, gsd-dom-verifier (the agents that build, fix, debug or live-check a running service; gsd-debug-session-manager only relays checkpoints and spawns debuggers, gsd-integration-checker traces wiring statically — both left out); reference gsd-core/references/nx-live-stack.md; key nx_tasks.enabled (default true); observes the user's terminal Nx runs only — never starts, restarts or kills them; an nx run the agent starts is unseen unless it passes --tui, a single-task run unless NX_TUI=true; in a linked worktree (git-dir != git-common-dir) the user's runs never see the agent's edits, so their output is no evidence either way"
+    },
+    {
       "id": "CI.GATE.changeset-lint",
       "klass": "CI",
       "value": "hard-fail for user-facing code diffs unless .changeset/* or PR has no-changelog label"
@@ -51,6 +62,21 @@
       "id": "CI.GATE.issue-link-required",
       "klass": "CI",
       "value": "hard-fail if PR body lacks closes/fixes/resolves #<issue>"
+    },
+    {
+      "id": "CONFIG.ADVISE.rules",
+      "klass": "CONFIG",
+      "value": "plan_chunked (max plans per active phase, disk or ROADMAP **Plans:** N plans of phases not checked done and either with a .planning/phases dir or under the STATE milestone's heading (extractCurrentMilestone keeps a preamble of old phases), >= 6 → workflow.plan_chunked + planning.chunked_parallel unless set) | code_review_point (one phase-end *-REVIEW.md critical+warning >= 5, skipped ignored → execute:wave:post) | verify_work (active phases with VERIFICATION human_needed or an open UAT >= 2 → verify-work <oldest> then audit-uat, no knob) | verify_gates (active VERIFICATION reports citing check commands >= 2 while verify_gates empty → verify_gates from the cited commands, named by kind or `checks` for a multi-kind command, + verify_gates_record unless set) | agent_tools (Tool Preflight missing on any unsummarized plan → agent_tools.<agent> + reinstall); already_enabled is decided by each rule's primary key, so a deliberately-off secondary key never yields a standing recommendation"
+    },
+    {
+      "id": "CONFIG.ADVISE.scope",
+      "klass": "CONFIG",
+      "value": "active milestone only (.planning/phases via listActiveAndArchivedPhaseDirs, milestone undefined); config read raw from planningDir/config.json then .planning/config.json (loadConfig does not project workflow.plan_chunked; planning.* it does keep)"
+    },
+    {
+      "id": "CONFIG.ADVISE.thresholds",
+      "klass": "CONFIG",
+      "value": "ADVISE_THRESHOLDS {PLANS_PER_PHASE 6, REVIEW_FIX_FINDINGS 5, HUMAN_VERIFICATION_PHASES 2, GATE_CITING_REPORTS 2}, each fires at >=; justified in the constant's comment and docs/CONFIGURATION.md \"Config advisor\"; tests at N-1, N, N+1"
     },
     {
       "id": "CONFIG.LOCATION.SEAM.in-process-scrub",
@@ -1178,6 +1204,16 @@
       "value": "~/.claude/hooks/test-memory-guard.sh fires on every Bash PreToolUse; if argv[0]∈{node|vitest|jest|mocha|tsx|ts-node|tap|ava|playwright|cypress} OR matches (npm|pnpm|yarn|bun) (run )?(t|test|tests|vitest|jest); blocks via hookSpecificOutput.permissionDecision=deny when sum(RSS of running matching procs, excluding tsserver|*-mcp|claude|Electron|...) ≥ 4 GiB OR when argv[0] basename matches a running process's argv[0]. Exception: node --version|-v|--help|-h|-p|-e are trivial probes and skip the check. Designed for a 24 GB Mac where prior accidental fan-out exhausted RAM"
     },
     {
+      "id": "RULESET.HOOK.PLANNING_DELETE_GUARD",
+      "klass": "RULESET",
+      "value": "fork: Bash that removes or moves .planning/, recursively removes a directory holding one (project, ancestor, a checkout with a .planning child) or a .planning subtree, removes a state file, or moves one out is denied (hooks/gsd-planning-delete-guard.js, Claude Code only, workflow.planning_delete_guard absent=on). A cd may fail: a target is judged under every possible cwd (past ; / newline / || / | the pre-cd cwd counts again); recursive removal of an absent .planning path fails closed. Exempt because workflows do them: one scratch file, moves within .planning, .planning/codebase and .planning/tmp, REQUIREMENTS.md, a run-time path ($WORKSPACE_PATH)"
+    },
+    {
+      "id": "RULESET.HOOK.UNATTENDED_ASK",
+      "klass": "RULESET",
+      "value": "fork: prohibition_guard / test_tamper_guard in \"ask\" answer deny only while the run-scoped auto-chain runs (readAutoModeState().auto_chain_active), never on workflow.auto_advance alone — a standing preference whose owner may be at the terminal (hooks/lib/unattended-ask.js); an unreadable state keeps ask"
+    },
+    {
       "id": "RULESET.MANIFEST-CANONICAL-KEY",
       "klass": "RULESET",
       "value": "docs/INVENTORY-MANIFEST.json has a single top-level key: families; ALL EIGHT families.* arrays (agents/commands/workflows/references/cli_modules/hooks flat, plus workflow_modes/workflow_steps nested — #2996, epic #1671 Phase 6.5) are canonical, consumed by test suites — tests/inventory-manifest-sync.test.cjs reads all eight, edit-phase/enh-2380/enh-2430 tests read commands+workflows; the six flat families are keyed by BARE BASENAME while the two nested families are keyed by <workflow>/<subdir>/<file> path, deliberately, because two workflows may each own a same-named step file and a basename key would silently drop one under a JSON-equality comparison; recursion is bounded at exactly one named subdirectory, never a general walk; the family tables live ONCE in scripts/gen-inventory-manifest.cjs and are IMPORTED by the test (the test formerly redeclared them, a DEFECT.GENERATIVE-FIX divergence that let a new family be verified by nobody while still reporting green); the old generated date field and the stale top-level workflows key are both gone; regen via node scripts/gen-inventory-manifest.cjs --write, AFTER build:lib; #3762 added the ROSTER half — tests/inventory-manifest-sync.test.cjs now also asserts every manifest entry has a hand-written row in docs/INVENTORY.md, via the pure matcher in tests/helpers/inventory-roster.cjs. Scope is the SIX FLAT families only, each searched inside its own `## ` section; workflow_steps/workflow_modes are DELIBERATELY exempt because docs/INVENTORY.md §\"Workflow Sub-Files\" is a shipped decision that they carry no hand-written per-file rows. Matching is whole-CELL-exact (never substring — the rostered host-integration-adapters/imperative-hook-bus.cjs must not satisfy the separate top-level hook-bus.cjs) and section-scoped (smart-entry.md and smart-entry.cjs are different families), EXCEPT commands, which match on the row's Source-column link to ../commands/gsd/<file>.md because the six ns-* namespace routers deliberately RENDER a name that is not their file stem (/gsd-workflow ← ns-workflow.md) — DEFECT.DISPLAY-VALUE-AS-IDENTITY. Landing the gate required backfilling 32 pre-existing unrostered surfaces on next"
@@ -1553,6 +1589,16 @@
       "value": "hostBehaviorsFor / assertKnownRuntime (src/runtime-name-policy.cts) are the single owners of a runtime's host behaviors and of refusing an unknown runtime id; no install or hook code compares a runtime-name literal (ADR-5057 §5, #5169)"
     },
     {
+      "id": "SEAM.shell-scan-owner.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/gsd-planning-delete-guard.test.cjs"
+    },
+    {
+      "id": "SEAM.shell-scan-owner.owns",
+      "klass": "SEAM",
+      "value": "fork:shell-scan-export. hooks/gsd-secret-read-guard.js is the one Bash command reader; required as a module it exports tokenize / resolveCommand / expandBraces / globAltToRegex / MAX_NESTING_DEPTH and leaves stdin alone. A second Bash-reading hook requires it instead of carrying a tokenizer (first: hooks/gsd-planning-delete-guard.js), loading it under its own crash policy"
+    },
+    {
       "id": "SEAM.shellcmdproj-win-binary-resolution.enforced-by",
       "klass": "SEAM",
       "value": "lint-rule:no-private-binary-resolution"
@@ -1571,6 +1617,16 @@
       "id": "SEAM.test-report-adapter.owns",
       "klass": "SEAM",
       "value": "parseTestReport(output) (src/report-parser.cts) is the single owner of turning a test report into individual results; the RED-evidence policy consumes its contract and parses no report text (#4692)"
+    },
+    {
+      "id": "SEAM.tool-preflight.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/tool-preflight.test.cjs"
+    },
+    {
+      "id": "SEAM.tool-preflight.owns",
+      "klass": "SEAM",
+      "value": "whether the installed executor grants the tools a plan names — one owner for verify plan-structure, verify tool-preflight, check mn-tool-preflight and config-advise (LG-01)"
     },
     {
       "id": "SEAM.verification-isphasecomplete.enforced-by",
@@ -1686,6 +1742,31 @@
       "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
       "klass": "SETTINGS-HOOKS",
       "value": "[tests/install-minimal-hooks.test.cjs]"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.agent",
+      "klass": "TOOL",
+      "value": "the plan's agent_hint when workflow.agent_hint_routing is not false and resolveAgentHint finds it, else gsd-executor; verify tool-preflight --agent forces one (quick passes gsd-executor)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.gate",
+      "klass": "TOOL",
+      "value": "check mn-tool-preflight <phase> [--wave N] [--gaps-only]: blocks iff a plan the run will execute (unsummarized, wave == N, gap_closure true under --gaps-only) is missing; execute-pre-gate-hooks.md passes the run's WAVE_FILTER/--gaps-only to this query only; when workflow.tool_preflight (default true); onError skip; execute-phase.md carries no new prose (its byte ceiling)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.installed",
+      "klass": "TOOL",
+      "value": "GSD_AGENTS_DIR alone when set; claude: <project>/<.claude>/agents then getGlobalConfigDir(claude)/agents (Claude Code's project-over-user precedence, not getAgentsDir's install-relative path); others: getAgentsDir(runtime, project) then the global dir; first file found decides (<agent>.md, .agent.md, .toml); any non-claude runtime → unknown (its installer translates grants, e.g. Copilot io.github.upstash/context7/*, so a Claude-syntax comparison would read missing and agent_tools would not fix it)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.requirements",
+      "klass": "TOOL",
+      "value": "required (blocks) = frontmatter requires_tools: entries (Claude syntax; mcp__<server> → mcp__<server>__*) + files_modified entries ending .pen → mcp__pencil__*; mentioned (advisory, never halts) = mcp__* names, *.pen paths and WebFetch|WebSearch|NotebookEdit|AskUserQuestion in <tasks>/<context> prose after stripping <verify>, fenced and inline code, as whole tokens (not inside a path or file name); <objective> never read — prose names tools to forbid them (legion: 106/237 plans would have halted on prose)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.status",
+      "klass": "TOOL",
+      "value": "from required only: ok (none required, or all granted; a Claude .md without tools: inherits all; mentioned_missing lists ungranted mentions) | missing (fix: server-wildcard grants, agent_tools selector keeping its entries, config-set then a described reinstall — the same way GSD was installed, a global one run from the project root; never an npx command, which would put upstream over a fork; reinstall alone when agent_tools already holds them) | unknown (a required need and no file, unreadable, TOML, non-claude) — unknown is never a pass and never blocks the gate"
     },
     {
       "id": "UAT.TAIL.autonomous-accept",

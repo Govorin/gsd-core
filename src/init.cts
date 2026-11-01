@@ -12,6 +12,7 @@ import os from 'node:os';
 import { execGit, platformWriteSync, platformReadSync, toNativePath, posixNormalize } from './shell-command-projection.cjs';
 import { realClock } from './clock.cjs';
 import { resolveGsdToolsInvocation } from './gsd-tools-invocation.cjs';
+import { configAdviceField } from './config-advise.cjs';
 import { escapeRegex } from './pattern.cjs';
 import { isBoxCharChecked, isPhaseEntryChecked, phaseEntryRegExp } from './phase-entry-grammar.cjs';
 import { collectSection } from './markdown-sectionizer.cjs';
@@ -4242,6 +4243,10 @@ function cmdInitProgress(cwd: string, raw: boolean, options: Record<string, unkn
     options,
     'progress',
   );
+
+  // S7: `{count, summary}` of `config-advise` — progress prints `summary` when `count > 0`.
+  // `null` when advising itself failed; never throws.
+  result['config_advice'] = configAdviceField(cwd);
 
   output(withProjectRoot(cwd, result), raw);
 }

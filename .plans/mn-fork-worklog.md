@@ -1071,6 +1071,92 @@ adds only `roadmap_record`; `roadmap graph` (both scopes) the same document.
 text in it is now ~370 B; the next upstream growth there needs another fork move, not a trim of
 upstream text.
 
+### nx-tasks grants and their reference pointer (2026-11-01)
+
+Branch `feat/nx-tasks-capability` from `3f7b3376d`. The mn monorepo has its own MCP server,
+`nx-tasks` (`~/IdeaProjects/mn/apps/mcp/nx-tasks`, registered at local scope for that project),
+that reads the screens of the Nx runs the user has going in a terminal through the Nx Console IPC
+socket: `nx_running_tasks`, `nx_task_output`, `nx_wait_for`. ADR-5210 amended.
+
+- **Capability.** `capabilities/mn-nx-tasks/capability.json`, key `nx_tasks.enabled` (default
+  true), `agentTools.grants: ["mcp__nx-tasks__*"]` for `gsd-executor`, `gsd-debugger`,
+  `gsd-verifier`, `gsd-dom-verifier`. Left out: `gsd-debug-session-manager` (relays checkpoints and
+  spawns debuggers, which get the grant; it applies no fix itself) and `gsd-integration-checker`
+  (traces wiring statically, runs nothing). `gsd-code-fixer` would fit the executor's reason; not
+  added, it was not asked for.
+- **Mechanism.** `src/mn-agent-tools.cts` already merged every first-party `agentTools` block in
+  capability id order, so the grant needed no change: `mn-code-navigation` < `mn-nx-tasks`, code
+  navigation stays first and whole. New: optional `agentTools.reference` (a file name in
+  `gsd-core/references/`) → one rendered pointer line at the end of each granted agent's body,
+  appended before the path rewrites, same activation key. Contributions were not usable (no loop
+  point publishes the debugger or the DOM verifier; their gate is a config key, not the grant);
+  spawn-prompt lines would be one edit per spawning workflow.
+- **Reference.** `gsd-core/references/nx-live-stack.md` (2 220 B): per role when to read output or
+  wait, the limits (runs started before the server or by the agent without `--tui` are unseen;
+  never start/restart/kill/`pkill` the user's services).
+- **Runtimes** (a scratch install of all 18, executor and DOM verifier): the name stays in Claude,
+  Copilot, Hermes, Qwen; Kilo maps it to `nx-tasks_*: allow`; Antigravity, Augment, Cline,
+  CodeBuddy, Codex `.md`, Cursor, OpenCode, Pi, Trae, Windsurf, ZCode drop it — the same policy the
+  code-navigation grants get. The pointer is on every runtime's agent (it is a condition on the
+  agent's own tools, a no-op where the grant is gone). Kimi and Kimi Code emit no agent file of
+  that name.
+- **Bytes.** `agents/*.md`, workflows, budgets: unchanged. Installed granted agents grow by the
+  pointer (~180 B with the absolute Claude path) plus `, mcp__nx-tasks__*` on `tools:`.
+- **Tests.** `tests/mn-nx-tasks.install.test.cjs` (new, 17 cases; the pointer is checked by exact equality — an installed body with the key on is
+  the body with it off plus the one line, so no allow-test-rule marker). `mn-code-navigation` expects every
+  declared block now (its oracle reads all `capability.json`), its executor allowlist names
+  `mcp__nx-tasks__*`, and its staging case moved to `gsd-planner` (code navigation only).
+  Three upstream tests met the pointer: `cline-install` (engine scan for `~/.claude/` paths) exempts
+  `mn-agent-tools.cjs` beside `runtime-artifact-conversion.cjs` (same pre-rewrite template; the
+  installed Cline agents carry the rewritten path); `runtime-converters`' stub converter now
+  rewrites every `~/.claude/`; `emitted-provenance`'s Kimi subagent rule names the agent-grant
+  sources (Kimi drops MCP grants, so only the pointer moves `agents/subagents/*.md`).
+- **Gates.** `npm run build`, `regen:derived`, `lint:generated-sync` green; `lint:ci` 52/53, the one
+  red is `lint-vendored-deps` (node_modules is a symlink into the main checkout); affected
+  (base `3f7b3376d`, 605 files) 32 362 tests: 32 291 pass, 66 skipped, 5 red before the three test
+  fixes — the three above, `emitted-attribution` against the stale default base and the
+  vendored-deps manifest (same symlink); emitted attribution against `upstream/next` 148/148, no
+  ack trailer.
+- **Review round** (after merging `next` at `5374e5b4d`). (1) The executor and the code fixer
+  usually work in a linked worktree while `nx serve` watches the user's checkout: the reference now
+  says, before the per-role rules, that from a linked worktree (`git-dir` ≠ `git-common-dir`) the
+  runs never see the edits, so their screen is no evidence either way — and only then grants
+  `gsd-code-fixer` (useful in the main checkout). Reference now 2 909 B. (2) The Kimi subagent
+  provenance rule's transforms are a function: the grant sources explain only the `.md` of an
+  agent some `agentTools` block lists, so other Kimi drift still needs an ack. (3) The pointer
+  template holds `~/.claude/` in a constant joined at render time, and `cline-install` no longer
+  skips `mn-agent-tools.cjs`. (4) `tests/mn-agent-tools.test.cjs` walks every `agentTools` block in
+  the frozen registry (agents ship, grants land, the reference ships and reaches each agent).
+  (5) Limits name the single-task case (`nx serve app` unseen without `NX_TUI=true`).
+
+### .planning delete guard and unattended ask (2026-11-01)
+
+Branch `feat/planning-guard-hooks` (review items S1/GYL-8, S2/GYL-3 of
+`.plans/gsd-usage-review-2026-10/REVIEW.md`).
+
+- **S1 — `hooks/gsd-planning-delete-guard.js`** (PreToolUse Bash, fork enforcement layer, Claude
+  Code only). Incident: a gsd-code-fixer's broken `cd` chain ran `rm -rf .planning` in the main
+  checkout and lost uncommitted config/state. Denies removing/moving `.planning`, recursive
+  removal of the project, an ancestor, a checkout with a `.planning` child or a `.planning`
+  subtree, removing a state file, moving one out; via rm/unlink/shred/rmdir/mv/find -delete/
+  git clean/git rm -f/xargs rm. Targets are judged under every possible cwd — a `cd` may fail,
+  so past `;`/newline/`||`/`|` the pre-cd cwd counts again; an absent recursive target under
+  `.planning` fails closed; `git clean` in an unplaceable directory fails closed; `:/` is the
+  repo root. Exempt (workflows do them): single scratch files, moves within `.planning`,
+  `.planning/codebase` (map-codebase Refresh), `.planning/tmp`, REQUIREMENTS.md
+  (complete-milestone), run-time paths (`rm -rf "$WORKSPACE_PATH"`). Commands are read by the
+  secret read guard's scanner, now exported (`fork:shell-scan-export`); a missing scanner falls
+  open. Off switch `workflow.planning_delete_guard: false`.
+- **S2 — `hooks/lib/unattended-ask.js`.** prohibition/test-tamper guards in `ask` answer `deny`
+  (reason kept, `unattended: true`) while the run-scoped auto-chain runs
+  (`readAutoModeState().auto_chain_active`); `workflow.auto_advance` alone keeps `ask`. Depends on
+  the auto-chain state move (`gsd-tools auto-chain set`, `.gsd/auto-chain/`) and on autonomous
+  holding that flag for the whole run; until then `/gsd-autonomous` prints a startup warning
+  for a guard left at `ask`.
+
+**Do not retry:** extracting the secret guard's tokenizer into `hooks/lib/` (every upstream change
+to it would conflict) — the require.main wrap + export is two lines of upstream diff.
+
 ### Long-lived state
 
 - `LEARNINGS-DIGEST.md` — the recency window is three phases wide regardless of project length
@@ -1079,6 +1165,35 @@ upstream text.
 - `deferred-items.md` templated, with a `deferred_open` count a gate can read
 
 ---
+
+### Usage review 2026-10: tool preflight (S4, LG-01) and config advisor (S7)
+
+The review (`.plans/gsd-usage-review-2026-10/` in the main checkout) found legion's orchestrators
+running plans that drove Pencil under `general-purpose` instead of `gsd-executor` (43.6 % of its
+subagent tokens): the executor's installed `tools:` had no `mcp__pencil__*`, and the only thing
+against the swap was a sentence in `execute-phase.md` / `quick.md`. It also found half of what the
+projects "missed" already in GSD, off and never discovered.
+
+- **S4 — `src/tool-preflight.cts`.** Requirements come from `<tasks>`, `<context>` and
+  `files_modified` (never the objective's prose); grants from the installed agent file the runtime
+  loads (Claude: project `.claude/agents/` over `~/.claude/agents/`, not `getAgentsDir`'s
+  install-relative path, which in a checkout is canonical `agents/` without the ADR-5210 grants).
+  Surfaces: `verify plan-structure` `tool_preflight` + warning, plan-checker warning line (not a blocker: the planner's revision loop would drop the
+  task instead of granting the tool),
+  `verify tool-preflight` (quick reads it before Step 6), and the execute:pre gate
+  `check mn-tool-preflight` in mn-verify-gate (`workflow.tool_preflight`, default on). The gate is
+  how execute-phase halts with **no new prose** in `execute-phase.md` (16 B under its 93 600 B
+  ceiling): the generic execute:pre gate dispatch already halts on a blocking verdict.
+  `unknown` (no file, TOML, non-Claude without `tools:`) is reported, never a pass, and does not
+  block — the gate cannot prove a grant absent.
+- **S7 — `src/config-advise.cts`.** Five rules, thresholds in `ADVISE_THRESHOLDS` with the
+  review's numbers behind each. Config is read raw: `loadConfig` does not project `workflow.plan_chunked`
+  (`planning.chunked_parallel` it keeps). Health's I011 is a snapshot rule: the field
+  `configAdvice` (like `agentInstall`) and `checkI011` in `health-diagnostic-rules/config-validation.cts`.
+
+Not done here: `/gsd-quick-batch` executors get no preflight; the gate checks every unsummarized
+plan of the phase even under `--wave N`; `orchestrator-worktree` dispatch ignores `agent_hint`, so
+the preflight may check a specialist the backend will not run.
 
 ## Remaining
 

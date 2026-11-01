@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-78 registered hook(s) at 14 of 15 points.
+79 registered hook(s) at 14 of 15 points.
 
 ## Overview
 
@@ -78,6 +78,7 @@ flowchart LR
     n_point_execute_post(["execute#58;post"]):::point
     n_hook_execute_pre_step_mn_verify_gate_0["mn-verify-gate#58; command#58;verify baseline"]:::step
     n_hook_execute_pre_gate_mn_verify_gate_1{"mn-verify-gate#58; check mn-baseline"}:::crit
+    n_hook_execute_pre_gate_mn_verify_gate_2{"mn-verify-gate#58; check mn-tool-preflight"}:::crit
     n_hook_execute_wave_post_step_code_review_0["code-review#58; skill#58;code-review"]:::step
     n_hook_execute_wave_post_step_live_dom_uat_1["live-dom-uat#58; agent#58;gsd-dom-verifier"]:::step
     n_hook_execute_wave_post_gate_drift_2{"drift#58; check verify.schema-drift"}:::crit
@@ -184,6 +185,7 @@ flowchart LR
   n_point_plan_post ==> n_point_execute_pre
   n_point_execute_pre --> n_hook_execute_pre_step_mn_verify_gate_0
   n_point_execute_pre ==> n_hook_execute_pre_gate_mn_verify_gate_1
+  n_point_execute_pre ==> n_hook_execute_pre_gate_mn_verify_gate_2
   n_point_execute_wave_post --> n_hook_execute_wave_post_step_code_review_0
   n_point_execute_wave_post --> n_hook_execute_wave_post_step_live_dom_uat_1
   n_point_execute_wave_post ==> n_hook_execute_wave_post_gate_drift_2
@@ -502,6 +504,7 @@ flowchart TB
 | `plan:post` | external-job | contribution | `planner · fragments/plan-post.md` | `external_job.enabled` | `skip` |  |
 | `execute:pre` | mn-verify-gate | step | `command:verify baseline` | `workflow.verify_gates_baseline` | `skip` |  |
 | `execute:pre` | mn-verify-gate | gate | `mn-baseline` | `workflow.verify_gates_baseline` | `halt` | yes |
+| `execute:pre` | mn-verify-gate | gate | `mn-tool-preflight` | `workflow.tool_preflight` | `skip` | yes |
 | `execute:wave:post` | code-review | step | `skill:code-review` | `workflow.code_review` | `skip` |  |
 | `execute:wave:post` | live-dom-uat | step | `agent:gsd-dom-verifier` | `workflow.live_dom_uat` | `skip` |  |
 | `execute:wave:post` | drift | gate | `verify.schema-drift` | `workflow.schema_drift_gate` | `skip` | yes |

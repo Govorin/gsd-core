@@ -11,7 +11,7 @@
  *
  *   C1 allow                — normal input -> exit 0.
  *   C2 deny                 — normal input that trips the hook's block path
- *                             (only the 7 hooks that HAVE one) -> exit 2,
+ *                             (only the 8 hooks that HAVE one) -> exit 2,
  *                             asserting the actual stream(s) that hook uses.
  *   C3 crash honors policy  — an input that makes the hook's own outer catch
  *                             fire, asserting the exit code matches its
@@ -414,6 +414,22 @@ const TABLE = [
     declaredOnCrash: 'allow',
     allow: () => ({ payload: { tool_name: 'Read' } }),
   },
+  {
+    file: 'gsd-planning-delete-guard.js',
+    stdinTimeoutMs: 3000,
+    declaredOnCrash: 'allow',
+    allow: () => ({ payload: { tool_name: 'Bash', tool_input: { command: 'rm -f /tmp/gsd-x.txt' } } }),
+    // The recorded incident: a broken cd chain left `rm -rf .planning` to run
+    // in the main checkout. A named .planning is denied whatever the cwd.
+    deny: () => ({ payload: { tool_name: 'Bash', tool_input: { command: 'cd "$WT" && rm -rf .planning' } } }),
+    assertDeny: (r) => {
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.decision, 'block');
+      assert.equal(out.code, 'planning-dir');
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(r.stderr, out.reason, 'stderr must carry the plain reason string (deny stderrPayload)');
+    },
+  },
   // gsd-worktree-provision.js is a Claude Code WorktreeCreate hook: success
   // means printing a created worktree's path, so there is no allow-on-crash —
   // printing nothing IS failure on that event. A malformed payload is refused
@@ -450,14 +466,14 @@ describe('hooks-crash-policy: C1 normal allow -> exit 0', () => {
 });
 
 // ---------------------------------------------------------------------------
-// C2 — deny (only the 7 hooks with a real block path)
+// C2 — deny (only the 8 hooks with a real block path)
 // ---------------------------------------------------------------------------
 
 describe('hooks-crash-policy: C2 normal deny -> exit 2, correct stream(s)', () => {
   const denyRows = TABLE.filter((row) => typeof row.deny === 'function');
 
-  test('exactly 7 hooks in this table declare a deny case', () => {
-    assert.equal(denyRows.length, 7, denyRows.map((r) => r.file).join(', '));
+  test('exactly 8 hooks in this table declare a deny case', () => {
+    assert.equal(denyRows.length, 8, denyRows.map((r) => r.file).join(', '));
   });
 
   for (const row of denyRows) {

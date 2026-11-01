@@ -1,0 +1,45 @@
+{
+  "id": "mn-nx-tasks",
+  "role": "feature",
+  "version": "1.19.0",
+  "title": "Live Nx task output grants",
+  "description": "Grants the agents that build, debug and live-check code the nx-tasks MCP family (mcp__nx-tasks__*) at install time: nx_running_tasks, nx_task_output and nx_wait_for read the screens of the Nx runs the user has going in a terminal (nx serve, run-many) through the Nx Console IPC socket. It observes the user's running stack; it does not launch anything, and it does not see a run the agent starts itself without --tui. Declared through agentTools like mn-code-navigation (ADR-5210): the installer appends the grant to each listed agent's tools: before the runtime converter, so each runtime gives it the representation its converter gives any MCP grant — Claude, Copilot, Hermes, Kimi Code, Qwen and Codex keep the name, Kilo maps it to a permission, the other converters drop it — and a project with no nx-tasks server registered simply never sees the tools. agentTools.reference adds one line to the end of each granted agent's body pointing at gsd-core/references/nx-live-stack.md, which says when to use them; agents/*.md is not edited. Setting nx_tasks.enabled to false in ~/.gsd/defaults.json or the nearest .planning/config.json and re-running the install drops the grant and the pointer together.",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.15.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [],
+  "agents": [],
+  "hooks": [],
+  "activationKey": "nx_tasks.enabled",
+  "config": {
+    "nx_tasks.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+    }
+  },
+  "agentTools": {
+    "grants": [
+      "mcp__nx-tasks__*"
+    ],
+    "agents": [
+      "gsd-code-fixer",
+      "gsd-debugger",
+      "gsd-dom-verifier",
+      "gsd-executor",
+      "gsd-verifier"
+    ],
+    "reference": "nx-live-stack.md"
+  },
+  "steps": [],
+  "contributions": [],
+  "gates": []
+}

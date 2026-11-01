@@ -312,6 +312,27 @@ function checkW029(snapshot: PlanningSnapshot): Diagnostic[] {
 
 // ─── Exports ────────────────────────────────────────────────────────────────
 
+// ─── I011 — config advice ────────────────────────────────────────────────────
+
+/**
+ * I011 (S7): `config-advise` has recommendations — existing knobs this project's own artifacts ask
+ * for (`src/config-advise.cts`). Info only: it never moves `status`. Reads `snapshot.configAdvice`;
+ * an unreadable advice (`null`) is silent — advising is a convenience, not a health finding.
+ */
+function checkI011(snapshot: PlanningSnapshot): Diagnostic[] {
+  const advice = snapshot.configAdvice.value;
+  if (advice === null || advice.count === 0 || advice.summary === null) return [];
+  return [{ code: 'I011', severity: SEVERITY.INFO, message: advice.summary, remedy: adviseRemedy('gsd-tools config-advise') }];
+}
+
+const RULE_I011: Rule = {
+  code: 'I011',
+  severity: SEVERITY.INFO,
+  description: 'Existing config knobs the project\'s artifacts ask for (see `config-advise`)',
+  repairable: false,
+  check: checkI011,
+};
+
 const RULES: Rule[] = [
   { code: 'W003', severity: SEVERITY.WARNING, description: 'config.json not found', repairable: true, check: checkW003 },
   { code: 'E005', severity: SEVERITY.ERROR, description: 'config.json parse error', repairable: false, check: checkE005 },
@@ -373,6 +394,7 @@ const RULES: Rule[] = [
     repairable: false,
     check: checkW029,
   },
+  RULE_I011,
 ];
 
 export = { RULES };

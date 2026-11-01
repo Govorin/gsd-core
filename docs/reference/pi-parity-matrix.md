@@ -46,7 +46,7 @@ Every hook script has a recorded Pi disposition, and so does every event and scr
 | `gsd-agent-isolation-guard.js` | PreToolUse | unsupported | guards the isolation argument of Claude's Agent call; `gsd_dispatch` has no isolation parameter and a dispatched role runs flat in its own process |
 | `gsd-context-monitor.js` | PostToolUse, SubagentStop, Stop | unsupported | reads the context metrics the Claude statusline writes; Pi has no statusline to produce them |
 | `gsd-config-reload.js` | FileChanged | unsupported | Pi 1.3.0 has no file-change event for extensions |
-| `gsd-prohibition-guard.js`, `gsd-test-tamper-guard.js` | PreToolUse | unsupported | fork enforcement layer, registered on Claude Code only; denies through the PreToolUse permissionDecision protocol |
+| `gsd-prohibition-guard.js`, `gsd-test-tamper-guard.js`, `gsd-planning-delete-guard.js` | PreToolUse | unsupported | fork enforcement layer, registered on Claude Code only; denies through the PreToolUse permissionDecision protocol |
 | `gsd-exit-gate.js` | SubagentStop | unsupported | fork enforcement layer, registered on Claude Code only; a dispatched Pi role is a separate process with no extensions |
 | `gsd-pin-invariants.js` | SessionStart | unsupported | fork enforcement layer: re-injects plan invariants through SessionStart hookSpecificOutput after a Claude Code compaction; the Pi bridge carries no such injection |
 | `gsd-worktree-provision.js` | WorktreeCreate, WorktreeRemove | unsupported | fork enforcement layer: replaces Claude Code's own git worktree add; Pi has no worktree lifecycle event |

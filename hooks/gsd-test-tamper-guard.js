@@ -21,7 +21,9 @@
 // (there is nothing to weaken), and non-test files are none of this guard's
 // business.
 //
-// What blocks (`workflow.test_tamper_guard`, default "off"; "ask" | "deny"):
+// What blocks (`workflow.test_tamper_guard`, default "off"; "ask" | "deny" —
+// "ask" is answered "deny" while an auto-chain runs, see
+// hooks/lib/unattended-ask.js):
 //   • the write removes assertions — the pending content holds strictly fewer
 //     than the file on disk,
 //   • the write newly skips tests — `.skip`, `xit`, `xdescribe`, `t.skip`,
@@ -50,6 +52,7 @@
 const fs = require('fs');
 const path = require('path');
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
+const { askOrDeny } = require('./lib/unattended-ask.js');
 
 const MODE_OFF = 'off';
 const MODE_ASK = 'ask';
@@ -219,7 +222,9 @@ function projectContent(toolName, toolInput, onDisk) {
  * Decide one PreToolUse payload. Pure; the testable core.
  *
  * Returns `{ action: 'allow' }` or
- * `{ action: 'ask' | 'deny', reason, before, after, skipsBefore, skipsAfter }`.
+ * `{ action: 'ask' | 'deny', reason, unattended, before, after, skipsBefore, skipsAfter }`;
+ * `unattended` marks an "ask" answered "deny" because an auto-chain is running.
+ * `options.isAutoRun(planningRoot)` overrides the auto-mode reader (tests).
  */
 function evaluateTestWrite(data, options = {}) {
   if (!data || typeof data !== 'object') return { action: 'allow' };
@@ -278,8 +283,7 @@ function evaluateTestWrite(data, options = {}) {
     `guard just read. If it is failing, fix the code it is testing instead.`;
 
   return {
-    action: mode === MODE_DENY ? 'deny' : 'ask',
-    reason,
+    ...askOrDeny(mode, planningRoot, reason, options.isAutoRun),
     targetPath: relative,
     assertionsBefore: before,
     assertionsAfter: afterCount,
@@ -331,6 +335,7 @@ function main() {
       assertionsAfter: decision.assertionsAfter,
       skipsBefore: decision.skipsBefore,
       skipsAfter: decision.skipsAfter,
+      unattended: decision.unattended || undefined,
       reason: decision.reason,
     };
     if (decision.action === 'deny') deny(output, decision.reason);

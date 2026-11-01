@@ -3079,6 +3079,51 @@ const capabilities = {
     "contributions": [],
     "gates": []
   },
+  "mn-nx-tasks": {
+    "id": "mn-nx-tasks",
+    "role": "feature",
+    "version": "1.19.0",
+    "title": "Live Nx task output grants",
+    "description": "Grants the agents that build, debug and live-check code the nx-tasks MCP family (mcp__nx-tasks__*) at install time: nx_running_tasks, nx_task_output and nx_wait_for read the screens of the Nx runs the user has going in a terminal (nx serve, run-many) through the Nx Console IPC socket. It observes the user's running stack; it does not launch anything, and it does not see a run the agent starts itself without --tui. Declared through agentTools like mn-code-navigation (ADR-5210): the installer appends the grant to each listed agent's tools: before the runtime converter, so each runtime gives it the representation its converter gives any MCP grant — Claude, Copilot, Hermes, Kimi Code, Qwen and Codex keep the name, Kilo maps it to a permission, the other converters drop it — and a project with no nx-tasks server registered simply never sees the tools. agentTools.reference adds one line to the end of each granted agent's body pointing at gsd-core/references/nx-live-stack.md, which says when to use them; agents/*.md is not edited. Setting nx_tasks.enabled to false in ~/.gsd/defaults.json or the nearest .planning/config.json and re-running the install drops the grant and the pointer together.",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.15.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [],
+    "agents": [],
+    "hooks": [],
+    "activationKey": "nx_tasks.enabled",
+    "config": {
+      "nx_tasks.enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+      }
+    },
+    "agentTools": {
+      "grants": [
+        "mcp__nx-tasks__*"
+      ],
+      "agents": [
+        "gsd-code-fixer",
+        "gsd-debugger",
+        "gsd-dom-verifier",
+        "gsd-executor",
+        "gsd-verifier"
+      ],
+      "reference": "nx-live-stack.md"
+    },
+    "steps": [],
+    "contributions": [],
+    "gates": []
+  },
   "mn-verify-gate": {
     "id": "mn-verify-gate",
     "role": "feature",
@@ -3189,6 +3234,11 @@ const capabilities = {
         "default": false,
         "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
       },
+      "workflow.tool_preflight": {
+        "type": "boolean",
+        "default": true,
+        "description": "Halt execute-phase at execute:pre when a plan still to run names a tool its executor's installed agent does not grant — an mcp__<server>__… name, a .pen design file (Pencil MCP), or WebFetch/WebSearch/NotebookEdit/AskUserQuestion (`gsd_run check mn-tool-preflight`). The message names the plan, the missing grants and the fix: `gsd-tools config-set agent_tools.<agent> '[…]'` and a reinstall (agent_tools, #4032), or a first-party capability's agentTools (ADR-5210). Without it the orchestrator met such a plan by running general-purpose in place of gsd-executor, outside the executor's contract. The grants are read from the installed agent file the runtime loads; when that file cannot be read the gate passes and says so. On by default (absent = enabled): it blocks only a plan that cannot be executed as written."
+      },
       "workflow.verify_gates_enforce": {
         "type": "boolean",
         "default": false,
@@ -3267,7 +3317,7 @@ const capabilities = {
           "ask",
           "deny"
         ],
-        "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse)."
+        "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse). While an auto-chain runs (auto_chain_active in `gsd_run check auto-mode`; workflow.auto_advance alone does not count), \"ask\" is answered \"deny\" with a reason that says so: nobody is there to approve, and waiting writes stalled recorded autonomous runs for hours."
       },
       "workflow.test_tamper_guard": {
         "type": "string",
@@ -3277,7 +3327,12 @@ const capabilities = {
           "ask",
           "deny"
         ],
-        "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
+        "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse). While an auto-chain runs (auto_chain_active in `gsd_run check auto-mode`; workflow.auto_advance alone does not count), \"ask\" is answered \"deny\" with a reason that says so: nobody is there to approve, and waiting writes stalled recorded autonomous runs for hours."
+      },
+      "workflow.planning_delete_guard": {
+        "type": "boolean",
+        "default": true,
+        "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/, removing the regenerated .planning/codebase and .planning/tmp, and moving files within .planning/ stay allowed, because workflows do all three. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
       },
       "workflow.exit_gate": {
         "type": "string",
@@ -3521,6 +3576,15 @@ const capabilities = {
         "when": "workflow.verify_gates_baseline",
         "blocking": true,
         "onError": "halt"
+      },
+      {
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-tool-preflight"
+        },
+        "when": "workflow.tool_preflight",
+        "blocking": true,
+        "onError": "skip"
       },
       {
         "point": "ship:pre",
@@ -5965,6 +6029,16 @@ const byLoopPoint = {
         "when": "workflow.verify_gates_baseline",
         "blocking": true,
         "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-tool-preflight"
+        },
+        "when": "workflow.tool_preflight",
+        "blocking": true,
+        "onError": "skip"
       }
     ]
   },
@@ -6605,6 +6679,7 @@ const configKeys = {
   "mempalace.diary_journal": "mempalace",
   "mempalace.auto_capture_hooks": "mempalace",
   "code_navigation.enabled": "mn-code-navigation",
+  "nx_tasks.enabled": "mn-nx-tasks",
   "workflow.verify_enforce": "mn-verify-gate",
   "workflow.nyquist_enforce": "mn-verify-gate",
   "workflow.mn_security_enforce": "mn-verify-gate",
@@ -6621,6 +6696,7 @@ const configKeys = {
   "workflow.verify_gates": "mn-verify-gate",
   "workflow.verify_gates_record": "mn-verify-gate",
   "workflow.verify_gates_baseline": "mn-verify-gate",
+  "workflow.tool_preflight": "mn-verify-gate",
   "workflow.verify_gates_enforce": "mn-verify-gate",
   "workflow.mutation_spot_check": "mn-verify-gate",
   "workflow.mutation_test_command": "mn-verify-gate",
@@ -6636,6 +6712,7 @@ const configKeys = {
   "workflow.clean_state_enforce": "mn-verify-gate",
   "workflow.prohibition_guard": "mn-verify-gate",
   "workflow.test_tamper_guard": "mn-verify-gate",
+  "workflow.planning_delete_guard": "mn-verify-gate",
   "workflow.exit_gate": "mn-verify-gate",
   "workflow.exit_gate_agents": "mn-verify-gate",
   "workflow.exit_gate_max_retries": "mn-verify-gate",
@@ -7188,6 +7265,12 @@ const configSchema = {
     "default": true,
     "description": "Install-time: append the atlas, serena and codebase-memory MCP grants to the code-reading agents' tools:. Re-run the install after changing it; installed agents do not read config at spawn time."
   },
+  "nx_tasks.enabled": {
+    "owner": "mn-nx-tasks",
+    "type": "boolean",
+    "default": true,
+    "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+  },
   "workflow.verify_enforce": {
     "owner": "mn-verify-gate",
     "type": "boolean",
@@ -7284,6 +7367,12 @@ const configSchema = {
     "default": false,
     "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
   },
+  "workflow.tool_preflight": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Halt execute-phase at execute:pre when a plan still to run names a tool its executor's installed agent does not grant — an mcp__<server>__… name, a .pen design file (Pencil MCP), or WebFetch/WebSearch/NotebookEdit/AskUserQuestion (`gsd_run check mn-tool-preflight`). The message names the plan, the missing grants and the fix: `gsd-tools config-set agent_tools.<agent> '[…]'` and a reinstall (agent_tools, #4032), or a first-party capability's agentTools (ADR-5210). Without it the orchestrator met such a plan by running general-purpose in place of gsd-executor, outside the executor's contract. The grants are read from the installed agent file the runtime loads; when that file cannot be read the gate passes and says so. On by default (absent = enabled): it blocks only a plan that cannot be executed as written."
+  },
   "workflow.verify_gates_enforce": {
     "owner": "mn-verify-gate",
     "type": "boolean",
@@ -7371,13 +7460,19 @@ const configSchema = {
     "owner": "mn-verify-gate",
     "type": "string",
     "default": "off",
-    "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse)."
+    "description": "Guard writes against the running plan's declared files_modified, at the moment of the write. workflow.blast_radius asks the same question at verify:pre, after the edits are on disk and usually committed — the answer there is a revert, here it is 'not that file'. \"ask\" escalates to the user (the model cannot self-approve); \"deny\" blocks outright, for unattended runs where there is nobody to ask. Writes under .planning/, paths covered by a declared glob or directory, and phases whose plans declare nothing are all allowed — the last of those is blast_radius's case, which refuses rather than passes. Implemented by hooks/gsd-prohibition-guard.js (PreToolUse). While an auto-chain runs (auto_chain_active in `gsd_run check auto-mode`; workflow.auto_advance alone does not count), \"ask\" is answered \"deny\" with a reason that says so: nobody is there to approve, and waiting writes stalled recorded autonomous runs for hours."
   },
   "workflow.test_tamper_guard": {
     "owner": "mn-verify-gate",
     "type": "string",
     "default": "off",
-    "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse)."
+    "description": "Guard existing test files against writes that remove assertions or newly skip tests. workflow.assertion_ratchet catches the same deletion at verify:pre against .planning/assertion-baseline.json; this catches it at the write, using the same notion of an assertion so the two cannot disagree. Creating a test file is always allowed, and adding assertions is never blocked. Implemented by hooks/gsd-test-tamper-guard.js (PreToolUse). While an auto-chain runs (auto_chain_active in `gsd_run check auto-mode`; workflow.auto_advance alone does not count), \"ask\" is answered \"deny\" with a reason that says so: nobody is there to approve, and waiting writes stalled recorded autonomous runs for hours."
+  },
+  "workflow.planning_delete_guard": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Deny a Bash command that would remove or move .planning/, recursively remove a directory that holds it or a subtree of it, remove a state file (config.json, STATE.md, ROADMAP.md, PROJECT.md, MILESTONES.md), or move a directory or state file out of it. A recorded run lost uncommitted config this way: a failed cd in a chain left the shell in the main checkout and `rm -rf .planning` ran there. Removing one scratch file under .planning/, removing the regenerated .planning/codebase and .planning/tmp, and moving files within .planning/ stay allowed, because workflows do all three. The check is lexical, with relative paths resolved after `cd X &&` prefixes; a path computed at run time is judged by its text only. Implemented by hooks/gsd-planning-delete-guard.js (PreToolUse, Claude Code)."
   },
   "workflow.exit_gate": {
     "owner": "mn-verify-gate",
@@ -10513,6 +10608,7 @@ const _requiresGraph = {
   "mempalace": [],
   "mn-code-navigation": [],
   "mn-expertise": [],
+  "mn-nx-tasks": [],
   "mn-verify-gate": [],
   "nyquist": [],
   "ollama": [],

@@ -758,7 +758,9 @@ describe('feat-1173: stageAgentsForRuntimeWithConverter', () => {
     const calls = [];
     const converter = (content) => {
       calls.push(content);
-      return content.replace('~/.claude/', '~/.copilot/');
+      // Every occurrence, as a real converter rewrites: gsd-executor also carries the
+      // fork's install-time reference pointer (ADR-5210 amendment), a second ~/.claude/ path.
+      return content.replaceAll('~/.claude/', '~/.copilot/');
     };
 
     const resolvedProfile = { name: 'full', skills: '*', agents: new Set() };

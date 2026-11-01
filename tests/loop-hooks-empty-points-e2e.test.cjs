@@ -297,28 +297,31 @@ describe('discuss:post — E2E empty envelope + synthetic resolver mechanics', (
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('execute:pre — real registry empty-resolution + synthetic resolver mechanics', () => {
-  it('[happy] execute:pre with real registry + all capability flags enabled returns 0 active hooks and exact placeholder', () => {
+  // The fork's tool preflight gate (mn-verify-gate, workflow.tool_preflight, default on — LG-01) is
+  // the one hook execute:pre renders without opting in: it blocks only a plan whose executor lacks
+  // a tool the plan names. Everything else at execute:pre stays behind a default-off key.
+  const onlyToolPreflight = (activeHooks) => activeHooks.map((h) => `${h.capId}:${h.kind}:${h.check && h.check.query}`);
+
+  it('[happy] execute:pre with real registry + all capability flags enabled renders only the tool preflight gate', () => {
     const allOnDir = makeTempProjectWithConfig(ALL_CAPS_ON_CONFIG);
     try {
       const result = spawnGsd(['loop', 'render-hooks', 'execute:pre', '--raw', '--cwd', allOnDir], allOnDir);
       assert.strictEqual(result.status, 0, `expected exit 0. stderr: ${result.stderr}`);
       const parsed = JSON.parse(result.stdout.trim());
       assert.strictEqual(parsed.point, 'execute:pre');
-      assert.strictEqual(parsed.activeHooks.length, 0);
-      assert.strictEqual(parsed.rendered, '_No active hooks at execute:pre._');
+      assert.deepStrictEqual(onlyToolPreflight(parsed.activeHooks), ['mn-verify-gate:gate:mn-tool-preflight']);
     } finally {
       cleanup(allOnDir);
     }
   });
 
-  it('[empty-resolution] execute:pre with no config.json returns 0 active hooks (empty-project negative space)', () => {
+  it('[empty-resolution] execute:pre with no config.json renders only the default-on tool preflight gate', () => {
     const emptyDir = makeTempProject();
     try {
       const result = spawnGsd(['loop', 'render-hooks', 'execute:pre', '--raw', '--cwd', emptyDir], emptyDir);
       assert.strictEqual(result.status, 0);
       const parsed = JSON.parse(result.stdout.trim());
-      assert.strictEqual(parsed.activeHooks.length, 0);
-      assert.strictEqual(parsed.rendered, '_No active hooks at execute:pre._');
+      assert.deepStrictEqual(onlyToolPreflight(parsed.activeHooks), ['mn-verify-gate:gate:mn-tool-preflight']);
     } finally {
       cleanup(emptyDir);
     }
@@ -405,10 +408,11 @@ describe('execute:pre — real registry empty-resolution + synthetic resolver me
     assert.strictEqual(resolved.activeHooks.length, 1, 'schema default=true must activate hook even with absent config');
   });
 
-  it('[negative] real registry holds only the baseline pair at execute:pre — guard against accidental registration', () => {
-    // mn-verify-gate's baseline (fork phase 4.1) is the one intended registration: a step that
-    // records, a blocking gate that judges, both behind a default-off key — which is why the
-    // all-on and no-config resolutions above stay empty. Anything else here is accidental.
+  it('[negative] real registry holds only the baseline pair and the tool preflight gate at execute:pre — guard against accidental registration', () => {
+    // mn-verify-gate's baseline (fork phase 4.1) is a step that records and a blocking gate that
+    // judges, both behind a default-off key; its tool preflight gate (LG-01) is default-on, which
+    // is why the all-on and no-config resolutions above render exactly that one hook. Anything
+    // else here is accidental.
     const entry = realRegistry.byLoopPoint['execute:pre'];
     assert.ok(entry, 'execute:pre must be present in real registry byLoopPoint');
     assert.deepStrictEqual(
@@ -418,8 +422,11 @@ describe('execute:pre — real registry empty-resolution + synthetic resolver me
     assert.strictEqual(entry.contributions.length, 0, 'execute:pre must have 0 contributions in real registry');
     assert.deepStrictEqual(
       entry.gates.map((g) => ({ capId: g.capId, query: g.check.query, when: g.when, blocking: g.blocking })),
-      [{ capId: 'mn-verify-gate', query: 'mn-baseline', when: 'workflow.verify_gates_baseline', blocking: true }],
-      'execute:pre must hold only the baseline gate');
+      [
+        { capId: 'mn-verify-gate', query: 'mn-baseline', when: 'workflow.verify_gates_baseline', blocking: true },
+        { capId: 'mn-verify-gate', query: 'mn-tool-preflight', when: 'workflow.tool_preflight', blocking: true },
+      ],
+      'execute:pre must hold only the baseline and tool preflight gates');
   });
 });
 
@@ -776,11 +783,10 @@ describe('CLI contract — missing/invalid point argument (shared across all 6 e
 // SECTION 8: Parametric empty-point sweep across all 6 points (E2E regression guard)
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('Parametric E2E sweep — 4 empty points return correct envelope shape via real registry (ship:post excluded — mempalace registers 1 step there; verify:pre excluded since #1562 added the api-coverage gate)', () => {
+describe('Parametric E2E sweep — 3 empty points return correct envelope shape via real registry (ship:post excluded — mempalace registers 1 step there; verify:pre excluded since #1562 added the api-coverage gate; execute:pre excluded since the fork\'s default-on tool preflight gate)', () => {
   const EMPTY_POINTS = [
     'discuss:pre',
     'discuss:post',
-    'execute:pre',
     'execute:wave:pre',
   ];
 

@@ -913,14 +913,22 @@ describe('D: always-on hook contract drift guard', () => {
     return out;
   }
 
-  test('mn fork: the two denying write guards carry the blocking-guard host budget', () => {
+  test('mn fork: the denying guards carry the blocking-guard host budget', () => {
+    // The two write guards ride Write|Edit|MultiEdit; the planning delete
+    // guard judges Bash commands, in its own group.
+    const matcherOf = {
+      'gsd-prohibition-guard.js': 'Write|Edit|MultiEdit',
+      'gsd-test-tamper-guard.js': 'Write|Edit|MultiEdit',
+      'gsd-planning-delete-guard.js': 'Bash',
+    };
     const map = buildHookMap();
-    assert.equal(FORK_BLOCKING_GUARD_NAMES.length, 2, 'the installer names the two fork write guards');
-    for (const script of FORK_BLOCKING_GUARD_NAMES.map((n) => `${n}.js`)) {
+    assert.deepEqual(FORK_BLOCKING_GUARD_NAMES.map((n) => `${n}.js`), Object.keys(matcherOf),
+      'the installer names the three fork blocking guards');
+    for (const [script, matcher] of Object.entries(matcherOf)) {
       assert.deepEqual(
         wiringOf(map, script),
-        [{ event: 'PreToolUse', matcher: 'Write|Edit|MultiEdit', timeout: BLOCKING_GUARD_TIMEOUT_S }],
-        `${script} must be wired once, on PreToolUse Write|Edit|MultiEdit, at the blocking budget`,
+        [{ event: 'PreToolUse', matcher, timeout: BLOCKING_GUARD_TIMEOUT_S }],
+        `${script} must be wired once, on PreToolUse ${matcher}, at the blocking budget`,
       );
     }
   });

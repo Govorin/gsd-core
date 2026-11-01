@@ -26,7 +26,7 @@ INIT=$(gsd_run query init.progress ${GSD_WS:+--ws=${GSD_WS##* }} $FORENSIC_PARAM
 if [[ "$INIT" == @file:* ]]; then INIT=$(cat "${INIT#@file:}"); fi
 ```
 
-Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `requirements_exists`, `planning_exists`, `milestones_exists`, `init_incomplete`, `phases`, `current_phase`, `next_phase`, `milestone_version`, `completed_count`, `phase_count`, `paused_at`, `state_path`, `roadmap_path`, `project_path`, `config_path`, `phase_mvp_mode`.
+Extract from init JSON: `project_exists`, `roadmap_exists`, `state_exists`, `requirements_exists`, `planning_exists`, `milestones_exists`, `init_incomplete`, `phases`, `current_phase`, `next_phase`, `milestone_version`, `completed_count`, `phase_count`, `paused_at`, `state_path`, `roadmap_path`, `project_path`, `config_path`, `phase_mvp_mode`, `config_advice`.
 
 ```bash
 DISCUSS_MODE=$(gsd_run query config-get workflow.discuss_mode --raw 2>/dev/null || echo "discuss")
@@ -176,6 +176,10 @@ Render `Open Windows` only when `$WINDOWS_OPEN` is greater than `0` (or `$WINDOW
 ## Active Debug Sessions
 - [count] active — /gsd:debug to continue
 (Only show this section if count > 0)
+
+## Config Advice
+- {config_advice.summary}
+(Only show this section when `config_advice.count` > 0 in the init JSON)
 
 ## What's Next
 [Next phase/plan objective from roadmap analyze]

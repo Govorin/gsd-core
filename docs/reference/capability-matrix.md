@@ -44,7 +44,7 @@ Core package and are stamped with the package version at release (per
 ADR-1244 D6). They are not subject to the consent or integrity-pin flow applied
 to third-party capabilities.
 
-### Feature capabilities (role: feature) — 27
+### Feature capabilities (role: feature) — 28
 
 Feature capabilities extend what the loop does — contributing research,
 planning, execution, verification, or ship artefacts at the loop extension
@@ -68,6 +68,7 @@ points.
 | `mempalace` | feature | full | `>=1.6.0` | `discuss:pre`, `discuss:post`, `plan:pre`, `plan:post`, `execute:wave:post`, `verify:post`, `ship:post` | step, contribution | first-party |
 | `mn-code-navigation` | feature | full | `>=1.15.0` | — | — | first-party |
 | `mn-expertise` | feature | full | `>=1.6.0` | — | — | first-party |
+| `mn-nx-tasks` | feature | full | `>=1.15.0` | — | — | first-party |
 | `mn-verify-gate` | feature | full | `>=1.15.0` | `plan:pre`, `plan:post`, `execute:pre`, `execute:wave:post`, `verify:pre`, `ship:pre` | step, contribution, gate | first-party |
 | `nyquist` | feature | full | `>=1.6.0` | `verify:post` | step | first-party |
 | `pattern-mapper` | feature | full | `>=1.6.0` | `plan:pre` | step | first-party |
