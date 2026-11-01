@@ -19,7 +19,7 @@ const { gateControl } = require('./helpers/gate-positive-control.cjs');
 
 const gate = require('../gsd-core/bin/lib/gate-milestone-review.cjs');
 const { evaluateMilestoneReview, MILESTONE_REVIEW_NAMED_MAX } = gate;
-const { milestoneWindowStart } = require('../gsd-core/bin/lib/milestone-review.cjs');
+const { milestoneWindowStart, fixCommitClaims, subjectNamesFinding } = require('../gsd-core/bin/lib/milestone-review.cjs');
 
 const MILESTONE = 'v1.1';
 
@@ -381,6 +381,8 @@ describe('milestone-review base', () => {
     const v = evaluate(path.join(shallow, 'c'));
     assert.equal(v.outcome, 'unreadable');
     assert.match(v.payload.message, /shallow/);
+    assert.match(v.payload.message, /git fetch --unshallow/);
+    assert.match(v.payload.message, /code_review\.milestone_gate: false/);
   });
 });
 
@@ -456,6 +458,41 @@ describe('milestone-review trusts only a composed review', () => {
     // `early` is named on a Commit line but precedes the tip: it is covered only by the earlier window.
     windowReview(dir, '2026-10-19', { base: early, tip: base, status: 'clean' });
     assert.deepEqual(evaluate(dir).payload.uncoveredCommits.map((c) => c.sha), [early]);
+  });
+});
+
+describe('milestone-review: a REVIEW-FIX.md claim is a fix only when it is one', () => {
+  let dir;
+  beforeEach(() => { dir = createTempGitProject('milestone-review-fixclaim-'); });
+  afterEach(() => { cleanup(dir); });
+
+  test('a feature commit after the tip, recorded under a fixed finding, is new work → uncovered', () => {
+    const tip = codeCommit(dir, 'feat: reviewed');
+    const feature = codeCommit(dir, 'feat: new endpoint after the review');
+    windowReview(dir, '2026-10-20', { base: null, tip, findings: [{ id: 'CR-01', title: 'x', fp: fingerprint(1) }], fixed: ['CR-01'], fixCommits: [feature.slice(0, 7)] });
+    assert.deepEqual(evaluate(dir).payload.uncoveredCommits.map((c) => c.sha), [feature]);
+  });
+
+  test('a commit naming another finding than the entry it is recorded under → uncovered', () => {
+    const tip = codeCommit(dir, 'feat: reviewed');
+    const fix = codeCommit(dir, 'fix(02): CR-10 unrelated');
+    windowReview(dir, '2026-10-20', { base: null, tip, status: 'clean', fixed: ['CR-01'], fixCommits: [fix.slice(0, 7)] });
+    assert.deepEqual(evaluate(dir).payload.uncoveredCommits.map((c) => c.sha), [fix]);
+  });
+
+  test('both fix conventions count: gsd-code-fixer `CR-01 …` and audit-fix `resolve CR-01 — …`', () => {
+    const tip = codeCommit(dir, 'feat: reviewed');
+    const fixer = codeCommit(dir, 'fix(02): CR-01 null check');
+    const audit = codeCommit(dir, 'fix(api): resolve CR-01 — bound the query');
+    windowReview(dir, '2026-10-20', { base: null, tip, status: 'clean', fixed: ['CR-01'], fixCommits: [`${fixer.slice(0, 7)} ${audit.slice(0, 7)}`] });
+    assert.equal(evaluate(dir).payload.uncovered, 0);
+  });
+
+  test('fixCommitClaims reads only Commit lines inside a Fixed Issues entry', () => {
+    const text = ['## Fixed Issues', '', '### CR-01: a', '**Commit:** `abc1234`, def5678', '', '## Skipped Issues', '', '### WR-02: b', '**Commit:** 9999999', ''].join('\n');
+    assert.deepEqual(fixCommitClaims(text), [{ id: 'CR-01', ref: 'abc1234' }, { id: 'CR-01', ref: 'def5678' }]);
+    assert.equal(subjectNamesFinding('fix: CR-1 x', 'CR-10'), false);
+    assert.equal(subjectNamesFinding('fix: CR-10 x', 'CR-1'), false);
   });
 });
 

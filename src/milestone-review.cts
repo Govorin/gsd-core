@@ -35,7 +35,8 @@
  * may overlap, so coverage is a set union, never "the newest review". A review that is
  * `incomplete`, carries a status outside `clean`/`issues_found`, has no full-sha `tip`/`base`, has
  * no `## Lens:` section, or whose tip is not in the repository covers nothing (fail closed), and is
- * listed as ignored with the reason. A fix commit counts only when it descends from the review's tip.
+ * listed as ignored with the reason. A fix commit counts only when REVIEW-FIX.md records it under a
+ * fixed finding's entry, it descends from the review's tip, and its subject names that finding.
  *
  * ── Open Critical ──
  *
@@ -269,7 +270,7 @@ export function tagNamesVersion(tag: string, version: string): boolean {
  * archive commit" there means "not fetched", never "the milestone is the whole history".
  */
 function assertFullHistory(git: Git): void {
-  if (git.text(['rev-parse', '--is-shallow-repository']).trim() === 'true') throw new GitUnreadable('shallow-repository');
+  if (git.text(['rev-parse', '--is-shallow-repository']).trim() === 'true') throw new GitUnreadable('shallow-repository: this clone does not hold the whole history — run `git fetch --unshallow`, or turn the gate off with code_review.milestone_gate: false');
 }
 
 function nearestToHead(git: Git, candidates: ReadonlyArray<MilestoneBase & { base: string }>): (MilestoneBase & { base: string }) | null {
@@ -405,14 +406,47 @@ function windowsOnDisk(projectDir: string): WindowOnDisk[] {
   return out;
 }
 
-/** Every commit sha a REVIEW-FIX.md names on its `**Commit:**` lines, as written (a line may name several). */
-export function fixCommitRefs(fixReport: string): string[] {
-  const refs: string[] = [];
-  for (const line of splitLines(fixReport)) {
-    const m = COMMIT_LINE.exec(line.trim());
-    if (m !== null) for (const sha of m[1].match(SHA_TOKEN) ?? []) refs.push(sha);
+/** One commit a REVIEW-FIX.md records as the fix of one finding. */
+export interface FixCommitClaim {
+  /** The finding id whose `### <ID>:` entry under `## Fixed Issues` names the commit. */
+  id: string;
+  /** The sha as written (abbreviated or full). */
+  ref: string;
+}
+
+/**
+ * The commits a REVIEW-FIX.md records as fixes: every sha on a `**Commit:**` line (a line may name
+ * several) inside a `### <ID>:` entry of `## Fixed Issues`, with that entry's id. A sha anywhere else —
+ * a skipped finding, prose — is no claim.
+ */
+export function fixCommitClaims(fixReport: string): FixCommitClaim[] {
+  const claims: FixCommitClaim[] = [];
+  let inFixed = false;
+  let id: string | null = null;
+  for (const raw of splitLines(fixReport)) {
+    const line = raw.trim();
+    if (/^## /.test(line)) {
+      inFixed = /^## Fixed Issues\b/.test(line);
+      id = null;
+      continue;
+    }
+    const heading = /^### ((?:CR|WR|IN|BL)-\d+):/.exec(line);
+    if (heading !== null) {
+      id = inFixed ? heading[1] : null;
+      continue;
+    }
+    const m = COMMIT_LINE.exec(line);
+    if (m !== null && id !== null) for (const ref of m[1].match(SHA_TOKEN) ?? []) claims.push({ id, ref });
   }
-  return refs;
+  return claims;
+}
+
+/**
+ * Does a commit subject name finding `id`? Both fix conventions put it there: gsd-code-fixer
+ * `fix(<phase>): CR-01 …`, `/gsd-audit-fix` `fix(<scope>): resolve CR-01 — …`. `CR-1` is not `CR-10`.
+ */
+export function subjectNamesFinding(subject: string, id: string): boolean {
+  return new RegExp(`(?<![A-Za-z0-9-])${id}(?![0-9])`).test(subject);
 }
 
 /** The statuses a composed window review that ran every lens can carry. */
@@ -551,6 +585,7 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
   const { base, from, tag } = found;
   const codeCommits = codeCommitsIn(git, base, head);
   const milestoneShas = new Set(codeCommits.map((c) => c.sha));
+  const subjectOf = new Map(codeCommits.map((c) => [c.sha, c.subject]));
 
   const reviews: CoveringReview[] = [];
   const ignored: IgnoredReview[] = [];
@@ -572,11 +607,15 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
     }
     const mine = new Set<string>();
     for (const c of codeCommitsIn(git, reviewBase, tip)) if (milestoneShas.has(c.sha)) mine.add(c.sha);
-    // A fix commit is this review's remedy only when it came after what was reviewed.
+    // A fix commit is this review's remedy only when it is a fix of one of its findings: recorded
+    // under that finding's Fixed Issues entry, made after what was reviewed, and naming the finding
+    // in its subject (both fix conventions do). A feature commit a REVIEW-FIX.md happens to name is
+    // new work, never covered by a review that predates it.
     if (w.fixReport !== null) {
-      for (const ref of fixCommitRefs(w.fixReport)) {
-        const sha = git.commit(ref);
-        if (sha !== null && milestoneShas.has(sha) && git.isAncestor(tip, sha)) mine.add(sha);
+      for (const claim of fixCommitClaims(w.fixReport)) {
+        const sha = git.commit(claim.ref);
+        if (sha === null || !milestoneShas.has(sha) || !git.isAncestor(tip, sha)) continue;
+        if (subjectNamesFinding(subjectOf.get(sha) ?? '', claim.id)) mine.add(sha);
       }
     }
     if (mine.size === 0) continue;
