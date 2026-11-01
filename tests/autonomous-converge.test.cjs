@@ -473,3 +473,36 @@ describe('autonomous human-needed: "All good" is recorded as UAT, not a bare sta
     assert.doesNotMatch(otherwise, /transition\.md/);
   });
 });
+
+// X5: /gsd:autonomous calls plan-phase and execute-phase WITHOUT --auto, and their manual-invocation
+// guard clears an ordinary chain. The run therefore holds an `autonomous`-owned record (which a plain
+// clear leaves alone) from initialize to every exit, refreshed per phase; behaviour of the record
+// itself is pinned in tests/auto-chain-state.test.cjs.
+describe('autonomous holds the auto-chain for the whole run (X5)', () => {
+  // No --ws: the hold is read back by hooks through check auto-mode, which resolve the scope from
+  // the active workstream (env / pointer), so it must be written in that same scope.
+  const HOLD = '`gsd_run query auto-chain set --owner autonomous`';
+  const RELEASE = '`gsd_run query auto-chain clear --owner autonomous`';
+  const workflow = fs.readFileSync(path.join(REPO_ROOT, 'gsd-core', 'workflows', 'autonomous.md'), 'utf8');
+  const stepOf = (name) => {
+    const start = workflow.indexOf(`<step name="${name}"`);
+    assert.notEqual(start, -1, `step ${name} missing — rebind this test`);
+    return workflow.slice(start, workflow.indexOf('</step>', start));
+  };
+
+  test('execute_phase takes (and per phase refreshes) the hold before any phase work', () => {
+    const execute = stepOf('execute_phase');
+    const hold = execute.indexOf(HOLD);
+    assert.notEqual(hold, -1);
+    assert.ok(hold < execute.indexOf('**3a. Smart Discuss**'), 'held before discuss');
+    assert.ok(hold < execute.indexOf('gsd-execute-phase'), 'held before execute-phase runs');
+  });
+
+  test('the hold is released before the lifecycle exits and on "Stop autonomous mode"', () => {
+    const lifecycle = stepOf('lifecycle');
+    assert.ok(lifecycle.includes(RELEASE));
+    assert.ok(lifecycle.indexOf(RELEASE) < lifecycle.indexOf('**If `ONLY_PHASE` is set:**'), 'released before the --only exit');
+    const stop = stepOf('handle_blocker');
+    assert.ok(stop.slice(stop.indexOf('**On "Stop autonomous mode":**')).includes(RELEASE));
+  });
+});

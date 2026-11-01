@@ -99,10 +99,7 @@ IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
-# Lane flags derived from the declared roster (#2800/#2272); --all and --text are convergence
-# controls, not reviewer lanes, so they stay literal.
-# This block must stay AFTER the launcher preamble (above) because it calls `gsd_run` —
-# do not move it back above the preamble in a future edit.
+# Lane flags from the declared roster (#2800/#2272); --all/--text stay literal. Keep after the preamble (calls gsd_run).
 CONVERGENCE_ARGS=""
 for REVIEW_FLAG in $(gsd_run review-lane flags) --all --text; do
   if echo "$GSD_ARGS" | grep -qE "(^|[[:space:]])${REVIEW_FLAG}([[:space:]]|$)"; then
@@ -116,9 +113,7 @@ if echo "$GSD_ARGS" | grep -qE '\-\-max-cycles\s+[0-9]+'; then
   CONVERGENCE_ARGS="${CONVERGENCE_ARGS} --max-cycles ${MAX_CYCLES_ARG}"
 fi
 
-# #4600: the dispatched convergence workflow re-checks the feature gate in its own §1.5 —
-# an explicit --converge/--cross-ai must override it, so mark this dispatch explicitly.
-# Conditional on PLAN_STRATEGY: a local-strategy run must never carry the override.
+# #4600: an explicit --converge/--cross-ai overrides the convergence gate; a local run never does.
 if [ "${PLAN_STRATEGY}" = "converge" ]; then
   CONVERGENCE_ARGS="${CONVERGENCE_ARGS} --override-gate"
 fi
@@ -245,6 +240,8 @@ Extract `phase_name`, `goal`, `success_criteria` from each. Store for use in exe
 <step name="execute_phase">
 
 ## 3. Execute Phase
+
+Hold auto mode for the run (X5: plan/execute run without `--auto`; a plain `auto-chain clear` keeps this; it lapses 24h after the last refresh): `gsd_run query auto-chain set --owner autonomous`
 
 For the current phase, display the progress banner:
 
@@ -594,6 +591,8 @@ If all phases complete, proceed to lifecycle step.
 
 ## 5. Lifecycle
 
+Before every exit from this step (`--only`, partial, 5d), release the hold: `gsd_run query auto-chain clear --owner autonomous`
+
 **If `ONLY_PHASE` is set:** Skip lifecycle. A single phase does not trigger audit/complete/cleanup. Display:
 
 ```
@@ -749,7 +748,7 @@ Then present 3 options via AskUserQuestion (in text mode — `--text` or init `t
 
 **On "Skip this phase":** Append the phase to `## Deferred Items` in STATE.md, with the blocker description as its reason — `complete-milestone` reads that section, and a skip logged only to the terminal is indistinguishable from a completed phase on the next run. Then proceed to iterate.
 
-**On "Stop autonomous mode":** Display progress summary:
+**On "Stop autonomous mode":** Release the hold (`gsd_run query auto-chain clear --owner autonomous`), then display progress summary:
 
 ```
 ### GSD ► AUTONOMOUS ▸ STOPPED

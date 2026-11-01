@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 365,
+  "count": 366,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,7 +22,7 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
-    "RUNSTATE": 3,
+    "RUNSTATE": 4,
     "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
@@ -126,49 +126,49 @@
       "id": "EXEC.CLASSIFY.classes",
       "klass": "EXEC",
       "value": "{class:'quota-exceeded'|'classify-handoff-bug'|'unknown-failure', sentinel?, retryAfterSeconds?}",
-      "line": 1136
+      "line": 1137
     },
     {
       "id": "EXEC.CLASSIFY.cross-runtime",
       "klass": "EXEC",
       "value": "Anthropic/CC: usage limit|rate limit|quota|429|retry-after; Copilot CLI: rate_limit (stem); Codex CLI: 429|usage_limit_reached|too many requests",
-      "line": 1138
+      "line": 1139
     },
     {
       "id": "EXEC.CLASSIFY.handler",
       "klass": "EXEC",
       "value": "gsd-core/bin/lib/agent-command-router.cjs:classifyAgentFailure (registered via command-aliases.cjs; mutation:false outputMode:json)",
-      "line": 1134
+      "line": 1135
     },
     {
       "id": "EXEC.CLASSIFY.precedence",
       "klass": "EXEC",
       "value": "quota sentinel wins over classifyHandoffIfNeeded bug when both appear",
-      "line": 1139
+      "line": 1140
     },
     {
       "id": "EXEC.CLASSIFY.proactive-signal-not-usable",
       "klass": "EXEC",
       "value": "Anthropic exposes anthropic-ratelimit-* headers + Agent SDK RateLimitEvent; Claude Code subprocess does NOT forward to hooks/statusline today (upstream #33820, #22407, #32796)",
-      "line": 1141
+      "line": 1142
     },
     {
       "id": "EXEC.CLASSIFY.retry-after-parser",
       "klass": "EXEC",
       "value": "\\bretry[-_ ]after[:\\s]+(\\d+)\\b avoids embedded-word false matches like noretry-after",
-      "line": 1140
+      "line": 1141
     },
     {
       "id": "EXEC.CLASSIFY.sentinel-order",
       "klass": "EXEC",
       "value": "most specific first: 429 beats too-many-requests; resource_exhausted beats quota (array order in src/agent-command-router.cts QUOTA_SENTINELS checks resource_exhausted before quota); case-insensitive; canonical sentinel value is lower-cased form",
-      "line": 1137
+      "line": 1138
     },
     {
       "id": "EXEC.CLASSIFY.workflow",
       "klass": "EXEC",
       "value": "gsd-core/workflows/execute-phase.md step 7; class-distinct prompts (quota-to-wait-for-reset; classify-handoff-bug-to-spot-check; unknown-to-continue/stop)",
-      "line": 1135
+      "line": 1136
     },
     {
       "id": "GSD-RESEARCH.CONTEXT-DISCIPLINE",
@@ -252,25 +252,25 @@
       "id": "META.RULE.brief-must-cite-doc",
       "klass": "META",
       "value": "agent prompts MUST quote the canonical doc line being applied; paraphrasing from predicate memory drifts and produces violations",
-      "line": 975
+      "line": 976
     },
     {
       "id": "META.RULE.brief-no-paraphrase",
       "klass": "META",
       "value": "writing \"k040 — never leave changelog box unchecked\" caused 5 of 8 agents to edit CHANGELOG.md in violation of CONTRIBUTING.md L110",
-      "line": 976
+      "line": 977
     },
     {
       "id": "META.RULE.canonical-source-precedence",
       "klass": "META",
       "value": "CONTRIBUTING.md > docs/adr/* > CONTEXT.md > agent memory",
-      "line": 973
+      "line": 974
     },
     {
       "id": "META.RULE.read-contributing-first",
       "klass": "META",
       "value": "read CONTRIBUTING.md sections \"Pull Request Guidelines\" + \"CHANGELOG Entries\" before EVERY agent dispatch",
-      "line": 974
+      "line": 975
     },
     {
       "id": "PHASE.REQ-LINE.SEAM.cap",
@@ -354,409 +354,409 @@
       "id": "PRED.k320.canonical-source",
       "klass": "PRED",
       "value": "CONTRIBUTING.md L193-211",
-      "line": 979
+      "line": 980
     },
     {
       "id": "PRED.k320.ci-enforcement",
       "klass": "PRED",
       "value": "scripts/changeset/lint.cjs",
-      "line": 985
+      "line": 986
     },
     {
       "id": "PRED.k320.ci-paths-monitored",
       "klass": "PRED",
       "value": "bin/ gsd-core/ src/ agents/ commands/ hooks/ sdk/src/ sdk/prompts/",
-      "line": 986
+      "line": 987
     },
     {
       "id": "PRED.k320.cure",
       "klass": "PRED",
       "value": "drop .changeset/<adj>-<noun>-<noun>.md fragment ONLY",
-      "line": 981
+      "line": 982
     },
     {
       "id": "PRED.k320.evidence",
       "klass": "PRED",
       "value": "PR #3302 merge-conflict against #3308 CHANGELOG.md row 2026-05-09",
-      "line": 988
+      "line": 989
     },
     {
       "id": "PRED.k320.opt-out-label",
       "klass": "PRED",
       "value": "no-changelog",
-      "line": 984
+      "line": 985
     },
     {
       "id": "PRED.k320.recovery",
       "klass": "PRED",
       "value": "open Removed-typed cleanup PR deleting only the redundant row",
-      "line": 987
+      "line": 988
     },
     {
       "id": "PRED.k320.rule",
       "klass": "PRED",
       "value": "do not edit CHANGELOG.md in feature/fix/enhancement PRs",
-      "line": 980
+      "line": 981
     },
     {
       "id": "PRED.k320.signal",
       "klass": "PRED",
       "value": "changelog-direct-edit-forbidden",
-      "line": 978
+      "line": 979
     },
     {
       "id": "PRED.k320.tool",
       "klass": "PRED",
       "value": "npm run changeset -- --type <T> --pr <NNN> --body \"...\"",
-      "line": 982
+      "line": 983
     },
     {
       "id": "PRED.k320.types",
       "klass": "PRED",
       "value": "Added|Changed|Deprecated|Removed|Fixed|Security",
-      "line": 983
+      "line": 984
     },
     {
       "id": "PRED.k321.evidence",
       "klass": "PRED",
       "value": "PRs #3304/#3305 (2026-05-09): real Minor/Major findings in body, 0 threads",
-      "line": 994
+      "line": 995
     },
     {
       "id": "PRED.k321.poll-shape",
       "klass": "PRED",
       "value": "parse pulls/<n>/reviews body AND graphql reviewThreads",
-      "line": 992
+      "line": 993
     },
     {
       "id": "PRED.k321.resolution",
       "klass": "PRED",
       "value": "address in code; no GraphQL resolveReviewThread needed for body-only findings",
-      "line": 993
+      "line": 994
     },
     {
       "id": "PRED.k321.shape",
       "klass": "PRED",
       "value": "CR posts \"[!CAUTION] outside the diff\" findings in review BODY, not in reviewThreads",
-      "line": 991
+      "line": 992
     },
     {
       "id": "PRED.k321.signal",
       "klass": "PRED",
       "value": "cr-outside-diff-range-finding",
-      "line": 990
+      "line": 991
     },
     {
       "id": "PRED.k322.cure-1",
       "klass": "PRED",
       "value": "2nd retrigger ~10min after first ack",
-      "line": 999
+      "line": 1000
     },
     {
       "id": "PRED.k322.cure-2",
       "klass": "PRED",
       "value": "if silent at 50min, treat as silent-pass with maintainer flag in merge-commit body",
-      "line": 1000
+      "line": 1001
     },
     {
       "id": "PRED.k322.distinct-from",
       "klass": "PRED",
       "value": "k080",
-      "line": 997
+      "line": 998
     },
     {
       "id": "PRED.k322.evidence",
       "klass": "PRED",
       "value": "PR #3306 (2026-05-09): 0 reviews after 50min + 2 retriggers",
-      "line": 1002
+      "line": 1003
     },
     {
       "id": "PRED.k322.merge-gate-impact",
       "klass": "PRED",
       "value": "k070 real_coderabbit_review_present unsatisfied; requires maintainer judgment",
-      "line": 1001
+      "line": 1002
     },
     {
       "id": "PRED.k322.shape",
       "klass": "PRED",
       "value": "ack posted, real review never lands within [5s, 410s] cooldown after burst of N PRs <15min",
-      "line": 998
+      "line": 999
     },
     {
       "id": "PRED.k322.signal",
       "klass": "PRED",
       "value": "cr-sustained-throttle",
-      "line": 996
+      "line": 997
     },
     {
       "id": "PRED.k323.cure-alt",
       "klass": "PRED",
       "value": "consolidate into single PR when 2+ issues share root cause",
-      "line": 1007
+      "line": 1008
     },
     {
       "id": "PRED.k323.cure-pre-dispatch",
       "klass": "PRED",
       "value": "brief one agent canonical-owner; brief others to EXCLUDE shared site",
-      "line": 1006
+      "line": 1007
     },
     {
       "id": "PRED.k323.evidence",
       "klass": "PRED",
       "value": "#3300 (#3297) overlapped #3306 (#3298) on add-backlog.md hunks 2026-05-09",
-      "line": 1009
+      "line": 1010
     },
     {
       "id": "PRED.k323.recovery",
       "klass": "PRED",
       "value": "close smaller PR as \"subsumed by #N\" or rebase second to drop overlap hunk",
-      "line": 1008
+      "line": 1009
     },
     {
       "id": "PRED.k323.shape",
       "klass": "PRED",
       "value": "2+ open issues touch same canonical bug site; each fix's sibling-audit produces overlapping diff",
-      "line": 1005
+      "line": 1006
     },
     {
       "id": "PRED.k323.signal",
       "klass": "PRED",
       "value": "sibling-audit-cross-pr-overlap",
-      "line": 1004
+      "line": 1005
     },
     {
       "id": "PRED.k324.cure",
       "klass": "PRED",
       "value": "verify via gh api on every agent-completion notification; never trust narrative",
-      "line": 1013
+      "line": 1014
     },
     {
       "id": "PRED.k324.evidence",
       "klass": "PRED",
       "value": "2026-05-09 session: 5+ mid-monitor terminations across PRs #3232/#3271/#3251/#3255/#3262",
-      "line": 1015
+      "line": 1016
     },
     {
       "id": "PRED.k324.k095-restatement",
       "klass": "PRED",
       "value": "k095 confirmed shape: agent reports \"waiting for monitor\" / \"tests still running\" then terminates",
-      "line": 1012
+      "line": 1013
     },
     {
       "id": "PRED.k324.poll-shape",
       "klass": "PRED",
       "value": "gh pr view <n> --json mergeStateStatus,statusCheckRollup + pulls/<n>/reviews + graphql reviewThreads + issues/<n>/comments tail",
-      "line": 1014
+      "line": 1015
     },
     {
       "id": "PRED.k324.signal",
       "klass": "PRED",
       "value": "agent-terminates-mid-monitor",
-      "line": 1011
+      "line": 1012
     },
     {
       "id": "PRED.k325.cleanup",
       "klass": "PRED",
       "value": "git worktree remove --force <path> for aged agent worktrees",
-      "line": 1020
+      "line": 1021
     },
     {
       "id": "PRED.k325.cure",
       "klass": "PRED",
       "value": "detached-HEAD: git checkout --detach $(git ls-remote origin <branch>); modify; commit; git push --force-with-lease=<branch>:<remote-sha> origin HEAD:refs/heads/<branch>",
-      "line": 1019
+      "line": 1020
     },
     {
       "id": "PRED.k325.evidence",
       "klass": "PRED",
       "value": "2026-05-09 CHANGELOG.md strip on PRs #3300/#3302/#3304/#3305 required detached-HEAD",
-      "line": 1021
+      "line": 1022
     },
     {
       "id": "PRED.k325.shape",
       "klass": "PRED",
       "value": "git checkout <branch> errors \"already used by worktree at <agent-worktree>\"",
-      "line": 1018
+      "line": 1019
     },
     {
       "id": "PRED.k325.signal",
       "klass": "PRED",
       "value": "worktree-branch-lock-on-force-push",
-      "line": 1017
+      "line": 1018
     },
     {
       "id": "PRED.k326.cure",
       "klass": "PRED",
       "value": "quote canonical doc verbatim in brief; mentally simulate \"if all N agents follow this brief literally, do they violate any rule?\"",
-      "line": 1025
+      "line": 1026
     },
     {
       "id": "PRED.k326.evidence",
       "klass": "PRED",
       "value": "2026-05-09 brief \"k040 — update CHANGELOG.md\" → 5 of 8 agents violated CONTRIBUTING.md L110",
-      "line": 1026
+      "line": 1027
     },
     {
       "id": "PRED.k326.shape",
       "klass": "PRED",
       "value": "N parallel agents amplify a single brief-vs-doc contradiction into N violations",
-      "line": 1024
+      "line": 1025
     },
     {
       "id": "PRED.k326.signal",
       "klass": "PRED",
       "value": "brief-contradicts-canonical-doc",
-      "line": 1023
+      "line": 1024
     },
     {
       "id": "PRED.k327.ack-shape",
       "klass": "PRED",
       "value": "body \"✅ Actions performed - Full review triggered\"",
-      "line": 1029
+      "line": 1030
     },
     {
       "id": "PRED.k327.cooldown-normal",
       "klass": "PRED",
       "value": "[5s, 410s]",
-      "line": 1032
+      "line": 1033
     },
     {
       "id": "PRED.k327.cooldown-throttled",
       "klass": "PRED",
       "value": "k322",
-      "line": 1033
+      "line": 1034
     },
     {
       "id": "PRED.k327.distinguish-key",
       "klass": "PRED",
       "value": "len(pulls/<n>/reviews) — ack=0, real=≥1",
-      "line": 1031
+      "line": 1032
     },
     {
       "id": "PRED.k327.real-review-shape",
       "klass": "PRED",
       "value": "body starts \"Actionable comments posted: N\" OR \"[!CAUTION] Some comments are outside the diff\"",
-      "line": 1030
+      "line": 1031
     },
     {
       "id": "PRED.k327.signal",
       "klass": "PRED",
       "value": "cr-ack-vs-real-review",
-      "line": 1028
+      "line": 1029
     },
     {
       "id": "PRED.k328.audit-list",
       "klass": "PRED",
       "value": "[heading-matches-class, closing-keyword-present, changeset-fragment-or-no-changelog-label]",
-      "line": 1038
+      "line": 1039
     },
     {
       "id": "PRED.k328.canonical-source",
       "klass": "PRED",
       "value": "CONTRIBUTING.md L48,L64,L81 (template links) + .github/PULL_REQUEST_TEMPLATE/{fix,enhancement,feature}.md L1 (heading text)",
-      "line": 1036
+      "line": 1037
     },
     {
       "id": "PRED.k328.k100-restatement",
       "klass": "PRED",
       "value": "heading must match issue class: bug→## Fix PR, enhancement→## Enhancement PR, feature→## Feature PR",
-      "line": 1037
+      "line": 1038
     },
     {
       "id": "PRED.k328.signal",
       "klass": "PRED",
       "value": "pr-template-typed-heading-required",
-      "line": 1035
+      "line": 1036
     },
     {
       "id": "PRED.k329.body",
       "klass": "PRED",
       "value": "**<Bold user-visible change>** — <symptom-led explanation>. (#<NNN>)",
-      "line": 1044
+      "line": 1045
     },
     {
       "id": "PRED.k329.canonical-source",
       "klass": "PRED",
       "value": "CONTRIBUTING.md L196-202 + .changeset/README.md",
-      "line": 1041
+      "line": 1042
     },
     {
       "id": "PRED.k329.filename",
       "klass": "PRED",
       "value": ".changeset/<adj>-<noun>-<noun>.md",
-      "line": 1042
+      "line": 1043
     },
     {
       "id": "PRED.k329.frontmatter",
       "klass": "PRED",
       "value": "---\\\\ntype: <Added|Changed|Deprecated|Removed|Fixed|Security>\\\\npr: <NNN>\\\\n---",
-      "line": 1043
+      "line": 1044
     },
     {
       "id": "PRED.k329.observed-clean",
       "klass": "PRED",
       "value": "#3299 sunny-ibex-wave, #3301 sturdy-rams-caper, #3306 3298-phase-dir-prefix-drift-workflows",
-      "line": 1045
+      "line": 1046
     },
     {
       "id": "PRED.k329.signal",
       "klass": "PRED",
       "value": "changeset-fragment-canonical-shape",
-      "line": 1040
+      "line": 1041
     },
     {
       "id": "PRED.k330.fallback",
       "klass": "PRED",
       "value": "append predicate-format findings directly to CONTEXT.md",
-      "line": 1049
+      "line": 1050
     },
     {
       "id": "PRED.k330.shape",
       "klass": "PRED",
       "value": "mempalace MCP tools require explicit user call; AI cannot trigger",
-      "line": 1048
+      "line": 1049
     },
     {
       "id": "PRED.k330.signal",
       "klass": "PRED",
       "value": "mempalace-diary-not-callable-by-ai",
-      "line": 1047
+      "line": 1048
     },
     {
       "id": "PRED.k331.cure",
       "klass": "PRED",
       "value": "gh pr close <n> with NO --comment flag",
-      "line": 1054
+      "line": 1055
     },
     {
       "id": "PRED.k331.evidence",
       "klass": "PRED",
       "value": "2026-05-09 wave-3: violation on #3300 close, deleted within 30s",
-      "line": 1056
+      "line": 1057
     },
     {
       "id": "PRED.k331.k101-restatement",
       "klass": "PRED",
       "value": "k101 includes close-time --comment flag; rationale belongs in subsuming PR's squash-merge body",
-      "line": 1053
+      "line": 1054
     },
     {
       "id": "PRED.k331.recovery",
       "klass": "PRED",
       "value": "if violation lands, gh api -X DELETE repos/<o>/<r>/issues/comments/<id>",
-      "line": 1055
+      "line": 1056
     },
     {
       "id": "PRED.k331.shape",
       "klass": "PRED",
       "value": "instruction \"close with no comment (rationale)\" — parenthetical is rationale, NOT comment body",
-      "line": 1052
+      "line": 1053
     },
     {
       "id": "PRED.k331.signal",
       "klass": "PRED",
       "value": "close-with-no-comment-is-literal",
-      "line": 1051
+      "line": 1052
     },
     {
       "id": "PROBE.ci.surface",
@@ -834,85 +834,85 @@
       "id": "PROC.AGENT-DISPATCH.completion-verify",
       "klass": "PROC",
       "value": "run k324.poll-shape on every agent-completion notification",
-      "line": 1060
+      "line": 1061
     },
     {
       "id": "PROC.AGENT-DISPATCH.parallel-overlap-audit",
       "klass": "PROC",
       "value": "before dispatching N sibling-audit fixers, compute file-set union and assign canonical owners",
-      "line": 1059
+      "line": 1060
     },
     {
       "id": "PROC.AGENT-DISPATCH.preflight",
       "klass": "PROC",
       "value": "[read-CONTRIBUTING.md-fresh, read-relevant-ADRs, cite-specific-line-in-brief, require-closing-keyword, require-changeset-fragment, forbid-CHANGELOG.md-edit, require-isolation-worktree, forbid-self-PR-comment, mandate-trust-but-verify]",
-      "line": 1058
+      "line": 1059
     },
     {
       "id": "PROC.MERGE-WAVE.changelog-strip-pattern",
       "klass": "PROC",
       "value": "detached-HEAD per k325 + git checkout main -- CHANGELOG.md + commit + force-with-lease",
-      "line": 1064
+      "line": 1065
     },
     {
       "id": "PROC.MERGE-WAVE.merge-tool",
       "klass": "PROC",
       "value": "gh pr merge <n> --squash --delete-branch",
-      "line": 1065
+      "line": 1066
     },
     {
       "id": "PROC.MERGE-WAVE.merge-tool-warning",
       "klass": "PROC",
       "value": "delete-branch may fail with \"used by worktree at\" — harmless; remote branch still deleted",
-      "line": 1066
+      "line": 1067
     },
     {
       "id": "PROC.MERGE-WAVE.ordering",
       "klass": "PROC",
       "value": "[wave1: isolated-files, wave2: CHANGELOG-only-overlap (better: strip per k320), wave3: same-file-overlap with explicit decision]",
-      "line": 1062
+      "line": 1063
     },
     {
       "id": "PROC.MERGE-WAVE.preflight",
       "klass": "PROC",
       "value": "gh pr view <n> --json files for every PR; identify overlap pairs; surface to maintainer",
-      "line": 1063
+      "line": 1064
     },
     {
       "id": "PROC.PARALLEL-FIX-DISPATCH.observed",
       "klass": "PROC",
       "value": "#3541 + #3542 dispatched simultaneously this session; PRs #3546 #3547 opened green; one syntax slip caught by AGENT-RETIRED-SLASH-SYNTAX-DRIFT and fixed before second PR opened",
-      "line": 1145
+      "line": 1146
     },
     {
       "id": "PROC.PARALLEL-FIX-DISPATCH.pattern",
       "klass": "PROC",
       "value": "bot triage brief → worktree per branch → parallel sub-agents do rubber-duck/RCA/TDD implementation only → top-level orchestrator owns commit + gsd-test + push + PR + changeset-pr-backfill",
-      "line": 1143
+      "line": 1144
     },
     {
       "id": "PROC.PARALLEL-FIX-DISPATCH.rationale",
       "klass": "PROC",
       "value": "long-running test runs need cross-turn notifications (orchestrator-only); CONTRIBUTING.md gh-templates-first hook requires session-scoped Read calls sub-agents wouldn't otherwise make; sequencing test runs avoids GSD-TEST-CONCURRENT-OUTPUT-COLLISION",
-      "line": 1144
+      "line": 1145
     },
     {
       "id": "PROC.TRIAGE.comment-shape",
       "klass": "PROC",
       "value": "lead with \"duplicate of #NNNN, fixed by PR #MMMM, in v1.X.Y\"; show current code snippet proving bug-surface gone; give @latest and @next upgrade commands; close",
-      "line": 1148
+      "line": 1149
     },
     {
       "id": "PROC.TRIAGE.no-duplicate-label",
       "klass": "PROC",
       "value": "this repo has no duplicate label; framing lives in comment text + closing the issue",
-      "line": 1149
+      "line": 1150
     },
     {
       "id": "PROC.TRIAGE.routing-incoming",
       "klass": "PROC",
       "value": "stale-bug-already-fixed to close as duplicate of originating issue + cite fix PR + first stable tag; release-publish-or-backport to ready-for-human; reporter-can-self-test to awaiting-retest",
-      "line": 1147
+      "line": 1148
     },
     {
       "id": "PROHIB.canon-referral",
@@ -978,187 +978,187 @@
       "id": "RELEASE-NOTES.ANTI-PATTERN",
       "klass": "RELEASE-NOTES",
       "value": "raw \"What's Changed\" PR list as final body for hotfix or feature release; \"Full Changelog only\" body for tagged release with >0 user-facing fixes",
-      "line": 955
+      "line": 956
     },
     {
       "id": "RELEASE-NOTES.ANTI-PATTERN.implementation-first",
       "klass": "RELEASE-NOTES",
       "value": "do not lead bullet with file path or function name; lead with symptom/user-visible behavior",
-      "line": 956
+      "line": 957
     },
     {
       "id": "RELEASE-NOTES.ANTI-PATTERN.risk-commentary",
       "klass": "RELEASE-NOTES",
       "value": "do not include \"may break\", \"be careful\", \"test thoroughly\" - release notes state what changed, not hedges about what might go wrong",
-      "line": 957
+      "line": 958
     },
     {
       "id": "RELEASE-NOTES.DEFAULT-STATE",
       "klass": "RELEASE-NOTES",
       "value": "auto-generated body is \"What's Changed\" PR list + Full Changelog link; treat as draft, not final",
-      "line": 931
+      "line": 932
     },
     {
       "id": "RELEASE-NOTES.EXAMPLE.hotfix",
       "klass": "RELEASE-NOTES",
       "value": "v1.41.1 (https://github.com/open-gsd/gsd-core/releases/tag/v1.41.1) - 14 fixes grouped by 6 subgroups",
-      "line": 959
+      "line": 960
     },
     {
       "id": "RELEASE-NOTES.EXAMPLE.minor-auto-acceptable",
       "klass": "RELEASE-NOTES",
       "value": "v1.41.0 - kept auto-generated body; many small fixes with clean conventional-commit titles",
-      "line": 961
+      "line": 962
     },
     {
       "id": "RELEASE-NOTES.EXAMPLE.rc",
       "klass": "RELEASE-NOTES",
       "value": "v1.7.0-rc.1 (https://github.com/open-gsd/gsd-core/releases/tag/v1.7.0-rc.1) - intro + Added/Changed/Fixed/Documentation taxonomy",
-      "line": 960
+      "line": 961
     },
     {
       "id": "RELEASE-NOTES.GATE.hotfix",
       "klass": "RELEASE-NOTES",
       "value": "manual edit required; auto-generated body for vX.Y.{Z>0} is \"Full Changelog only\" and must be replaced with structured body",
-      "line": 932
+      "line": 933
     },
     {
       "id": "RELEASE-NOTES.GATE.minor",
       "klass": "RELEASE-NOTES",
       "value": "auto-generated body acceptable when PR titles are clean; promote to structured body when >20 PRs or contains feature+refactor+fix mix",
-      "line": 934
+      "line": 935
     },
     {
       "id": "RELEASE-NOTES.GATE.rc",
       "klass": "RELEASE-NOTES",
       "value": "manual edit recommended; auto-generated PR list is acceptable for early RCs but final RC before vX.Y.0 should match standard",
-      "line": 933
+      "line": 934
     },
     {
       "id": "RELEASE-NOTES.RELEASE-STREAM.main-branch",
       "klass": "RELEASE-NOTES",
       "value": "next (RCs) + latest (stable); install via @next or @latest",
-      "line": 966
+      "line": 967
     },
     {
       "id": "RELEASE-NOTES.RELEASE-STREAM.rule",
       "klass": "RELEASE-NOTES",
       "value": "streams do not mix; do not document @next in hotfix/stable notes",
-      "line": 967
+      "line": 968
     },
     {
       "id": "RELEASE-NOTES.SCOPE",
       "klass": "RELEASE-NOTES",
       "value": "GitHub Releases body for tags vX.Y.Z, vX.Y.Z-rc.N; not CHANGELOG.md (changeset workflow owns that)",
-      "line": 930
+      "line": 931
     },
     {
       "id": "RELEASE-NOTES.SOURCE.changesets",
       "klass": "RELEASE-NOTES",
       "value": ".changeset/*.md (frontmatter pr: + body bullets)",
-      "line": 946
+      "line": 947
     },
     {
       "id": "RELEASE-NOTES.SOURCE.commits",
       "klass": "RELEASE-NOTES",
       "value": "git log <prev-tag>..<this-tag> --pretty=format:'%s%n%n%b' --no-merges",
-      "line": 945
+      "line": 946
     },
     {
       "id": "RELEASE-NOTES.SOURCE.pr-bodies",
       "klass": "RELEASE-NOTES",
       "value": "gh pr view <NNN> --json title,body for fixes lacking a changeset",
-      "line": 947
+      "line": 948
     },
     {
       "id": "RELEASE-NOTES.SOURCE.precedence",
       "klass": "RELEASE-NOTES",
       "value": "changeset body > commit body > PR body > commit subject (prefer authored content over auto-generated)",
-      "line": 948
+      "line": 949
     },
     {
       "id": "RELEASE-NOTES.STANDARD.bullet-shape",
       "klass": "RELEASE-NOTES",
       "value": "**Bold user-visible change** — explanation of what was broken or what's new, leading with symptom not implementation. Trailing (#NNN) PR ref.",
-      "line": 938
+      "line": 939
     },
     {
       "id": "RELEASE-NOTES.STANDARD.footer.full-changelog",
       "klass": "RELEASE-NOTES",
       "value": "**Full Changelog**: https://github.com/open-gsd/gsd-core/compare/<prev>...<this>",
-      "line": 942
+      "line": 943
     },
     {
       "id": "RELEASE-NOTES.STANDARD.footer.hotfix",
       "klass": "RELEASE-NOTES",
       "value": "Install/upgrade: \\`npx @opengsd/gsd-core@latest\\`",
-      "line": 940
+      "line": 941
     },
     {
       "id": "RELEASE-NOTES.STANDARD.footer.rc",
       "klass": "RELEASE-NOTES",
       "value": "Install for testing: \\`npx @opengsd/gsd-core@next\\` (per branch->dist-tag policy)",
-      "line": 941
+      "line": 942
     },
     {
       "id": "RELEASE-NOTES.STANDARD.heading-level",
       "klass": "RELEASE-NOTES",
       "value": "## for category, ### for subgroup (area), - for bullet",
-      "line": 937
+      "line": 938
     },
     {
       "id": "RELEASE-NOTES.STANDARD.intro",
       "klass": "RELEASE-NOTES",
       "value": "optional one-paragraph framing for RC/feature releases; omit for pure-fix hotfixes",
-      "line": 943
+      "line": 944
     },
     {
       "id": "RELEASE-NOTES.STANDARD.subgroups",
       "klass": "RELEASE-NOTES",
       "value": "phase-planning-state | workstream | query-dispatch-cli | code-review | install | capture | docs | architecture | security",
-      "line": 939
+      "line": 940
     },
     {
       "id": "RELEASE-NOTES.STANDARD.taxonomy",
       "klass": "RELEASE-NOTES",
       "value": "Keep-a-Changelog 1.1.0: Added | Changed | Deprecated | Removed | Fixed | Security | Documentation",
-      "line": 936
+      "line": 937
     },
     {
       "id": "RELEASE-NOTES.TEMPLATE.hotfix",
       "klass": "RELEASE-NOTES",
       "value": "## Fixed\\n\\n### <subgroup>\\n- **<bold change>** — <explanation>. (#<PR>)\\n\\n---\\n\\nInstall/upgrade: \\`npx @opengsd/gsd-core@latest\\`\\n\\n**Full Changelog**: <compare-url>",
-      "line": 963
+      "line": 964
     },
     {
       "id": "RELEASE-NOTES.TEMPLATE.rc",
       "klass": "RELEASE-NOTES",
       "value": "<one-paragraph intro>\\n\\n## Added\\n### <subgroup>\\n- **<change>** — <explanation>. (#<PR>)\\n\\n## Changed\\n### Architecture\\n- **<refactor>** — <user-visible benefit>. (#<PR>)\\n\\n## Fixed\\n### <subgroup>\\n- **<fix>** — <explanation>. (#<PR>)\\n\\n## Documentation\\n- **<docs change>** — <reason>. (#<PR>)\\n\\n---\\n\\nThis is a release candidate. Install for testing:\\n\\`\\`\\`bash\\nnpx @opengsd/gsd-core@next\\n\\`\\`\\`\\n\\n**Full Changelog**: <compare-url>",
-      "line": 964
+      "line": 965
     },
     {
       "id": "RELEASE-NOTES.WORKFLOW.edit",
       "klass": "RELEASE-NOTES",
       "value": "gh release edit <tag> --notes-file <path>",
-      "line": 950
+      "line": 951
     },
     {
       "id": "RELEASE-NOTES.WORKFLOW.idempotency",
       "klass": "RELEASE-NOTES",
       "value": "gh release edit overwrites body wholesale; safe to re-run after refining",
-      "line": 953
+      "line": 954
     },
     {
       "id": "RELEASE-NOTES.WORKFLOW.token",
       "klass": "RELEASE-NOTES",
       "value": "must use .envrc GITHUB_TOKEN per RULESET.GH.AUTH.DEFAULT (this doc); never ambient gh auth",
-      "line": 952
+      "line": 953
     },
     {
       "id": "RELEASE-NOTES.WORKFLOW.view",
       "klass": "RELEASE-NOTES",
       "value": "gh release view <tag> --json body --jq .body",
-      "line": 951
+      "line": 952
     },
     {
       "id": "RETRO.APPLIED",
@@ -1344,7 +1344,7 @@
       "id": "RULESET.CONTENT-PATH-NORMALIZATION",
       "klass": "RULESET",
       "value": "filesystem paths substituted into markdown body text (@-references, workflow .md, agent .md, generated docs, command bodies) MUST be normalized to POSIX forward slashes via .replace(/\\\\/g,'/') at the production source BEFORE substitution; never push normalization to tests; cross-platform content is POSIX-only; applies to: computePathPrefix output, install-path rewrites, generated shim paths emitted into .md bodies; idempotent on POSIX so unconditional; mechanically enforced by local/normalize-path-in-content (eslint, src/**/*.cts; #1733)",
-      "line": 1082
+      "line": 1083
     },
     {
       "id": "RULESET.CONTRIB.CLASSIFY.enhancement",
@@ -1392,7 +1392,7 @@
       "id": "RULESET.GENERATIVE-FIX",
       "klass": "RULESET",
       "value": "parallel implementations diverge silently when no parity test enforces equality at the test layer; for any new constant/array/parser shared between two parallel surfaces (two workflow surfaces, or a generated artifact and its hand-authored source), the same commit MUST add a parity assertion that fails when the two diverge; exemplar: tests/runtime-launcher-parity.test.cjs (asserts every workflow bash block uses the canonical gsd_run launcher)",
-      "line": 1080
+      "line": 1081
     },
     {
       "id": "RULESET.GH.AUTH.DEFAULT",
@@ -1404,7 +1404,7 @@
       "id": "RULESET.HARNESS.test-memory-guard",
       "klass": "RULESET",
       "value": "~/.claude/hooks/test-memory-guard.sh fires on every Bash PreToolUse; if argv[0]∈{node|vitest|jest|mocha|tsx|ts-node|tap|ava|playwright|cypress} OR matches (npm|pnpm|yarn|bun) (run )?(t|test|tests|vitest|jest); blocks via hookSpecificOutput.permissionDecision=deny when sum(RSS of running matching procs, excluding tsserver|*-mcp|claude|Electron|...) ≥ 4 GiB OR when argv[0] basename matches a running process's argv[0]. Exception: node --version|-v|--help|-h|-p|-e are trivial probes and skip the check. Designed for a 24 GB Mac where prior accidental fan-out exhausted RAM",
-      "line": 1124
+      "line": 1125
     },
     {
       "id": "RULESET.MANIFEST-CANONICAL-KEY",
@@ -1416,13 +1416,13 @@
       "id": "RULESET.PR-FLOW.docker-before-push",
       "klass": "RULESET",
       "value": "before ANY git push of any fix to any PR, run gsd-test (docker on the remote, mirrors ubuntu CI) and confirm exit 0. macOS-local node --test is NOT a substitute — many failures are platform-specific (path separators, case sensitivity, locale, fs semantics). Watchdog with Monitor on the output log; never set a sleep/timer and walk away. Source: user feedback 2026-05-16 — \"we don't set a timer we actively watch and record results in real time as possible\". SUPERSEDED 2026-07-17: 'confirm exit 0' is a false-green trap — piping/backgrounding can report exit 0 on a failed suite; gate on the verdict-line outcome:\"passed\" for the exact HEAD sha instead. See CLAUDE.md's gsd-test rule and the gsd-test-is-ref-based-commit-first predicate for the current, correct gating contract.",
-      "line": 1126
+      "line": 1127
     },
     {
       "id": "RULESET.PR-FLOW.templates-mandatory",
       "klass": "RULESET",
       "value": "every gh pr create|edit|gh issue create|edit MUST first invoke the gh-templates-first skill and Read (Read tool, not Bash cat — k321 read-tracking) the matching template in .github/. Apply ALL required sections; never write freeform bodies. Repo enforces this via gsd-pr-template-policy GitHub Action which flags any non-templated body — the bot allows the PR to stay open only because authors are contributors-or-higher, but the warning is a real complaint that must be cured. Source: user feedback 2026-05-16 (multi-message escalation) — \"the whole reason i have that github action is because you fucking blow through and ignore using the templates\"",
-      "line": 1128
+      "line": 1129
     },
     {
       "id": "RULESET.PR-SCOPE.one-concern-per-pr",
@@ -1620,13 +1620,19 @@
       "id": "RUNSTATE.AUTO-CHAIN.legacy",
       "klass": "RUNSTATE",
       "value": "workflow._auto_chain_active in config.json is never read (it cannot tell a live chain from a crashed one); auto-chain set|clear delete it from the scope and root config, byte-identical when absent; config-set refuses the key (CONFIG_INVALID_KEY) and names the verb",
-      "line": 921
+      "line": 922
     },
     {
       "id": "RUNSTATE.AUTO-CHAIN.location",
       "klass": "RUNSTATE",
       "value": ".gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...); no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)",
       "line": 920
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.owner",
+      "klass": "RUNSTATE",
+      "value": "a record has an owner: chain (--auto/--chain hand-off; a manual plan/execute/discuss invocation clears it; no TTL) or autonomous (/gsd:autonomous holds the run from initialize to every exit, refreshing per phase); plain set never downgrades and plain clear never removes a live autonomous hold (clear reports held_by), only clear --owner autonomous does — because autonomous calls plan-phase/execute-phase without --auto and check auto-mode.active must stay true for the whole run (S2 guards read it); the hold lapses AUTONOMOUS_HOLD_TTL_MS=24h after its last refresh (age >= ttl is lapsed), so a dead run does not leave later sessions unattended",
+      "line": 921
     },
     {
       "id": "RUNSTATE.SEAM.gsd-run-dir",
@@ -1842,13 +1848,13 @@
       "id": "SEAM.shellcmdproj-win-binary-resolution.enforced-by",
       "klass": "SEAM",
       "value": "lint-rule:no-private-binary-resolution",
-      "line": 1091
+      "line": 1092
     },
     {
       "id": "SEAM.shellcmdproj-win-binary-resolution.owns",
       "klass": "SEAM",
       "value": "Windows binary resolution (resolveExecutableBinary, projectSpawnInvocation) — which file a declared command name actually names, and cmd.exe mediation",
-      "line": 1090
+      "line": 1091
     },
     {
       "id": "SEAM.test-report-adapter.enforced-by",
@@ -1914,55 +1920,55 @@
       "id": "SESSION.2026-05-05",
       "klass": "SESSION",
       "value": "[PRED.k320..k331 introduced; DEFECT.SOURCE-GREP-IN-NEW-TESTS, DEFECT.CHANGESET-PR-FIELD-DRIFT, DEFECT.PHASE-DIR-PREFIX-DRIFT, DEFECT.PROMPT-INJECTION-SCAN-COLLISION; ADR-0002 thin-wrapper pattern findings folded into RULESET.WORKFLOW_*]",
-      "line": 1114
+      "line": 1115
     },
     {
       "id": "SESSION.2026-05-05.sdk-bridge",
       "klass": "SESSION",
       "value": "PR #3158 SDK Runtime Bridge — observability isolation rule; strict-mode dispatchMode reporting invariant; transport decision ordering (guard before event emission); folded into Dispatch Policy Module glossary",
-      "line": 1115
+      "line": 1116
     },
     {
       "id": "SESSION.2026-05-09",
       "klass": "SESSION",
       "value": "[8-PR triage wave, 7 merged + 1 subsumed; META.RULE.* introduced; WAVE.LESSON.* captured; k320/k322/k323/k326/k331 evidence; AI Ops Memory predicate format established]",
-      "line": 1116
+      "line": 1117
     },
     {
       "id": "SESSION.2026-05-10",
       "klass": "SESSION",
       "value": "[ai-ops memory consolidation; release-notes standard taxonomy + templates; RELEASE-NOTES.* predicates introduced]",
-      "line": 1117
+      "line": 1118
     },
     {
       "id": "SESSION.2026-05-13",
       "klass": "SESSION",
       "value": "[Shell Command Projection Module expansion (#3465-#3468); ADR-0009 superseded; new exports for subprocess dispatch and platform file I/O; phase-gated migration plan; PR #3464 three-gate invariant CI+CR+unresolved=0; PR #3470 stash-include-untracked rebase pattern]",
-      "line": 1118
+      "line": 1119
     },
     {
       "id": "SESSION.2026-05-14",
       "klass": "SESSION",
       "value": "[#3095/PR #3490 EXEC.CLASSIFY.* introduced (Anthropic/Copilot/Codex/Gemini [runtime removed #1928] cross-runtime rate-limit sentinel coverage); #3489/PR #3499 DEFECT.STATE-TRAMPLE.idempotency-oracle (STATE.md current_phase field is oracle for state.complete-phase); #3488/PR #3501 DAG resolver same-phase short-form depends_on (shortFormToId index added to sdk/src/query/phase.ts); #3491/PR #3502 DEFECT.NESTED-GIT-INIT (gitWorktreeInfoInternal helper); #3493/PR #3500 extractCurrentMilestone generic Phase Details continuation past planned-milestone siblings; #3503/PR #3504 DEFECT.PATH-SUBSTRING-CHECK (trailing-slash anchor for homedir checks); #3346/PR #3505 codex AoT TOML leaf-key via extractFlatHookEventName; #3506/PR #3507 label-scoped stale-bot sub-job pattern; multi-PR triage operational lessons folded into PROC.TRIAGE.*; #3508 DEFECT.AGENT-ISOLATION-SILENT-FAIL; gsd-test image-missing auto-build (locally-built image via embedded heredoc Dockerfile); refined PRED.k322 threshold to 3 PRs/<10min]",
-      "line": 1119
+      "line": 1120
     },
     {
       "id": "SESSION.2026-05-15",
       "klass": "SESSION",
       "value": "[#3537/PR #3538 DEFECT.PHASE-REGEX-FANOUT — phaseMarkdownRegexSource promoted to core.cjs and wired to 7 sites; parity-style regression test established as DEFECT.GENERATIVE-FIX exemplar; trek-e/gsd-test-runner#1 filed for DEFECT.GSD-TEST-MIRROR-POISONED — chown-back-before-exec legacy gap (poisoned holodeck mirror unstuck via authorized docker chown to remote 1000:1000); RULESET.PR-FLOW.* codified from project CLAUDE.md load-bearing rule; first dispatch under run-tests-before-create held cleanly (PR #3520 worker stopped on Docker exit 12 infra failure, orchestrator opened PR after unblock); CONTEXT.md refactored from 882 lines of mixed prose+predicates into ~500 lines of pure-predicate format with chronological session log]",
-      "line": 1120
+      "line": 1121
     },
     {
       "id": "SESSION.2026-05-15.parallel-fix-dispatch",
       "klass": "SESSION",
       "value": "[#3542/PR #3546 prohibit git stash family in executor agents (shared refs/stash across worktrees); #3541/PR #3547 non-TTY resolution for installer prompt-user actions (default remove for SDK build artifacts, keep for skills/gsd-*/SKILL.md); #3545 filed for gsd-test-summary concurrent /tmp output collision; new predicates DEFECT.HOOK-OVER-ENFORCEMENT.read-tool-tracking, DEFECT.GSD-TEST-CONCURRENT-OUTPUT-COLLISION, DEFECT.SUBAGENT-LONG-RUNNING-BG-STALL, DEFECT.AGENT-RETIRED-SLASH-SYNTAX-DRIFT, PROC.PARALLEL-FIX-DISPATCH; agent-trust-but-verify caught /gsd-update retired-syntax comment slip in #3541 implementation before PR open]",
-      "line": 1121
+      "line": 1122
     },
     {
       "id": "SESSION.2026-05-16",
       "klass": "SESSION",
       "value": "[multi-PR triage wave (#3577/3581/3640/3641/3642/3648/3649/3637/3639). Established global PreToolUse hook ~/.claude/hooks/test-memory-guard.sh denying new node/test spawns when sum(RSS of node|vitest|jest|...) >= 4 GiB on the 24 GB Mac OR when a same-runner process is already in argv[0] — hard deny via hookSpecificOutput.permissionDecision=deny. PR #3577 fix: revert config-ensure-section dispatch to CJS cmdConfigEnsureSection (SDK author wrote single-section semantics under a name whose legacy callers expect full-default config init); plus 3 SDK parity carve-outs (configNewProject defaults align with sdk/shared/config-defaults.manifest.json, return relative .planning/config.json path, drop quotes from Unknown config key, lead malformed-JSON error with \"Failed to read config.json:\"). PR #3649 fix: chunk node --test spawn at 28K argv ceiling (Windows CreateProcess lpCommandLine cap 32,767 was instantly aborting unchunked spawn of 546 paths). Chunking fix surfaced 14 pre-existing Windows-only test bugs (4010 pass / 14 fail; vs 0/0 before — entire suite was un-runnable on Windows). PRs #3639 + #3637 confirmed unable to stand alone (legitimately depend on Phase 6 scaffolding only present on feat/3575-enforcement-hardening) — user decision: cherry-pick into #3577 and close. Five other PRs each had ≤1 unresolved CR thread of the changeset-pr-number / null-vs-throw / implicit-Claude-runtime / docs-stale-guidance / hardcoded-tests-path family — all quick wins. New predicates: DEFECT.SDK-PORT-NAME-COLLISION, DEFECT.WINDOWS-ARGV-OVERFLOW, DEFECT.STACKED-PR-CANNOT-STAND-ALONE, DEFECT.CANARY-VERSION-LEAK, DEFECT.GSD-TEST-HOST-MID-RUN-DEATH, RULESET.HARNESS.test-memory-guard, RULESET.PR-FLOW.docker-before-push, RULESET.PR-FLOW.templates-mandatory]",
-      "line": 1122
+      "line": 1123
     },
     {
       "id": "SETTINGS-HOOKS.RECONCILE.exempt",
@@ -2004,43 +2010,43 @@
       "id": "UAT.TAIL.autonomous-accept",
       "klass": "UAT",
       "value": "autonomous \"All good — continue\" records the human's acceptance as UAT rows (result: pass, source: human) in the phase UAT file, closes it with uat.complete-session, and flips VERIFICATION to passed only when phase uat-passed --uat-only says true — the verify-work #4663 canonicalization; a bare status write left the UAT file testing forever",
-      "line": 924
+      "line": 925
     },
     {
       "id": "UAT.TAIL.verify-work-phases",
       "klass": "UAT",
       "value": "audit-uat summary.verify_work_phases (src/uat.cts) is the one owner of \"which phases can a /gsd:verify-work session close now\": current-milestone uat|verification results with a pending or human_uat item, phase order, once each; blocked/skipped/deferred/issue rows and archived milestones are debt but never a route (routing there loops); readers: next.md Route V (first in determine_next_action, skipped under --force, never re-picks the phase verify-work just left open under --auto) and smart-entry's uat_verify_phases (a secondary verify-work option on the complete/idle-stranded menus; recommendations stay fixed per ADR-1787)",
-      "line": 923
+      "line": 924
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",
       "klass": "WAVE",
       "value": "k095/k324 confirmed at scale: 5 of 8 agents terminated mid-monitor with stale claims requiring direct verification",
-      "line": 1073
+      "line": 1074
     },
     {
       "id": "WAVE.LESSON.changelog-policy-violation-multiplier",
       "klass": "WAVE",
       "value": "brief contradicting CONTRIBUTING.md's changelog-fragment policy (\"CHANGELOG Entries — Drop a Fragment\" section) produced violations on 5 of 8 PRs (#3300, #3302, #3304, #3305, #3308); k326 + k320 capture",
-      "line": 1070
+      "line": 1071
     },
     {
       "id": "WAVE.LESSON.cr-throttle-burst-correlation",
       "klass": "WAVE",
       "value": "8 PRs in <15min triggered k322 sustained-throttle on multiple PRs (#3306 worst case)",
-      "line": 1071
+      "line": 1072
     },
     {
       "id": "WAVE.LESSON.k101-still-trips",
       "klass": "WAVE",
       "value": "even after CONTEXT.md k101 reinforcement, agent of record posted self-PR comment on close; k331 adds explicit close-time literal-instruction guard",
-      "line": 1074
+      "line": 1075
     },
     {
       "id": "WAVE.LESSON.sibling-audit-overlap",
       "klass": "WAVE",
       "value": "k015-family parallel dispatch on #3297 + #3298 produced k323 add-backlog.md cross-PR overlap",
-      "line": 1072
+      "line": 1073
     },
     {
       "id": "WORKSTREAM.INVARIANT.migrate-name",

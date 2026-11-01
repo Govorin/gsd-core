@@ -63,10 +63,14 @@ describe('auto-chain set|clear|status', () => {
     const dir = createTempProject('gsd-x5-roundtrip-');
     t.after(() => cleanup(dir));
 
-    assert.deepEqual(json(dir, ['auto-chain', 'status']), { active: false, scope: '', path: '.gsd/auto-chain/active.json', since: null });
+    assert.deepEqual(json(dir, ['auto-chain', 'status']), {
+      active: false, scope: '', path: '.gsd/auto-chain/active.json', owner: null, since: null, expires_at: null,
+    });
 
     const set = json(dir, ['query', 'auto-chain', 'set']);
     assert.equal(set.active, true);
+    assert.equal(set.owner, 'chain');
+    assert.equal(set.expires_at, null, 'a chain record has no TTL');
     assert.equal(set.changed, true);
     assert.deepEqual(set.legacy_cleaned, []);
     assert.equal(typeof set.since, 'string');
@@ -124,6 +128,119 @@ describe('auto-chain set|clear|status', () => {
       assert.equal(JSON.parse(result.error).reason, 'usage', args.join(' '));
     }
     assert.equal(fs.existsSync(path.join(dir, '.gsd')), false, 'a refused call writes nothing');
+  });
+});
+
+describe('an autonomous run holds the chain for its whole length', () => {
+  // /gsd:autonomous calls plan-phase and execute-phase WITHOUT --auto; their manual-invocation
+  // guard (`auto-chain clear`) and transition.md's boundary clear must not end the run under it,
+  // because hooks read check auto-mode's `active` to decide whether a human can be asked.
+  const NESTED_CLEARS = [
+    ['plan-phase auto-advance-check, no --auto/--chain', ['auto-chain', 'clear']],
+    ['execute-phase chain sync, no --auto', ['query', 'auto-chain', 'clear']],
+    ['transition.md milestone boundary', ['auto-chain', 'clear']],
+  ];
+
+  test('active stays true through every nested clear and plain set; only the autonomous release ends it', (t) => {
+    const dir = createTempProject('gsd-x5-autonomous-');
+    t.after(() => cleanup(dir));
+    const { readAutoModeState } = require('../gsd-core/bin/lib/check-auto-mode.cjs');
+
+    const hold = json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    assert.equal(hold.owner, 'autonomous');
+    assert.equal(typeof hold.expires_at, 'string');
+    assert.equal(readAutoModeState(dir).active, true);
+
+    for (const [label, args] of NESTED_CLEARS) {
+      const result = json(dir, args);
+      assert.equal(result.changed, false, `${label} must not release the hold`);
+      assert.equal(result.held_by, 'autonomous', `${label} reports who holds the run`);
+      assert.equal(readAutoModeState(dir).active, true, `${label}: active stays true`);
+      assert.equal(autoMode(dir).active, true, `${label}: check auto-mode agrees`);
+    }
+
+    const plainSet = json(dir, ['auto-chain', 'set']);
+    assert.equal(plainSet.owner, 'autonomous', 'a nested --auto set does not downgrade the hold');
+    assert.equal(plainSet.changed, false);
+
+    const release = json(dir, ['auto-chain', 'clear', '--owner=autonomous']);
+    assert.equal(release.active, false);
+    assert.equal(release.changed, true);
+    assert.equal(readAutoModeState(dir).active, false);
+  });
+
+  test('autonomous takes over a chain record, keeps its since on refresh, and an invalid owner is a usage error', (t) => {
+    const dir = createTempProject('gsd-x5-autonomous-refresh-');
+    t.after(() => cleanup(dir));
+
+    json(dir, ['auto-chain', 'set']);
+    const first = json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    assert.equal(first.owner, 'autonomous');
+    assert.equal(first.changed, true);
+    const refreshed = json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    assert.equal(refreshed.since, first.since);
+    assert.equal(refreshed.changed, false);
+
+    const bad = run(dir, ['--json-errors', 'auto-chain', 'set', '--owner', 'robot']);
+    assert.equal(bad.success, false);
+    assert.equal(JSON.parse(bad.error).reason, 'usage');
+  });
+
+  test('the hold is scoped like any record: --ws on set and release', (t) => {
+    const dir = createTempProject('gsd-x5-autonomous-ws-');
+    t.after(() => cleanup(dir));
+    fs.mkdirSync(path.join(dir, '.planning', 'workstreams', 'alpha'), { recursive: true });
+
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous', '--ws=alpha']);
+    assert.equal(autoMode(dir, { GSD_WORKSTREAM: 'alpha' }).active, true);
+    assert.equal(autoMode(dir).active, false);
+    json(dir, ['auto-chain', 'clear', '--ws=alpha']);
+    assert.equal(autoMode(dir, { GSD_WORKSTREAM: 'alpha' }).active, true, 'a nested plain clear in the workstream keeps it');
+    json(dir, ['auto-chain', 'clear', '--owner', 'autonomous', '--ws=alpha']);
+    assert.equal(autoMode(dir, { GSD_WORKSTREAM: 'alpha' }).active, false);
+  });
+
+  describe('a hold nobody released lapses AUTONOMOUS_HOLD_TTL_MS after its last refresh', () => {
+    const lib = () => require('../gsd-core/bin/lib/auto-chain-state.cjs');
+    const T0 = Date.parse('2026-06-01T00:00:00.000Z');
+
+    function heldAt(dir, touchedMs) {
+      const file = path.join(dir, STATE);
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, JSON.stringify({ active: true, owner: 'autonomous', since: new Date(T0).toISOString(), touched_at: new Date(touchedMs).toISOString() }));
+    }
+
+    for (const [label, ageDelta, active] of [['limit-1', -1, true], ['limit', 0, false], ['limit+1', 1, false]]) {
+      test(`age ${label} -> ${active ? 'active' : 'lapsed'}`, (t) => {
+        const dir = createTempProject('gsd-x5-ttl-');
+        t.after(() => cleanup(dir));
+        const { AUTONOMOUS_HOLD_TTL_MS, readAutoChainActive, readAutoChainState } = lib();
+        heldAt(dir, T0);
+        const now = () => new Date(T0 + AUTONOMOUS_HOLD_TTL_MS + ageDelta);
+        assert.equal(readAutoChainActive(dir, { now }), active);
+        assert.equal(readAutoChainState(dir, { now }).owner, active ? 'autonomous' : null);
+      });
+    }
+
+    test('a lapsed hold no longer blocks a plain clear, and expires_at names the deadline', (t) => {
+      const dir = createTempProject('gsd-x5-ttl-clear-');
+      t.after(() => cleanup(dir));
+      const { AUTONOMOUS_HOLD_TTL_MS, setAutoChain, readAutoChainState } = lib();
+      heldAt(dir, T0);
+      assert.equal(readAutoChainState(dir, { now: () => new Date(T0) }).expires_at, new Date(T0 + AUTONOMOUS_HOLD_TTL_MS).toISOString());
+      const later = () => new Date(T0 + AUTONOMOUS_HOLD_TTL_MS);
+      const cleared = setAutoChain(dir, false, { now: later });
+      assert.equal(cleared.held_by, null);
+      assert.equal(fs.existsSync(path.join(dir, STATE)), false);
+    });
+
+    test('a hold without a readable refresh time is not active', (t) => {
+      const dir = createTempProject('gsd-x5-ttl-missing-');
+      t.after(() => cleanup(dir));
+      fs.mkdirSync(path.dirname(path.join(dir, STATE)), { recursive: true });
+      fs.writeFileSync(path.join(dir, STATE), JSON.stringify({ active: true, owner: 'autonomous' }));
+      assert.equal(lib().readAutoChainActive(dir), false);
+    });
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 365,
+  "count": 366,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,7 +22,7 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
-    "RUNSTATE": 3,
+    "RUNSTATE": 4,
     "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
@@ -1361,6 +1361,11 @@
       "id": "RUNSTATE.AUTO-CHAIN.location",
       "klass": "RUNSTATE",
       "value": ".gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...); no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)"
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.owner",
+      "klass": "RUNSTATE",
+      "value": "a record has an owner: chain (--auto/--chain hand-off; a manual plan/execute/discuss invocation clears it; no TTL) or autonomous (/gsd:autonomous holds the run from initialize to every exit, refreshing per phase); plain set never downgrades and plain clear never removes a live autonomous hold (clear reports held_by), only clear --owner autonomous does — because autonomous calls plan-phase/execute-phase without --auto and check auto-mode.active must stay true for the whole run (S2 guards read it); the hold lapses AUTONOMOUS_HOLD_TTL_MS=24h after its last refresh (age >= ttl is lapsed), so a dead run does not leave later sessions unattended"
     },
     {
       "id": "RUNSTATE.SEAM.gsd-run-dir",
