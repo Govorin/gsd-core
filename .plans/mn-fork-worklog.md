@@ -1114,9 +1114,20 @@ socket: `nx_running_tasks`, `nx_task_output`, `nx_wait_for`. ADR-5210 amended.
 - **Gates.** `npm run build`, `regen:derived`, `lint:generated-sync` green; `lint:ci` 52/53, the one
   red is `lint-vendored-deps` (node_modules is a symlink into the main checkout); affected
   (base `3f7b3376d`, 605 files) 32 362 tests: 32 291 pass, 66 skipped, 5 red before the three test
-  fixes — the
-  three above, `emitted-attribution` against the stale default base and the vendored-deps manifest
-  (same symlink); emitted attribution against `upstream/next` 148/148, no ack trailer.
+  fixes — the three above, `emitted-attribution` against the stale default base and the
+  vendored-deps manifest (same symlink); emitted attribution against `upstream/next` 148/148, no
+  ack trailer.
+- **Review round** (after merging `next` at `5374e5b4d`). (1) The executor and the code fixer
+  usually work in a linked worktree while `nx serve` watches the user's checkout: the reference now
+  says, before the per-role rules, that from a linked worktree (`git-dir` ≠ `git-common-dir`) the
+  runs never see the edits, so their screen is no evidence either way — and only then grants
+  `gsd-code-fixer` (useful in the main checkout). Reference now 2 909 B. (2) The Kimi subagent
+  provenance rule's transforms are a function: the grant sources explain only the `.md` of an
+  agent some `agentTools` block lists, so other Kimi drift still needs an ack. (3) The pointer
+  template holds `~/.claude/` in a constant joined at render time, and `cline-install` no longer
+  skips `mn-agent-tools.cjs`. (4) `tests/mn-agent-tools.test.cjs` walks every `agentTools` block in
+  the frozen registry (agents ship, grants land, the reference ships and reaches each agent).
+  (5) Limits name the single-task case (`nx serve app` unseen without `NX_TUI=true`).
 
 ### Long-lived state
 
