@@ -69,7 +69,7 @@ flowchart TB
 ```mermaid
 flowchart LR
   subgraph g_points["Точки цикла и капабилити"]
-    p_milestone_pre{{"milestone#58;pre"}}:::point
+    p_milestone_pre{{"milestone#58;pre<br/>+1 gates, +0 contributions"}}:::point
     c_milestone_pre_code_review_command_review_stage["code-review#58; command review stage"]:::capability
     p_milestone_post{{"milestone#58;post"}}:::point
     c_milestone_post_architecture_command_arch_stage["architecture#58; command arch stage"]:::capability

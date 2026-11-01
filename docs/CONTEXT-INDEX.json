@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 384,
+  "count": 387,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 3,
@@ -21,9 +21,9 @@
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
     "RETRO": 14,
-    "RULESET": 64,
+    "RULESET": 65,
     "RUNSTATE": 6,
-    "SEAM": 50,
+    "SEAM": 52,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
     "TOOL": 5,
@@ -1104,6 +1104,11 @@
       "value": "a phase-6 per-feature cutover moves the host's phase-context detection + mode/flag logic INTO the skill (self-gating, per ADR-894); the loop hook is intentionally COARSE — \"invoke skill X at point Y when config Z\" — and carries no detection/mode. WORKED EXAMPLE: plan-phase.md §5.6 UI gate (frontend-detection via ui-safety-gate.cjs + --auto/manual branch + --skip-ui bypass) must move into gsd-ui-phase before its plan:pre hook can replace the inline call without behavior loss. Spike #1018 finding."
     },
     {
+      "id": "RULESET.CAPABILITY.milestone-review-gate",
+      "klass": "RULESET",
+      "value": "fork: a milestone does not close while a code commit of it (base..HEAD, base = previous v* tag else the parent of the first .planning/ commit else root; no merges; SCOPE_EXCLUSION_PATHSPECS) is in no non-incomplete window REVIEW.md base..tip and no REVIEW-FIX.md **Commit:** line, or while a covering review holds a Critical not fixed (REVIEW-FIX.md, ledger fixed), refuted, or waived (ledger, by wr: fingerprint); warnings never block. Code-review gate check milestone-review at milestone:pre, evaluated AFTER the point's steps, when:code_review.milestone_gate, onError:halt. Owner override = review milestone-accept --reason, a self-invalidating record of the exact uncovered commits and open Critical keys; unattended runs never accept. ADR-5208 §10."
+    },
+    {
       "id": "RULESET.CAPABILITY.off-means-off",
       "klass": "RULESET",
       "value": "the host derives shared outputs from the ACTIVE hook set (via loop.render-hooks); a hook may ADD a labeled block or be COUNTED into a host-computed aggregate (e.g. a score denominator), but NEVER mutates host source — so a disabled capability yields the base output by construction, not by authoring discipline. Ratify in ADR-894; proven by spike #1018."
@@ -1487,6 +1492,16 @@
       "id": "SEAM.git-query-readonly-seam.owns",
       "klass": "SEAM",
       "value": "bounded, never-throw git repository introspection — base-branch detection, worktree-info detection, phase change-set detection"
+    },
+    {
+      "id": "SEAM.milestone-review-coverage.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/gate-milestone-review.test.cjs"
+    },
+    {
+      "id": "SEAM.milestone-review-coverage.owns",
+      "klass": "SEAM",
+      "value": "src/milestone-review.cts assessMilestoneReview is the one computation of milestone review coverage and open Criticals, read by the gate (src/gate-milestone-review.cts) and by the acceptance writer (review milestone-accept)"
     },
     {
       "id": "SEAM.package-identity.enforced-by",

@@ -221,6 +221,24 @@ describe('review stage (milestone:pre)', () => {
     assert.equal(fs.existsSync(path.join(repo.dir, DIR)), false);
   });
 
+  test('[happy] no marker, no earlier tag, planning began after the code: the window starts where planning began', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-review-router-'));
+    dirs.push(dir);
+    const git = (...args) => gitOrThrow(args, { cwd: dir, env: { ...process.env, ...IDENTITY } }).trim();
+    git('init', '--initial-branch=main');
+    write(dir, 'src/legacy.js', 'export const legacy = 1;\n');
+    git('add', '-A');
+    git('commit', '-m', 'chore: code before gsd');
+    const before = git('rev-parse', 'HEAD');
+    write(dir, '.planning/config.json', '{}\n');
+    write(dir, 'src/new.js', 'export const fresh = 2;\n');
+    git('add', '-A');
+    git('commit', '-m', 'feat: first planned change');
+    const out = json(run({ dir }, [...STAGE, '--milestone', 'v1.0']));
+    assert.deepEqual([out.since, out.files, out.decision], [before, 1, 'auto']);
+    assert.deepEqual(out.next, { skill: 'code-review', args: `--since ${before}` });
+  });
+
   test('[config] code_review.window_at_milestone false: the pre-pass still runs; the review is only named', () => {
     const repo = makeRepo({ code_review: { window_at_milestone: false } });
     repo.git('tag', 'v1.0', repo.base);

@@ -190,13 +190,39 @@ Wait for confirmation.
 
 <step name="milestone_pre_hooks">
 
-The milestone is confirmed ready and nothing is archived yet — the boundary where work accumulated over the whole milestone is looked at once (code-review's window stage runs here).
+The milestone is confirmed ready and nothing is archived yet — the boundary where work accumulated over the whole milestone is looked at once (code-review's window stage runs here, and its review gate judges the result).
 
 ```bash
 MILESTONE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks milestone:pre --raw)
 ```
 
-Read `activeHooks` in-context and dispatch every `kind == "step"` entry per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). At milestone points a `ref.command` runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Steps are advisory: none blocks the close.
+Read `activeHooks` in-context and dispatch every `kind == "step"` entry first, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). At milestone points a `ref.command` runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Steps are advisory: none blocks the close.
+
+Then evaluate every `kind == "gate"` entry in array order, per @gsd-core/references/loop-hook-dispatch.md § `gate` — after the steps, because a gate here judges what they produced (code-review's `milestone-review` gate reads the window review its stage just ran). Validate `check.query` in-context as that section says, then run it with the milestone (and `--ws="<name>"` when this close was given a workstream):
+
+```bash
+GATE_RESULT=$(gsd_run check ${hook.check.query} --milestone "v[X.Y]" --raw) && CHECK_EXIT=0 || CHECK_EXIT=$?
+```
+
+A `predicate` or `agentVerdict` check has no runner here: warn naming the `capId` and route it by `onError`, never as a pass. A failed check (non-zero `CHECK_EXIT`, `69` included, or output that is not JSON) is routed by `onError`: `halt` stops the close before anything is archived, `skip` warns and continues. A verdict with `blocking: true` and `block: true` stops the close:
+
+```
+⚠ Milestone close blocked by capability gate ({hook.capId}): {message}
+```
+
+- **Interactive** (`mode` is not yolo and `gsd_run query check auto-mode --pick active` is not `true`): ask **Fix first** (stop here; the message names the review and fix commands; re-run `/gsd:complete-milestone` after) or **Accept and close**, the owner's explicit override: ask for a one-line reason, record it with the command below, then evaluate the gate again.
+- **yolo or auto-chain**: never accept on the owner's behalf. Stop with the message above; `/gsd:autonomous` routes it to its `handle_blocker`.
+
+The reason is the owner's free text, so it reaches the command through a quoted heredoc, never pasted into the command line:
+
+```bash
+IFS= read -rd '' ACCEPT_REASON <<'GSD_REASON_END' || true
+{the owner's reason, verbatim}
+GSD_REASON_END
+gsd_run review milestone-accept --milestone "v[X.Y]" --reason "${ACCEPT_REASON%$'\n'}"
+```
+
+`blocking: false` → print `⚠ {hook.capId} advisory: {message}` and continue. A passing verdict whose `status` is `accepted` is an owner's override: print its message, set `closeout_type=override_closeout`, and after `archive_milestone` add `Known review overrides: {reason} ({accept.path})` to the milestone's MILESTONES.md entry.
 
 </step>
 
@@ -650,6 +676,7 @@ Milestone completion is successful when:
 - [ ] Deferred items recorded in STATE.md if user acknowledged
 - [ ] Known deferred items count noted in MILESTONES.md entry
 
+- [ ] `milestone:pre` steps dispatched (yolo included), then its gates: a blocking gate stopped the close, or the owner accepted it with a reason recorded under `Known review overrides`
 - [ ] MILESTONES.md entry created with stats and accomplishments
 - [ ] PROJECT.md full evolution review completed (flat mode only; skipped under `--ws`)
 - [ ] All shipped requirements moved to Validated in PROJECT.md (flat mode only; skipped under `--ws`)

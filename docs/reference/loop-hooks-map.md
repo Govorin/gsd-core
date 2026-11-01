@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-79 registered hook(s) at 14 of 15 points.
+80 registered hook(s) at 14 of 15 points.
 
 ## Overview
 
@@ -133,6 +133,7 @@ flowchart LR
     n_core_milestone("milestone#58; orchestrator → MILESTONES.md"):::core
     n_point_milestone_post(["milestone#58;post"]):::point
     n_hook_milestone_pre_step_code_review_0["code-review#58; command#58;review stage"]:::step
+    n_hook_milestone_pre_gate_code_review_1{"code-review#58; check milestone-review"}:::crit
     n_hook_milestone_post_step_architecture_0["architecture#58; command#58;arch stage"]:::step
   end
   n_core_roadmap --> n_point_roadmap_post
@@ -234,6 +235,7 @@ flowchart LR
   n_core_milestone --> n_point_milestone_post
   n_point_ship_post ==> n_point_milestone_pre
   n_point_milestone_pre --> n_hook_milestone_pre_step_code_review_0
+  n_point_milestone_pre ==> n_hook_milestone_pre_gate_code_review_1
   n_point_milestone_post --> n_hook_milestone_post_step_architecture_0
   classDef point fill:#e8f0fe,stroke:#1a73e8
   classDef core fill:#fff,stroke:#555,stroke-width:2px
@@ -544,6 +546,7 @@ flowchart TB
 | `ship:post` | mempalace | step | `agent:gsd-mempalace-curator` | `mempalace.enabled` | `skip` |  |
 | `ship:post` | retro | step | `command:retro stage signals` | `retro.enabled` | `skip` |  |
 | `milestone:pre` | code-review | step | `command:review stage` | `workflow.code_review` | `skip` |  |
+| `milestone:pre` | code-review | gate | `milestone-review` | `code_review.milestone_gate` | `halt` | yes |
 | `milestone:post` | architecture | step | `command:arch stage` | `architecture.metrics_at_milestone` | `skip` |  |
 
 ## Hosts
@@ -568,7 +571,7 @@ flowchart TB
 | `verify:post` | `gsd-core/workflows/verify-work.md` | step |
 | `ship:pre` | `gsd-core/workflows/ship.md` | step, gate |
 | `ship:post` | `gsd-core/workflows/ship.md` | step |
-| `milestone:pre` | `gsd-core/workflows/complete-milestone.md` | step |
+| `milestone:pre` | `gsd-core/workflows/complete-milestone.md` | step, gate |
 | `milestone:post` | `gsd-core/workflows/complete-milestone.md` | step |
 
 ## Defects

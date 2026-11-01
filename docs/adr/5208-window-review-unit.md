@@ -84,6 +84,17 @@ The tip of the previous window review lives in `<planningDir>/reviews/LAST-WINDO
 
 A milestone is the accumulation point the window review exists for, so the code-review capability registers `review stage` at the `milestone:pre` loop point (ADR-857 amendment of the same date). The window starts at `last` when a marker exists, otherwise at the latest `v*` tag merged into `HEAD` that is not the milestone being closed; with neither, the stage says so rather than reviewing all of history. The pre-pass always runs and is written like `window-prepass`; `code_review.window_at_milestone` (default on) decides whether the model review follows (`auto`, `next: /gsd-code-review --since <since>`) or is only named (`suggest`). An empty window is `skip`. The marker is still written only by the review itself, after its REVIEW.md exists (§7).
 
+### 10. The milestone gate (2026-11-01)
+
+The stage is advisory, so nothing made its outcome binding: in get_your_look_up both closes of 2026-10 shipped and were reviewed after (1 Critical + 40 Warnings, then 53 findings, none refuted), and under `mode: yolo` complete-milestone's readiness step jumped past `milestone:pre` altogether. The code-review capability now also declares a blocking gate there, `check milestone-review --milestone <v>` (`code_review.milestone_gate`, default on; `onError: halt`), evaluated after the point's steps:
+
+- **The milestone's code.** `base` is the newest `v*` tag merged into `HEAD` other than the milestone being closed; with none, the parent of the first commit under `.planning/` (the stage's `since` uses the same fallback now, instead of naming no start); with neither, the root. Its code commits are `base..HEAD` without merges, under this ADR's scope exclusions (planning artifacts, lockfiles).
+- **Covered** is a set union: a commit is covered when some composed window REVIEW.md that is not `incomplete` holds it in `base..tip`, or names it as a fix commit in its REVIEW-FIX.md (the review's own remedy). Chained and overlapping windows both count; the newest review alone is never the test.
+- **Open Critical**: a Critical finding of a review that covers a milestone commit, not listed fixed in its REVIEW-FIX.md and whose broken-window entry (by fingerprint, §7) is neither `fixed` nor `waived`. A refuted finding is already out of the composed review. Warnings are counted, never blocking.
+- **The override** is the owner's, recorded and narrow: `review milestone-accept --milestone <v> --reason <why>` writes `<planning>/reviews/MILESTONE-<v>-ACCEPT.json` with the reason and the exact uncovered commits and open Critical keys; the gate passes as `accepted` only while everything open is something it named. Unattended runs (yolo, autonomous) stop and never accept.
+
+Rejected: moving the review before `/gsd-audit-milestone`. The audit consumes VERIFICATION, SUMMARY and REQUIREMENTS, never a review, and its gaps become new phases whose code a review taken before it would miss; the review belongs at the close, where the gate makes it binding.
+
 ## Consequences
 
 - One owner still answers every scope question; the window-review workflow and its lenses call `check evaluation-scope --window <since> [--until <ref>]` (or the resolver) and never compute a range.

@@ -1081,10 +1081,15 @@ const capabilities = {
         "default": 40,
         "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
       },
+      "code_review.milestone_gate": {
+        "type": "boolean",
+        "default": true,
+        "description": "Block complete-milestone (milestone:pre gate, check milestone-review) while a code commit of the milestone (since the previous v* tag, else since planning began) is in no window review, or a window review of it holds a Critical finding not fixed, refuted, waived or accepted. Warnings never block. The owner's way past is a recorded acceptance with a reason (gsd_run review milestone-accept). Off: the close is not gated. Has no effect while workflow.code_review is off."
+      },
       "code_review.window_at_milestone": {
         "type": "boolean",
         "default": true,
-        "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
+        "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag, else where planning began); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
       }
     },
     "steps": [
@@ -1130,7 +1135,17 @@ const capabilities = {
       }
     ],
     "contributions": [],
-    "gates": []
+    "gates": [
+      {
+        "point": "milestone:pre",
+        "check": {
+          "query": "milestone-review"
+        },
+        "when": "code_review.milestone_gate",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "codebuddy": {
     "id": "codebuddy",
@@ -6582,7 +6597,18 @@ const byLoopPoint = {
       }
     ],
     "contributions": [],
-    "gates": []
+    "gates": [
+      {
+        "capId": "code-review",
+        "point": "milestone:pre",
+        "check": {
+          "query": "milestone-review"
+        },
+        "when": "code_review.milestone_gate",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "milestone:post": {
     "steps": [
@@ -6634,6 +6660,7 @@ const configKeys = {
   "workflow.code_review_point": "code-review",
   "code_review.window_lenses": "code-review",
   "code_review.window_max_files_per_batch": "code-review",
+  "code_review.milestone_gate": "code-review",
   "code_review.window_at_milestone": "code-review",
   "review.max_prompt_tokens_per_reviewer.coderabbit": "coderabbit",
   "review.models.codex": "codex",
@@ -6979,11 +7006,17 @@ const configSchema = {
     "default": 40,
     "description": "Files one correctness reviewer of a window review takes; a larger window is split into batches of at most this many, one fresh reviewer each (ADR-5208). --batch-size overrides it for one run."
   },
+  "code_review.milestone_gate": {
+    "owner": "code-review",
+    "type": "boolean",
+    "default": true,
+    "description": "Block complete-milestone (milestone:pre gate, check milestone-review) while a code commit of the milestone (since the previous v* tag, else since planning began) is in no window review, or a window review of it holds a Critical finding not fixed, refuted, waived or accepted. Warnings never block. The owner's way past is a recorded acceptance with a reason (gsd_run review milestone-accept). Off: the close is not gated. Has no effect while workflow.code_review is off."
+  },
   "code_review.window_at_milestone": {
     "owner": "code-review",
     "type": "boolean",
     "default": true,
-    "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
+    "description": "At the milestone boundary (complete-milestone, milestone:pre) the window pre-pass over the milestone's change always runs (since the last window review, else the previous v* tag, else where planning began); when this is on, the window review follows with one fresh reviewer per lens (/gsd-code-review --since). Off: the pre-pass summary and the command are printed and nothing more runs. One model pass per milestone, never per phase."
   },
   "review.max_prompt_tokens_per_reviewer.coderabbit": {
     "owner": "coderabbit",
