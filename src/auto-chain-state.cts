@@ -1,44 +1,44 @@
 /**
- * Auto-chain run state (X5) — whether an `--auto` / `--chain` run is in flight for the planning
- * scope this process resolves. Run state, not configuration: it lives in
+ * Auto-chain run state (X5) — whether an `--auto` / `--chain` run, or a `/gsd:autonomous` run, is
+ * in flight for the planning scope a caller resolves. Run state, not configuration: it lives in
  * `<project>/.gsd/auto-chain/<scope>/active.json`, under the tool-owned run directory
  * (`gsd-run-dir.cts`, shared with the dispatch-isolation sentinel), which is ignored locally and
  * never versioned. It used to be `workflow._auto_chain_active` in `.planning/config.json`, which
  * every chained workflow flipped through `config-set`, leaving the versioned config dirty.
  *
  * Scope mirrors `planningDir`: the project root is `.gsd/auto-chain/active.json`, workstream `x`
- * is `.gsd/auto-chain/workstreams/x/active.json` (and a `GSD_PROJECT` prefixes its own segment),
- * so a chain in one workstream never reads as active in another session's workstream. There is
- * no fallback from a workstream to the root: run state belongs to the run that set it.
- *
- * Absent = inactive. A missing, unreadable, malformed or non-regular file (a symlink included)
- * reads as inactive, so a damaged record fails toward a human being asked, never toward
- * auto-approval.
- *
- * Legacy key: `workflow._auto_chain_active` left in a `config.json` by an earlier release is never
- * read — it cannot tell a live chain from a crashed one, and honouring it would keep two sources
- * that can disagree. `set` and `clear` delete it from the scope's config and the root config
- * (every chain-aware workflow calls one of them on entry), and `config-set` refuses the key with
- * a pointer to this verb.
+ * is `.gsd/auto-chain/workstreams/x/active.json` (and a `GSD_PROJECT` prefixes its own segment).
+ * The workstream is resolved HERE, the same way for the CLI and for in-process readers (guard
+ * hooks): `GSD_WORKSTREAM`, else the active-workstream pointer (read without mutating it). There
+ * is no fallback from a workstream to the root: run state belongs to the run that set it.
  *
  * Owners. A record carries who holds it. `chain` is the `--auto` / `--chain` hand-off between
- * discuss, plan and execute: any of them invoked by hand (no flag) clears it. `autonomous` is
- * `/gsd:autonomous` holding the run open for its whole length: it calls plan-phase and
- * execute-phase WITHOUT `--auto`, and their "manual invocation clears the chain" guard must not
- * end the run underneath it. So a plain `set` never downgrades an autonomous hold and a plain
- * `clear` never removes it; only `clear --owner autonomous` (autonomous's own exits) does.
+ * discuss, plan and execute. `autonomous` is `/gsd:autonomous` holding the run open for its whole
+ * length; its nested discuss/plan/execute calls carry `--in-autonomous` and leave the record
+ * alone. A plain `set` never downgrades an autonomous hold and a plain `clear` (transition.md's
+ * boundary clear) never removes it; `clear --owner autonomous` (autonomous's own exits) and
+ * `clear --manual` (a discuss/plan/execute a human started by hand) do, the latter saying so on
+ * stderr. Only a `chain` record advances to the next step (`init`'s `auto_chain_owner`).
  *
- * A run that died must not leave every later session unattended (hooks turn "ask a human" into
- * "deny" while a run is active), so when in doubt a record is NOT active:
- *   - it lapses RUN_STATE_TTL_MS after its last refresh (`touched_at`; autonomous refreshes at
- *     every phase start, any `set` refreshes); a record without a readable `touched_at` is lapsed;
- *   - it records the runtime process that wrote it (`holder_pid`, Claude Code's CLAUDE_PID) and
- *     lapses at once when that process is gone. Without a known holder only the TTL applies.
+ * Stale records. Hooks turn "ask a human" into "deny" while a run is active, so when in doubt a
+ * record is NOT active:
+ *   - it lapses RUN_STATE_TTL_MS after its last refresh (`touched_at`; any `set` by the holder
+ *     refreshes, autonomous at every phase start); a missing or unparseable `touched_at`, or one
+ *     more than CLOCK_SKEW_MS in the future, is lapsed;
+ *   - it records the runtime process (`holder_pid`, Claude Code's CLAUDE_PID) and lapses at once
+ *     when that process is gone;
+ *   - it records the session (`session`, CLAUDE_CODE_SESSION_ID) and is not active for a reader
+ *     that knows a different session — subagents share their parent's session id, a second
+ *     terminal session does not. When either side does not know its session, pid + TTL decide.
  *
  * Linked worktrees. Run state belongs to the checkout that runs the workflow. A reader standing in
  * a linked worktree (an isolated executor's guard hook) resolves to the MAIN checkout through
  * git's common dir, mapping a monorepo subdirectory across, so it sees the run the orchestrator
  * recorded — even when the worktree carries its own committed `.planning/`.
+ *
+ * Legacy key: `workflow._auto_chain_active` left in a `config.json` by an earlier release is never
+ * read. `set` and `clear` delete it from the scope's config and the root config, and `config-set`
+ * refuses the key with a pointer to this verb.
  *
  * Surfaced as `gsd-tools auto-chain set|clear|status`; `check auto-mode` (`check-auto-mode.cts`)
  * reads `readAutoChainActive` for its `auto_chain_active` field.
@@ -54,6 +54,9 @@ const { resolveWorktreeLinkage } = worktreeSafety;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningWorkspace = require('./planning-workspace.cjs');
 const { planningDir, planningRoot, withPlanningLock } = planningWorkspace;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import activeWorkstreamStore = require('./active-workstream-store.cjs');
+const { peekActiveWorkstream } = activeWorkstreamStore;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import ioMod = require('./io.cjs');
 const { output, error, ERROR_REASON } = ioMod;
@@ -71,8 +74,12 @@ const OWNERS: readonly AutoChainOwner[] = ['chain', 'autonomous'];
 /** How long a record stays active after its last refresh. */
 export const RUN_STATE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** Env vars naming the agent runtime process that owns a run, in preference order. */
+/** How far in the future a `touched_at` may sit (clock skew) before it is not believed. */
+export const CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/** Env vars naming the agent runtime process / session that owns a run. */
 const HOLDER_PID_ENV = ['CLAUDE_PID'] as const;
+const SESSION_ENV = ['CLAUDE_CODE_SESSION_ID'] as const;
 
 const RUN_DIR_OWNER = Object.freeze({
   label: 'auto-chain state',
@@ -84,11 +91,11 @@ export interface AutoChainStatus {
   active: boolean;
   /** The planning scope, relative to `.planning/` (posix): `''` for the project root. */
   scope: string;
-  /** The state file, relative to the project root (posix). */
+  /** The state file, relative to the checkout that holds it (posix). */
   path: string;
   /** Who holds the active record, or null when inactive. */
   owner: AutoChainOwner | null;
-  /** When the chain was set (ISO), or null when inactive. */
+  /** When the run was set (ISO), or null when inactive. */
   since: string | null;
   /** When the record lapses unless refreshed (ISO), or null when inactive. */
   expires_at: string | null;
@@ -99,19 +106,22 @@ export interface AutoChainChange extends AutoChainStatus {
   changed: boolean;
   /** Set when a plain `clear` left an autonomous hold in place: who still holds it. */
   held_by: AutoChainOwner | null;
+  /** Who held the record this call removed, or null. */
+  released: AutoChainOwner | null;
   /** Project-relative config files the legacy key was deleted from. */
   legacy_cleaned: string[];
 }
 
-type Clock = { now?: () => Date; isAlive?: (pid: number) => boolean; env?: NodeJS.ProcessEnv };
-const nowOf = (opts: Clock): Date => (opts.now ?? (() => new Date()))();
-
-const toPosix = (p: string): string => p.split(path.sep).join('/');
-
-/** The planning scope `planningDir` resolves for this process, relative to `.planning/`. */
-export function autoChainScope(projectDir: string): string {
-  return toPosix(path.relative(planningRoot(projectDir), planningDir(projectDir)));
+/** Injectable seams: clock, process liveness, and the env the session/pid/workstream come from. */
+export interface RunStateOpts {
+  now?: () => Date;
+  isAlive?: (pid: number) => boolean;
+  env?: NodeJS.ProcessEnv;
 }
+
+const nowOf = (opts: RunStateOpts): Date => (opts.now ?? (() => new Date()))();
+const envOf = (opts: RunStateOpts): NodeJS.ProcessEnv => opts.env ?? process.env;
+const toPosix = (p: string): string => p.split(path.sep).join('/');
 
 /**
  * The checkout whose run state `projectDir` reads: itself, or — from a linked worktree — the
@@ -133,23 +143,50 @@ export function runStateRoot(projectDir: string): string {
   }
 }
 
-/** Absolute path of the scope's state file (in the main checkout when read from a linked worktree). */
-export function autoChainStatePath(projectDir: string): string {
-  const scope = autoChainScope(projectDir);
-  return path.join(runStateRoot(projectDir), GSD_RUN_DIRNAME, AUTO_CHAIN_DIRNAME, ...scope.split('/').filter(Boolean), STATE_FILENAME);
+/** Where one call reads/writes: the run root, the planning scope under it, and the state file. */
+interface Location { root: string; scope: string; file: string }
+
+function locate(projectDir: string, opts: RunStateOpts): Location {
+  const root = runStateRoot(projectDir);
+  const envWs = envOf(opts)['GSD_WORKSTREAM']?.trim();
+  let ws: string | null = envWs || null;
+  if (!ws) {
+    try {
+      ws = peekActiveWorkstream(root) || null;
+    } catch {
+      ws = null;
+    }
+  }
+  let scope = '';
+  try {
+    scope = toPosix(path.relative(planningRoot(root), planningDir(root, ws)));
+  } catch {
+    scope = ''; // an invalid workstream name: the root scope, as planningDir's callers fall back
+  }
+  const file = path.join(root, GSD_RUN_DIRNAME, AUTO_CHAIN_DIRNAME, ...scope.split('/').filter(Boolean), STATE_FILENAME);
+  return { root, scope, file };
 }
 
-interface Held { owner: AutoChainOwner; since: string | null; touchedAt: string; holderPid: number | null }
+/** The planning scope this caller resolves, relative to `.planning/`. */
+export function autoChainScope(projectDir: string, opts: RunStateOpts = {}): string {
+  return locate(projectDir, opts).scope;
+}
 
-function statusFor(projectDir: string, held: Held | null): AutoChainStatus {
-  const expires = held ? new Date(Date.parse(held.touchedAt) + RUN_STATE_TTL_MS).toISOString() : null;
+/** Absolute path of the scope's state file (in the main checkout when read from a linked worktree). */
+export function autoChainStatePath(projectDir: string, opts: RunStateOpts = {}): string {
+  return locate(projectDir, opts).file;
+}
+
+interface Held { owner: AutoChainOwner; since: string | null; touchedAt: string }
+
+function statusFor(loc: Location, held: Held | null): AutoChainStatus {
   return {
     active: held !== null,
-    scope: autoChainScope(projectDir),
-    path: toPosix(path.relative(runStateRoot(projectDir), autoChainStatePath(projectDir))),
+    scope: loc.scope,
+    path: toPosix(path.relative(loc.root, loc.file)),
     owner: held?.owner ?? null,
     since: held?.since ?? null,
-    expires_at: expires,
+    expires_at: held ? new Date(Date.parse(held.touchedAt) + RUN_STATE_TTL_MS).toISOString() : null,
   };
 }
 
@@ -163,49 +200,71 @@ function processAlive(pid: number): boolean {
   }
 }
 
-/** The runtime process this call runs under, if the runtime names one. */
-function holderPidFromEnv(env: NodeJS.ProcessEnv): number | null {
-  for (const key of HOLDER_PID_ENV) {
-    const pid = Number(env[key]);
-    if (Number.isSafeInteger(pid) && pid > 0) return pid;
+function firstEnv(env: NodeJS.ProcessEnv, keys: readonly string[]): string | null {
+  for (const key of keys) {
+    const value = env[key]?.trim();
+    if (value) return value;
   }
   return null;
 }
 
+function holderPidFromEnv(env: NodeJS.ProcessEnv): number | null {
+  const pid = Number(firstEnv(env, HOLDER_PID_ENV));
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** Whether the `.gsd/auto-chain/...` path below `root` crosses a symlink (then it is not ours). */
+function crossesLink(root: string, file: string): boolean {
+  let dir = path.join(root, GSD_RUN_DIRNAME);
+  const parts = path.relative(dir, path.dirname(file)).split(path.sep).filter(Boolean);
+  for (let i = 0; i <= parts.length; i++) {
+    if (fs.lstatSync(dir).isSymbolicLink()) return true;
+    if (i < parts.length) dir = path.join(dir, parts[i]);
+  }
+  return !fs.lstatSync(file).isFile();
+}
+
 /**
- * The live record for this scope, or null. Null for anything unreadable, a record without a
- * readable `touched_at` or one RUN_STATE_TTL_MS or older (`age >= ttl` has lapsed), and a
- * record whose `holder_pid` process is gone. A record without an owner field is a chain.
+ * The live record at `loc`, or null: anything unreadable or reached through a symlink, a record
+ * whose `touched_at` is missing, unparseable, older than RUN_STATE_TTL_MS (`age >= ttl`) or more
+ * than CLOCK_SKEW_MS in the future, whose holder process is gone, or whose session differs from
+ * the reader's known session. A record without an owner field is a chain.
  */
-function readHeld(projectDir: string, opts: Clock): Held | null {
-  const file = autoChainStatePath(projectDir);
+function readHeld(loc: Location, opts: RunStateOpts): Held | null {
   try {
-    if (!fs.lstatSync(file).isFile()) return null;
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (crossesLink(loc.root, loc.file)) return null;
+    const parsed: unknown = JSON.parse(fs.readFileSync(loc.file, 'utf8'));
     if (!parsed || typeof parsed !== 'object') return null;
     const rec = parsed as Record<string, unknown>;
     if (rec['active'] !== true) return null;
     const owner = rec['owner'] === undefined ? 'chain' : rec['owner'];
     if (!OWNERS.includes(owner as AutoChainOwner)) return null;
-    const since = typeof rec['since'] === 'string' ? rec['since'] : null;
     const touchedAt = typeof rec['touched_at'] === 'string' ? rec['touched_at'] : null;
     const touched = touchedAt === null ? NaN : Date.parse(touchedAt);
-    if (touchedAt === null || !Number.isFinite(touched) || nowOf(opts).getTime() - touched >= RUN_STATE_TTL_MS) return null;
-    const holderPid = Number.isSafeInteger(rec['holder_pid']) && (rec['holder_pid'] as number) > 0 ? rec['holder_pid'] as number : null;
-    if (holderPid !== null && !(opts.isAlive ?? processAlive)(holderPid)) return null;
-    return { owner: owner as AutoChainOwner, since, touchedAt, holderPid };
+    if (touchedAt === null || !Number.isFinite(touched)) return null;
+    const age = nowOf(opts).getTime() - touched;
+    if (age >= RUN_STATE_TTL_MS || -age > CLOCK_SKEW_MS) return null;
+    const holderPid = rec['holder_pid'];
+    if (Number.isSafeInteger(holderPid) && (holderPid as number) > 0
+        && !(opts.isAlive ?? processAlive)(holderPid as number)) return null;
+    const recSession = typeof rec['session'] === 'string' && rec['session'] ? rec['session'] : null;
+    const readerSession = firstEnv(envOf(opts), SESSION_ENV);
+    if (recSession !== null && readerSession !== null && recSession !== readerSession) return null;
+    const since = typeof rec['since'] === 'string' ? rec['since'] : null;
+    return { owner: owner as AutoChainOwner, since, touchedAt };
   } catch {
     return null; // absent or unreadable: inactive
   }
 }
 
-/** The recorded state for this scope. Never throws; anything unreadable or lapsed is inactive. */
-export function readAutoChainState(projectDir: string, opts: Clock = {}): AutoChainStatus {
-  return statusFor(projectDir, readHeld(projectDir, opts));
+/** The recorded state for this caller's scope. Never throws; anything doubtful is inactive. */
+export function readAutoChainState(projectDir: string, opts: RunStateOpts = {}): AutoChainStatus {
+  const loc = locate(projectDir, opts);
+  return statusFor(loc, readHeld(loc, opts));
 }
 
-export function readAutoChainActive(projectDir: string, opts: Clock = {}): boolean {
-  return readHeld(projectDir, opts) !== null;
+export function readAutoChainActive(projectDir: string, opts: RunStateOpts = {}): boolean {
+  return readAutoChainState(projectDir, opts).active;
 }
 
 function hasLegacyKey(config: unknown): config is { workflow: Record<string, unknown> } {
@@ -248,92 +307,106 @@ function removeLegacyConfigKey(projectDir: string): string[] {
   });
 }
 
-function ensureStateDir(projectDir: string): string {
-  const runDir = ensureGsdRunDir(runStateRoot(projectDir), RUN_DIR_OWNER);
-  const stateDir = path.dirname(autoChainStatePath(projectDir));
+function ensureStateDir(loc: Location): void {
+  const runDir = ensureGsdRunDir(loc.root, RUN_DIR_OWNER);
+  const stateDir = path.dirname(loc.file);
   fs.mkdirSync(stateDir, { recursive: true });
   // A link anywhere under .gsd/auto-chain could carry the write out of the run directory.
   const rel = path.relative(fs.realpathSync(runDir), fs.realpathSync(stateDir));
   if (rel.startsWith('..') || path.isAbsolute(rel) || toPosix(rel) !== toPosix(path.relative(runDir, stateDir))) {
     throw new Error('auto-chain state directory is a symlink or resolves outside the run directory');
   }
-  return stateDir;
 }
+
+/** Who is asking: an owner, or a human who entered a chain-aware workflow by hand. */
+export type AutoChainActor = AutoChainOwner | 'manual';
 
 /**
  * Record (`active: true`) or clear (`active: false`) the run for this scope, and retire the
- * legacy config key. `owner` is who is asking (default `chain`):
+ * legacy config key. `actor` is who is asking (default `chain`):
  *   - set chain over a live autonomous hold changes nothing (the hold already covers it);
- *   - set autonomous takes the record (keeping `since` if it already held it) and refreshes it;
+ *   - any other set takes the record (keeping `since` if the same owner held it) and refreshes it;
  *   - clear chain leaves a live autonomous hold in place and reports it in `held_by`;
- *   - clear autonomous removes the record whoever holds it.
+ *   - clear autonomous and clear manual remove the record whoever holds it (`released`).
  * Throws when the run directory cannot be used safely (a symlinked `.gsd`).
  */
 export function setAutoChain(
   projectDir: string,
   active: boolean,
-  opts: Clock & { owner?: AutoChainOwner } = {},
+  opts: RunStateOpts & { owner?: AutoChainActor } = {},
 ): AutoChainChange {
-  const owner = opts.owner ?? 'chain';
-  const before = readHeld(projectDir, opts);
-  const file = autoChainStatePath(projectDir);
+  const actor = opts.owner ?? 'chain';
+  if (active && actor === 'manual') throw new Error('--manual applies to clear only');
+  const loc = locate(projectDir, opts);
+  const before = readHeld(loc, opts);
   let after: Held | null = before;
   let heldBy: AutoChainOwner | null = null;
+  let released: AutoChainOwner | null = null;
   if (active) {
-    const keepsAutonomous = before?.owner === 'autonomous' && owner === 'chain';
-    if (!keepsAutonomous) {
-      // A set by the holder (or a new holder) refreshes the record and names its process.
+    const owner = actor as AutoChainOwner;
+    if (!(before?.owner === 'autonomous' && owner === 'chain')) {
       const now = nowOf(opts).toISOString();
-      const holderPid = holderPidFromEnv(opts.env ?? process.env);
-      after = { owner, since: before?.owner === owner && before.since ? before.since : now, touchedAt: now, holderPid };
-      ensureStateDir(projectDir);
-      writeJsonAtomic(file, {
-        active: true, owner, since: after.since, touched_at: now, holder_pid: holderPid,
-        session: (opts.env ?? process.env)['CLAUDE_CODE_SESSION_ID'] || null, scope: autoChainScope(projectDir),
+      const env = envOf(opts);
+      after = { owner, since: before?.owner === owner && before.since ? before.since : now, touchedAt: now };
+      ensureStateDir(loc);
+      writeJsonAtomic(loc.file, {
+        active: true, owner, since: after.since, touched_at: now,
+        holder_pid: holderPidFromEnv(env), session: firstEnv(env, SESSION_ENV), scope: loc.scope,
       });
     }
-  } else if (before?.owner === 'autonomous' && owner === 'chain') {
+  } else if (before?.owner === 'autonomous' && actor === 'chain') {
     heldBy = 'autonomous';
   } else {
     try {
-      fs.unlinkSync(file); // a link is removed, never followed; a lapsed record goes too
+      fs.unlinkSync(loc.file); // a link is removed, never followed; a lapsed record goes too
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }
+    released = before?.owner ?? null;
     after = null;
   }
   const legacyCleaned = removeLegacyConfigKey(projectDir);
   return {
-    ...statusFor(projectDir, after),
+    ...statusFor(loc, after),
     changed: (before === null) !== (after === null) || before?.owner !== after?.owner,
     held_by: heldBy,
+    released,
     legacy_cleaned: legacyCleaned,
   };
 }
 
-const USAGE = 'Usage: auto-chain <set|clear|status> [--owner chain|autonomous]';
+const USAGE = 'Usage: auto-chain <set|clear|status> [--owner chain|autonomous] [--manual]';
 
-/** `gsd-tools auto-chain set|clear|status [--owner chain|autonomous]` — `--raw` prints `true`/`false`. */
+/** `gsd-tools auto-chain set|clear|status [--owner chain|autonomous] [--manual]` — `--raw` prints `true`/`false`. */
 export function cmdAutoChain(cwd: string, args: string[], raw: boolean): void {
   const [subcommand, ...rest] = args;
-  let owner: AutoChainOwner = 'chain';
+  let actor: AutoChainActor = 'chain';
+  let manual = false;
+  let ownerGiven = false;
   const extra: string[] = [];
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
     if (arg === '--raw' || arg === '--json') continue;
+    if (arg === '--manual') {
+      manual = true;
+      continue;
+    }
     if (arg === '--owner' || arg.startsWith('--owner=')) {
       const value = arg === '--owner' ? rest[++i] : arg.slice('--owner='.length);
       if (!OWNERS.includes(value as AutoChainOwner)) {
         error(`auto-chain ${subcommand ?? ''}: --owner must be chain or autonomous. ${USAGE}`, ERROR_REASON.USAGE);
         return;
       }
-      owner = value as AutoChainOwner;
+      actor = value as AutoChainOwner;
+      ownerGiven = true;
       continue;
     }
     extra.push(arg);
   }
-  if (extra.length > 0) {
-    error(`auto-chain ${subcommand ?? ''}: unexpected argument ${extra[0]}. ${USAGE}`, ERROR_REASON.USAGE);
+  if (manual) actor = 'manual';
+  if (extra.length > 0 || (manual && (ownerGiven || subcommand !== 'clear'))) {
+    const why = extra.length > 0 ? `unexpected argument ${extra[0]}` : '--manual applies to clear alone';
+    error(`auto-chain ${subcommand ?? ''}: ${why}. ${USAGE}`, ERROR_REASON.USAGE);
     return;
   }
   if (subcommand === 'status') {
@@ -344,10 +417,14 @@ export function cmdAutoChain(cwd: string, args: string[], raw: boolean): void {
   if (subcommand === 'set' || subcommand === 'clear') {
     let result: AutoChainChange;
     try {
-      result = setAutoChain(cwd, subcommand === 'set', { owner });
+      result = setAutoChain(cwd, subcommand === 'set', { owner: actor });
     } catch (err) {
       error(`auto-chain ${subcommand}: ${(err as Error).message}`);
       return;
+    }
+    if (actor === 'manual' && result.released === 'autonomous') {
+      process.stderr.write('Note: released the auto-mode hold of an autonomous run that did not finish — '
+        + 'this workflow was started by hand, so checkpoints and guards ask you again.\n');
     }
     output(result, raw, String(result.active));
     return;

@@ -676,8 +676,8 @@ IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
-   if [[ ! "$GSD_ARGS" =~ --auto ]]; then
-     gsd_run query auto-chain clear || true
+   if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --in-autonomous ]]; then
+     gsd_run query auto-chain clear --manual || true
    fi
    ```
 3. Read consolidated auto-mode (`active` = chain flag OR user preference):
@@ -690,6 +690,8 @@ GSD_ARGS=${GSD_ARGS%$'\n'}
 ```bash
 gsd_run query auto-chain set
 ```
+
+**If `--in-autonomous` is present:** end here — `/gsd:autonomous` runs plan-phase itself.
 
 <!-- gsd:section id="auto-advance-dispatch" when="state:auto-advance-active" -->
 If `section_manifest` is `null` or `"auto-advance-dispatch"` is in its `included` list: read and execute `gsd-core/workflows/discuss-phase-assumptions/steps/auto-advance-dispatch.md`. Otherwise skip — do not read the file.

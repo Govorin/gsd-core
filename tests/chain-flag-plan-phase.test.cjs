@@ -39,7 +39,7 @@ describe('plan-phase chain flag preservation (#1620)', () => {
     const content = readPlan();
     // The guard that clears the auto-chain run state must require BOTH flags to be absent
     assert.ok(
-      content.includes('if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]; then'),
+      content.includes('if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]'),
       'plan-phase should check for both --auto and --chain before clearing chain flag'
     );
   });
@@ -64,7 +64,8 @@ describe('plan-phase chain flag preservation (#1620)', () => {
     const planContent = readPlan();
     const discussContent = readDiscuss();
 
-    const guardPattern = 'if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]; then';
+    // X5: plan-phase additionally skips the clear under /gsd:autonomous's --in-autonomous marker.
+    const guardPattern = 'if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --chain ]]';
 
     assert.ok(
       planContent.includes(guardPattern),
@@ -80,7 +81,7 @@ describe('plan-phase chain flag preservation (#1620)', () => {
     const content = readPlan();
     // The trigger condition should mention --chain alongside --auto
     assert.ok(
-      content.includes('`--auto` or `--chain` flag present OR `AUTO_CHAIN` is true OR `AUTO_CFG` is true'),
+      content.includes('`--auto` or `--chain` flag present OR (`AUTO_CHAIN` is true AND `AUTO_CHAIN_OWNER` is `chain`) OR `AUTO_CFG` is true'),
       'plan-phase auto-advance trigger should check for --chain flag'
     );
   });

@@ -176,7 +176,7 @@ describe('autonomous --converge flag (#711)', () => {
     );
     assert.match(
       workflow,
-      /Skill\(skill="gsd-plan-phase", args="\$\{PHASE_NUM\}"\)/,
+      /Skill\(skill="gsd-plan-phase", args="\$\{PHASE_NUM\} --in-autonomous"\)/,
       'local planning path should remain available for default autonomous runs',
     );
   });
@@ -479,8 +479,9 @@ describe('autonomous human-needed: "All good" is recorded as UAT, not a bare sta
 // clear leaves alone) from initialize to every exit, refreshed per phase; behaviour of the record
 // itself is pinned in tests/auto-chain-state.test.cjs.
 describe('autonomous holds the auto-chain for the whole run (X5)', () => {
-  // No --ws: the hold is read back by hooks through check auto-mode, which resolve the scope from
-  // the active workstream (env / pointer), so it must be written in that same scope.
+  // No --ws: the CLI and an in-process reader (a guard hook calling readAutoModeState) both
+  // resolve the scope as GSD_WORKSTREAM, else the active-workstream pointer (auto-chain-state.cts
+  // locate()), so the hold must be written in that resolved scope, not one named by --ws.
   const HOLD = '`gsd_run query auto-chain set --owner autonomous`';
   const RELEASE = '`gsd_run query auto-chain clear --owner autonomous`';
   const workflow = fs.readFileSync(path.join(REPO_ROOT, 'gsd-core', 'workflows', 'autonomous.md'), 'utf8');
@@ -504,5 +505,55 @@ describe('autonomous holds the auto-chain for the whole run (X5)', () => {
     assert.ok(lifecycle.indexOf(RELEASE) < lifecycle.indexOf('**If `ONLY_PHASE` is set:**'), 'released before the --only exit');
     const stop = stepOf('handle_blocker');
     assert.ok(stop.slice(stop.indexOf('**On "Stop autonomous mode":**')).includes(RELEASE));
+  });
+});
+
+// X5 review: autonomous's nested discuss/plan/execute must neither release its hold (their
+// manual-invocation guard) nor advance on their own (plan-phase step 15 launching execute-phase,
+// after which autonomous executes the phase again). They carry --in-autonomous; a hand-started run
+// releases a leftover hold with `auto-chain clear --manual`.
+describe('autonomous nested calls carry --in-autonomous; hand-started ones release a leftover hold (X5)', () => {
+  const WF = path.join(REPO_ROOT, 'gsd-core', 'workflows');
+  const readWf = (rel) => fs.readFileSync(path.join(WF, rel), 'utf8');
+
+  test('every discuss/plan/execute Skill call autonomous makes carries the marker', () => {
+    for (const rel of ['autonomous.md', path.join('autonomous', 'steps', 'gaps-found.md')]) {
+      const calls = readWf(rel).match(/Skill\(skill=\\?"gsd-(?:discuss|plan|execute)-phase\\?", args=\\?"[^"\\]*/g) || [];
+      assert.ok(calls.length > 0, `${rel}: expected nested calls (non-vacuous)`);
+      for (const call of calls) assert.match(call, /--in-autonomous/, `${rel}: ${call}`);
+    }
+    assert.match(readWf('autonomous.md'), /CONVERGENCE_ARGS="\$\{CONVERGENCE_ARGS\} --override-gate --in-autonomous"/);
+    const convergence = readWf('plan-review-convergence.md');
+    for (const call of convergence.match(/Skill\(skill="gsd-plan-phase", args="[^"]*"/g)) {
+      assert.match(call, /\{IN_AUTONOMOUS\}/, `convergence forwards the marker: ${call}`);
+    }
+  });
+
+  test('plan-phase step 15 never advances under --in-autonomous and advances on a chain only by owner', () => {
+    const step = readWf(path.join('plan-phase', 'steps', 'auto-advance-check.md'));
+    const nested = step.indexOf('**If `--in-autonomous` is present:** return to the caller');
+    const advance = step.indexOf('(`AUTO_CHAIN` is true AND `AUTO_CHAIN_OWNER` is `chain`)');
+    assert.notEqual(nested, -1);
+    assert.ok(advance > nested, 'the nested return is decided before the advance condition');
+    assert.doesNotMatch(step, /OR `AUTO_CHAIN` is true OR/, 'an unowned AUTO_CHAIN must not advance');
+  });
+
+  test('the manual-entry guards release with --manual and skip under the marker', () => {
+    const guards = [
+      ['execute-phase.md', 'if [[ ! "$GSD_ARGS" =~ --auto ]] && [[ ! "$GSD_ARGS" =~ --in-autonomous ]]; then\n  gsd_run query auto-chain clear --manual || true'],
+      [path.join('plan-phase', 'steps', 'auto-advance-check.md'), '[[ ! "$GSD_ARGS" =~ --in-autonomous ]]; then\n     gsd_run query auto-chain clear --manual || true'],
+      ['discuss-phase-assumptions.md', '[[ ! "$GSD_ARGS" =~ --in-autonomous ]]; then\n     gsd_run query auto-chain clear --manual || true'],
+      [path.join('discuss-phase', 'modes', 'chain.md'), 'gsd_run query auto-chain clear --manual || true'],
+    ];
+    for (const [rel, text] of guards) assert.ok(readWf(rel).includes(text), `${rel}: manual-entry guard`);
+    assert.match(readWf('discuss-phase.md'), /If `--in-autonomous` is in `\$ARGUMENTS`, end here/);
+    // `--in-autonomous` must not satisfy the `=~ --auto` tests those guards use.
+    assert.doesNotMatch('--in-autonomous', /--auto/);
+  });
+
+  test('retry-ceiling needs_human releases the hold too', () => {
+    const wf = readWf('autonomous.md');
+    const ceiling = wf.slice(wf.indexOf('**Retry ceiling (#3210):**'), wf.indexOf('**On "Skip this phase":**'));
+    assert.match(ceiling, /release the hold as on "Stop"/);
   });
 });

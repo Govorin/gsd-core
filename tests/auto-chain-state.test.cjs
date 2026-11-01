@@ -468,3 +468,128 @@ describe('a damaged record fails toward asking a human', () => {
     assert.deepEqual(fs.readdirSync(outside), []);
   });
 });
+
+describe('review fixes: who advances, who releases, whose session, which workstream (X5)', () => {
+  const lib = () => require('../gsd-core/bin/lib/auto-chain-state.cjs');
+  const T0 = Date.parse('2026-06-01T00:00:00.000Z');
+  const alive = () => true;
+
+  function record(dir, fields) {
+    const file = path.join(dir, STATE);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ active: true, owner: 'autonomous', since: new Date(T0).toISOString(), touched_at: new Date(T0).toISOString(), ...fields }));
+  }
+
+  // BLOCKER 1: an autonomous hold made `init plan-phase` report an active chain, so plan-phase's
+  // step 15 launched execute-phase and autonomous then executed the phase a second time.
+  test('init tells an autonomous hold from a chain, so plan-phase does not advance under autonomous', (t) => {
+    const dir = createTempProject('gsd-x5-init-owner-');
+    t.after(() => cleanup(dir));
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    const held = json(dir, ['init', 'plan-phase', '1']);
+    assert.equal(held.auto_chain_active, true, 'still active for checkpoints and hooks');
+    assert.equal(held.auto_chain_owner, 'autonomous', 'step 15 advances only for owner chain');
+
+    json(dir, ['auto-chain', 'clear', '--owner', 'autonomous']);
+    json(dir, ['auto-chain', 'set']);
+    assert.equal(json(dir, ['init', 'plan-phase', '1']).auto_chain_owner, 'chain');
+  });
+
+  test('the discuss-assumptions auto-advance fact ignores an autonomous hold but honours a chain', (t) => {
+    const dir = createTempProject('gsd-x5-init-assumptions-');
+    t.after(() => cleanup(dir));
+    const included = () => json(dir, ['init', 'discuss-phase-assumptions', '99']).section_manifest.included.includes('auto-advance-dispatch');
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    assert.equal(included(), false, 'autonomous drives plan itself');
+    json(dir, ['auto-chain', 'clear', '--owner', 'autonomous']);
+    json(dir, ['auto-chain', 'set']);
+    assert.equal(included(), true, 'a chain still dispatches');
+  });
+
+  // SF2: an interrupted autonomous run must not keep a later, hand-started workflow unattended.
+  test('clear --manual releases an autonomous hold and says so on stderr; a plain clear does not', (t) => {
+    const dir = createTempProject('gsd-x5-manual-');
+    t.after(() => cleanup(dir));
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous']);
+    assert.equal(json(dir, ['auto-chain', 'clear']).held_by, 'autonomous');
+
+    const result = runGsdTools(['auto-chain', 'clear', '--manual'], dir, { HOME: dir, USERPROFILE: dir });
+    assert.equal(result.success, true, result.error);
+    assert.equal(JSON.parse(result.output).released, 'autonomous');
+    assert.equal(autoMode(dir).active, false);
+
+    for (const args of [['auto-chain', 'set', '--manual'], ['auto-chain', 'clear', '--manual', '--owner', 'chain']]) {
+      const bad = run(dir, ['--json-errors', ...args]);
+      assert.equal(bad.success, false, args.join(' '));
+      assert.equal(JSON.parse(bad.error).reason, 'usage');
+    }
+  });
+
+  for (const [label, recSession, readerSession, active] of [
+    ['same session', 'sess-A', 'sess-A', true],
+    ['another session', 'sess-A', 'sess-B', false],
+    ['reader without a session (pid + TTL decide)', 'sess-A', undefined, true],
+    ['record without a session (pid + TTL decide)', undefined, 'sess-B', true],
+  ]) {
+    test(`session: ${label} -> ${active ? 'active' : 'not active'}`, (t) => {
+      const dir = createTempProject('gsd-x5-session-');
+      t.after(() => cleanup(dir));
+      record(dir, recSession === undefined ? {} : { session: recSession });
+      const env = { ...process.env, CLAUDE_CODE_SESSION_ID: readerSession ?? '' };
+      assert.equal(lib().readAutoChainActive(dir, { now: () => new Date(T0 + 1000), isAlive: alive, env }), active);
+    });
+  }
+
+  // SF4: a touched_at in the future must not make a record active for ever.
+  for (const [label, delta, active] of [['limit-1', -1, true], ['limit', 0, true], ['limit+1', 1, false]]) {
+    test(`touched_at CLOCK_SKEW_MS ${label} in the future -> ${active ? 'active' : 'not active'}`, (t) => {
+      const dir = createTempProject('gsd-x5-skew-');
+      t.after(() => cleanup(dir));
+      const { CLOCK_SKEW_MS, readAutoChainActive } = lib();
+      record(dir, { touched_at: new Date(T0 + CLOCK_SKEW_MS + delta).toISOString() });
+      assert.equal(readAutoChainActive(dir, { now: () => new Date(T0), isAlive: alive }), active);
+    });
+  }
+
+  test('a symlinked .gsd directory is not read', (t) => {
+    const dir = createTempProject('gsd-x5-link-read-');
+    const outside = createTempDir('gsd-x5-link-read-target-');
+    t.after(() => { cleanup(dir); cleanup(outside); });
+    const forged = path.join(outside, 'auto-chain', 'active.json');
+    fs.mkdirSync(path.dirname(forged), { recursive: true });
+    fs.writeFileSync(forged, JSON.stringify({ active: true, touched_at: new Date().toISOString() }));
+    try {
+      fs.symlinkSync(outside, path.join(dir, '.gsd'), 'junction');
+    } catch (err) {
+      if (['EPERM', 'EACCES', 'ENOTSUP'].includes(err.code)) return t.skip(`symlink unavailable: ${err.code}`);
+      throw err;
+    }
+    assert.equal(lib().readAutoChainActive(dir, { isAlive: alive }), false);
+  });
+
+  // SF3: guard hooks call readAutoModeState(dir) in-process; the workstream pointer must count there
+  // exactly as it does for the CLI, or a workstream run reads inactive in the hooks.
+  test('an in-process reader resolves the active-workstream pointer like the CLI does', (t) => {
+    const dir = createTempProject('gsd-x5-pointer-');
+    t.after(() => cleanup(dir));
+    fs.mkdirSync(path.join(dir, '.planning', 'workstreams', 'alpha'), { recursive: true });
+    // One pointer session for the test process and its CLI children (the key is env-first).
+    const saved = { ws: process.env.GSD_WORKSTREAM, key: process.env.GSD_SESSION_KEY };
+    delete process.env.GSD_WORKSTREAM;
+    process.env.GSD_SESSION_KEY = `x5-pointer-${process.pid}`;
+    t.after(() => {
+      if (saved.ws === undefined) delete process.env.GSD_WORKSTREAM; else process.env.GSD_WORKSTREAM = saved.ws;
+      if (saved.key === undefined) delete process.env.GSD_SESSION_KEY; else process.env.GSD_SESSION_KEY = saved.key;
+    });
+    const { setActiveWorkstream, clearActiveWorkstream } = require('../gsd-core/bin/lib/active-workstream-store.cjs');
+    setActiveWorkstream(dir, 'alpha');
+    t.after(() => clearActiveWorkstream(dir));
+    const env = { GSD_SESSION_KEY: process.env.GSD_SESSION_KEY };
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous'], env);
+    assert.equal(json(dir, ['auto-chain', 'status'], env).scope, 'workstreams/alpha', 'the CLI wrote the pointer scope');
+
+    const { readAutoModeState } = require('../gsd-core/bin/lib/check-auto-mode.cjs');
+    assert.equal(readAutoModeState(dir).active, true);
+    assert.equal(lib().readAutoChainState(dir).scope, 'workstreams/alpha');
+  });
+});

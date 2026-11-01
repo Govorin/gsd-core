@@ -1668,19 +1668,19 @@
     {
       "id": "RUNSTATE.AUTO-CHAIN.location",
       "klass": "RUNSTATE",
-      "value": ".gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...); no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)",
+      "value": ".gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...), the workstream resolved inside the module (GSD_WORKSTREAM, else the active-workstream pointer, peeked) so CLI and in-process hook readers agree; no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)",
       "line": 943
     },
     {
       "id": "RUNSTATE.AUTO-CHAIN.owner",
       "klass": "RUNSTATE",
-      "value": "a record has an owner: chain (--auto/--chain hand-off; a manual plan/execute/discuss invocation clears it; no TTL) or autonomous (/gsd:autonomous holds the run from initialize to every exit, refreshing per phase); plain set never downgrades and plain clear never removes a live autonomous hold (clear reports held_by), only clear --owner autonomous does — because autonomous calls plan-phase/execute-phase without --auto and check auto-mode.active must stay true for the whole run (S2 guards read it)",
+      "value": "a record has an owner: chain (--auto/--chain hand-off) or autonomous (/gsd:autonomous holds the run from its first phase to every exit, refreshing per phase); its nested discuss/plan/execute calls carry --in-autonomous and neither clear nor advance; a plain set never downgrades and a plain clear (transition.md) never removes a live autonomous hold (held_by); clear --owner autonomous (autonomous's exits) and clear --manual (a discuss/plan/execute started by hand, noted on stderr) do; only owner chain advances to the next step (init plan-phase auto_chain_owner, the discuss-assumptions auto-advance fact), else a phase runs twice",
       "line": 944
     },
     {
       "id": "RUNSTATE.AUTO-CHAIN.stale",
       "klass": "RUNSTATE",
-      "value": "when in doubt a record is NOT active (hooks turn ask into deny while active): any record lapses RUN_STATE_TTL_MS=24h after touched_at (age >= ttl lapsed; missing/unparseable touched_at lapsed; every set by the holder refreshes it, autonomous at each phase start) and at once when its holder_pid (CLAUDE_PID at set time) is no longer alive; no runtime pid -> TTL only; session id is recorded for diagnosis, not matched",
+      "value": "when in doubt a record is NOT active (hooks turn ask into deny while active): it lapses RUN_STATE_TTL_MS=24h after touched_at (age >= ttl lapsed; missing/unparseable lapsed; touched_at more than CLOCK_SKEW_MS=5min in the future lapsed); at once when holder_pid (CLAUDE_PID) is gone; and it is not active for a reader whose CLAUDE_CODE_SESSION_ID differs from the recorded session (subagents share the parent's id); unknown session or pid on either side -> the remaining checks decide; a .gsd reached through a symlink is not read",
       "line": 945
     },
     {
@@ -2124,7 +2124,7 @@
     {
       "id": "UAT.TAIL.verify-work-phases",
       "klass": "UAT",
-      "value": "audit-uat summary.verify_work_phases (src/uat.cts) is the one owner of \"which phases can a /gsd:verify-work session close now\": current-milestone uat|verification results with a pending or human_uat item, phase order, once each; blocked/skipped/deferred/issue rows and archived milestones are debt but never a route (routing there loops); readers: next.md Route V (first in determine_next_action, skipped under --force, never re-picks the phase verify-work just left open under --auto) and smart-entry's uat_verify_phases (a secondary verify-work option on the complete/idle-stranded menus; recommendations stay fixed per ADR-1787)",
+      "value": "audit-uat summary.verify_work_phases (src/uat.cts) is the one owner of \"which phases can a /gsd:verify-work session close now\": current-milestone uat|verification results with a pending or human_uat item, phase order, once each; blocked/skipped/deferred/issue rows, a human_needed report whose phase has a complete UAT session, and archived milestones are debt but never a route (routing there loops); readers: next.md Route V (first in determine_next_action, skipped under --force, never re-picks the phase verify-work just left open under --auto) and smart-entry's uat_verify_phases (a secondary verify-work option on the complete/idle-stranded menus; recommendations stay fixed per ADR-1787)",
       "line": 949
     },
     {
