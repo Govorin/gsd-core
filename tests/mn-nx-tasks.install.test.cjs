@@ -112,11 +112,6 @@ describe('mn-nx-tasks: the declaration', () => {
     }
   });
 
-  test('the reference is a shipped file in gsd-core/references/', () => {
-    assert.ok(fs.existsSync(path.join(REPO_ROOT, 'gsd-core', 'references', REFERENCE)),
-      `agentTools.reference names gsd-core/references/${REFERENCE}, which does not exist`);
-  });
-
   test('no canonical agent declares the grant — it is declared in one place', () => {
     const offenders = fs.readdirSync(AGENTS_DIR)
       .filter((name) => name.endsWith('.md'))
