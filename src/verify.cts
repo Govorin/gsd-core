@@ -1443,11 +1443,13 @@ function cmdVerifyPlanStructure(cwd: string, filePath: string, raw: boolean): vo
   errors.push(...quantScan.errors);
   warnings.push(...quantScan.warnings);
 
-  // LG-01: a plan naming tools its executor's installed agent does not grant is a warning here
+  // LG-01: a plan declaring tools its executor's installed agent does not grant is a warning here
   // (grants can still be added before execution); `check mn-tool-preflight` halts execute-phase
-  // on the same result. `unknown` is reported too — could-not-look is not a pass.
+  // on the same result. `unknown` is reported too — could-not-look is not a pass. A tool only
+  // named in prose gets its own, advisory warning and never halts anything.
   const toolPreflight = preflightPlanContent(content, { projectRoot: cwd, plan: path.basename(fullPath) });
   if (toolPreflight.status !== PREFLIGHT_STATUS.OK) warnings.push(`Tool preflight (${toolPreflight.status}): ${toolPreflight.message}`);
+  else if (toolPreflight.mentioned_missing.length > 0) warnings.push(`Tool preflight (mentioned): ${toolPreflight.message}`);
 
   emitVerbVerdict(
     validityVerdict(errors.length === 0, {

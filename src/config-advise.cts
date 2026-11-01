@@ -17,7 +17,7 @@
  *                      (VERIFICATION `human_needed`, or an open UAT) → run verify-work / audit-uat
  *   verify_gates       GATE_CITING_REPORTS+ VERIFICATION reports citing check commands while
  *                      `workflow.verify_gates` is empty → `workflow.verify_gates` (+ `_record`)
- *   agent_tools        a plan still to run names a tool its executor does not grant (the tool
+ *   agent_tools        a plan still to run declares a tool its executor does not grant (the tool
  *                      preflight, `src/tool-preflight.cts`) → `agent_tools` + reinstall
  *
  * Only the active milestone's phases (`.planning/phases/`) are read: an archived milestone's
@@ -448,7 +448,9 @@ function ruleAgentTools(cwd: string, phases: PhaseDir[]): { outcome: RuleOutcome
       rule: ADVICE_RULE.AGENT_TOOLS,
       settings: Object.keys(settings).length > 0 ? settings : null,
       reason: `${reasons.join('; ')} — execute-phase halts on them (check mn-tool-preflight)`,
-      command: [...commands, ...reinstalls].join(' && '),
+      command: commands.length > 0
+        ? `${commands.join(' && ')}, then ${[...reinstalls].join('; ')}`
+        : [...reinstalls].join('; '),
     },
   };
 }

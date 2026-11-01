@@ -14,6 +14,8 @@ CHECK_EXIT=$?
 # GATE_RESULT=$(gsd_run check predicate --predicate '<hook.check.predicate as JSON>' --phase-dir "${PHASE_DIR}" --phase-number "${PHASE_NUMBER}" --raw)
 ```
 
+**`mn-tool-preflight` takes the run's selection**, so a plan this run will not execute cannot halt it. For that query only, append `--wave {WAVE_FILTER}` when `WAVE_FILTER` is set and `--gaps-only` when the run was given `--gaps-only`, before `--raw` — e.g. `gsd_run check "${hook_check_query}" "${PHASE_NUMBER}" --wave 2 --gaps-only --raw`.
+
 **Step 1 — did the check command itself succeed?** Non-zero `CHECK_EXIT`, empty output, or unparseable JSON:
 - `onError == "halt"` → stop before the first wave and surface: `⚠ Gate check command failed ({hook.capId}): command error. Resolve before executing.`
 - `onError == "skip"` → log a warning and continue to the next hook. Do NOT read `GATE_RESULT.block`.

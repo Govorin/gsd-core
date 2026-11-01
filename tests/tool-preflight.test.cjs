@@ -9,12 +9,15 @@
  * design file and the executor's installed `tools:` had no `mcp__pencil__*`. The prohibition was a
  * sentence in the workflow. These tests pin the typed answer that replaces it:
  *
- *   - what counts as a requirement (MCP names, `.pen` files, a closed list of built-in tools — and
- *     what does not: the objective's prose);
+ *   - what blocks — only DECLARED needs: `requires_tools:` and `.pen` files in `files_modified` —
+ *     and what only warns: tool names in `<tasks>`/`<context>` prose, after code and `<verify>` are
+ *     cut out ("Do not touch app.pen" names the file to forbid it);
  *   - grant matching, exact and wildcard, at the server-name boundary;
- *   - where the installed agent is read from, and that could-not-look is `unknown`, never `ok`;
+ *   - where the installed agent is read from, and that could-not-look — including a non-Claude
+ *     runtime whose installer translated the grants — is `unknown`, never `ok` or `missing`;
  *   - the three surfaces: `verify tool-preflight`, `verify plan-structure`'s `tool_preflight`, and
- *     the execute:pre gate `check mn-tool-preflight`, which blocks only on `missing`.
+ *     the execute:pre gate `check mn-tool-preflight`, which blocks only on `missing`, only for the
+ *     plans the run will execute (`--wave`, `--gaps-only`).
  */
 
 const { test, describe, beforeEach, afterEach } = require('node:test');
@@ -67,55 +70,83 @@ const tools = (required) => required.map((r) => r.tool);
 
 // ─── requirement extraction ──────────────────────────────────────────────────
 
-describe('extractRequiredTools', () => {
-  test('an MCP tool name in a task is required exactly', () => {
-    const r = preflight.extractRequiredTools(planText({ tasks: 'Call mcp__pencil__batch_design to draw.' }));
-    assert.deepEqual(tools(r), ['mcp__pencil__batch_design']);
-    assert.equal(r[0].source, 'mcp-name');
-    assert.equal(r[0].where, 'tasks');
+const PEN_DECL = { files: '[design/app.pen, src/a.ts]' };
+const needs = (opts) => preflight.extractToolNeeds(planText(opts));
+
+describe('extractToolNeeds: what blocks (declared)', () => {
+  test('a .pen file in files_modified requires the Pencil server', () => {
+    const { required, mentioned } = needs(PEN_DECL);
+    assert.deepEqual(tools(required), ['mcp__pencil__*']);
+    assert.equal(required[0].source, 'pen-file');
+    assert.equal(required[0].where, 'files_modified');
+    assert.equal(required[0].evidence, 'design/app.pen');
+    assert.deepEqual(mentioned, []);
   });
 
-  test('a server wildcard or a bare server name is a whole-server requirement', () => {
-    const r = preflight.extractRequiredTools(planText({ tasks: 'Use `mcp__figma__*` and then mcp__atlas.' }));
-    assert.deepEqual(tools(r), ['mcp__figma__*', 'mcp__atlas__*']);
+  test('requires_tools entries are required, normalised (a bare server is the whole server)', () => {
+    const { required } = needs({ extra: 'requires_tools: [mcp__context7__query-docs, mcp__atlas, WebFetch]' });
+    assert.deepEqual(tools(required), ['mcp__context7__query-docs', 'mcp__atlas__*', 'WebFetch']);
+    assert.ok(required.every((r) => r.source === 'requires-tools' && r.where === 'requires_tools'));
+  });
+
+  test('requires_tools as a YAML sequence; an entry that is not a tool token is ignored', () => {
+    const { required } = needs({ extra: 'requires_tools:\n  - mcp__pencil__*\n  - "two words"' });
+    assert.deepEqual(tools(required), ['mcp__pencil__*']);
+  });
+
+  test('a lookalike in files_modified (.pencil, .pen.bak, .penx) requires nothing', () => {
+    assert.deepEqual(needs({ files: '[notes.pencil, app.pen.bak, x.penx]' }).required, []);
   });
 
   test('a plugin-namespaced MCP name keeps its server segment intact', () => {
-    const r = preflight.extractRequiredTools(planText({ tasks: 'mcp__plugin_serena_serena__find_symbol' }));
-    assert.deepEqual(tools(r), ['mcp__plugin_serena_serena__find_symbol']);
+    assert.deepEqual(tools(needs({ extra: 'requires_tools: [mcp__plugin_serena_serena__find_symbol]' }).required), ['mcp__plugin_serena_serena__find_symbol']);
+  });
+});
+
+describe('extractToolNeeds: what only warns (mentioned in prose)', () => {
+  // Each of these was a false halt: the review counted 106 of legion's 237 plans that prose alone
+  // would have stopped ("Do not touch or stage app.pen").
+  for (const [label, tasks] of [
+    ['a forbidding sentence about a .pen file', 'Do NOT modify design/app.pen.'],
+    ['a forbidding sentence about a tool', 'do not use WebFetch for this.'],
+    ['an MCP name in prose', 'The server mcp__pencil__batch_design is not needed here.'],
+  ]) {
+    test(`${label} is a mention, not a requirement`, () => {
+      const { required, mentioned } = needs({ tasks });
+      assert.deepEqual(required, []);
+      assert.equal(mentioned.length, 1, JSON.stringify(mentioned));
+    });
+  }
+
+  test('a <verify> check naming an MCP prefix is neither required nor mentioned', () => {
+    const text = planText().replace('<verify>npm test</verify>', '<verify>grep -q "mcp__pencil__" .claude/agents/x.md</verify>');
+    assert.deepEqual(preflight.extractToolNeeds(text), { required: [], mentioned: [] });
   });
 
-  test('a .pen file in a task, in <context> or in files_modified requires the Pencil server', () => {
-    for (const [opts, where] of [
-      [{ tasks: 'Edit design/app.pen' }, 'tasks'],
-      [{ context: '@design/screens.pen' }, 'context'],
-      [{ files: '[design/app.pen]' }, 'files_modified'],
-    ]) {
-      const r = preflight.extractRequiredTools(planText(opts));
-      assert.deepEqual(tools(r), ['mcp__pencil__*'], JSON.stringify(opts));
-      assert.equal(r[0].source, 'pen-file');
-      assert.equal(r[0].where, where);
-    }
+  test('fenced code (JSON with grants) and inline code are cut out', () => {
+    const tasks = 'Write the config:\n```json\n{"agent_tools": {"gsd-executor": ["mcp__pencil__*", "WebFetch"]}}\n```\nthen run `mcp__x__y` nowhere.';
+    assert.deepEqual(needs({ tasks }), { required: [], mentioned: [] });
   });
 
-  test('the closed list of built-in tool names is recognised; other CamelCase words are not', () => {
-    const r = preflight.extractRequiredTools(planText({ tasks: 'Use WebFetch, `WebSearch`, NotebookEdit and AskUserQuestion; the Agent runs a Task.' }));
-    assert.deepEqual(tools(r).sort(), ['AskUserQuestion', 'NotebookEdit', 'WebFetch', 'WebSearch']);
+  test('a tool name inside a file name is not a tool: webfetch-cache.pen, WebFetch-cache.pen, src/WebFetch.ts', () => {
+    const { mentioned } = needs({ tasks: 'Update webfetch-cache.pen, WebFetch-cache.pen and src/WebFetch.ts.' });
+    assert.deepEqual(tools(mentioned), ['mcp__pencil__*'], 'only the .pen paths are mentions; no WebFetch');
   });
 
-  test('the objective\'s prose is not a requirement', () => {
-    const r = preflight.extractRequiredTools(planText({ objective: 'Not doing: design/app.pen or mcp__pencil__x' }));
-    assert.deepEqual(r, []);
+  test('a sentence-final tool name is still recognised; other CamelCase words are not', () => {
+    const { mentioned } = needs({ tasks: 'Fetch it with WebFetch. Then the Agent runs a Task.' });
+    assert.deepEqual(tools(mentioned), ['WebFetch']);
   });
 
-  test('one entry per tool: the first sighting is kept as evidence', () => {
-    const r = preflight.extractRequiredTools(planText({ tasks: 'a.pen then b.pen', files: '[c.pen]' }));
-    assert.equal(r.length, 1);
-    assert.equal(r[0].evidence, 'a.pen');
+  test('a mention of a tool that is also declared is reported once, as required', () => {
+    const { required, mentioned } = needs({ ...PEN_DECL, tasks: 'Edit design/app.pen with mcp__pencil__*' });
+    assert.deepEqual(tools(required), ['mcp__pencil__*']);
+    assert.deepEqual(mentioned, []);
   });
 
-  test('a lookalike extension (.pencil, .penX) is not a .pen file', () => {
-    assert.deepEqual(preflight.extractRequiredTools(planText({ tasks: 'see notes.pencil and x.penx' })), []);
+  test('<context> prose is read; <objective> never is', () => {
+    assert.equal(needs({ context: 'Read @design/screens.pen' }).mentioned[0].where, 'context');
+    assert.deepEqual(needs({ objective: 'Not doing: design/app.pen or mcp__pencil__x' }), { required: [], mentioned: [] });
   });
 });
 
@@ -274,33 +305,49 @@ describe('preflightPlanContent', () => {
 
   test('a wildcard grant covers a .pen plan → ok', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, Write, mcp__pencil__*') });
-    const r = run(planText({ tasks: 'Edit design/app.pen' }));
+    const r = run(planText(PEN_DECL));
     assert.equal(r.status, 'ok');
     assert.deepEqual(r.missing, []);
   });
 
   test('an exact grant covers that tool only: the second tool is missing', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, mcp__pencil__batch_design') });
-    const r = run(planText({ tasks: 'mcp__pencil__batch_design then mcp__pencil__get_style' }));
+    const r = run(planText({ extra: 'requires_tools: [mcp__pencil__batch_design, mcp__pencil__get_style]' }));
     assert.equal(r.status, 'missing');
     assert.deepEqual(r.missing, ['mcp__pencil__get_style']);
   });
 
   test('missing → a fix naming the server wildcard, the config-set command and the reinstall', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, Write') });
-    const r = run(planText({ tasks: 'Edit design/app.pen with mcp__pencil__batch_design' }));
+    const r = run(planText({ ...PEN_DECL, extra: 'requires_tools: [mcp__pencil__batch_design]' }));
     assert.equal(r.status, 'missing');
     assert.deepEqual(r.fix.grants, ['mcp__pencil__*']);
     assert.deepEqual(r.fix.agent_tools, { 'gsd-executor': ['mcp__pencil__*'] });
     assert.equal(r.fix.config_set, `gsd-tools config-set agent_tools.gsd-executor '["mcp__pencil__*"]'`);
-    assert.equal(r.fix.reinstall, 'gsd-core --claude --global');
     assert.equal(r.fix.already_configured, false);
+  });
+
+  test('the reinstall is described, never an npx/installer command that would replace a fork with upstream', () => {
+    writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
+    const r = run(planText(PEN_DECL));
+    assert.doesNotMatch(r.fix.reinstall, /npx|gsd-core --|@opengsd/);
+    assert.match(r.fix.reinstall, /the same way it was installed/);
+    assert.match(r.fix.reinstall, /from this project's root/, 'a global install must be run from the project root to read its agent_tools');
+  });
+
+  test('only mentioned in prose → ok, with mentioned_missing and an advisory message', () => {
+    writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
+    const r = run(planText({ tasks: 'Do not touch or stage app.pen.' }));
+    assert.equal(r.status, 'ok', 'prose never halts');
+    assert.deepEqual(r.missing, []);
+    assert.deepEqual(r.mentioned_missing, ['mcp__pencil__*']);
+    assert.match(r.message, /requires_tools/);
   });
 
   test('a grant already in agent_tools but not installed → the fix is the reinstall alone', () => {
     fs.writeFileSync(path.join(projectDir, '.planning', 'config.json'), JSON.stringify({ agent_tools: { 'gsd-executor': ['WebFetch', 'mcp__pencil__*'] } }));
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
-    const r = run(planText({ tasks: 'Edit design/app.pen' }));
+    const r = run(planText(PEN_DECL));
     assert.equal(r.status, 'missing');
     assert.equal(r.fix.already_configured, true);
     assert.deepEqual(r.fix.agent_tools['gsd-executor'], ['WebFetch', 'mcp__pencil__*'], 'existing selector entries are kept');
@@ -308,7 +355,7 @@ describe('preflightPlanContent', () => {
   });
 
   test('a missing installed agent file is unknown — never a pass', () => {
-    const r = run(planText({ tasks: 'Edit design/app.pen' }));
+    const r = run(planText(PEN_DECL));
     assert.equal(r.status, 'unknown');
     assert.match(r.reason, /no installed gsd-executor agent/);
     assert.deepEqual(r.missing, []);
@@ -319,7 +366,7 @@ describe('preflightPlanContent', () => {
       'gsd-executor.md': agentFile('Read'),
       'pencil-designer.md': agentFile('Read, mcp__pencil__*'),
     });
-    const r = run(planText({ tasks: 'Edit design/app.pen', extra: 'agent_hint: pencil-designer' }));
+    const r = run(planText({ ...PEN_DECL, extra: 'agent_hint: pencil-designer' }));
     assert.equal(r.agent, 'pencil-designer');
     assert.equal(r.agent_source, 'agent_hint');
     assert.equal(r.status, 'ok');
@@ -331,14 +378,24 @@ describe('preflightPlanContent', () => {
       'gsd-executor.md': agentFile('Read'),
       'pencil-designer.md': agentFile('Read, mcp__pencil__*'),
     });
-    const r = run(planText({ tasks: 'Edit design/app.pen', extra: 'agent_hint: pencil-designer' }));
+    const r = run(planText({ ...PEN_DECL, extra: 'agent_hint: pencil-designer' }));
     assert.equal(r.agent, 'gsd-executor');
     assert.equal(r.status, 'missing');
   });
 
+  test('a non-Claude runtime is unknown: its installer translated the grants (Copilot)', () => {
+    // What the Copilot converter writes for mcp__context7__*: comparing a Claude-syntax need with it
+    // read as missing, and the suggested agent_tools fix could not change that answer.
+    writeFiles(agentsDir, { 'gsd-executor.agent.md': "---\nname: gsd-executor\ntools: ['read', 'edit', 'io.github.upstash/context7/*']\n---\n" });
+    const r = run(planText({ extra: 'requires_tools: [mcp__context7__*]' }), { runtime: 'copilot' });
+    assert.equal(r.status, 'unknown');
+    assert.match(r.reason, /translates tool grants/);
+    assert.equal(r.fix, null);
+  });
+
   test('an agent_hint that resolves to no installed agent falls back to gsd-executor', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, mcp__pencil__*') });
-    const r = run(planText({ tasks: 'Edit design/app.pen', extra: 'agent_hint: nobody' }));
+    const r = run(planText({ ...PEN_DECL, extra: 'agent_hint: nobody' }));
     assert.equal(r.agent, 'gsd-executor');
     assert.equal(r.status, 'ok');
   });
@@ -364,7 +421,7 @@ describe('CLI: verify tool-preflight and verify plan-structure', () => {
 
   test('verify tool-preflight prints the typed result and exits 0 on missing', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
-    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText(PEN_DECL) });
     const r = runGsdTools(['verify', 'tool-preflight', path.join(phaseDir, '01-01-PLAN.md')], projectDir, env());
     assert.equal(r.exitCode, 0, r.error);
     const json = JSON.parse(r.output);
@@ -377,7 +434,7 @@ describe('CLI: verify tool-preflight and verify plan-structure', () => {
 
   test('the dotted query form with --raw prints the status alone', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, mcp__pencil__*') });
-    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText(PEN_DECL) });
     const r = runGsdTools(['query', 'verify.tool-preflight', path.join(phaseDir, '01-01-PLAN.md'), '--raw'], projectDir, env());
     assert.equal(r.exitCode, 0, r.error);
     assert.equal(r.output.trim(), 'ok');
@@ -385,7 +442,7 @@ describe('CLI: verify tool-preflight and verify plan-structure', () => {
 
   test('--agent forces the agent checked', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read'), 'other.md': agentFile('mcp__pencil__*') });
-    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen', extra: 'agent_hint: other' }) });
+    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText({ ...PEN_DECL, extra: 'agent_hint: other' }) });
     const r = runGsdTools(['verify', 'tool-preflight', path.join(phaseDir, '01-01-PLAN.md'), '--agent', 'gsd-executor'], projectDir, env());
     const json = JSON.parse(r.output);
     assert.equal(json.agent, 'gsd-executor');
@@ -403,7 +460,7 @@ describe('CLI: verify tool-preflight and verify plan-structure', () => {
 
   test('verify plan-structure carries tool_preflight and a warning, and stays valid', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
-    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const { phaseDir } = makePhase(projectDir, { '01-01-PLAN.md': planText(PEN_DECL) });
     const r = runGsdTools(['verify', 'plan-structure', path.join(phaseDir, '01-01-PLAN.md')], projectDir, env());
     assert.equal(r.exitCode, 0, r.error);
     const json = JSON.parse(r.output);
@@ -448,7 +505,7 @@ describe('check mn-tool-preflight', () => {
 
   test('blocks when a plan to run needs a tool its executor lacks; the message carries the fix', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
-    const v = gate({ '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const v = gate({ '01-01-PLAN.md': planText(PEN_DECL) });
     assert.equal(v.block, true);
     assert.equal(v.status, 'finding');
     assert.match(v.message, /agent_tools\.gsd-executor/);
@@ -457,7 +514,7 @@ describe('check mn-tool-preflight', () => {
 
   test('passes when every grant is present', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read, mcp__pencil__*') });
-    const v = gate({ '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const v = gate({ '01-01-PLAN.md': planText(PEN_DECL) });
     assert.equal(v.block, false);
     assert.equal(v.checked, 1);
   });
@@ -465,7 +522,7 @@ describe('check mn-tool-preflight', () => {
   test('a plan with a SUMMARY is done and is not checked', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
     const v = gate({
-      '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }),
+      '01-01-PLAN.md': planText(PEN_DECL),
       '01-01-SUMMARY.md': '---\nphase: 01\n---\n',
     });
     assert.equal(v.block, false);
@@ -473,16 +530,58 @@ describe('check mn-tool-preflight', () => {
   });
 
   test('unknown (no installed agent) does not block, and the message says it could not check', () => {
-    const v = gate({ '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const v = gate({ '01-01-PLAN.md': planText(PEN_DECL) });
     assert.equal(v.block, false);
     assert.match(v.message, /1 could not be checked/);
   });
 
+  test('a plan that only mentions a tool in prose never blocks (the legion false-halt shape)', () => {
+    writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
+    const v = gate({ '01-01-PLAN.md': planText({ tasks: 'Do not touch or stage app.pen. Do not use WebFetch.' }) });
+    assert.equal(v.block, false);
+    assert.equal(v.checked, 1);
+  });
+
+  const waved = (wave, extra = '') => planText({ ...PEN_DECL, extra: `${extra}` }).replace('wave: 1', `wave: ${wave}`);
+
+  test('--wave N checks only that wave: a missing grant in another wave does not halt it', () => {
+    writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
+    const { phaseNumber } = makePhase(projectDir, {
+      '01-01-PLAN.md': waved(1),
+      '01-02-PLAN.md': planText().replace('wave: 1', 'wave: 2'),
+    });
+    const only2 = evaluateMnToolPreflight({ projectDir, args: [phaseNumber, '--wave', '2'] }).payload;
+    assert.equal(only2.block, false);
+    assert.equal(only2.checked, 1);
+    const only1 = evaluateMnToolPreflight({ projectDir, args: ['--wave=1', phaseNumber] }).payload;
+    assert.equal(only1.block, true, 'the selected wave still halts');
+  });
+
+  test('--gaps-only checks only gap_closure plans', () => {
+    writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
+    const { phaseNumber } = makePhase(projectDir, {
+      '01-01-PLAN.md': waved(1),
+      '01-02-PLAN.md': planText({ extra: 'gap_closure: true' }),
+    });
+    const gaps = evaluateMnToolPreflight({ projectDir, args: [phaseNumber, '--gaps-only'] }).payload;
+    assert.equal(gaps.block, false);
+    assert.equal(gaps.checked, 1);
+    assert.equal(evaluateMnToolPreflight({ projectDir, args: [phaseNumber] }).payload.block, true);
+  });
+
+  test('the gate dispatch tells the orchestrator to pass the run\'s selection to this gate', () => {
+    // source-text-is-the-product: the step file is what the orchestrator executes.
+    const text = fs.readFileSync(path.join(__dirname, '..', 'gsd-core', 'workflows', 'execute-phase', 'steps', 'execute-pre-gate-hooks.md'), 'utf8');
+    assert.ok(text.includes('`mn-tool-preflight` takes the run\'s selection'));
+    assert.ok(text.includes('--wave {WAVE_FILTER}') && text.includes('--gaps-only'));
+  });
+
   test('the CLI delivers the same verdict', () => {
     writeFiles(agentsDir, { 'gsd-executor.md': agentFile('Read') });
-    const { phaseNumber } = makePhase(projectDir, { '01-01-PLAN.md': planText({ tasks: 'Edit design/app.pen' }) });
+    const { phaseNumber } = makePhase(projectDir, { '01-01-PLAN.md': planText(PEN_DECL) });
     const payload = runMnCheck(projectDir, 'mn-tool-preflight', [phaseNumber]);
     assert.equal(payload.block, true);
+    assert.equal(runMnCheck(projectDir, 'mn-tool-preflight', [phaseNumber, '--wave', '2']).block, false, 'the CLI honours --wave');
   });
 
   test('the capability registers it as a blocking execute:pre gate, on by default', () => {

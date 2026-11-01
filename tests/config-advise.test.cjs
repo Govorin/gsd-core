@@ -22,9 +22,10 @@ const advise = require('../gsd-core/bin/lib/config-advise.cjs');
 
 const T = advise.ADVISE_THRESHOLDS;
 
-function plan(n, body = 'plain change') {
-  return `---\nphase: 01\nplan: ${n}\nwave: 1\n---\n<tasks>\n<task type="auto"><name>t</name><action>${body}</action></task>\n</tasks>\n`;
+function plan(n, body = 'plain change', files = '[src/a.ts]') {
+  return `---\nphase: 01\nplan: ${n}\nwave: 1\nfiles_modified: ${files}\n---\n<tasks>\n<task type="auto"><name>t</name><action>${body}</action></task>\n</tasks>\n`;
 }
+const penPlan = (n) => plan(n, 'Draw the screen', '[design/app.pen]');
 
 function review(critical, warning, status = 'issues_found') {
   return `---\nphase: 01\nfindings:\n  critical: ${critical}\n  warning: ${warning}\n  info: 9\n  total: ${critical + warning + 9}\nstatus: ${status}\n---\n\n# Review\n`;
@@ -253,20 +254,26 @@ describe('config-advise rules', () => {
   describe('agent_tools (plans naming tools the executor lacks)', () => {
     test('a missing grant is recommended as agent_tools + reinstall', () => {
       fs.writeFileSync(path.join(agentsDir, 'gsd-executor.md'), '---\nname: gsd-executor\ntools: Read, Write\n---\n');
-      phase(projectDir, '01-ui', { '01-01-PLAN.md': plan(1, 'Edit design/app.pen') });
+      phase(projectDir, '01-ui', { '01-01-PLAN.md': penPlan(1) });
       const rec = recOf(advise.adviseConfig(projectDir), 'agent_tools');
       assert.deepEqual(rec.settings, { 'agent_tools.gsd-executor': ['mcp__pencil__*'] });
-      assert.match(rec.command, /^gsd-tools config-set agent_tools\.gsd-executor '\["mcp__pencil__\*"\]' && gsd-core --\w+ --global$/);
+      assert.match(rec.command, /^gsd-tools config-set agent_tools\.gsd-executor '\["mcp__pencil__\*"\]', then re-install GSD for \w+ the same way it was installed/);
+    });
+
+    test('a tool only mentioned in prose is not an agent_tools recommendation', () => {
+      fs.writeFileSync(path.join(agentsDir, 'gsd-executor.md'), '---\nname: gsd-executor\ntools: Read, Write\n---\n');
+      phase(projectDir, '01-ui', { '01-01-PLAN.md': plan(1, 'Do not touch or stage app.pen.') });
+      assert.equal(recOf(advise.adviseConfig(projectDir), 'agent_tools'), undefined);
     });
 
     test('granted: silent', () => {
       fs.writeFileSync(path.join(agentsDir, 'gsd-executor.md'), '---\nname: gsd-executor\ntools: Read, mcp__pencil__*\n---\n');
-      phase(projectDir, '01-ui', { '01-01-PLAN.md': plan(1, 'Edit design/app.pen') });
+      phase(projectDir, '01-ui', { '01-01-PLAN.md': penPlan(1) });
       assert.equal(recOf(advise.adviseConfig(projectDir), 'agent_tools'), undefined);
     });
 
     test('no installed agent: not recommended, but reported as unknown in the evidence', () => {
-      phase(projectDir, '01-ui', { '01-01-PLAN.md': plan(1, 'Edit design/app.pen') });
+      phase(projectDir, '01-ui', { '01-01-PLAN.md': penPlan(1) });
       const a = advise.adviseConfig(projectDir);
       assert.equal(recOf(a, 'agent_tools'), undefined);
       assert.equal(ruleOf(a, 'agent_tools').evidence.unknown.length, 1);

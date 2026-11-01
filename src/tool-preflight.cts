@@ -2,28 +2,34 @@
  * Tool preflight (LG-01): does the agent that will execute a plan hold the tools the plan's tasks
  * name?
  *
- * A plan that drives a design file (`.pen` → Pencil MCP) or names an MCP tool (`mcp__<server>__…`)
- * cannot be carried out by an executor whose installed `tools:` line lacks that grant. Orchestrators
- * met that by spawning `general-purpose` instead of `gsd-executor` — the prohibition was prose only
- * (`execute-phase.md`, `quick.md`) — and the substituted agent ran without the executor's contract.
- * This module answers the question before execution so the answer can stop the run instead:
+ * A plan that drives a design file (`.pen` → Pencil MCP) or needs an MCP tool cannot be carried out
+ * by an executor whose installed `tools:` line lacks that grant. Orchestrators met that by spawning
+ * `general-purpose` instead of `gsd-executor` — the prohibition was prose only (`execute-phase.md`,
+ * `quick.md`) — and the substituted agent ran without the executor's contract. This module answers
+ * the question before execution so the answer can stop the run instead.
+ *
+ * Only a DECLARED need stops anything: the plan's `requires_tools:` frontmatter and `.pen` files in
+ * `files_modified` (`extractToolNeeds`). Tool names in the prose of `<tasks>`/`<context>` are only
+ * mentions — "Do not touch app.pen" names the file to forbid it — and only ever warn.
  *
  *   - `verify plan-structure` carries the result as `tool_preflight` (a warning at planning time);
  *   - `verify tool-preflight <plan>` is the typed verb `/gsd-quick` reads before its executor spawn;
- *   - `check mn-tool-preflight <phase>` is the execute:pre gate that halts `/gsd-execute-phase`;
+ *   - `check mn-tool-preflight <phase> [--wave N] [--gaps-only]` is the execute:pre gate that halts
+ *     `/gsd-execute-phase` on a declared need for the plans the run will execute;
  *   - `config-advise` turns the same result into an `agent_tools` recommendation.
  *
  * What the agent holds is read from the INSTALLED agent file, the way the installer writes it and
  * the runtime reads it — not from canonical `agents/*.md`, which carries no install-time grants
  * (ADR-5210, upstream #4032). Claude Code resolves a project agent (the project's `.claude` dir)
- * ahead of the user's (the global Claude config dir, honouring CLAUDE_CONFIG_DIR); other runtimes go through
- * `getAgentsDir` (manifest-backed project install, else the runtime's global directory).
+ * ahead of the user's (the global Claude config dir, honouring CLAUDE_CONFIG_DIR); other runtimes go
+ * through `getAgentsDir` (manifest-backed project install, else the runtime's global directory).
  * `GSD_AGENTS_DIR`, when set, is the only directory read.
  *
- * Could-not-look is never a pass: no installed file, an unreadable file, or a format with no
- * `tools:` list GSD can read (Codex TOML, a non-Claude `.md` with no `tools:` key) is status
- * `unknown`, with the reason and the paths searched. A Claude agent file with no `tools:` key
- * inherits every tool (Claude Code's documented default), so nothing it needs can be missing.
+ * Could-not-look is never a pass: no installed file, an unreadable file, a Codex TOML agent, or any
+ * non-Claude agent (its installer translates grants into its own vocabulary, so a Claude-syntax
+ * comparison would be wrong) is status `unknown` for a declared need, with the reason and the paths
+ * searched. A Claude agent file with no `tools:` key inherits every tool (Claude Code's documented
+ * default), so nothing it needs can be missing.
  */
 
 import fs from 'node:fs';
@@ -43,7 +49,7 @@ import { getDirName, NO_LOCAL_CONFIG_DIR_SENTINEL } from './runtime-name-policy.
 import { resolveRuntime } from './runtime-slash.cjs';
 import { tryWithinRoot, PathAcceptance } from './security.cjs';
 import { listPhasePlans } from './gate-mn-plan-status.cjs';
-import { extractTaggedBlocks } from './markdown-sectionizer.cjs';
+import { extractTaggedBlocks, stripFencedCode, stripInlineCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
 
 const { extractFrontmatter, stripFrontmatter } = frontmatterMod;
 const { getAgentsDir, resolveAgentHint } = agentInstallCheck;
@@ -66,6 +72,8 @@ export type PreflightStatus = (typeof PREFLIGHT_STATUS)[keyof typeof PREFLIGHT_S
 
 /** How a requirement was recognised in the plan. */
 export const REQUIREMENT_SOURCE = Object.freeze({
+  /** An entry of the plan's `requires_tools:` frontmatter. */
+  DECLARED: 'requires-tools',
   MCP_NAME: 'mcp-name',
   PEN_FILE: 'pen-file',
   TOOL_NAME: 'tool-name',
@@ -86,7 +94,7 @@ export interface RequiredTool {
   /** The tool the plan needs: an exact name, or `mcp__<server>__*` for "some tool of that server". */
   tool: string;
   source: RequirementSource;
-  /** Where it was seen: `tasks`, `context` or `files_modified`. */
+  /** Where it was seen: `requires_tools` or `files_modified` (required), `tasks` or `context` (mentioned). */
   where: string;
   /** The text that produced it (a tool name or a `.pen` path), for the message. */
   evidence: string;
@@ -116,9 +124,15 @@ export interface ToolPreflight {
   plan: string;
   agent: string;
   agent_source: 'default' | 'agent_hint' | 'explicit';
+  /** Decided by `required` alone: prose never halts a run. */
   status: PreflightStatus;
+  /** Structural needs — `requires_tools:` and `.pen` files in `files_modified`. These block. */
   required: RequiredTool[];
   missing: string[];
+  /** Tools named in the prose of `<tasks>`/`<context>` (code, `<verify>` cut out). Advisory only. */
+  mentioned: RequiredTool[];
+  /** Mentioned tools the agent does not grant (empty when its grants could not be read). */
+  mentioned_missing: string[];
   agent_file: string | null;
   /** Where `agent_file` was found: decides `--local` / `--global` in the reinstall. */
   agent_scope: AgentFileScope | null;
@@ -132,7 +146,11 @@ export interface ToolPreflight {
 
 const MCP_TOKEN_RE = /(?<![A-Za-z0-9_])mcp__[A-Za-z0-9_*-]+/g;
 const PEN_PATH_RE = /(?<![A-Za-z0-9_.-])((?:[\w@~.-]+\/)*[\w@~-][\w@~.-]*\.pen)(?![A-Za-z0-9_-])/g;
-const KNOWN_TOOL_RE = new RegExp(`(?<![A-Za-z0-9_])(${KNOWN_TOOL_NAMES.join('|')})(?![A-Za-z0-9_])`, 'g');
+// A tool name is a whole token: not part of a path, a file name or an identifier (`WebFetch-cache.pen`,
+// `src/WebFetch.ts`); a sentence's closing period is allowed.
+const KNOWN_TOOL_RE = new RegExp(`(?<![A-Za-z0-9_./-])(${KNOWN_TOOL_NAMES.join('|')})(?![A-Za-z0-9_/-]|\\.[A-Za-z0-9])`, 'g');
+const PEN_FILE_ENTRY_RE = /\.pen$/;
+const TOOL_TOKEN_RE = /^[A-Za-z][A-Za-z0-9_*./-]*$/;
 
 /** `mcp__srv__tool` → `{server, tool}`; `mcp__srv`, `mcp__srv__`, `mcp__srv__*` → whole-server. */
 function splitMcpName(raw: string): { server: string; tool: string | null } | null {
@@ -151,7 +169,7 @@ function mcpRequirement(raw: string): string | null {
   return parts.tool === null ? `mcp__${parts.server}__*` : `mcp__${parts.server}__${parts.tool}`;
 }
 
-function scanText(text: string, where: string, add: (r: RequiredTool) => void): void {
+function scanProse(text: string, where: string, add: (r: RequiredTool) => void): void {
   for (const m of text.matchAll(MCP_TOKEN_RE)) {
     const tool = mcpRequirement(m[0]);
     if (tool !== null) add({ tool, source: REQUIREMENT_SOURCE.MCP_NAME, where, evidence: m[0].replace(/[_-]+$/, '') });
@@ -164,40 +182,77 @@ function scanText(text: string, where: string, add: (r: RequiredTool) => void): 
   }
 }
 
-function filesModifiedList(fm: Record<string, unknown>): string[] {
-  const raw = fm['files_modified'];
-  if (Array.isArray(raw)) return raw.filter((v): v is string => typeof v === 'string');
-  if (typeof raw === 'string') return raw.split(/[\s,]+/).filter(Boolean);
+function stringList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(/[\s,]+/).map((v) => v.replace(/^[[\]"']+|[[\]"']+$/g, '')).filter(Boolean);
   return [];
 }
 
 /**
- * The tools a plan's executor needs, read from what the executor acts on: the `<tasks>` region, the
- * `<context>` region it reads, and the `files_modified` it writes. A plan without a `<tasks>` region
- * is scanned whole after its frontmatter. The objective's prose ("not doing: touch design.pen") is
- * not a requirement. One entry per tool; the first sighting is kept as evidence.
+ * The prose an executor reads, with everything that names a tool without asking for it cut out:
+ * fenced and inline code (commands, JSON, grep patterns) and `<verify>` blocks (checks that a name
+ * is absent or present are about the name, not a use of the tool).
  */
-export function extractRequiredTools(content: string): RequiredTool[] {
+function proseOf(region: string): string {
+  const withoutVerify = stripTaggedBlocks(region, 'verify', true);
+  return stripInlineCode(stripFencedCode(withoutVerify).text);
+}
+
+export interface PlanToolNeeds {
+  /** Blocking: `requires_tools:` entries and `.pen` files in `files_modified`. */
+  required: RequiredTool[];
+  /** Advisory: tools named in `<tasks>`/`<context>` prose and not already required. */
+  mentioned: RequiredTool[];
+}
+
+/**
+ * What a plan's executor needs, split by how sure GSD can be:
+ *
+ *   - REQUIRED (blocks): the plan's `requires_tools:` frontmatter, and every `files_modified` entry
+ *     ending in `.pen` (a Pencil design file is written through the Pencil MCP server, nothing else).
+ *     These are declarations, so a missing grant is a fact.
+ *   - MENTIONED (advisory): MCP names, `.pen` paths and the closed built-in list found in the prose
+ *     of `<tasks>` and `<context>` after code and `<verify>` are cut out. Prose cannot be read for
+ *     intent — "Do not touch app.pen", "do not use WebFetch" name the tool to forbid it — so a
+ *     mention only ever produces a warning.
+ *
+ * `<objective>` is never read. One entry per tool; the first sighting is kept as evidence.
+ */
+export function extractToolNeeds(content: string): PlanToolNeeds {
   const text = typeof content === 'string' ? content : '';
-  const seen = new Map<string, RequiredTool>();
-  const add = (r: RequiredTool): void => {
-    if (!seen.has(r.tool)) seen.set(r.tool, r);
-  };
-  const tasks = extractTaggedBlocks(text, 'tasks');
-  if (tasks.length > 0) {
-    for (const region of tasks) scanText(region, 'tasks', add);
-  } else {
-    scanText(stripFrontmatter(text), 'tasks', add);
-  }
-  for (const region of extractTaggedBlocks(text, 'context', true)) scanText(region, 'context', add);
   let fm: Record<string, unknown> = {};
   try {
     fm = extractFrontmatter(text);
   } catch {
     fm = {};
   }
-  scanText(filesModifiedList(fm).join('\n'), 'files_modified', add);
-  return [...seen.values()];
+  const required = new Map<string, RequiredTool>();
+  for (const token of stringList(fm['requires_tools'])) {
+    if (!TOOL_TOKEN_RE.test(token)) continue;
+    const tool = token.startsWith('mcp__') ? mcpRequirement(token) : token;
+    if (tool !== null && !required.has(tool)) {
+      required.set(tool, { tool, source: REQUIREMENT_SOURCE.DECLARED, where: 'requires_tools', evidence: token });
+    }
+  }
+  const penTool = `mcp__${PEN_MCP_SERVER}__*`;
+  for (const file of stringList(fm['files_modified'])) {
+    if (PEN_FILE_ENTRY_RE.test(file) && !required.has(penTool)) {
+      required.set(penTool, { tool: penTool, source: REQUIREMENT_SOURCE.PEN_FILE, where: 'files_modified', evidence: file });
+    }
+  }
+
+  const mentioned = new Map<string, RequiredTool>();
+  const add = (r: RequiredTool): void => {
+    if (!required.has(r.tool) && !mentioned.has(r.tool)) mentioned.set(r.tool, r);
+  };
+  const tasks = extractTaggedBlocks(text, 'tasks');
+  if (tasks.length > 0) {
+    for (const region of tasks) scanProse(proseOf(region), 'tasks', add);
+  } else {
+    scanProse(proseOf(stripTaggedBlocks(stripFrontmatter(text), 'objective', true)), 'tasks', add);
+  }
+  for (const region of extractTaggedBlocks(text, 'context', true)) scanProse(proseOf(region), 'context', add);
+  return { required: [...required.values()], mentioned: [...mentioned.values()] };
 }
 
 // ─── Grant matching ──────────────────────────────────────────────────────────
@@ -293,6 +348,13 @@ export function readInstalledAgentTools(agent: string, runtime: string, projectR
       if (name.endsWith('.toml')) {
         return { kind: 'unknown', file, searched, reason: `${file} is a TOML agent: it carries no tools: list GSD can compare` };
       }
+      // Other runtimes' installers translate grants into their own vocabulary (Copilot writes
+      // `io.github.upstash/context7/*` for `mcp__context7__*`, Kilo writes permissions). A
+      // Claude-syntax requirement compared with a translated list would read as missing, and the
+      // agent_tools fix would not change that answer — so only Claude's list is compared.
+      if (runtime !== 'claude') {
+        return { kind: 'unknown', file, searched, reason: `${file} is a ${runtime} agent: its installer translates tool grants, and GSD compares Claude-syntax grants only for claude` };
+      }
       const read = readTextFile(file);
       if (!read.ok) return { kind: 'unknown', file, searched, reason: `${file} could not be read (${read.reason})` };
       let fm: Record<string, unknown>;
@@ -302,11 +364,8 @@ export function readInstalledAgentTools(agent: string, runtime: string, projectR
         return { kind: 'unknown', file, searched, reason: `${file} has frontmatter GSD could not parse` };
       }
       const tools = parseToolsField(fm['tools']);
-      if (tools === null) {
-        if (runtime === 'claude') return { kind: 'found', file, scope, tools: 'all' };
-        return { kind: 'unknown', file, searched, reason: `${file} has no tools: key, and ${runtime} does not document what that grants` };
-      }
-      return { kind: 'found', file, scope, tools };
+      // Claude Code: an agent without `tools:` inherits every tool.
+      return { kind: 'found', file, scope, tools: tools === null ? 'all' : tools };
     }
   }
   return {
@@ -351,6 +410,15 @@ function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/** How to re-install so the grant reaches the installed agent — prose, not a command: a fork installs
+ * from its own checkout, and `npx @opengsd/gsd-core` would replace it with upstream. */
+function reinstallHint(runtime: string, scope: AgentFileScope | null): string {
+  const where = scope === 'project'
+    ? 'the project-local install'
+    : 'the global install, running the installer from this project\'s root so it reads this project\'s agent_tools';
+  return `re-install GSD for ${runtime} the same way it was installed (${where})`;
+}
+
 export function buildPreflightFix(agent: string, missing: string[], runtime: string, projectRoot: string, scope: AgentFileScope | null): PreflightFix {
   const grants = [...new Set(missing.map(suggestedGrant))];
   let effective: Record<string, string[]> = {};
@@ -363,14 +431,13 @@ export function buildPreflightFix(agent: string, missing: string[], runtime: str
   const alreadyConfigured = missing.every((req) => configured.some((g) => grantCovers(g, req)));
   const selector = [...(effective[agent] ?? [])];
   for (const g of grants) if (!selector.includes(g)) selector.push(g);
-  const installScope = scope === 'project' ? '--local' : '--global';
   return {
     agent,
     grants,
     already_configured: alreadyConfigured,
     agent_tools: { [agent]: selector },
     config_set: `gsd-tools config-set agent_tools.${agent} ${shellQuote(JSON.stringify(selector))}`,
-    reinstall: `gsd-core --${runtime} ${installScope}`,
+    reinstall: reinstallHint(runtime, scope),
     capability: `or, for a grant every install of this fork should carry, add ${grants.join(', ')} to a first-party capability's agentTools.grants and ${agent} to its agentTools.agents (ADR-5210)`,
   };
 }
@@ -386,6 +453,12 @@ export interface PreflightOptions {
   runtime?: string;
 }
 
+const describeTools = (list: RequiredTool[], tools: string[]): string =>
+  list
+    .filter((r) => tools.includes(r.tool))
+    .map((r) => (r.evidence === r.tool ? r.tool : `${r.tool} (${r.evidence})`))
+    .join(', ');
+
 /** Preflight one plan's text. Pure apart from reading the installed agent file and the config. */
 export function preflightPlanContent(content: string, opts: PreflightOptions): ToolPreflight {
   const runtime = opts.runtime ?? resolveRuntime(opts.projectRoot);
@@ -398,56 +471,84 @@ export function preflightPlanContent(content: string, opts: PreflightOptions): T
   const chosen = opts.agent
     ? { agent: opts.agent, source: 'explicit' as const }
     : resolvePlanAgent(fm, runtime, opts.projectRoot);
-  const required = extractRequiredTools(content);
-  const base = {
-    plan: opts.plan,
-    agent: chosen.agent,
-    agent_source: chosen.source,
-    required,
-    runtime,
-  };
-  if (required.length === 0) {
-    return { ...base, status: PREFLIGHT_STATUS.OK, missing: [], agent_file: null, agent_scope: null, reason: null, fix: null, message: `${opts.plan}: names no tool beyond the executor's own` };
+  const { required, mentioned } = extractToolNeeds(content);
+  const base = { plan: opts.plan, agent: chosen.agent, agent_source: chosen.source, required, mentioned, runtime };
+  if (required.length === 0 && mentioned.length === 0) {
+    return { ...base, status: PREFLIGHT_STATUS.OK, missing: [], mentioned_missing: [], agent_file: null, agent_scope: null, reason: null, fix: null, message: `${opts.plan}: names no tool beyond the executor's own` };
   }
   const installed = readInstalledAgentTools(chosen.agent, runtime, opts.projectRoot);
   if (installed.kind === 'unknown') {
+    // Could-not-look decides nothing about prose; for a declared need it is `unknown`, never a pass.
+    const status = required.length > 0 ? PREFLIGHT_STATUS.UNKNOWN : PREFLIGHT_STATUS.OK;
     return {
       ...base,
-      status: PREFLIGHT_STATUS.UNKNOWN,
+      status,
       missing: [],
+      mentioned_missing: [],
       agent_file: installed.file,
       agent_scope: null,
       reason: installed.reason,
       fix: null,
-      message: `${opts.plan}: needs ${required.map((r) => r.tool).join(', ')}, but whether ${chosen.agent} holds them is unknown: ${installed.reason}`,
+      message: required.length > 0
+        ? `${opts.plan}: needs ${required.map((r) => r.tool).join(', ')}, but whether ${chosen.agent} holds them is unknown: ${installed.reason}`
+        : `${opts.plan}: mentions ${mentioned.map((r) => r.tool).join(', ')}; ${chosen.agent}'s grants could not be read: ${installed.reason}`,
     };
   }
   const missing = required.filter((r) => !isGranted(r.tool, installed.tools)).map((r) => r.tool);
+  const mentionedMissing = mentioned.filter((r) => !isGranted(r.tool, installed.tools)).map((r) => r.tool);
+  const where = `${chosen.agent} (${installed.file})`;
   if (missing.length === 0) {
-    return { ...base, status: PREFLIGHT_STATUS.OK, missing, agent_file: installed.file, agent_scope: installed.scope, reason: null, fix: null, message: `${opts.plan}: ${chosen.agent} (${installed.file}) grants every tool the plan names` };
+    const note = mentionedMissing.length === 0
+      ? `${opts.plan}: ${where} grants every tool the plan names`
+      : `${opts.plan}: mentions ${describeTools(mentioned, mentionedMissing)} in its tasks/context, which ${where} does not grant — ` +
+        'if a task really needs it, declare it in requires_tools (execution then waits for the grant); otherwise ignore this';
+    return { ...base, status: PREFLIGHT_STATUS.OK, missing, mentioned_missing: mentionedMissing, agent_file: installed.file, agent_scope: installed.scope, reason: null, fix: null, message: note };
   }
   const fix = buildPreflightFix(chosen.agent, missing, runtime, opts.projectRoot, installed.scope);
-  const evidence = required
-    .filter((r) => missing.includes(r.tool))
-    .map((r) => (r.evidence === r.tool ? r.tool : `${r.tool} (${r.evidence})`))
-    .join(', ');
-  const steps = fix.already_configured ? fix.reinstall : `${fix.config_set} && ${fix.reinstall}`;
+  const steps = fix.already_configured ? fix.reinstall : `${fix.config_set}, then ${fix.reinstall}`;
   return {
     ...base,
     status: PREFLIGHT_STATUS.MISSING,
     missing,
+    mentioned_missing: mentionedMissing,
     agent_file: installed.file,
     agent_scope: installed.scope,
     reason: null,
     fix,
     message:
-      `${opts.plan}: needs ${evidence}, which ${chosen.agent} (${installed.file}) does not grant. ` +
+      `${opts.plan}: needs ${describeTools(required, missing)}, which ${where} does not grant. ` +
       `Grant it — ${steps} — then re-run; never execute the plan under a different agent type.`,
   };
 }
 
-/** The preflight of every plan in `phaseDir` that has no SUMMARY yet, or the reason it could not be read. */
-export function preflightIncompletePlans(projectDir: string, phaseDir: string): { results: ToolPreflight[] } | { unreadable: string } {
+/** Which plans a run will execute: `--wave N` and `--gaps-only` narrow the phase's unsummarized plans. */
+export interface PlanSelection {
+  wave?: string;
+  gapsOnly?: boolean;
+}
+
+function selected(fm: Record<string, unknown>, selection: PlanSelection): boolean {
+  if (selection.wave !== undefined) {
+    const wave = fm['wave'];
+    if (typeof wave !== 'string' && typeof wave !== 'number') return false;
+    if (String(wave).trim() !== selection.wave.trim()) return false;
+  }
+  if (selection.gapsOnly === true) {
+    const gap = fm['gap_closure'];
+    if (gap !== true && gap !== 'true') return false;
+  }
+  return true;
+}
+
+/**
+ * The preflight of every plan in `phaseDir` that the run will execute — no SUMMARY yet, and inside
+ * the `--wave` / `--gaps-only` selection — or the reason one could not be read.
+ */
+export function preflightIncompletePlans(
+  projectDir: string,
+  phaseDir: string,
+  selection: PlanSelection = {},
+): { results: ToolPreflight[] } | { unreadable: string } {
   const listed = listPhasePlans(phaseDir);
   if ('unreadable' in listed) return { unreadable: listed.unreadable };
   const results: ToolPreflight[] = [];
@@ -455,6 +556,13 @@ export function preflightIncompletePlans(projectDir: string, phaseDir: string): 
     if (!listed.unsummarized.has(plan)) continue;
     const read = readPlanFile(path.join(phaseDir, plan));
     if (!read.ok) return { unreadable: `${plan} could not be read (${read.reason})` };
+    let fm: Record<string, unknown> = {};
+    try {
+      fm = extractFrontmatter(read.content);
+    } catch {
+      fm = {};
+    }
+    if (!selected(fm, selection)) continue;
     results.push(preflightPlanContent(read.content, { projectRoot: projectDir, plan }));
   }
   return { results };

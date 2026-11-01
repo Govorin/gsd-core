@@ -219,32 +219,43 @@ derived from the shipped agent declaration.
 
 ### Tool preflight
 
-A plan can name a tool its executor was never granted: an `mcp__<server>__<tool>` name, a `.pen`
-design file (driven through the Pencil MCP server, so it needs `mcp__pencil__*`), or one of
-`WebFetch`, `WebSearch`, `NotebookEdit`, `AskUserQuestion`. GSD compares those names, read from the
-plan's `<tasks>`, `<context>` and `files_modified`, with the `tools:` line of the agent file the
-runtime will actually load: for Claude Code `<project>/.claude/agents/<agent>.md` ahead of
-`~/.claude/agents/<agent>.md` (`CLAUDE_CONFIG_DIR` honoured); for other runtimes the project-local
-install, then the global one. The agent is the plan's `agent_hint` when it resolves, otherwise
-`gsd-executor`.
+A plan can need a tool its executor was never granted. GSD stops a run only on a **declared** need:
+
+- the plan's `requires_tools:` frontmatter — Claude-syntax names such as `mcp__pencil__*`,
+  `mcp__context7__query-docs` or `WebFetch` (see [PLAN.md frontmatter](reference/plan-md.md));
+- a `.pen` file in `files_modified` — a Pencil design file is written through the Pencil MCP
+  server, so it needs `mcp__pencil__*`.
+
+Tool names that only appear in the prose of `<tasks>` or `<context>` (MCP names, `.pen` paths,
+`WebFetch`/`WebSearch`/`NotebookEdit`/`AskUserQuestion`; code, inline code and `<verify>` are cut out
+first) are **mentions**: prose such as "Do not touch app.pen" names a tool to forbid it, so a mention
+is only ever a warning.
+
+GSD compares those needs with the `tools:` line of the agent file Claude Code will actually load —
+the project's `.claude/agents/<agent>.md` ahead of the global one (`CLAUDE_CONFIG_DIR` honoured).
+The agent is the plan's `agent_hint` when it resolves, otherwise `gsd-executor`. Other runtimes'
+installers translate grants into their own vocabulary (Copilot, Kilo), so for them the answer is
+`unknown` rather than a comparison that would be wrong.
 
 ```bash
 gsd-tools verify tool-preflight .planning/phases/03-ui/03-02-PLAN.md   # status: ok | missing | unknown
 ```
 
 - `verify plan-structure` carries the same result as `tool_preflight` and adds a warning when it is
-  not `ok`; the plan checker reports `missing` to the user as a warning — a grant to add, not a
-  plan defect for the planner to revise away.
+  not `ok`, or when a mentioned tool is not granted (`mentioned_missing`); the plan checker reports
+  `missing` to the user as a warning — a grant to add, not a plan defect for the planner to revise
+  away.
 - `/gsd-execute-phase` runs `check mn-tool-preflight` at `execute:pre` and halts before the first
-  wave when a plan still to run is `missing`. `/gsd-quick` checks its plan before the executor
-  spawn. Neither substitutes another agent type: the message names the missing grants and the fix,
-  `gsd-tools config-set agent_tools.<agent> '[…]'` followed by a reinstall
-  (`gsd-core --<runtime> --local|--global`, matching where the agent file was found). Grants that
-  every install of a fork should carry belong in a first-party capability's `agentTools`
+  wave when a plan the run will execute (its `--wave` / `--gaps-only` selection) is `missing`.
+  `/gsd-quick` checks its plan before the executor spawn. Neither substitutes another agent type:
+  the message names the missing grants and the fix, `gsd-tools config-set agent_tools.<agent> '[…]'`,
+  then a re-install of GSD done the same way it was installed (for a global install, run the
+  installer from the project's root so it reads the project's `agent_tools`). Grants that every
+  install of a fork should carry belong in a first-party capability's `agentTools`
   ([ADR-5210](adr/5210-install-time-agent-tool-grants.md)).
-- `unknown` — no installed agent file, an unreadable one, a Codex TOML agent, or a non-Claude
-  agent with no `tools:` key — is reported with the reason and never counts as a pass; the
-  execute:pre gate does not block on it, since it cannot prove a grant is absent.
+- `unknown` — no installed agent file, an unreadable one, or a non-Claude runtime — is reported with
+  the reason and never counts as a pass; the execute:pre gate does not block on it, since it cannot
+  prove a grant is absent.
 - `workflow.tool_preflight` (default `true`, from the `mn-verify-gate` capability) turns the
   execute:pre gate off.
 
@@ -267,7 +278,7 @@ and a knob that is already on is never recommended. `/gsd-progress` prints its s
 | Critical + warning findings in one phase-end `*-REVIEW.md` (`status: skipped` ignored) | 5 or more | `workflow.code_review_point: execute:wave:post` |
 | Phases waiting on human verification (VERIFICATION `human_needed`, or an open UAT) | 2 or more | run `/gsd-verify-work <oldest>`, then `/gsd-audit-uat` |
 | VERIFICATION reports citing hand-run checks (`npm test`, `tsc`, `cargo clippy`, …) while `workflow.verify_gates` is empty | 2 or more | `workflow.verify_gates` with the cited commands, + `workflow.verify_gates_record` |
-| A plan still to run names a tool its executor does not grant ([tool preflight](#tool-preflight)) | 1 | `agent_tools.<agent>` + reinstall |
+| A plan still to run declares a tool its executor does not grant ([tool preflight](#tool-preflight)) | 1 | `agent_tools.<agent>` + reinstall |
 
 The thresholds come from the October 2026 usage review of three projects: planner runs on phases
 of 6–13 plans took a median 42 minutes and up to 517, and 20–25-plan phases compacted the planner;

@@ -1689,22 +1689,22 @@
     {
       "id": "TOOL.PREFLIGHT.gate",
       "klass": "TOOL",
-      "value": "check mn-tool-preflight <phase>: blocks iff an unsummarized plan is missing; when workflow.tool_preflight (default true); onError skip; execute-phase.md carries no new prose (its byte ceiling) — the generic execute:pre gate dispatch halts"
+      "value": "check mn-tool-preflight <phase> [--wave N] [--gaps-only]: blocks iff a plan the run will execute (unsummarized, wave == N, gap_closure true under --gaps-only) is missing; execute-pre-gate-hooks.md passes the run's WAVE_FILTER/--gaps-only to this query only; when workflow.tool_preflight (default true); onError skip; execute-phase.md carries no new prose (its byte ceiling)"
     },
     {
       "id": "TOOL.PREFLIGHT.installed",
       "klass": "TOOL",
-      "value": "GSD_AGENTS_DIR alone when set; claude: <project>/<.claude>/agents then getGlobalConfigDir(claude)/agents (Claude Code's project-over-user precedence, not getAgentsDir's install-relative path); others: getAgentsDir(runtime, project) then the global dir; first file found decides (<agent>.md, .agent.md, .toml)"
+      "value": "GSD_AGENTS_DIR alone when set; claude: <project>/<.claude>/agents then getGlobalConfigDir(claude)/agents (Claude Code's project-over-user precedence, not getAgentsDir's install-relative path); others: getAgentsDir(runtime, project) then the global dir; first file found decides (<agent>.md, .agent.md, .toml); any non-claude runtime → unknown (its installer translates grants, e.g. Copilot io.github.upstash/context7/*, so a Claude-syntax comparison would read missing and agent_tools would not fix it)"
     },
     {
       "id": "TOOL.PREFLIGHT.requirements",
       "klass": "TOOL",
-      "value": "from <tasks>, <context> and files_modified only (never <objective> prose): mcp__<server>__<tool> exact, mcp__<server>[__*] whole-server, a *.pen path → mcp__pencil__* whole-server, and the closed list WebFetch|WebSearch|NotebookEdit|AskUserQuestion (no Agent/Task — English words)"
+      "value": "required (blocks) = frontmatter requires_tools: entries (Claude syntax; mcp__<server> → mcp__<server>__*) + files_modified entries ending .pen → mcp__pencil__*; mentioned (advisory, never halts) = mcp__* names, *.pen paths and WebFetch|WebSearch|NotebookEdit|AskUserQuestion in <tasks>/<context> prose after stripping <verify>, fenced and inline code, as whole tokens (not inside a path or file name); <objective> never read — prose names tools to forbid them (legion: 106/237 plans would have halted on prose)"
     },
     {
       "id": "TOOL.PREFLIGHT.status",
       "klass": "TOOL",
-      "value": "ok (nothing named, or all granted; a Claude .md without tools: inherits all) | missing (fix: server-wildcard grants, agent_tools selector keeping its entries, config-set + gsd-core --<runtime> --local|--global by where the file was found; reinstall alone when agent_tools already holds them) | unknown (no file, unreadable, TOML, non-Claude without tools:) — unknown is never a pass and never blocks the gate"
+      "value": "from required only: ok (none required, or all granted; a Claude .md without tools: inherits all; mentioned_missing lists ungranted mentions) | missing (fix: server-wildcard grants, agent_tools selector keeping its entries, config-set then a described reinstall — the same way GSD was installed, a global one run from the project root; never an npx command, which would put upstream over a fork; reinstall alone when agent_tools already holds them) | unknown (a required need and no file, unreadable, TOML, non-claude) — unknown is never a pass and never blocks the gate"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",

@@ -253,13 +253,13 @@ gateControl({
   },
 });
 
-/** A plan whose task edits a Pencil design file, and a project-local Claude executor with `tools`. */
+/** A plan that declares a Pencil design file in files_modified, and a project-local Claude executor with `tools`. */
 function toolPreflightScenario(tools) {
   return {
     setup: (dir) => {
       put(dir, '.planning/config.json', JSON.stringify({ runtime: 'claude' }));
       put(dir, '.claude/agents/gsd-executor.md', `---\nname: gsd-executor\ntools: ${tools}\n---\n\nbody\n`);
-      put(dir, `${PHASE}/01-01-PLAN.md`, '---\nphase: 01-gate\nplan: 01\nwave: 1\n---\n\n<tasks>\n<task type="auto"><name>Draw</name><action>Edit design/app.pen</action></task>\n</tasks>\n');
+      put(dir, `${PHASE}/01-01-PLAN.md`, '---\nphase: 01-gate\nplan: 01\nwave: 1\nfiles_modified: [design/app.pen]\n---\n\n<tasks>\n<task type="auto"><name>Draw</name><action>Draw the screen</action></task>\n</tasks>\n');
     },
     args: ['01'],
   };
