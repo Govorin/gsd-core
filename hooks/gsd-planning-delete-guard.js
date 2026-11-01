@@ -39,11 +39,11 @@
 // non-state file under `.planning/` (`rm -f .planning/current-agent-id.txt`,
 // a checkpoint, a scratch file), moving files and directories within
 // `.planning/` (`mv .planning/debug/x.md .planning/debug/resolved/`, the phase
-// archive in /gsd-cleanup), moving a file into `.planning/`, removing
+// archive in /gsd:cleanup), moving a file into `.planning/`, removing
 // `.planning/codebase` or `.planning/tmp`, and removing REQUIREMENTS.md
 // (complete-milestone). A directory outside the session's project that only
 // holds some other `.planning` (a workspace, a test fixture under /tmp) is not
-// judged by what it contains — /gsd-remove-workspace deletes exactly that.
+// judged by what it contains — /gsd:remove-workspace deletes exactly that.
 // Names that only look similar are not `.planning`: `.planning-old`,
 // `docs/.planning.md`.
 //
@@ -758,7 +758,7 @@ function reasonFor(found) {
     'this way when a failed `cd` left the shell in the main checkout. Do not retry with another spelling. ' +
     'Instead: delete only the specific file you created, by absolute path, after checking where you are ' +
     'with `pwd`; remove a phase with `gsd_run phase remove <N>`; archive finished phases with ' +
-    '/gsd-cleanup; remove a worktree with `git worktree remove <path>`. If the user wants this deletion, ' +
+    '/gsd:cleanup; remove a worktree with `git worktree remove <path>`. If the user wants this deletion, ' +
     'ask them to run it themselves, or to turn the guard off for the project with ' +
     '`gsd_run config-set workflow.planning_delete_guard false`.';
 }
