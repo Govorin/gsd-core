@@ -198,13 +198,14 @@ MILESTONE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks milestone:pre --raw)
 
 Read `activeHooks` in-context and dispatch every `kind == "step"` entry first, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). At milestone points a `ref.command` runs with `--milestone "v[X.Y]"` instead of `--phase`, and its stage answer (`decision`, `message`, `next`) is honoured as that file says. Steps are advisory: none blocks the close.
 
-Then evaluate every `kind == "gate"` entry in array order, per @gsd-core/references/loop-hook-dispatch.md § `gate` — after the steps, because a gate here judges what they produced (code-review's `milestone-review` gate reads the window review its stage just ran). Validate `check.query` in-context as that section says, then run it with the milestone and, when this close was given one, the workstream:
+Then evaluate every `kind == "gate"` entry in array order, per @gsd-core/references/loop-hook-dispatch.md § `gate` — after the steps, because a gate here judges what they produced (code-review's `milestone-review` gate reads the window review its stage just ran). ⚠ Validate `check` before shell use (third-party manifest input; wherever `${hook.check.query}` appears, write the dot-normalized query, each `.` as `-`, and validate and pass that same value) as that section says, then run it with the milestone and, when this close was given one, the workstream:
 
 ```bash
 IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
-GSD_WS=$(echo " ${GSD_ARGS%$'\n'}" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+GSD_ARGS=${GSD_ARGS%$'\n'}
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 GATE_RESULT=$(gsd_run check ${hook.check.query} --milestone "v[X.Y]" ${GSD_WS:+--ws=${GSD_WS##* }} --raw) && CHECK_EXIT=0 || CHECK_EXIT=$?
 ```
 
@@ -226,7 +227,8 @@ GSD_REASON_END
 IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
-GSD_WS=$(echo " ${GSD_ARGS%$'\n'}" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
+GSD_ARGS=${GSD_ARGS%$'\n'}
+GSD_WS=$(echo " $GSD_ARGS" | sed -nE 's/.* --ws +([A-Za-z0-9][A-Za-z0-9._-]*).*/--ws \1/p' | head -n 1)
 gsd_run review milestone-accept --milestone "v[X.Y]" ${GSD_WS:+--ws=${GSD_WS##* }} --reason "${ACCEPT_REASON%$'\n'}"
 ```
 
