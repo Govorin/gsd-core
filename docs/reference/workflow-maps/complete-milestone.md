@@ -49,7 +49,7 @@ flowchart TB
   u_step_push_release_tags --> u_step_git_commit_milestone
   u_step_git_commit_milestone --> u_step_milestone_post_hooks
   u_step_milestone_post_hooks --> u_step_offer_next
-  u_step_verify_readiness -.->|"goto"| u_step_gather_stats
+  u_step_verify_readiness -.->|"goto"| u_step_milestone_pre_hooks
   wf_root -.->|"goto"| u_step_archive_milestone
   wf_root -.->|"goto"| u_step_git_commit_milestone
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3

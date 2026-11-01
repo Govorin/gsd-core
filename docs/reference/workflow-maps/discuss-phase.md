@@ -4,7 +4,7 @@
 
 Источник: `gsd-core/workflows/discuss-phase.md`. Единицы: 17 шагов `<step>`. Спавнов: 0. Точки цикла: `discuss:pre`, `discuss:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 11; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 8.
+> **Переходы в прозе** (фразы «перейди к …»): всего 10; не называют реальный шаг и не рисуются — **3**; названы по имени шага и нарисованы пунктиром `goto` — 7.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -51,8 +51,6 @@ flowchart TB
   u_step_update_state --> u_step_auto_advance
   u_step_initialize -.->|"goto"| u_step_check_blocking_antipatterns
   u_step_check_blocking_antipatterns -.->|"goto"| u_step_check_spec
-  u_step_check_existing -.->|"goto"| u_step_analyze_phase
-  u_step_check_existing -.->|"goto"| u_step_present_gray_areas
   u_step_check_existing -.->|"goto"| u_step_load_prior_context
   u_step_dispatch_discuss_pre_hooks -.->|"goto"| u_step_analyze_phase
   u_step_present_gray_areas -.->|"goto"| u_step_discuss_areas

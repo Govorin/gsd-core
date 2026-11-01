@@ -166,10 +166,10 @@ cat .planning/config.json 2>/dev/null || true
 ```
 ⚡ Auto-approved: Milestone scope verification
 [Show breakdown summary without prompting]
-Proceeding to stats gathering...
+Proceeding to the milestone:pre hooks...
 ```
 
-Proceed to gather_stats.
+Proceed to milestone_pre_hooks.
 
 </if>
 
