@@ -175,9 +175,13 @@ export interface EvaluationScope {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-/** Paths that are never part of a code-review or UI scope (planning artifacts, lockfiles). */
+/**
+ * Paths that are never part of a code-review or UI scope (planning artifacts, lockfiles). `.planning`
+ * is excluded at ANY depth: a monorepo carries one per project (`apps/<name>/.planning/`), and a
+ * root-anchored `:!.planning/` let those planning-only commits pass as code changes.
+ */
 export const SCOPE_EXCLUSION_PATHSPECS: readonly string[] = Object.freeze([
-  ':!.planning/', ':!ROADMAP.md', ':!STATE.md',
+  ':(exclude,glob)**/.planning/**', ':!ROADMAP.md', ':!STATE.md',
   ':!*-SUMMARY.md', ':!*-VERIFICATION.md', ':!*-PLAN.md',
   ':!package-lock.json', ':!yarn.lock', ':!Gemfile.lock', ':!poetry.lock',
 ]);
