@@ -184,10 +184,17 @@ function referencesForAgent(references: AgentReferences | null, agentName: strin
   return Object.prototype.hasOwnProperty.call(references, base) ? references[base] : [];
 }
 
-/** The one line a pointer renders to. `~/.claude/` is rewritten per runtime by the path step after it. */
+/**
+ * The canonical source home the path step rewrites per runtime. Held apart from
+ * the path under it, so this module carries no whole install path: an install
+ * that scans the shipped engine for unrewritten ones (cline-install) finds none.
+ */
+const CANONICAL_HOME = '~/.claude/';
+
+/** The one line a pointer renders to; the path step after it rewrites CANONICAL_HOME. */
 function renderReferencePointer({ grants, reference }: AgentReference): string {
   const tools = grants.map((grant) => `\`${grant}\``).join(', ');
-  return `**Granted at install:** if your tools include ${tools}, Read \`~/.claude/gsd-core/references/${reference}\` before you start; it says when to use them.`;
+  return `**Granted at install:** if your tools include ${tools}, Read \`${CANONICAL_HOME}gsd-core/references/${reference}\` before you start; it says when to use them.`;
 }
 
 /**
