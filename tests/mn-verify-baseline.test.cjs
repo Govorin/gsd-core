@@ -84,7 +84,9 @@ function readRecord(phaseDir) {
 describe('verify baseline — the declaration', () => {
   test('a step and a blocking gate at execute:pre, both behind one opt-in key', () => {
     const steps = CAPABILITY.steps.filter((s) => s.point === 'execute:pre');
-    const gates = CAPABILITY.gates.filter((g) => g.point === 'execute:pre');
+    // The tool preflight gate (workflow.tool_preflight, default on) shares the point; it is not
+    // part of the baseline and is pinned in tests/tool-preflight.test.cjs.
+    const gates = CAPABILITY.gates.filter((g) => g.point === 'execute:pre' && g.check.query !== 'mn-tool-preflight');
     assert.deepEqual(steps.map((s) => [s.ref.command, s.when]), [['verify baseline', 'workflow.verify_gates_baseline']]);
     assert.deepEqual(
       gates.map((g) => [g.check.query, g.when, g.blocking, g.onError]),
@@ -97,16 +99,21 @@ describe('verify baseline — the declaration', () => {
     assert.deepEqual([key.type, key.default], ['boolean', false]);
   });
 
-  test('nothing renders at execute:pre until the key is on', () => {
+  // The baseline's hooks: everything mn-verify-gate renders at execute:pre but the default-on tool
+  // preflight gate.
+  const baselineHooks = (resolved) => (resolved.activeHooks || [])
+    .filter((h) => h.capId === 'mn-verify-gate' && !(h.check && h.check.query === 'mn-tool-preflight'));
+
+  test('nothing of the baseline renders at execute:pre until the key is on', () => {
     const dir = createTempGitProject('gsd-baseline-render-');
     makePhase(dir);
     writeConfig(dir, { verify_gates: { tests: 'true' } });
     const off = json(runNode([TOOLS, 'loop', 'render-hooks', 'execute:pre', '--raw', '--cwd', dir], { cwd: dir }));
-    assert.deepEqual((off.activeHooks || []).filter((h) => h.capId === 'mn-verify-gate'), []);
+    assert.deepEqual(baselineHooks(off), []);
     writeConfig(dir, { verify_gates: { tests: 'true' }, verify_gates_baseline: true });
     const on = json(runNode([TOOLS, 'loop', 'render-hooks', 'execute:pre', '--raw', '--cwd', dir], { cwd: dir }));
     assert.deepEqual(
-      on.activeHooks.filter((h) => h.capId === 'mn-verify-gate').map((h) => h.kind),
+      baselineHooks(on).map((h) => h.kind),
       ['step', 'gate'],
       'the step is listed before the gate that reads its record'
     );

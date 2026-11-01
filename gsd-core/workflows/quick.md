@@ -372,6 +372,14 @@ If plan not found, error: "Planner failed to create ${quick_id}-PLAN.md"
 If `section_manifest` is `null` or `"plan-checker-loop"` is in its `included` list: read and execute `gsd-core/workflows/quick/steps/plan-checker-loop.md`. Otherwise skip — do not read the file.
 <!-- /gsd:section -->
 
+**Tool preflight (LG-01)**, on the plan as the checker left it: does `gsd-executor` hold every tool the plan declares (`requires_tools:`, a `.pen` in `files_modified`)?
+
+```bash
+PREFLIGHT=$(gsd_run query verify.tool-preflight "${QUICK_DIR}/${quick_id}-PLAN.md" --agent gsd-executor)
+```
+
+`status: "missing"` → STOP before Step 6 and show `message` (it names the grant and the `agent_tools` + reinstall fix). Never run the plan under another agent type (`general-purpose` or any other) instead. `status: "unknown"`, or `ok` with a non-empty `mentioned_missing` (a tool only named in prose) → print `message` and continue.
+
 ---
 
 <!-- gsd:section id="worktree-pre-dispatch-commit" when="state:worktrees-enabled" -->

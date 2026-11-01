@@ -319,6 +319,7 @@ files_modified: []          # Files this plan touches
 autonomous: true            # false if plan has checkpoints
 requirements: []            # REQUIRED — Requirement IDs from ROADMAP this plan addresses. MUST NOT be empty.
 user_setup: []              # Human-required setup (omit if empty)
+requires_tools: []          # Tools beyond the executor's own, Claude syntax (omit if none)
 
 estimate:                   # Projected execution cost (see Estimate Emission)
   tokens: 60000             # calibrated projection

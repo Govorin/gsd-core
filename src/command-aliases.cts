@@ -304,6 +304,16 @@ export const VERIFY_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "baseline",
     "mutation": true
+  },
+  {
+    // Read-only (LG-01): does the installed executor grant the tools a plan
+    // names? `/gsd-quick` reads `status` before its executor spawn.
+    "canonical": "verify.tool-preflight",
+    "aliases": [
+      "verify tool-preflight"
+    ],
+    "subcommand": "tool-preflight",
+    "mutation": false
   }
 ];
 
@@ -788,6 +798,12 @@ export const NON_FAMILY_COMMAND_ALIASES: NonFamilyCommandAlias[] = [
     "canonical": "commit-to-subrepo",
     "aliases": [],
     "mutation": true
+  },
+  {
+    // S7: read-only advisor over .planning/ signals (src/config-advise.cts).
+    "canonical": "config-advise",
+    "aliases": [],
+    "mutation": false
   },
   {
     "canonical": "config-ensure-section",

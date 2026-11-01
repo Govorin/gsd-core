@@ -266,6 +266,7 @@ Report final status.
 | W032 | warning | Phase verification report frontmatter does not parse | No |
 | I001 | info | Plan without SUMMARY (may be in progress) | No |
 | I010 | info | Resolved CWD reported alongside the E010 home-directory guard | No |
+| I011 | info | Existing config knobs the project's artifacts ask for (see `config-advise`) | No |
 
 Note: this table is **generated** — do not hand-edit it. It is produced by `node scripts/gen-health-docs.cjs --write` from `src/health-diagnostic.cts`'s `RULES` table (31 rules as of #3309, each carrying a static `description`/`repairable` on its `Rule` entry — see `src/health-diagnostic-types.cts`) plus the 3 pre-checks that stay outside the rule table by design (`E001`, `E010`, `I010` — safety rails in `cmdValidateHealth`, `src/verify.cts`, never `.planning/` findings). `scripts/lint-health-diagnostic-rule-table.cjs` already enforces the 1:1 code invariant this table depends on (no duplicate codes; severity is always a `Rule` property, never set per emit call) — before assigning a new code, add a `Rule` entry under `src/health-diagnostic-rules/` (its `code` is simply the next free number the lint guard has not yet seen) and run `node scripts/gen-health-docs.cjs --write` to regenerate this table; `npm run lint:generated-sync` fails if it drifts. `W025` (the `workflow.use_worktrees`/`dispatch.isolation` check, #2486) is a workflow-layer diagnostic emitted directly by this file's own `run_health_check` step, not by `cmdValidateHealth` — it stays documented in that step, not in this generated table.
 

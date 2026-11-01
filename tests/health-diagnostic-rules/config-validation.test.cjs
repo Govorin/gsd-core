@@ -88,15 +88,16 @@ function ruleFor(code) {
 // ─── RULES shape ────────────────────────────────────────────────────────────
 
 describe('RULES (config-validation group)', () => {
-  test('exports exactly 11 rules: W003, E005, W004, W008, W016, W012, W013, W014, W015, W022, W029', () => {
+  test('exports exactly 12 rules: W003, E005, W004, W008, W016, W012, W013, W014, W015, W022, W029, I011', () => {
     assert.deepEqual(
       RULES.map((r) => r.code).sort(),
-      ['E005', 'W003', 'W004', 'W008', 'W012', 'W013', 'W014', 'W015', 'W016', 'W022', 'W029'].sort(),
+      ['E005', 'I011', 'W003', 'W004', 'W008', 'W012', 'W013', 'W014', 'W015', 'W016', 'W022', 'W029'].sort(),
     );
   });
 
-  test('E005 is severity ERROR; the rest are severity WARNING', () => {
+  test('E005 is severity ERROR, I011 severity INFO; the rest are severity WARNING', () => {
     assert.equal(ruleFor('E005').severity, SEVERITY.ERROR);
+    assert.equal(ruleFor('I011').severity, SEVERITY.INFO);
     for (const code of ['W003', 'W004', 'W008', 'W012', 'W013', 'W014', 'W015', 'W016', 'W022', 'W029']) {
       assert.equal(ruleFor(code).severity, SEVERITY.WARNING, `${code} should be WARNING`);
     }
@@ -855,5 +856,46 @@ describe('W029 — .planning/ ignored but still tracked', () => {
     // The tracked file must still be in the index — nothing was untracked.
     const trackedAfter = gitOrThrow(['ls-files', '--', '.planning'], { cwd }).trim();
     assert.ok(trackedAfter.length > 0, '.planning/ must still be tracked after a --repair run');
+  });
+});
+
+// ─── I011 — config advice (S7) ──────────────────────────────────────────────
+
+describe('I011 — config-advise has recommendations', () => {
+  function projectWithPlans(t, count) {
+    const cwd = createTempDir('gsd-i011-');
+    t.after(() => cleanup(cwd));
+    const phaseDir = path.join(cwd, '.planning', 'phases', '01-big');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    for (let i = 1; i <= count; i++) {
+      fs.writeFileSync(path.join(phaseDir, `01-0${i}-PLAN.md`), `---\nphase: 01\nplan: ${i}\n---\n<tasks></tasks>\n`);
+    }
+    return cwd;
+  }
+
+  test('fires once, as INFO with an ADVISE remedy naming the command, when a rule recommends a knob', (t) => {
+    const cwd = projectWithPlans(t, 6);
+    const snapshot = buildPlanningSnapshot(cwd);
+    assert.equal(snapshot.configAdvice.scope, SCOPE.COMPLETE);
+    assert.equal(snapshot.configAdvice.value.count, 1);
+    const diagnostics = ruleFor('I011').check(snapshot);
+    assert.equal(diagnostics.length, 1);
+    assert.equal(diagnostics[0].code, 'I011');
+    assert.equal(diagnostics[0].severity, SEVERITY.INFO);
+    assert.equal(diagnostics[0].message, snapshot.configAdvice.value.summary);
+    assert.equal(diagnostics[0].remedy.action, REMEDY_ACTION.ADVISE);
+    assert.equal(diagnostics[0].remedy.args.command, 'gsd-tools config-advise');
+  });
+
+  test('silent when nothing is recommended', (t) => {
+    const cwd = projectWithPlans(t, 5);
+    const snapshot = buildPlanningSnapshot(cwd);
+    assert.equal(snapshot.configAdvice.value.count, 0);
+    assert.deepEqual(ruleFor('I011').check(snapshot), []);
+  });
+
+  test('silent when advising could not run (null value)', () => {
+    const snapshot = { configAdvice: { value: null, scope: SCOPE.UNREADABLE } };
+    assert.deepEqual(ruleFor('I011').check(snapshot), []);
   });
 });

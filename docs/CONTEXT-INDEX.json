@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "count": 366,
+  "count": 376,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 3,
     "CI": 2,
-    "CONFIG": 5,
+    "CONFIG": 8,
     "CONTENT-ROOT": 6,
     "EXEC": 8,
     "GSD-RESEARCH": 6,
@@ -22,9 +22,10 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 64,
-    "SEAM": 48,
+    "SEAM": 50,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
+    "TOOL": 5,
     "WAVE": 5,
     "WORKSTREAM": 5,
     "WORKTREE": 25
@@ -59,6 +60,21 @@
       "id": "CI.GATE.issue-link-required",
       "klass": "CI",
       "value": "hard-fail if PR body lacks closes/fixes/resolves #<issue>"
+    },
+    {
+      "id": "CONFIG.ADVISE.rules",
+      "klass": "CONFIG",
+      "value": "plan_chunked (max plans per active phase, disk or ROADMAP **Plans:** N plans of phases not checked done and either with a .planning/phases dir or under the STATE milestone's heading (extractCurrentMilestone keeps a preamble of old phases), >= 6 → workflow.plan_chunked + planning.chunked_parallel unless set) | code_review_point (one phase-end *-REVIEW.md critical+warning >= 5, skipped ignored → execute:wave:post) | verify_work (active phases with VERIFICATION human_needed or an open UAT >= 2 → verify-work <oldest> then audit-uat, no knob) | verify_gates (active VERIFICATION reports citing check commands >= 2 while verify_gates empty → verify_gates from the cited commands, named by kind or `checks` for a multi-kind command, + verify_gates_record unless set) | agent_tools (Tool Preflight missing on any unsummarized plan → agent_tools.<agent> + reinstall); already_enabled is decided by each rule's primary key, so a deliberately-off secondary key never yields a standing recommendation"
+    },
+    {
+      "id": "CONFIG.ADVISE.scope",
+      "klass": "CONFIG",
+      "value": "active milestone only (.planning/phases via listActiveAndArchivedPhaseDirs, milestone undefined); config read raw from planningDir/config.json then .planning/config.json (loadConfig does not project workflow.plan_chunked; planning.* it does keep)"
+    },
+    {
+      "id": "CONFIG.ADVISE.thresholds",
+      "klass": "CONFIG",
+      "value": "ADVISE_THRESHOLDS {PLANS_PER_PHASE 6, REVIEW_FIX_FINDINGS 5, HUMAN_VERIFICATION_PHASES 2, GATE_CITING_REPORTS 2}, each fires at >=; justified in the constant's comment and docs/CONFIGURATION.md \"Config advisor\"; tests at N-1, N, N+1"
     },
     {
       "id": "CONFIG.LOCATION.SEAM.in-process-scrub",
@@ -1571,6 +1587,16 @@
       "value": "parseTestReport(output) (src/report-parser.cts) is the single owner of turning a test report into individual results; the RED-evidence policy consumes its contract and parses no report text (#4692)"
     },
     {
+      "id": "SEAM.tool-preflight.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/tool-preflight.test.cjs"
+    },
+    {
+      "id": "SEAM.tool-preflight.owns",
+      "klass": "SEAM",
+      "value": "whether the installed executor grants the tools a plan names — one owner for verify plan-structure, verify tool-preflight, check mn-tool-preflight and config-advise (LG-01)"
+    },
+    {
       "id": "SEAM.verification-isphasecomplete.enforced-by",
       "klass": "SEAM",
       "value": "test:tests/verification-status.test.cjs"
@@ -1684,6 +1710,31 @@
       "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
       "klass": "SETTINGS-HOOKS",
       "value": "[tests/install-minimal-hooks.test.cjs]"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.agent",
+      "klass": "TOOL",
+      "value": "the plan's agent_hint when workflow.agent_hint_routing is not false and resolveAgentHint finds it, else gsd-executor; verify tool-preflight --agent forces one (quick passes gsd-executor)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.gate",
+      "klass": "TOOL",
+      "value": "check mn-tool-preflight <phase> [--wave N] [--gaps-only]: blocks iff a plan the run will execute (unsummarized, wave == N, gap_closure true under --gaps-only) is missing; execute-pre-gate-hooks.md passes the run's WAVE_FILTER/--gaps-only to this query only; when workflow.tool_preflight (default true); onError skip; execute-phase.md carries no new prose (its byte ceiling)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.installed",
+      "klass": "TOOL",
+      "value": "GSD_AGENTS_DIR alone when set; claude: <project>/<.claude>/agents then getGlobalConfigDir(claude)/agents (Claude Code's project-over-user precedence, not getAgentsDir's install-relative path); others: getAgentsDir(runtime, project) then the global dir; first file found decides (<agent>.md, .agent.md, .toml); any non-claude runtime → unknown (its installer translates grants, e.g. Copilot io.github.upstash/context7/*, so a Claude-syntax comparison would read missing and agent_tools would not fix it)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.requirements",
+      "klass": "TOOL",
+      "value": "required (blocks) = frontmatter requires_tools: entries (Claude syntax; mcp__<server> → mcp__<server>__*) + files_modified entries ending .pen → mcp__pencil__*; mentioned (advisory, never halts) = mcp__* names, *.pen paths and WebFetch|WebSearch|NotebookEdit|AskUserQuestion in <tasks>/<context> prose after stripping <verify>, fenced and inline code, as whole tokens (not inside a path or file name); <objective> never read — prose names tools to forbid them (legion: 106/237 plans would have halted on prose)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.status",
+      "klass": "TOOL",
+      "value": "from required only: ok (none required, or all granted; a Claude .md without tools: inherits all; mentioned_missing lists ungranted mentions) | missing (fix: server-wildcard grants, agent_tools selector keeping its entries, config-set then a described reinstall — the same way GSD was installed, a global one run from the project root; never an npx command, which would put upstream over a fork; reinstall alone when agent_tools already holds them) | unknown (a required need and no file, unreadable, TOML, non-claude) — unknown is never a pass and never blocks the gate"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",

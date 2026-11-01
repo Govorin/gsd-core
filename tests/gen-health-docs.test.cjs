@@ -154,10 +154,12 @@ describe('gen-health-docs.cjs row content (representative codes)', () => {
 
   // #5118: W030 (a verification report status outside the closed set) is the 34th rule;
   // the fork's W031 (its unambiguous legacy synonym, repairable) the 35th; W032 (a
-  // report whose frontmatter does not parse) the 36th.
-  test('produces a 39-row <error_codes> table: 36 rules + 3 pre-checks (E001, E010, I010)', () => {
+  // report whose frontmatter does not parse) the 36th; I011 (config advise has
+  // recommendations, S7) the 37th.
+  test('produces a 40-row <error_codes> table: 37 rules + 3 pre-checks (E001, E010, I010)', () => {
     const rows = buildErrorCodeRows(rules);
-    assert.equal(rows.length, 39);
+    assert.equal(rows.length, 40);
+    assert.ok(rows.some((r) => r.code === 'I011'), 'I011 has a generated row');
     assert.ok(rows.some((r) => r.code === 'W030'), 'W030 has a generated row');
     assert.ok(rows.some((r) => r.code === 'W031'), 'W031 has a generated row');
     assert.ok(rows.some((r) => r.code === 'W032'), 'W032 has a generated row');

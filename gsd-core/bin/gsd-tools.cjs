@@ -44,6 +44,7 @@
  *                                      or unrecognized table instead of the old
  *                                      awk NF-2 silent-skip guess.
  *   config-ensure-section              Initialize .planning/config.json
+ *   config-advise [--json]             Recommend existing knobs from .planning/ signals
  *   history-digest                     Aggregate all SUMMARY.md data
  *   summary-extract <path> [--fields]  Extract structured data from SUMMARY.md
  *   state-snapshot                     Structured parse of STATE.md
@@ -172,6 +173,7 @@
  *
  * Verification Suite:
  *   verify plan-structure <file>       Check PLAN.md structure + tasks
+ *   verify tool-preflight <plan-file>  Installed executor grants the tools a plan names?
  *   verify phase-completeness <phase>  Check all plans have summaries
  *   verify references <file>           Check @-refs + paths resolve
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
@@ -902,6 +904,12 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
 
   function routeConfigPath({ cwd, raw, workstreamContext }) {
     config.cmdConfigPath(cwd, raw, workstreamContext);
+  }
+
+  // S7: `config-advise [--json]` — recommends existing knobs from .planning/ signals
+  // (src/config-advise.cts). Reads only. A leaf beside config-get/config-set (ADR-2346).
+  function routeConfigAdvise({ args, cwd, raw }) {
+    require('./lib/config-advise.cjs').cmdConfigAdvise(cwd, args.slice(1), raw);
   }
 
   async function routeMigrateConfig({ cwd, raw }) {
@@ -4895,6 +4903,7 @@ const HOST_COMMAND_ROUTERS = {
   'config-set': routeConfigSet,
   'config-set-model-profile': routeConfigSetModelProfile,
   'config-get': routeConfigGet,
+  'config-advise': routeConfigAdvise,
   // Phase-effort estimation (#2630, ADR-2629). A PAIR of verbs, so leaves
   // rather than a family — ADR-2346 promotes to a family only at >=3.
   'estimate-check': ({ args, cwd, raw }) => estimateCli.cmdEstimateCheck(cwd, args.slice(1), raw),
@@ -5276,7 +5285,7 @@ function runWithTimeout(argv) {
 // drifting apart when a query command was added to only one or two.
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
   'Commands: agent, agent-skills, api-coverage, arch, assumption-delta, audit-open, audit-uat, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
-  'config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, resolve-package-manager, ' +
+  'config-advise, config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, resolve-package-manager, ' +
   'context-predicates, current-timestamp, detect-custom-files, diagrams, discuss, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +
   'generate-dev-preferences, generate-slug, graphify, history-digest, init, intel, ' +

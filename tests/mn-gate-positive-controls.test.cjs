@@ -253,6 +253,30 @@ gateControl({
   },
 });
 
+/** A plan that declares a Pencil design file in files_modified, and a project-local Claude executor with `tools`. */
+function toolPreflightScenario(tools) {
+  return {
+    setup: (dir) => {
+      put(dir, '.planning/config.json', JSON.stringify({ runtime: 'claude' }));
+      put(dir, '.claude/agents/gsd-executor.md', `---\nname: gsd-executor\ntools: ${tools}\n---\n\nbody\n`);
+      put(dir, `${PHASE}/01-01-PLAN.md`, '---\nphase: 01-gate\nplan: 01\nwave: 1\nfiles_modified: [design/app.pen]\n---\n\n<tasks>\n<task type="auto"><name>Draw</name><action>Draw the screen</action></task>\n</tasks>\n');
+    },
+    args: ['01'],
+  };
+}
+
+gateControl({
+  gate: 'mn-tool-preflight',
+  module: require('../gsd-core/bin/lib/gate-mn-tool-preflight.cjs'),
+  fn: 'evaluateMnToolPreflight',
+  red: 'block',
+  expectRed: { status: 'finding', checked: 1 },
+  // The executor cannot drive Pencil.
+  redScenario: toolPreflightScenario('Read, Write'),
+  // The same plan once the executor holds the grant.
+  greenScenario: toolPreflightScenario('Read, Write, mcp__pencil__*'),
+});
+
 gateControl({
   gate: 'mn-clean-state',
   module: require('../gsd-core/bin/lib/gate-mn-clean-state.cjs'),
