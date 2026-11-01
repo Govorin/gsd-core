@@ -300,7 +300,7 @@ Read `@~/.claude/gsd-core/references/scout-codebase.md` — it contains the phas
 ```bash
 DISCUSS_PRE_HOOKS_JSON=$(gsd_run loop render-hooks discuss:pre --raw)
 ```
-Apply each entry in `activeHooks` per @~/.claude/gsd-core/references/loop-hook-dispatch.md. Empty list → continue to `analyze_phase` (a resumed checkpoint: to `present_gray_areas`).
+Apply each entry in `activeHooks` per @~/.claude/gsd-core/references/loop-hook-dispatch.md, then continue to `analyze_phase` (a resumed checkpoint: to `present_gray_areas`).
 </step>
 
 <step name="analyze_phase">

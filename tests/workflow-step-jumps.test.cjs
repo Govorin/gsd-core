@@ -119,3 +119,12 @@ test('no shipped workflow jumps over a step that hosts a loop point', () => {
   }
   assert.deepEqual(offenders, []);
 });
+
+test('discuss-phase routes a resumed checkpoint to present_gray_areas whether or not discuss:pre has hooks', () => {
+  const text = fs.readFileSync(path.join(WORKFLOWS, 'discuss-phase.md'), 'utf8');
+  const dispatch = unitsOf(text).units.find((u) => u.name === 'dispatch_discuss_pre_hooks');
+  assert.ok(dispatch, 'dispatch_discuss_pre_hooks exists');
+  // The exit must not hang off an empty-hook-list condition: with active hooks the model would otherwise fall into analyze_phase.
+  assert.doesNotMatch(dispatch.body, /Empty list/);
+  assert.match(dispatch.body, /then continue to `analyze_phase` \(a resumed checkpoint: to `present_gray_areas`\)/);
+});
