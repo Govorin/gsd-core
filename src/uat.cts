@@ -155,8 +155,30 @@ interface AuditUatReport {
     by_phase: Record<string, number>;
     current_milestone: { files: number; items: number };
     archived: { files: number; items: number; by_milestone: Record<string, number> };
+    /**
+     * X4/LG-09: current-milestone phases with a row a `/gsd:verify-work` session can close now —
+     * a UAT row still `pending`, or a VERIFICATION `human_needed` item — in phase order, each
+     * phase once. Blocked, skipped, deferred and issue rows are left out: verify-work cannot
+     * settle them in one sitting, so routing to it for those would loop. Archived milestones are
+     * left out too. `/gsd:progress --next` routes to the first entry; smart-entry offers it.
+     */
+    verify_work_phases: string[];
   };
   acknowledged_files: number;
+}
+
+/** The item categories a `/gsd:verify-work` session can close now (see `verify_work_phases`). */
+const VERIFY_WORK_CATEGORIES: ReadonlySet<UatCategory> = new Set<UatCategory>(['pending', 'human_uat']);
+
+/** Current-milestone phases awaiting a human UAT session, in report (phase) order, once each. */
+function verifyWorkPhases(results: readonly UatFileResult[]): string[] {
+  const phases: string[] = [];
+  for (const r of results) {
+    if (r.archived_milestone || r.type === 'deferred') continue;
+    if (!r.items.some((item) => VERIFY_WORK_CATEGORIES.has(item.category))) continue;
+    if (!phases.includes(r.phase)) phases.push(r.phase);
+  }
+  return phases;
 }
 
 /**
@@ -413,6 +435,7 @@ function collectAuditUat(cwd: string): AuditUatReport | null {
     // tried and reverted; this is a purely additive pair of new keys.
     current_milestone: { files: 0, items: 0 },
     archived: { files: 0, items: 0, by_milestone: {} },
+    verify_work_phases: verifyWorkPhases(results),
   };
 
   for (const r of results) {

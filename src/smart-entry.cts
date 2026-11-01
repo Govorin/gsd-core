@@ -53,6 +53,9 @@ const { extractFrontmatter, frontmatterBlock } = frontmatter;
 import phaseLifecycle = require('./phase-lifecycle.cjs');
 const { deriveProgressFromRoadmap } = phaseLifecycle;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+import uatMod = require('./uat.cjs');
+const { collectAuditUat } = uatMod;
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 import roadmapParser = require('./roadmap-parser.cjs');
 const { extractCurrentMilestone, scanMilestonePhaseIds } = roadmapParser;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -147,6 +150,14 @@ export interface SmartEntrySignals {
    * classification/routing boundary; this is a signal, not a route).
    */
   state_commit_stale: boolean | null;
+  /**
+   * Current-milestone phases awaiting a human UAT session (X4/LG-09) — `audit-uat`'s
+   * `summary.verify_work_phases`, the same list `/gsd:progress --next` routes on. Empty when
+   * there is none or the audit cannot run. Like `state_commit_stale`, classify() does not
+   * consume it (ADR-1787): it adds a `verify-work` option to the off-path menus that would
+   * otherwise steer past the debt, without changing any recommendation.
+   */
+  uat_verify_phases: string[];
 }
 
 export interface SmartEntryResult {
@@ -469,6 +480,7 @@ export function detectSignals(cwd: string, now: () => number = Date.now): SmartE
     // No STATE.md (or unreadable) → no stamp to compare. Unknown, not fresh.
     state_commits_behind: null,
     state_commit_stale: null,
+    uat_verify_phases: [],
   };
   if (!hasPlanning) return empty;
 
@@ -591,7 +603,18 @@ export function detectSignals(cwd: string, now: () => number = Date.now): SmartE
     milestone_phases: milestonePhases,
     state_commits_behind: freshness.commits_behind,
     state_commit_stale: freshness.commit_stale,
+    uat_verify_phases: readUatVerifyPhases(cwd),
   };
+}
+
+/** `audit-uat`'s `verify_work_phases`, or `[]` when the audit has nothing to scan or refuses. */
+function readUatVerifyPhases(cwd: string): string[] {
+  try {
+    return collectAuditUat(cwd)?.summary.verify_work_phases ?? [];
+  } catch {
+    // A report status outside the closed enum throws in the audit; the front door still renders.
+    return [];
+  }
 }
 
 // ─── Situation classification ─────────────────────────────────────────────────
@@ -703,6 +726,12 @@ export function actionsFor(situation: Situation, s: SmartEntrySignals, runtime =
   const cmd = (name: string): string => formatGsdSlash(name, runtime) as string;
   const phaseN = s.current_phase ?? '';
   const execLabel = phaseN === '' ? 'Continue executing' : `Continue executing phase ${phaseN}`;
+  // X4/LG-09: the first phase still awaiting a human UAT session, offered where the menu
+  // would otherwise lead past it. Never the recommendation (ADR-1787 keeps those fixed).
+  const debtPhase = s.uat_verify_phases?.[0];
+  const uatDebt = debtPhase === undefined
+    ? null
+    : action('verify-work', `Verify phase ${debtPhase} — human UAT pending`, cmd(`verify-work ${debtPhase}`));
   switch (situation) {
     case 'no-project':
       return [
@@ -768,17 +797,19 @@ export function actionsFor(situation: Situation, s: SmartEntrySignals, runtime =
         action('ship', 'Ship completed work', cmd('ship')),
       ];
     case 'idle-stranded':
+      // UAT debt: closing the milestone over phases still awaiting a human is the wrong offer.
       return [
         rec('ship', 'Ship committed work', cmd('ship')),
-        action('complete-milestone', 'Complete the milestone', cmd('complete-milestone')),
+        uatDebt ?? action('complete-milestone', 'Complete the milestone', cmd('complete-milestone')),
         action('progress', 'Show progress', cmd('progress')),
         action('capture', 'Capture a note', cmd('capture')),
       ];
     case 'complete':
       return [
         rec('new-milestone', 'Start a new milestone', cmd('new-milestone')),
+        ...(uatDebt ? [uatDebt] : []),
         action('extract-learnings', 'Extract learnings', cmd('extract-learnings')),
-        action('quick', 'Quick task', cmd('quick')),
+        ...(uatDebt ? [] : [action('quick', 'Quick task', cmd('quick'))]),
         action('progress', 'Show progress', cmd('progress')),
       ];
     case 'unknown':

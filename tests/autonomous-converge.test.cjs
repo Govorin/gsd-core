@@ -323,10 +323,11 @@ describe('autonomous verification deferral contract', () => {
 
     assert.ok(waitIdx !== -1, 'workflow must document the post-execution verification read');
     assert.ok(humanNeededIdx > waitIdx, 'human_needed branch must follow verification status read');
-    assert.match(
-      combined,
-      /set VERIFICATION frontmatter `status: passed`/,
-      'human_needed branch must contain the promotion action',
+    // X4/LG-09: the promotion goes through the recorded UAT and the shared predicate, never a
+    // bare status write (that left the phase's UAT file open for good).
+    assert.ok(
+      combined.includes('UAT_PASSED=$(gsd_run phase uat-passed "${PHASE_NUM}" --uat-only --pick passed) && UAT_EXIT=0 || UAT_EXIT=$?'),
+      'human_needed branch must contain the predicate-gated promotion action',
     );
     // #2589: the verification read uses the native --pick flag (no jq dependency).
     // String-based check (not a regex literal) so the assertion stays robust to
@@ -433,5 +434,42 @@ describe('issue #3210: autonomous handle_blocker has a retry ceiling with needs_
       'once the retry ceiling is exceeded, handle_blocker must halt autonomously in a terminal ' +
       'needs_human state (surfacing the unmet items) instead of looping or asking again (#3210)'
     );
+  });
+});
+
+// X4/LG-09: autonomous "All good — continue" wrote status: passed with no UAT record, so the UAT
+// file execute-phase persisted stayed "testing" for good. It now records the acceptance as UAT
+// rows, closes the session, and flips the report only through phase uat-passed --uat-only —
+// the canonicalization verify-work uses (#4663).
+const UAT_TAIL_WORKFLOWS = path.join(__dirname, '..', 'gsd-core', 'workflows');
+const readUatTailWorkflow = (rel) => fs.readFileSync(path.join(UAT_TAIL_WORKFLOWS, rel), 'utf8');
+
+
+describe('autonomous human-needed: "All good" is recorded as UAT, not a bare status write (LG-09)', () => {
+  const humanNeeded = readUatTailWorkflow(path.join('autonomous', 'steps', 'human-needed.md'));
+  const allGood = humanNeeded.slice(
+    humanNeeded.indexOf('On "All good — continue"'),
+    humanNeeded.indexOf('On "Found issues"'),
+  );
+
+  test('the acceptance is written into the phase UAT file and the session is closed', () => {
+    assert.ok(allGood.includes('`result: pass`') && allGood.includes('`source: human`'));
+    assert.ok(allGood.includes('gsd_run query uat.complete-session "${PHASE_DIR}/${padded_phase}-UAT.md"'));
+  });
+
+  test('status: passed is written only after the shared uat-only predicate says true', () => {
+    const predicate = allGood.indexOf('gsd_run phase uat-passed "${PHASE_NUM}" --uat-only --pick passed');
+    const guard = allGood.indexOf('if [ "$UAT_EXIT" -eq 0 ] && [ "$UAT_PASSED" = "true" ]; then');
+    const write = allGood.indexOf('--field status --value passed');
+    assert.ok(allGood.indexOf('uat.complete-session') < predicate, 'the UAT is closed before the predicate reads it');
+    assert.ok(predicate !== -1 && predicate < guard && guard < write, 'the status write sits inside the predicate guard');
+    assert.equal(allGood.split('--field status --value passed').length, 2, 'exactly one status write');
+    assert.doesNotMatch(allGood, /set VERIFICATION frontmatter `status: passed`/, 'the bare promotion must not return');
+  });
+
+  test('a predicate that does not pass leaves human_needed and blocks, never transitions', () => {
+    const otherwise = allGood.slice(allGood.indexOf('Otherwise the report stays `human_needed`'));
+    assert.match(otherwise, /handle_blocker/);
+    assert.doesNotMatch(otherwise, /transition\.md/);
   });
 });

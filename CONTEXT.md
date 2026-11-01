@@ -920,6 +920,9 @@ Fork-local (ADR-5210). Install-time tool grants a first-party capability declare
 `RUNSTATE.AUTO-CHAIN.location=.gsd/auto-chain/<planning scope>/active.json, scope = planningDir relative to .planning ('' | workstreams/<ws> | <project>/...); no workstream->root fallback; absent, malformed or a symlink = inactive (fails toward asking a human); written only through gsd-tools auto-chain set|clear, read through auto-chain status and check auto-mode (auto_chain_active, shape unchanged)`
 `RUNSTATE.AUTO-CHAIN.legacy=workflow._auto_chain_active in config.json is never read (it cannot tell a live chain from a crashed one); auto-chain set|clear delete it from the scope and root config, byte-identical when absent; config-set refuses the key (CONFIG_INVALID_KEY) and names the verb`
 
+`UAT.TAIL.verify-work-phases=audit-uat summary.verify_work_phases (src/uat.cts) is the one owner of "which phases can a /gsd:verify-work session close now": current-milestone uat|verification results with a pending or human_uat item, phase order, once each; blocked/skipped/deferred/issue rows and archived milestones are debt but never a route (routing there loops); readers: next.md Route V (first in determine_next_action, skipped under --force, never re-picks the phase verify-work just left open under --auto) and smart-entry's uat_verify_phases (a secondary verify-work option on the complete/idle-stranded menus; recommendations stay fixed per ADR-1787)`
+`UAT.TAIL.autonomous-accept=autonomous "All good — continue" records the human's acceptance as UAT rows (result: pass, source: human) in the phase UAT file, closes it with uat.complete-session, and flips VERIFICATION to passed only when phase uat-passed --uat-only says true — the verify-work #4663 canonicalization; a bare status write left the UAT file testing forever`
+
 ---
 
 ## Release notes standard

@@ -202,3 +202,38 @@ describe('/gsd-next safety gates (#1732, #2089)', () => {
     );
   });
 });
+
+// X4/LG-09: /gsd:progress --next knew nothing about human_needed or open UAT and routed past it
+// to the next phase's discuss. Route V reads audit-uat's summary.verify_work_phases FIRST and
+// routes to /gsd:verify-work <phase>; under --auto it never loops on the same open phase.
+// Membership is pinned behaviourally in tests/uat.test.cjs.
+const UAT_TAIL_WORKFLOWS = path.join(__dirname, '..', 'gsd-core', 'workflows');
+const readUatTailWorkflow = (rel) => fs.readFileSync(path.join(UAT_TAIL_WORKFLOWS, rel), 'utf8');
+
+function uatTailStep(content, name) {
+  const start = content.indexOf(`<step name="${name}">`);
+  assert.notEqual(start, -1, `step ${name} missing — rebind this test`);
+  return content.slice(start, content.indexOf('</step>', start));
+}
+
+describe('next.md Route V: UAT debt routes to verify-work before new work (X4)', () => {
+  const next = readUatTailWorkflow('next.md');
+  const routing = uatTailStep(next, 'determine_next_action');
+
+  test('Route V reads the typed audit-uat projection and runs before Route 1', () => {
+    const routeV = routing.indexOf('**Route V:');
+    assert.notEqual(routeV, -1, 'Route V is in determine_next_action');
+    assert.ok(routeV < routing.indexOf('**Route 1:'), 'Route V is checked first');
+    assert.ok(routing.includes('gsd_run query audit-uat --pick summary.verify_work_phases'));
+    assert.ok(routing.includes('→ Next action: `/gsd:verify-work ${UAT_DEBT_PHASE}`'));
+  });
+
+  test('Route V is skipped under --force, like every other gate', () => {
+    assert.match(routing.slice(routing.indexOf('**Route V:')), /^\*\*Route V:[^\n]*skipped under `--force`/);
+  });
+
+  test('--auto never loops on the phase verify-work just left open', () => {
+    const show = uatTailStep(next, 'show_and_execute');
+    assert.match(show, /Route V would pick the same phase the previous `\/gsd:verify-work` just ran on/);
+  });
+});

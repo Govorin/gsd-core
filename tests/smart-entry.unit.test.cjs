@@ -459,6 +459,58 @@ describe('smart-entry: per-situation action invariants (all 11)', () => {
   }
 });
 
+describe('smart-entry: UAT debt (X4/LG-09) is offered, never recommended', () => {
+  // A phase still awaiting a human UAT session must not be steered past by the off-path menus
+  // (complete -> new-milestone, idle-stranded -> complete-milestone). ADR-1787 keeps every
+  // recommendation fixed, so the debt is an explicit secondary option; forward-motion states
+  // reach it through /gsd-progress --next's Route V instead.
+  const debt = {
+    current_phase: 4, total_phases: 5, status: 'executing', progress: 80,
+    has_planning: true, has_roadmap: true, git_dirty: false, git_unpushed: false,
+    paused: false, blockers: [], has_git: true, verify_failed: false, stale_activity: false,
+    uat_verify_phases: ['03', '04'],
+  };
+
+  for (const situation of SITUATIONS) {
+    test(`${situation}: the menu invariants hold with UAT debt`, () => {
+      const actions = smartEntry.actionsFor(situation, debt);
+      assert.ok(actions.length >= 1 && actions.length <= 4, `${situation}: 1-4 actions (got ${actions.length})`);
+      assert.equal(actions.filter((a) => a.recommended).length, 1);
+      const ids = actions.map((a) => a.id);
+      assert.equal(new Set(ids).size, ids.length, `${situation}: action ids are unique`);
+      const withoutDebt = smartEntry.actionsFor(situation, { ...debt, uat_verify_phases: [] });
+      assert.equal(actions.find((a) => a.recommended).command, withoutDebt.find((a) => a.recommended).command,
+        `${situation}: the recommendation does not change`);
+    });
+  }
+
+  for (const [situation, displaced] of [['complete', 'quick'], ['idle-stranded', 'complete-milestone']]) {
+    test(`${situation}: offers /gsd-verify-work for the first debt phase in place of ${displaced}`, () => {
+      const actions = smartEntry.actionsFor(situation, debt);
+      const verify = actions.find((a) => a.id === 'verify-work');
+      assert.ok(verify, 'a verify-work option is offered');
+      assert.equal(verify.command, '/gsd-verify-work 03');
+      assert.equal(verify.recommended, false);
+      assert.equal(actions.some((a) => a.id === displaced), false);
+
+      const clean = smartEntry.actionsFor(situation, { ...debt, uat_verify_phases: [] });
+      assert.equal(clean.some((a) => a.id === 'verify-work'), false, 'no debt, no option');
+      assert.ok(clean.some((a) => a.id === displaced));
+    });
+  }
+
+  test('detectSignals reads the debt from audit-uat, and an unreadable report degrades to none', () => {
+    const dir = track(makeProject({ state: state({ status: 'executing', total_phases: 5, current_phase: 2 }), roadmap: true }));
+    const phaseDir = path.join(dir, '.planning', 'phases', '01-auth');
+    fs.mkdirSync(phaseDir, { recursive: true });
+    fs.writeFileSync(path.join(phaseDir, '01-UAT.md'), '---\nstatus: testing\n---\n\n## Tests\n\n### 1. Login\nexpected: ok\nresult: pending\n');
+    assert.deepEqual(detectSignals(dir).uat_verify_phases, ['01']);
+
+    fs.writeFileSync(path.join(phaseDir, '01-VERIFICATION.md'), '---\nstatus: not-a-status\n---\n');
+    assert.deepEqual(detectSignals(dir).uat_verify_phases, []);
+  });
+});
+
 describe('smart-entry: JSON shape invariants', () => {
   afterEach(removeAll);
 

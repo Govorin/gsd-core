@@ -234,6 +234,19 @@ Only show lines for non-zero counts. If both are 0, skip this notice entirely.
 <step name="determine_next_action">
 Apply routing rules based on state:
 
+**Route V: A phase awaits human verification → verify-work (checked first; skipped under `--force`)**
+A phase whose human UAT never ran is not done, so this closes it before Routes 1-7 start or plan new work past it:
+
+```bash
+UAT_DEBT_PHASES=$(gsd_run query audit-uat --pick summary.verify_work_phases) || UAT_DEBT_PHASES=""
+UAT_DEBT_PHASE=${UAT_DEBT_PHASES%%,*}
+```
+
+`summary.verify_work_phases` lists the current milestone's phases with a UAT row still `pending` or a VERIFICATION `human_needed` item, in phase order. Blocked, skipped and deferred rows are not in it (they wait on something outside the session; `/gsd:progress` lists them), nor are archived milestones. If the audit cannot run, its error is shown above; route on without this rule.
+
+If `UAT_DEBT_PHASE` is non-empty:
+→ Next action: `/gsd:verify-work ${UAT_DEBT_PHASE}` — say `Phase ${UAT_DEBT_PHASE} is waiting for human verification` and name the other phases in `UAT_DEBT_PHASES`, if any.
+
 **Route 1: No phases exist yet → discuss**
 If ROADMAP has phases but no phase directories exist on disk:
 → Next action: `/gsd:discuss-phase <first-phase>`
@@ -341,6 +354,7 @@ Do not ask for confirmation — the whole point of `/gsd:progress --next` is zer
 **If `--auto` was passed:** after the determined command completes, automatically re-invoke `/gsd:progress --next --auto` (forwarding `--converge`/`--cross-ai` and any reviewer flags if they were originally passed) to continue chaining to the next step. Repeat until one of:
 - A milestone completes (`/gsd:complete-milestone` is reached)
 - A blocking decision is required (safety gate triggers, prior-phase completeness prompt, user input needed)
+- Route V would pick the same phase the previous `/gsd:verify-work` just ran on (its UAT is still open — never loop on it)
 - An error or paused state is detected
 
 When stopping due to a blocker, display:
@@ -364,6 +378,7 @@ Resume with: `/gsd:progress --next --auto` once resolved.
 - [ ] A `roadmap.analyze` result whose `scope` is not `complete` is treated as scan-failed (warn + fall through), never as a clean empty scan (#3184/#3165)
 - [ ] Predicate is plans-without-summaries (`plans.length > summaries.length`) — consistent with `determine_next_action` Route 4
 - [ ] Next action correctly determined from routing rules
+- [ ] Route V runs first (except under `--force`): a phase in `audit-uat`'s `summary.verify_work_phases` routes to `/gsd:verify-work <phase>` before any new work
 - [ ] Command invoked immediately without user confirmation
 - [ ] Clear status shown before invoking
 - [ ] `--converge` routes Route 3 planning through `gsd-plan-review-convergence`

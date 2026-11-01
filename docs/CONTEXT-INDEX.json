@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 363,
+  "count": 365,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -26,6 +26,7 @@
     "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
+    "UAT": 2,
     "WAVE": 5,
     "WORKSTREAM": 5,
     "WORKTREE": 25
@@ -1670,6 +1671,16 @@
       "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
       "klass": "SETTINGS-HOOKS",
       "value": "[tests/install-minimal-hooks.test.cjs]"
+    },
+    {
+      "id": "UAT.TAIL.autonomous-accept",
+      "klass": "UAT",
+      "value": "autonomous \"All good — continue\" records the human's acceptance as UAT rows (result: pass, source: human) in the phase UAT file, closes it with uat.complete-session, and flips VERIFICATION to passed only when phase uat-passed --uat-only says true — the verify-work #4663 canonicalization; a bare status write left the UAT file testing forever"
+    },
+    {
+      "id": "UAT.TAIL.verify-work-phases",
+      "klass": "UAT",
+      "value": "audit-uat summary.verify_work_phases (src/uat.cts) is the one owner of \"which phases can a /gsd:verify-work session close now\": current-milestone uat|verification results with a pending or human_uat item, phase order, once each; blocked/skipped/deferred/issue rows and archived milestones are debt but never a route (routing there loops); readers: next.md Route V (first in determine_next_action, skipped under --force, never re-picks the phase verify-work just left open under --auto) and smart-entry's uat_verify_phases (a secondary verify-work option on the complete/idle-stranded menus; recommendations stay fixed per ADR-1787)"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",
