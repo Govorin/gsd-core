@@ -1195,13 +1195,13 @@
     {
       "id": "REQREVIEW.ACCEPT",
       "klass": "REQREVIEW",
-      "value": "requirements-review accept <CR-ID>... --reason <non-empty>: critical findings of the composed review only (WR/IN → usage error), journaled per milestone in ACCEPTED.json by fingerprint, so it survives a re-run that rewords the finding and is released when the requirement's text changes; findings of the same lens and requirement share it (alsoCovers); the skill offers it interactively and never in auto mode",
+      "value": "requirements-review accept <CR-ID>... --reason <non-empty>: critical findings of the composed review only (WR/IN → usage error), journaled per milestone in ACCEPTED.json by fingerprint, so it survives a partial re-run of other lenses and is released when the requirement's text changes; a different risk about the same requirement (another title) is never covered by it; the skill offers it interactively and never in auto mode",
       "line": 737
     },
     {
       "id": "REQREVIEW.BLOCKING",
       "klass": "REQREVIEW",
-      "value": "critical finding AND not refuted (upheld, or unverified when no refutation ran) AND fingerprint not accepted for the review's milestone; fingerprint = rq: + sha256(lens, each named REQ-ID = run.requirementDigests[id] (digest of that requirement's whitespace-collapsed text), or the whole REQUIREMENTS.md digest for cross-cutting)[0..10] — never the title or the renumbered ID; milestone = --milestone, else STATE.md frontmatter milestone, else none (the key is omitted, never written null)",
+      "value": "critical finding AND not refuted (upheld, or unverified when no refutation ran) AND fingerprint not accepted for the review's milestone; fingerprint = rq: + sha256(lens, each named REQ-ID = run.requirementDigests[id] (digest of that requirement's whitespace-collapsed text) or the whole REQUIREMENTS.md digest for cross-cutting, normalised title)[0..10] — never the renumbered ID; milestone = --milestone, else STATE.md frontmatter milestone, else none (the key is omitted, never written null)",
       "line": 735
     },
     {

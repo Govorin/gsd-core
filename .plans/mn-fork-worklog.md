@@ -1221,8 +1221,9 @@ and each time the review caught critical defects before planning. ADR-5212, ADR-
 
 - **Review fixes (2026-11-01):** `milestone: null` read back as the string "null" (frontmatter
   reader), so an acceptance without `--milestone` never matched — the key is now omitted and the
-  milestone defaults to STATE.md's. Acceptance binds to lens + REQ-ID + requirement text digest, not
-  the title. Hosts gained "Review again" (`--lens` from the gate's `rerun`; `prepare` keeps the
+  milestone defaults to STATE.md's. Acceptance binds to lens + REQ-ID + requirement text digest +
+  normalised title (without the title one acceptance covered every risk of that lens about the
+  requirement — a GYL-4-class miss). Hosts gained "Review again" (`--lens` from the gate's `rerun`; `prepare` keeps the
   other reports when the requirements are unchanged) and resume (`/gsd-new-milestone --from-roadmap`,
   `/gsd-new-project` resumes at the hooks). Lens rules for greenfield (nothing released / no schema →
   clean; high-level never CR) and explicit data/compat evidence (`git log --branches --remotes` over migrations,
