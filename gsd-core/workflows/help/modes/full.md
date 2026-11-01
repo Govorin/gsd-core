@@ -265,7 +265,7 @@ Start a new milestone through unified flow.
 
 - Deep questioning to understand what you're building next
 - Optional domain research (spawns 4 parallel researcher agents)
-- Requirements definition with scoping
+- Requirements definition with scoping, then their review before the roadmap — **`/gsd:requirements-review [--milestone <version>] [--lens data,compat,security,testability] [--auto] [--text] [--ws <name>]`**: one reviewer per lens and a refuter write `.planning/REQUIREMENTS-REVIEW.md`; a surviving, unaccepted critical finding holds the roadmap (`workflow.requirements_review`, on by default; run it by hand after editing requirements)
 - Roadmap creation with phase breakdown
 - Optional `--reset-phase-numbers` flag restarts numbering at Phase 1 and archives old phase dirs first for safety
 - Optional `--ws <name>` flag scopes the milestone to a workstream and skips the shared `PROJECT.md` write

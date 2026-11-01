@@ -579,7 +579,7 @@ AUTO_CHAIN=$(gsd_run query check auto-mode --pick auto_chain_active 2>/dev/null)
 echo "GSD_WS_NAME=${GSD_WS_ARG##* } AUTO_CHAIN=${AUTO_CHAIN:-false}"
 ```
 
-Read `activeHooks` in-context and apply every entry, in order, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.skill` runs as `Skill(skill="gsd-<ref.skill>", args="--milestone v[X.Y]")` plus `--auto` in auto mode (`--auto` passed, or `AUTO_CHAIN` is `true`) and `--ws <GSD_WS_NAME>` when non-empty; a gate runs `gsd_run check <query> --raw` with the same `--ws`. A blocking gate answering `block: true` holds the roadmap: print its `message`. In auto mode stop the workflow there. Otherwise ask (AskUserQuestion; TEXT_MODE: numbered list): "Revise requirements" — back to step 9 with the message as input, commit, then run this step again; "Stop" — end here, REQUIREMENTS.md and its review stay committed.
+Read `activeHooks` in-context and apply every entry, in order, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.skill` runs as `Skill(skill="gsd-${ref.skill}", args="--milestone v[X.Y]")` plus `--auto` in auto mode (`--auto` passed, or `AUTO_CHAIN` is `true`) and `--ws <GSD_WS_NAME>` when non-empty; a gate runs `gsd_run check <query> --raw` with the same `--ws`. A blocking gate answering `block: true` holds the roadmap: print its `message`. In auto mode stop the workflow there. Otherwise ask (AskUserQuestion; TEXT_MODE: numbered list): "Revise requirements" — back to step 9 with the message as input, commit, then run this step again; "Stop" — end here, REQUIREMENTS.md and its review stay committed.
 
 ## 10. Create Roadmap
 

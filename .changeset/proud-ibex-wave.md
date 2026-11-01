@@ -1,0 +1,5 @@
+---
+type: Added
+pr: 0
+---
+**Requirements review before the roadmap** — a new loop point `roadmap:pre` fires in `/gsd-new-milestone` and `/gsd-new-project` once REQUIREMENTS.md is committed and before the roadmapper runs (ADR-857 amendment, ADR-5212). The `mn-requirements-review` capability (`workflow.requirements_review`, default on) runs `/gsd-requirements-review` there: one `gsd-requirements-reviewer` per lens — data and migrations, client compatibility, security, testability (`workflow.requirements_review_lenses`) — then `gsd-finding-refuter` in its new `requirements` mode, and `gsd-tools requirements-review compose` writes `.planning/REQUIREMENTS-REVIEW.md`. The gate `check mn-requirements-review` holds the roadmap while a critical finding survives refutation and is not accepted as a known risk (`gsd-tools requirements-review accept <CR-ID> --reason …`), while a lens wrote no report, or while the review is missing or older than REQUIREMENTS.md; interactively the host offers to revise the requirements, in auto mode it stops.

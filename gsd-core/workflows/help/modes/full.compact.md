@@ -122,6 +122,8 @@ Result: Phase 17 deleted, phases 18-20 become 17-19
 
 Usage: `/gsd:new-milestone "v2.0 Features"`
 
+**`/gsd:requirements-review [--milestone <version>] [--lens …] [--auto] [--ws <name>]`** — Four lenses (data, compat, security, testability) and a refuter review REQUIREMENTS.md before the roadmap; a surviving, unaccepted critical finding holds it. Runs at roadmap:pre of new-milestone/new-project.
+
 **`/gsd:complete-milestone <version>`** — Archives to MILESTONES.md + milestones/ dir, tags the release, preps workspace for next version.
 
 Usage: `/gsd:complete-milestone 1.0.0`

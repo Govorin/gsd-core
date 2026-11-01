@@ -1303,6 +1303,16 @@ Keys of the `architecture` capability ([ADR-857](adr/857-capability-system.md)):
 | `architecture.metrics_at_milestone` | boolean | `true` | Measure the architecture when a milestone closes (`arch stage` at `milestone:post`, inside `/gsd-complete-milestone`): `arch metrics --compare-last` over the configured scope and window, written to `.planning/architecture/metrics-<date>.json` — the baseline the next close compares against. Deterministic, no model. Whether a survey follows is `architecture.survey_at_milestone`'s call. `false`: nothing runs at the close. |
 | `architecture.survey_at_milestone` | enum | `suggest` | One of `suggest`, `auto`, `off`. What complete-milestone does (after the architecture.metrics_at_milestone measurement) when hot spots grew past architecture.survey_growth_threshold, entered the hot spot list, or a new import cycle appeared since the last survey: suggest (name /gsd-arch-survey and the zones), auto (run it), off. No growth, no prompt. |
 
+<a id="requirements-review-settings"></a>
+### Requirements Review Settings
+
+Keys of the `mn-requirements-review` capability ([ADR-5212](adr/5212-requirements-review-at-roadmap-pre.md)). At `roadmap:pre` — REQUIREMENTS.md committed, the roadmapper not yet run, in `/gsd-new-milestone` and `/gsd-new-project` — `/gsd-requirements-review` runs one `gsd-requirements-reviewer` per lens, then `gsd-finding-refuter` (mode `requirements`), and composes `.planning/REQUIREMENTS-REVIEW.md`. The gate `check mn-requirements-review` holds the roadmap while a critical finding survives refutation and is not accepted (`gsd-tools requirements-review accept <CR-ID> --reason "<why>"`), while a lens wrote no report, or while the review is missing or older than REQUIREMENTS.md; interactively the host offers to revise the requirements, in auto mode it stops.
+
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `workflow.requirements_review` | boolean | `true` | Review a milestone's requirements before its roadmap (roadmap:pre): one lens agent each for data and migrations, client compatibility, security and testability, then a refuter, then a gate that holds the roadmap on a critical finding that survived and was not accepted. Runs once per milestone; `false` skips the review and the gate. |
+| `workflow.requirements_review_lenses` | string | `data,compat,security,testability` | Lenses the review runs, comma-separated — one agent each, the cost knob. An unknown lens is an error, never silently skipped. |
+
 <a id="retro-settings"></a>
 ### Retro Settings
 

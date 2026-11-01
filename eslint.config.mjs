@@ -537,6 +537,10 @@ export default tseslint.config(
       'gsd-core/bin/lib/gate-mn-verify-gates.cjs',
       'gsd-core/bin/lib/gate-mn-failure-paths.cjs',
       'gsd-core/bin/lib/gate-mn-tool-preflight.cjs',
+      // mn-requirements-review (ADR-5212): tsc-generated — lint the src/*.cts sources.
+      'gsd-core/bin/lib/gate-mn-requirements-review.cjs',
+      'gsd-core/bin/lib/requirements-review.cjs',
+      'gsd-core/bin/lib/requirements-review-command-router.cjs',
       'gsd-core/bin/lib/tool-preflight.cjs',
       'gsd-core/bin/lib/config-advise.cjs',
       'gsd-core/bin/lib/mn-assertion-count.cjs',

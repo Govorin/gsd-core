@@ -94,7 +94,8 @@ flowchart LR
     a_gsd_project_researcher[["gsd-project-researcher"]]:::agent
   end
   subgraph g_points["Точки цикла и капабилити"]
-    p_roadmap_pre{{"roadmap#58;pre"}}:::point
+    p_roadmap_pre{{"roadmap#58;pre<br/>+1 gates, +0 contributions"}}:::point
+    c_roadmap_pre_mn_requirements_review_skill_requirements_review["mn-requirements-review#58; skill requirements-review"]:::capability
     p_roadmap_post{{"roadmap#58;post"}}:::point
     c_roadmap_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
   end
@@ -108,6 +109,7 @@ flowchart LR
   wf_root -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_2b__Prior_Spike_Sketch_Detection -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_6__Research_Decision -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
+  p_roadmap_pre -.-> c_roadmap_pre_mn_requirements_review_skill_requirements_review
   u_heading_7__Define_Requirements --> p_roadmap_pre
   p_roadmap_post -.-> c_roadmap_post_retro_command_retro_stage
   u_heading_8__Create_Roadmap --> p_roadmap_post

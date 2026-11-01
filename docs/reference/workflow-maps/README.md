@@ -32,9 +32,9 @@
 `</step>` (серый пунктир), вызов `Agent(` в прозе вместо блока кода, расхождение маркеров
 `gsd:section` с `section-manifest.json`.
 
-## Workflows (89)
+## Workflows (90)
 
-Всего фраз перехода: 391, из них не называют реальный шаг: 176. Дефектов: 0.
+Всего фраз перехода: 395, из них не называют реальный шаг: 178. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -101,6 +101,7 @@
 | [reapply-patches](reapply-patches.md) | 7 разделов H2 | 0 | 0 |  | 4 / 4 | 0 |
 | [remove-phase](remove-phase.md) | 7 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [remove-workspace](remove-workspace.md) | 6 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
+| [requirements-review](requirements-review.md) | 7 шагов `<step>` | 2 | 2 |  | 2 / 4 | 0 |
 | [resume-project](resume-project.md) | 8 шагов `<step>` | 0 | 0 |  | 6 / 8 | 0 |
 | [retro](retro.md) | 9 шагов `<step>` | 2 | 2 |  | 0 / 3 | 0 |
 | [review](review.md) | 6 шагов `<step>`, 2 секции `gsd:section` | 0 | 0 |  | 0 / 1 | 0 |

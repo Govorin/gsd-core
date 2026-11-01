@@ -3039,6 +3039,7 @@ const capabilities = {
         "gsd-planner",
         "gsd-project-researcher",
         "gsd-research-synthesizer",
+        "gsd-requirements-reviewer",
         "gsd-roadmapper",
         "gsd-spec-reviewer",
         "gsd-standards-reviewer",
@@ -3123,6 +3124,77 @@ const capabilities = {
     "steps": [],
     "contributions": [],
     "gates": []
+  },
+  "mn-requirements-review": {
+    "id": "mn-requirements-review",
+    "role": "feature",
+    "version": "1.19.0",
+    "title": "Requirements review before the roadmap",
+    "description": "Reviews a milestone's requirements once REQUIREMENTS.md is committed and before the roadmapper turns them into phases (roadmap:pre in /gsd-new-milestone and /gsd-new-project, ADR-5212). One fresh gsd-requirements-reviewer per lens — data and migrations, client compatibility, security, testability — reads the requirements against the codebase; gsd-finding-refuter (mode requirements; the agent ships with mn-verify-gate, and without it every finding stays unverified) tries to refute every finding; `gsd-tools requirements-review compose` writes REQUIREMENTS-REVIEW.md. A blocking gate (`check mn-requirements-review`) holds the roadmap while a critical finding survives refutation and nobody accepted it as a known risk (`gsd-tools requirements-review accept`): the host then offers to revise the requirements, or stops in auto mode. On by default: it runs once per milestone, not per phase — four lens agents and one refuter, about 5–15M tokens in the review that motivated it — and in that month's three milestones the same review, assembled by hand each time, caught critical defects before planning (migrations from parallel branches that would silently not apply, a gate that would break already-released clients). Set workflow.requirements_review false to skip it.",
+    "tier": "full",
+    "requires": [],
+    "engines": {
+      "gsd": ">=1.15.0"
+    },
+    "runtimeCompat": {
+      "supported": [
+        "*"
+      ],
+      "unsupported": []
+    },
+    "skills": [
+      "requirements-review"
+    ],
+    "agents": [
+      "gsd-requirements-reviewer"
+    ],
+    "activationKey": "workflow.requirements_review",
+    "commands": [
+      {
+        "family": "requirements-review",
+        "module": "requirements-review-command-router.cjs",
+        "router": "routeRequirementsReviewCommand"
+      }
+    ],
+    "hooks": [],
+    "config": {
+      "workflow.requirements_review": {
+        "type": "boolean",
+        "default": true,
+        "description": "Review a milestone's requirements before its roadmap (roadmap:pre): one lens agent each for data and migrations, client compatibility, security and testability, then a refuter, then a gate that holds the roadmap on a critical finding that survived and was not accepted. Runs once per milestone (/gsd-new-milestone, /gsd-new-project); set false to skip both the review and the gate."
+      },
+      "workflow.requirements_review_lenses": {
+        "type": "string",
+        "default": "data,compat,security,testability",
+        "description": "Lenses the requirements review runs, comma-separated, from data, compat, security, testability — one agent each, the cost knob of the review. A project with no shipped clients can drop compat; an unknown lens is an error, never silently skipped."
+      }
+    },
+    "steps": [
+      {
+        "point": "roadmap:pre",
+        "ref": {
+          "skill": "requirements-review"
+        },
+        "produces": [
+          "REQUIREMENTS-REVIEW.md"
+        ],
+        "consumes": [],
+        "when": "workflow.requirements_review",
+        "onError": "skip"
+      }
+    ],
+    "contributions": [],
+    "gates": [
+      {
+        "point": "roadmap:pre",
+        "check": {
+          "query": "mn.requirements-review"
+        },
+        "when": "workflow.requirements_review",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "mn-verify-gate": {
     "id": "mn-verify-gate",
@@ -5460,6 +5532,7 @@ const bySkill = {
   "graphify": "graphify",
   "mempalace-recall": "mempalace",
   "mempalace-capture": "mempalace",
+  "requirements-review": "mn-requirements-review",
   "validate-phase": "nyquist",
   "profile-user": "profile-pipeline",
   "retro": "retro",
@@ -5482,6 +5555,7 @@ const byAgent = {
   "gsd-spec-reviewer": "code-review",
   "gsd-dom-verifier": "live-dom-uat",
   "gsd-mempalace-curator": "mempalace",
+  "gsd-requirements-reviewer": "mn-requirements-review",
   "gsd-finding-refuter": "mn-verify-gate",
   "gsd-nyquist-auditor": "nyquist",
   "gsd-pattern-mapper": "pattern-mapper",
@@ -5495,9 +5569,34 @@ const byAgent = {
 
 const byLoopPoint = {
   "roadmap:pre": {
-    "steps": [],
+    "steps": [
+      {
+        "capId": "mn-requirements-review",
+        "point": "roadmap:pre",
+        "ref": {
+          "skill": "requirements-review"
+        },
+        "produces": [
+          "REQUIREMENTS-REVIEW.md"
+        ],
+        "consumes": [],
+        "when": "workflow.requirements_review",
+        "onError": "skip"
+      }
+    ],
     "contributions": [],
-    "gates": []
+    "gates": [
+      {
+        "capId": "mn-requirements-review",
+        "point": "roadmap:pre",
+        "check": {
+          "query": "mn.requirements-review"
+        },
+        "when": "workflow.requirements_review",
+        "blocking": true,
+        "onError": "halt"
+      }
+    ]
   },
   "roadmap:post": {
     "steps": [
@@ -6685,6 +6784,8 @@ const configKeys = {
   "mempalace.auto_capture_hooks": "mempalace",
   "code_navigation.enabled": "mn-code-navigation",
   "nx_tasks.enabled": "mn-nx-tasks",
+  "workflow.requirements_review": "mn-requirements-review",
+  "workflow.requirements_review_lenses": "mn-requirements-review",
   "workflow.verify_enforce": "mn-verify-gate",
   "workflow.nyquist_enforce": "mn-verify-gate",
   "workflow.mn_security_enforce": "mn-verify-gate",
@@ -7275,6 +7376,18 @@ const configSchema = {
     "type": "boolean",
     "default": true,
     "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+  },
+  "workflow.requirements_review": {
+    "owner": "mn-requirements-review",
+    "type": "boolean",
+    "default": true,
+    "description": "Review a milestone's requirements before its roadmap (roadmap:pre): one lens agent each for data and migrations, client compatibility, security and testability, then a refuter, then a gate that holds the roadmap on a critical finding that survived and was not accepted. Runs once per milestone (/gsd-new-milestone, /gsd-new-project); set false to skip both the review and the gate."
+  },
+  "workflow.requirements_review_lenses": {
+    "owner": "mn-requirements-review",
+    "type": "string",
+    "default": "data,compat,security,testability",
+    "description": "Lenses the requirements review runs, comma-separated, from data, compat, security, testability — one agent each, the cost knob of the review. A project with no shipped clients can drop compat; an unknown lens is an error, never silently skipped."
   },
   "workflow.verify_enforce": {
     "owner": "mn-verify-gate",
@@ -10466,6 +10579,11 @@ const commandFamilies = {
     "module": "refactor-trigger-command-router.cjs",
     "router": "routeRefactorTriggerCommand"
   },
+  "requirements-review": {
+    "capId": "mn-requirements-review",
+    "module": "requirements-review-command-router.cjs",
+    "router": "routeRequirementsReviewCommand"
+  },
   "retro": {
     "capId": "retro",
     "module": "retro-command-router.cjs",
@@ -10499,6 +10617,9 @@ const capabilityClusters = {
   "mempalace": [
     "mempalace-capture",
     "mempalace-recall"
+  ],
+  "mn-requirements-review": [
+    "requirements-review"
   ],
   "nyquist": [
     "validate-phase"
@@ -10544,6 +10665,12 @@ const profileMembership = {
     ]
   },
   "mempalace": {
+    "tier": "full",
+    "profiles": [
+      "full"
+    ]
+  },
+  "mn-requirements-review": {
     "tier": "full",
     "profiles": [
       "full"
@@ -10614,6 +10741,7 @@ const _requiresGraph = {
   "mn-code-navigation": [],
   "mn-expertise": [],
   "mn-nx-tasks": [],
+  "mn-requirements-review": [],
   "mn-verify-gate": [],
   "nyquist": [],
   "ollama": [],

@@ -1,6 +1,6 @@
 ---
 name: gsd-finding-refuter
-description: Tries to refute each finding — a plan-checker's against the plans, a window review lens's against the code, an architecture or retro candidate against the codebase — so only findings that survive, with evidence, move on. Spawned by /gsd:plan-phase between the checker and the revision loop, by /gsd:code-review --since before a window review is reported, by /gsd:arch-survey and by /gsd:retro.
+description: Tries to refute each finding — a plan-checker's against the plans, a window review lens's against the code, a requirements review lens's against the requirements and the code, an architecture or retro candidate against the codebase — so only findings that survive, with evidence, move on. Spawned by /gsd:plan-phase between the checker and the revision loop, by /gsd:code-review --since before a window review is reported, by /gsd:requirements-review before the roadmap, by /gsd:arch-survey and by /gsd:retro.
 tools: Read, Bash, Glob, Grep, Skill
 color: orange
 ---
@@ -41,6 +41,15 @@ Findings of a window review's lens reports (`REVIEW-{label}.md`: correctness, st
 - **Refutes, besides the general list:** the handling the finding calls missing exists on the same path (name it); a finding whose whole claim is "nothing guards this" names a rule that exists, runs at `error` and covers the path.
 - **Does not refute:** a standards or simplify finding is a judgement call by design. If its citation reproduces — the code is as quoted and the rule or smell is real — it stands, whether or not you would have raised it.
 - **Verdict heading:** `### {label} {ID}: {the finding's own title}` — `{label}` is the report's file name without `REVIEW-` and `.md` (`correctness`, `correctness-2`, `standards`, `spec`, `simplify`), `{ID}` the finding's ID in that report. The orchestrator writes your output to REFUTATION.md and reads these headings.
+</mode>
+
+<mode name="requirements">
+Findings of a requirements review's lens reports (`REVIEW-{lens}.md`: data, compat, security, testability), spawned by `/gsd:requirements-review` before REQUIREMENTS-REVIEW.md is composed and before any roadmap exists.
+- **Checked against:** REQUIREMENTS.md (the whole file — Out of Scope and the traceability notes included), PROJECT.md, and the codebase at HEAD: every file a finding names, plus what it relies on (migration directories and journals, API routes and their clients, `git branch -a` and `git log` when a finding is about another branch).
+- **A finding must reproduce.** Its `**Requirement:**` ID exists in REQUIREMENTS.md and its quote is there; its `**File:**` line or command shows what it says. **A citation that does not reproduce is REFUTED**, with what the requirement or the file actually says.
+- **Refutes, besides the general list:** the requirements already handle the case — another requirement, an Out of Scope line or a stated assumption covers exactly it (quote it); the codebase fact the finding rests on is wrong — the migration does apply, the endpoint is versioned, the client is not released (show it).
+- **Does not refute:** "the roadmap or the planner will handle it" — this review exists because they did not; "the requirement is high-level by design"; cost or effort.
+- **Verdict heading:** `### {lens} {ID}: {the finding's own title}` — `{lens}` is the report's file name without `REVIEW-` and `.md`, `{ID}` the finding's ID in that report. The orchestrator writes your output to REFUTATION.md and `requirements-review compose` reads these headings.
 </mode>
 
 <mode name="arch">
