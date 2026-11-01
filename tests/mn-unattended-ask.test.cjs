@@ -171,6 +171,26 @@ for (const guard of GUARDS) {
       assert.equal(r.stderr, out.reason);
     });
 
+    test('through the hook: an autonomous hold survives a nested plain clear and still denies', (t) => {
+      // /gsd-autonomous holds the chain (`--owner autonomous`); a plan/execute
+      // step without --auto clears it plainly, which must leave the hold.
+      writeConfig(dir, { [guard.key]: 'ask' });
+      const set = runGsdTools(['auto-chain', 'set', '--owner', 'autonomous'], dir);
+      if (!set.success) {
+        t.skip('gsd-tools auto-chain set --owner is not available in this tree');
+        return;
+      }
+      runGsdTools(['auto-chain', 'clear'], dir);
+      const r = runHook(path.join(HOOKS_DIR, guard.file), [], {
+        input: JSON.stringify(guard.payload(dir)),
+        cwd: dir,
+        timeoutMs: QUICK_SPAWN_TIMEOUT_MS,
+      });
+      assert.equal(r.outcome, OUTCOME.EXITED);
+      assert.equal(r.exitCode, 2, `the hold keeps the run unattended; stdout=${r.stdout}`);
+      assert.equal(JSON.parse(r.stdout).unattended, true);
+    });
+
     test('through the hook: ask without auto mode exits 0 with an ask', () => {
       writeConfig(dir, { [guard.key]: 'ask', auto_advance: false });
       const r = runHook(path.join(HOOKS_DIR, guard.file), [], {
