@@ -48,7 +48,7 @@
     {
       "id": "CAPABILITY.NX_TASKS",
       "klass": "CAPABILITY",
-      "value": "capabilities/mn-nx-tasks: grants mcp__nx-tasks__* to gsd-executor, gsd-debugger, gsd-verifier, gsd-dom-verifier (the agents that build, debug or live-check a running service; gsd-debug-session-manager only relays checkpoints and spawns debuggers, gsd-integration-checker traces wiring statically — both left out); reference gsd-core/references/nx-live-stack.md; key nx_tasks.enabled (default true); observes the user's terminal Nx runs only — never starts, restarts or kills them; an nx run the agent starts is unseen unless it passes --tui"
+      "value": "capabilities/mn-nx-tasks: grants mcp__nx-tasks__* to gsd-executor, gsd-code-fixer, gsd-debugger, gsd-verifier, gsd-dom-verifier (the agents that build, fix, debug or live-check a running service; gsd-debug-session-manager only relays checkpoints and spawns debuggers, gsd-integration-checker traces wiring statically — both left out); reference gsd-core/references/nx-live-stack.md; key nx_tasks.enabled (default true); observes the user's terminal Nx runs only — never starts, restarts or kills them; an nx run the agent starts is unseen unless it passes --tui, a single-task run unless NX_TUI=true; in a linked worktree (git-dir != git-common-dir) the user's runs never see the agent's edits, so their output is no evidence either way"
     },
     {
       "id": "CI.GATE.changeset-lint",

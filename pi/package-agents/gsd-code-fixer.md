@@ -2,7 +2,7 @@
 name: gsd-code-fixer
 description: "Applies fixes to code review findings from REVIEW.md. Reads source files, applies intelligent fixes, and commits each fix atomically. Spawned by /gsd:code-review --fix."
 tools: read, edit, write, bash, grep, find
-# tools with no Pi equivalent, dropped: Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
+# tools with no Pi equivalent, dropped: Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*, mcp__nx-tasks__*
 ---
 
 
@@ -767,3 +767,5 @@ Fixes are committed **per-finding**. This has operational implications:
 - [ ] Project conventions from CLAUDE.md respected during fixes
 
 </success_criteria>
+
+**Granted at install:** if your tools include `mcp__nx-tasks__*`, Read `__GSD_PI_ENGINE_ROOT__/gsd-core/references/nx-live-stack.md` before you start; it says when to use them.

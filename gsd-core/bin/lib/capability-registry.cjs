@@ -3104,7 +3104,7 @@ const capabilities = {
       "nx_tasks.enabled": {
         "type": "boolean",
         "default": true,
-        "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+        "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
       }
     },
     "agentTools": {
@@ -3112,6 +3112,7 @@ const capabilities = {
         "mcp__nx-tasks__*"
       ],
       "agents": [
+        "gsd-code-fixer",
         "gsd-debugger",
         "gsd-dom-verifier",
         "gsd-executor",
@@ -7237,7 +7238,7 @@ const configSchema = {
     "owner": "mn-nx-tasks",
     "type": "boolean",
     "default": true,
-    "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
+    "description": "Install-time: append the nx-tasks MCP grant (mcp__nx-tasks__*) to the executor, code fixer, debugger, verifier and DOM verifier tools:, with a pointer to gsd-core/references/nx-live-stack.md. Re-run the install after changing it; installed agents do not read config at spawn time."
   },
   "workflow.verify_enforce": {
     "owner": "mn-verify-gate",
