@@ -29,7 +29,7 @@ The requirements are the subject; the codebase is the evidence. Read the require
 
 Evidence the lenses must look at, not guess about:
 
-- **`data`** — the migration history across ALL branches, not only HEAD: `git log --all --oneline -- <migrations dir>` and `git branch -a --contains <migration commit>`; the migration journal or applied-migrations table the tool keeps (Drizzle `meta/_journal.json`, a `schema_migrations` seed, Prisma `migrations/`) compared with the files on disk and with what other branches add — two branches numbering the same slot, a migration on a branch the journal of `main` never lists, a file the journal skips. Recomputations: the jobs, triggers and caches that read the data a requirement changes.
+- **`data`** — the migration history across ALL branches, not only HEAD: `git log --branches --remotes --oneline -- <migrations dir>` (every local and remote branch) and `git branch -a --contains <migration commit>`; the migration journal or applied-migrations table the tool keeps (Drizzle `meta/_journal.json`, a `schema_migrations` seed, Prisma `migrations/`) compared with the files on disk and with what other branches add — two branches numbering the same slot, a migration on a branch the journal of `main` never lists, a file the journal skips. Recomputations: the jobs, triggers and caches that read the data a requirement changes.
 - **`compat`** — who consumes what the requirement changes: the endpoint's or event's callers in this repository (graph callers, generated clients, SDK packages, mobile/web app sources), published contracts (OpenAPI/GraphQL schema files, `@*/dtos`, versioned routes), and what is released (`git tag`, app store/version files, CHANGELOG, a `min_supported_version` or force-update mechanism).
 </inputs>
 

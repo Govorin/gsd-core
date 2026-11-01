@@ -425,7 +425,7 @@ describe('hosts run roadmap:pre between the requirements commit and the roadmapp
     assert.match(agent, /\*\*`compat`\*\* — nothing released[^\n]*→ clean/);
     assert.match(agent, /\*\*`data`\*\* — no persisted schema yet[^\n]*→ clean/);
     assert.match(agent, /high level[^\n]*never a critical finding/);
-    assert.match(agent, /git log --all --oneline -- <migrations dir>/);
+    assert.match(agent, /git log --branches --remotes --oneline -- <migrations dir>/);
   });
 
   test('the review workflow asks nothing in auto mode and accepts only what the user picked', () => {

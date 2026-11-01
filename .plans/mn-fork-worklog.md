@@ -1225,7 +1225,7 @@ and each time the review caught critical defects before planning. ADR-5212, ADR-
   the title. Hosts gained "Review again" (`--lens` from the gate's `rerun`; `prepare` keeps the
   other reports when the requirements are unchanged) and resume (`/gsd-new-milestone --from-roadmap`,
   `/gsd-new-project` resumes at the hooks). Lens rules for greenfield (nothing released / no schema →
-  clean; high-level never CR) and explicit data/compat evidence (`git log --all` over migrations,
+  clean; high-level never CR) and explicit data/compat evidence (`git log --branches --remotes` over migrations,
   journal vs branches, API consumers).
 
 **Not done:** the roadmapper does not read REQUIREMENTS-REVIEW.md; no `requirements:post` alias;
