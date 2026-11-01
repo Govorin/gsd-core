@@ -45,6 +45,7 @@ import planScanMod = require('./plan-scan.cjs');
 import { runtimeCommand } from './runtime-slash.cjs';
 import { scanFencedBlocks, scanInlineCodeSpans } from './markdown-sectionizer.cjs';
 import { joinLines, splitLines } from './text-lines.cjs';
+import { phaseEntryRegExp } from './phase-entry-grammar.cjs';
 import {
   buildPreflightFix,
   preflightIncompletePlans,
@@ -223,13 +224,16 @@ export interface RoadmapPlanCount {
  * heading, with the milestone section each heading sits in (the last milestone heading or
  * `<summary>` carrying a `vX.Y` token above it) and whether a checked entry marks it done.
  */
+/** A ticked phase entry (`- [x] … Phase N`), spelled through the shared phase-entry grammar. */
+const CHECKED_PHASE_ENTRY_RE = phaseEntryRegExp('Phase\\s+([^\\s:*]+)', '', { state: 'checked', decorated: true });
+
 export function roadmapPlanCounts(roadmap: string): RoadmapPlanCount[] {
   const out: RoadmapPlanCount[] = [];
   const done = new Set<string>();
   let phase: string | null = null;
   let milestone: string | null = null;
   for (const line of splitLines(roadmap)) {
-    const checked = /^\s*[-*]\s*\[[xX]\].*?\bPhase\s+([^\s:*]+)/.exec(line);
+    const checked = CHECKED_PHASE_ENTRY_RE.exec(line);
     if (checked) done.add(phaseKey(checked[1]));
     const heading = /^#{2,4}\s+(?:Phase\s+([^\s:]+)|(\[[^\]]+\]\s*\d[^\s:]*))/i.exec(line);
     if (heading) {
