@@ -9090,3 +9090,27 @@ describe('audit-uat summary.verify_work_phases', () => {
     assert.equal(some.output, '01,04');
   });
 });
+
+describe('audit-uat summary.verify_work_phases leaves out a phase verify-work already ran', () => {
+  // Route V (next.md) must not send the user back, without end, to a phase whose UAT session is
+  // complete while its VERIFICATION report still says human_needed.
+  for (const [label, status, expected] of [['complete', 'complete', []], ['still testing', 'testing', ['05']]]) {
+    test(`human_needed report + UAT session ${label} -> ${JSON.stringify(expected)}`, (t) => {
+      const root = createTempProject('gsd-x4-uat-complete-');
+      t.after(() => cleanup(root));
+      writeVerifyWorkHumanNeeded(root, '05-admin');
+      fs.writeFileSync(path.join(root, '.planning', 'phases', '05-admin', '05-UAT.md'),
+        `---\nstatus: ${status}\nphase: 05-admin\n---\n\n## Tests\n\n### 1. Admin screen\nexpected: works\nresult: pass\n`);
+      assert.deepEqual(readVerifyWorkPhases(root), expected);
+    });
+  }
+
+  test('a pending UAT row still routes even when another UAT file of the phase is complete', (t) => {
+    const root = createTempProject('gsd-x4-uat-mixed-');
+    t.after(() => cleanup(root));
+    writeVerifyWorkUat(root, '06-ops', [['Deploy', 'pending']]);
+    fs.writeFileSync(path.join(root, '.planning', 'phases', '06-ops', '06-HUMAN-UAT.md'),
+      '---\nstatus: complete\nphase: 06-ops\n---\n\n## Tests\n\n### 1. Old check\nexpected: works\nresult: pass\n');
+    assert.deepEqual(readVerifyWorkPhases(root), ['06']);
+  });
+});

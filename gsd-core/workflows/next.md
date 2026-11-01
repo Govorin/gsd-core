@@ -242,7 +242,7 @@ UAT_DEBT_PHASES=$(gsd_run query audit-uat --pick summary.verify_work_phases) || 
 UAT_DEBT_PHASE=${UAT_DEBT_PHASES%%,*}
 ```
 
-`summary.verify_work_phases` lists the current milestone's phases with a UAT row still `pending` or a VERIFICATION `human_needed` item, in phase order. Blocked, skipped and deferred rows are not in it (they wait on something outside the session; `/gsd:progress` lists them), nor are archived milestones. If the audit cannot run, its error is shown above; route on without this rule.
+`summary.verify_work_phases` lists the current milestone's phases with a UAT row still `pending` or a VERIFICATION `human_needed` item, in phase order. Blocked, skipped and deferred rows are not in it (they wait on something outside the session; `/gsd:progress` lists them), nor a phase whose UAT session is already `complete`, nor archived milestones. If the audit cannot run, its error is shown above; route on without this rule.
 
 If `UAT_DEBT_PHASE` is non-empty:
 → Next action: `/gsd:verify-work ${UAT_DEBT_PHASE}` — say `Phase ${UAT_DEBT_PHASE} is waiting for human verification` and name the other phases in `UAT_DEBT_PHASES`, if any.
