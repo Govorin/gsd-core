@@ -13,6 +13,7 @@ import cjsCommandRouterAdapter = require('./cjs-command-router-adapter.cjs');
 const { routeCjsCommandFamily } = cjsCommandRouterAdapter;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import checkCommandRouter = require('./check-command-router.cjs');
+import { cmdVerifyToolPreflight } from './tool-preflight.cjs';
 const { routeCheckCommand } = checkCommandRouter;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -128,6 +129,8 @@ function routeVerifyCommand({ verify, args, cwd, raw, error }: RouteVerifyComman
       // dispatcher's form) or `verify baseline <phase-dir>`, `--accept <why>` to start on a known
       // red base; records into {N}-BASELINE.md, the gate `check mn-baseline` judges.
       baseline: () => verify.cmdVerifyBaseline(cwd, args.slice(2), raw),
+      // LG-01: the installed agent's grants against the tools a plan names (src/tool-preflight.cts).
+      'tool-preflight': () => cmdVerifyToolPreflight(cwd, args.slice(2), raw),
     },
   });
   return pending;

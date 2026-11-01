@@ -32,6 +32,7 @@ import { evaluateMnMutationSpotCheck } from './gate-mn-mutation-spot-check.cjs';
 import { evaluateMnBaseline } from './gate-mn-baseline.cjs';
 import { evaluateMnVerifyGates } from './gate-mn-verify-gates.cjs';
 import { evaluateMnFailurePaths } from './gate-mn-failure-paths.cjs';
+import { evaluateMnToolPreflight } from './gate-mn-tool-preflight.cjs';
 
 type MnGateEvaluator = (input: MnGateInput) => GateResult;
 
@@ -62,6 +63,7 @@ const MN_CHECK_VERBS: Readonly<Record<string, MnGateEntry>> = Object.freeze({
   'mn-baseline': { evaluate: (input) => evaluateMnBaseline(input), scope: 'phase' },
   'mn-verify-gates': { evaluate: evaluateMnVerifyGates, scope: 'phase' },
   'mn-failure-paths': { evaluate: evaluateMnFailurePaths, scope: 'phase' },
+  'mn-tool-preflight': { evaluate: evaluateMnToolPreflight, scope: 'phase' },
 });
 
 /** Is `verb` one of the mn gates? (Own keys only — `toString` is not a verb.) */

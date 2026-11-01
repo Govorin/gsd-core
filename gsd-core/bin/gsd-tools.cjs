@@ -172,6 +172,7 @@
  *
  * Verification Suite:
  *   verify plan-structure <file>       Check PLAN.md structure + tasks
+ *   verify tool-preflight <plan-file>  Installed executor grants the tools a plan names?
  *   verify phase-completeness <phase>  Check all plans have summaries
  *   verify references <file>           Check @-refs + paths resolve
  *   verify commits <h1> [h2] ...      Batch verify commit hashes
@@ -903,6 +904,7 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
   function routeConfigPath({ cwd, raw, workstreamContext }) {
     config.cmdConfigPath(cwd, raw, workstreamContext);
   }
+
 
   async function routeMigrateConfig({ cwd, raw }) {
     await config.cmdMigrateConfig(cwd, raw);

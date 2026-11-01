@@ -803,6 +803,7 @@ Map errors/warnings to verification dimensions:
 - Task missing elements → `task_completeness`
 - Wave/depends_on inconsistency → `dependency_correctness`
 - Checkpoint/autonomous mismatch → `task_completeness`
+- `tool_preflight.status: "missing"` → warning, `task_completeness`: quote `tool_preflight.message`. Not a plan defect — the fix is the grant it names, never dropping the task or another agent type
 
 ## Step 3: Parse must_haves
 

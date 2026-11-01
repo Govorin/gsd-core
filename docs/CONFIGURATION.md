@@ -217,6 +217,37 @@ tool identically. Codex custom agents inherit the parent session's MCP servers n
 `agent_tools` does not encode an allowlist into their TOML or widen `sandbox_mode`, which remains
 derived from the shipped agent declaration.
 
+### Tool preflight
+
+A plan can name a tool its executor was never granted: an `mcp__<server>__<tool>` name, a `.pen`
+design file (driven through the Pencil MCP server, so it needs `mcp__pencil__*`), or one of
+`WebFetch`, `WebSearch`, `NotebookEdit`, `AskUserQuestion`. GSD compares those names, read from the
+plan's `<tasks>`, `<context>` and `files_modified`, with the `tools:` line of the agent file the
+runtime will actually load: for Claude Code `<project>/.claude/agents/<agent>.md` ahead of
+`~/.claude/agents/<agent>.md` (`CLAUDE_CONFIG_DIR` honoured); for other runtimes the project-local
+install, then the global one. The agent is the plan's `agent_hint` when it resolves, otherwise
+`gsd-executor`.
+
+```bash
+gsd-tools verify tool-preflight .planning/phases/03-ui/03-02-PLAN.md   # status: ok | missing | unknown
+```
+
+- `verify plan-structure` carries the same result as `tool_preflight` and adds a warning when it is
+  not `ok`; the plan checker reports `missing` to the user as a warning — a grant to add, not a
+  plan defect for the planner to revise away.
+- `/gsd-execute-phase` runs `check mn-tool-preflight` at `execute:pre` and halts before the first
+  wave when a plan still to run is `missing`. `/gsd-quick` checks its plan before the executor
+  spawn. Neither substitutes another agent type: the message names the missing grants and the fix,
+  `gsd-tools config-set agent_tools.<agent> '[…]'` followed by a reinstall
+  (`gsd-core --<runtime> --local|--global`, matching where the agent file was found). Grants that
+  every install of a fork should carry belong in a first-party capability's `agentTools`
+  ([ADR-5210](adr/5210-install-time-agent-tool-grants.md)).
+- `unknown` — no installed agent file, an unreadable one, a Codex TOML agent, or a non-Claude
+  agent with no `tools:` key — is reported with the reason and never counts as a pass; the
+  execute:pre gate does not block on it, since it cannot prove a grant is absent.
+- `workflow.tool_preflight` (default `true`, from the `mn-verify-gate` capability) turns the
+  execute:pre gate off.
+
 ## Core Settings
 
 | Setting | Type | Options | Default | Description |

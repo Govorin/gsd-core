@@ -199,6 +199,8 @@ build/
 /gsd-core/bin/lib/gate-mn-baseline.cjs
 /gsd-core/bin/lib/gate-mn-verify-gates.cjs
 /gsd-core/bin/lib/gate-mn-failure-paths.cjs
+/gsd-core/bin/lib/gate-mn-tool-preflight.cjs
+/gsd-core/bin/lib/tool-preflight.cjs
 /gsd-core/bin/lib/mn-assertion-count.cjs
 /gsd-core/bin/lib/verify-mutation.cjs
 /gsd-core/bin/lib/verify-baseline.cjs

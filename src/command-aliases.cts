@@ -304,6 +304,16 @@ export const VERIFY_COMMAND_ALIASES: CommandAlias[] = [
     ],
     "subcommand": "baseline",
     "mutation": true
+  },
+  {
+    // Read-only (LG-01): does the installed executor grant the tools a plan
+    // names? `/gsd-quick` reads `status` before its executor spawn.
+    "canonical": "verify.tool-preflight",
+    "aliases": [
+      "verify tool-preflight"
+    ],
+    "subcommand": "tool-preflight",
+    "mutation": false
   }
 ];
 

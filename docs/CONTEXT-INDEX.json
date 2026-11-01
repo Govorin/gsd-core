@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 360,
+  "count": 367,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,9 +22,10 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
-    "SEAM": 46,
+    "SEAM": 48,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
+    "TOOL": 5,
     "WAVE": 5,
     "WORKSTREAM": 5,
     "WORKTREE": 25
@@ -1541,6 +1542,16 @@
       "value": "parseTestReport(output) (src/report-parser.cts) is the single owner of turning a test report into individual results; the RED-evidence policy consumes its contract and parses no report text (#4692)"
     },
     {
+      "id": "SEAM.tool-preflight.enforced-by",
+      "klass": "SEAM",
+      "value": "test:tests/tool-preflight.test.cjs"
+    },
+    {
+      "id": "SEAM.tool-preflight.owns",
+      "klass": "SEAM",
+      "value": "whether the installed executor grants the tools a plan names — one owner for verify plan-structure, verify tool-preflight and check mn-tool-preflight (LG-01)"
+    },
+    {
       "id": "SEAM.verification-isphasecomplete.enforced-by",
       "klass": "SEAM",
       "value": "test:tests/verification-status.test.cjs"
@@ -1654,6 +1665,31 @@
       "id": "SETTINGS-HOOKS.RECONCILE.test-anchors",
       "klass": "SETTINGS-HOOKS",
       "value": "[tests/install-minimal-hooks.test.cjs]"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.agent",
+      "klass": "TOOL",
+      "value": "the plan's agent_hint when workflow.agent_hint_routing is not false and resolveAgentHint finds it, else gsd-executor; verify tool-preflight --agent forces one (quick passes gsd-executor)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.gate",
+      "klass": "TOOL",
+      "value": "check mn-tool-preflight <phase>: blocks iff an unsummarized plan is missing; when workflow.tool_preflight (default true); onError skip; execute-phase.md carries no new prose (its byte ceiling) — the generic execute:pre gate dispatch halts"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.installed",
+      "klass": "TOOL",
+      "value": "GSD_AGENTS_DIR alone when set; claude: <project>/<.claude>/agents then getGlobalConfigDir(claude)/agents (Claude Code's project-over-user precedence, not getAgentsDir's install-relative path); others: getAgentsDir(runtime, project) then the global dir; first file found decides (<agent>.md, .agent.md, .toml)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.requirements",
+      "klass": "TOOL",
+      "value": "from <tasks>, <context> and files_modified only (never <objective> prose): mcp__<server>__<tool> exact, mcp__<server>[__*] whole-server, a *.pen path → mcp__pencil__* whole-server, and the closed list WebFetch|WebSearch|NotebookEdit|AskUserQuestion (no Agent/Task — English words)"
+    },
+    {
+      "id": "TOOL.PREFLIGHT.status",
+      "klass": "TOOL",
+      "value": "ok (nothing named, or all granted; a Claude .md without tools: inherits all) | missing (fix: server-wildcard grants, agent_tools selector keeping its entries, config-set + gsd-core --<runtime> --local|--global by where the file was found; reinstall alone when agent_tools already holds them) | unknown (no file, unreadable, TOML, non-Claude without tools:) — unknown is never a pass and never blocks the gate"
     },
     {
       "id": "WAVE.LESSON.agent-narrative-unreliable",

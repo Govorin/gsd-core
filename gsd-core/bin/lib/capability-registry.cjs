@@ -3189,6 +3189,11 @@ const capabilities = {
         "default": false,
         "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
       },
+      "workflow.tool_preflight": {
+        "type": "boolean",
+        "default": true,
+        "description": "Halt execute-phase at execute:pre when a plan still to run names a tool its executor's installed agent does not grant — an mcp__<server>__… name, a .pen design file (Pencil MCP), or WebFetch/WebSearch/NotebookEdit/AskUserQuestion (`gsd_run check mn-tool-preflight`). The message names the plan, the missing grants and the fix: `gsd-tools config-set agent_tools.<agent> '[…]'` and a reinstall (agent_tools, #4032), or a first-party capability's agentTools (ADR-5210). Without it the orchestrator met such a plan by running general-purpose in place of gsd-executor, outside the executor's contract. The grants are read from the installed agent file the runtime loads; when that file cannot be read the gate passes and says so. On by default (absent = enabled): it blocks only a plan that cannot be executed as written."
+      },
       "workflow.verify_gates_enforce": {
         "type": "boolean",
         "default": false,
@@ -3521,6 +3526,15 @@ const capabilities = {
         "when": "workflow.verify_gates_baseline",
         "blocking": true,
         "onError": "halt"
+      },
+      {
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-tool-preflight"
+        },
+        "when": "workflow.tool_preflight",
+        "blocking": true,
+        "onError": "skip"
       },
       {
         "point": "ship:pre",
@@ -5965,6 +5979,16 @@ const byLoopPoint = {
         "when": "workflow.verify_gates_baseline",
         "blocking": true,
         "onError": "halt"
+      },
+      {
+        "capId": "mn-verify-gate",
+        "point": "execute:pre",
+        "check": {
+          "query": "mn-tool-preflight"
+        },
+        "when": "workflow.tool_preflight",
+        "blocking": true,
+        "onError": "skip"
       }
     ]
   },
@@ -6621,6 +6645,7 @@ const configKeys = {
   "workflow.verify_gates": "mn-verify-gate",
   "workflow.verify_gates_record": "mn-verify-gate",
   "workflow.verify_gates_baseline": "mn-verify-gate",
+  "workflow.tool_preflight": "mn-verify-gate",
   "workflow.verify_gates_enforce": "mn-verify-gate",
   "workflow.mutation_spot_check": "mn-verify-gate",
   "workflow.mutation_test_command": "mn-verify-gate",
@@ -7283,6 +7308,12 @@ const configSchema = {
     "type": "boolean",
     "default": false,
     "description": "Measure the project's checks (workflow.verify_gates) at execute:pre, before the first wave, into {phase}-BASELINE.md (`gsd_run verify baseline`), and block the run while the base is red (`gsd_run check mn-baseline`). A phase that starts on a red tree finishes on one, and nothing then tells the failures it inherited from the ones it introduced. A check that cannot run (stale command, timeout) blocks as unmeasured, not as red. To start on a known red base, record why: `gsd_run verify baseline --phase N --accept \"<reason>\"` — the gate passes while every non-green check is on that list, and a check that goes red later still blocks. The record carries a digest of the working tree outside .planning/ and of the roster, so a record of other code is never read as this one. Off by default: it blocks, and it costs one full run of the checks per execute-phase; turned on silently it would halt every existing project whose roster has a known red check."
+  },
+  "workflow.tool_preflight": {
+    "owner": "mn-verify-gate",
+    "type": "boolean",
+    "default": true,
+    "description": "Halt execute-phase at execute:pre when a plan still to run names a tool its executor's installed agent does not grant — an mcp__<server>__… name, a .pen design file (Pencil MCP), or WebFetch/WebSearch/NotebookEdit/AskUserQuestion (`gsd_run check mn-tool-preflight`). The message names the plan, the missing grants and the fix: `gsd-tools config-set agent_tools.<agent> '[…]'` and a reinstall (agent_tools, #4032), or a first-party capability's agentTools (ADR-5210). Without it the orchestrator met such a plan by running general-purpose in place of gsd-executor, outside the executor's contract. The grants are read from the installed agent file the runtime loads; when that file cannot be read the gate passes and says so. On by default (absent = enabled): it blocks only a plan that cannot be executed as written."
   },
   "workflow.verify_gates_enforce": {
     "owner": "mn-verify-gate",

@@ -39,6 +39,7 @@ import type { GateExitMode } from './gate-exit.cjs';
 import { readPlanScanEvidence, readPlanSetEvidence, statEvidence, evidenceFound, evidenceNone, evidenceFromError } from './gate-evidence.cjs';
 import type { Evidence } from './gate-evidence.cjs';
 import { gateVerdict, gateUnreadable } from './gate-verdict.cjs';
+import { preflightPlanContent, PREFLIGHT_STATUS } from './tool-preflight.cjs';
 import type { GateVerdict } from './gate-verdict.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- agent-install-check.cjs is an export= CommonJS module
 import agentInstallCheck = require('./agent-install-check.cjs');
@@ -1442,6 +1443,12 @@ function cmdVerifyPlanStructure(cwd: string, filePath: string, raw: boolean): vo
   errors.push(...quantScan.errors);
   warnings.push(...quantScan.warnings);
 
+  // LG-01: a plan naming tools its executor's installed agent does not grant is a warning here
+  // (grants can still be added before execution); `check mn-tool-preflight` halts execute-phase
+  // on the same result. `unknown` is reported too — could-not-look is not a pass.
+  const toolPreflight = preflightPlanContent(content, { projectRoot: cwd, plan: path.basename(fullPath) });
+  if (toolPreflight.status !== PREFLIGHT_STATUS.OK) warnings.push(`Tool preflight (${toolPreflight.status}): ${toolPreflight.message}`);
+
   emitVerbVerdict(
     validityVerdict(errors.length === 0, {
       valid: errors.length === 0,
@@ -1450,6 +1457,7 @@ function cmdVerifyPlanStructure(cwd: string, filePath: string, raw: boolean): vo
       task_count: tasks.length,
       tasks,
       frontmatter_fields: Object.keys(fm),
+      tool_preflight: toolPreflight,
     }),
     'status',
     raw,
