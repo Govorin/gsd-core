@@ -229,7 +229,7 @@ describe('compound-fact folding at the init seam — matrix §B', () => {
     test('no --auto flag, but an active auto-chain run, still includes auto-advance-dispatch', () => {
       writeConfig(tmpDir, {});
       fs.mkdirSync(path.join(tmpDir, '.gsd', 'auto-chain'), { recursive: true });
-      fs.writeFileSync(path.join(tmpDir, '.gsd', 'auto-chain', 'active.json'), JSON.stringify({ active: true }));
+      fs.writeFileSync(path.join(tmpDir, '.gsd', 'auto-chain', 'active.json'), JSON.stringify({ active: true, touched_at: new Date().toISOString() }));
       const output = runInitJson(['init', 'discuss-phase-assumptions', '99'], tmpDir);
       assert.ok(output.section_manifest.included.includes('auto-advance-dispatch'));
     });

@@ -27,10 +27,18 @@
  * execute-phase WITHOUT `--auto`, and their "manual invocation clears the chain" guard must not
  * end the run underneath it. So a plain `set` never downgrades an autonomous hold and a plain
  * `clear` never removes it; only `clear --owner autonomous` (autonomous's own exits) does.
- * An autonomous hold is refreshed at every phase start (`set --owner autonomous`) and lapses
- * AUTONOMOUS_HOLD_TTL_MS after its last refresh, so a run that died without releasing it stops
- * reading active instead of keeping every later session unattended. A chain record has no TTL:
- * the next manual invocation clears it, as before.
+ *
+ * A run that died must not leave every later session unattended (hooks turn "ask a human" into
+ * "deny" while a run is active), so when in doubt a record is NOT active:
+ *   - it lapses RUN_STATE_TTL_MS after its last refresh (`touched_at`; autonomous refreshes at
+ *     every phase start, any `set` refreshes); a record without a readable `touched_at` is lapsed;
+ *   - it records the runtime process that wrote it (`holder_pid`, Claude Code's CLAUDE_PID) and
+ *     lapses at once when that process is gone. Without a known holder only the TTL applies.
+ *
+ * Linked worktrees. Run state belongs to the checkout that runs the workflow. A reader standing in
+ * a linked worktree (an isolated executor's guard hook) resolves to the MAIN checkout through
+ * git's common dir, mapping a monorepo subdirectory across, so it sees the run the orchestrator
+ * recorded — even when the worktree carries its own committed `.planning/`.
  *
  * Surfaced as `gsd-tools auto-chain set|clear|status`; `check auto-mode` (`check-auto-mode.cts`)
  * reads `readAutoChainActive` for its `auto_chain_active` field.
@@ -39,7 +47,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ensureGsdRunDir, writeJsonAtomic, GSD_RUN_DIRNAME } from './gsd-run-dir.cjs';
-import { platformWriteSync } from './shell-command-projection.cjs';
+import { platformWriteSync, execGit } from './shell-command-projection.cjs';
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+import worktreeSafety = require('./worktree-safety.cjs');
+const { resolveWorktreeLinkage } = worktreeSafety;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningWorkspace = require('./planning-workspace.cjs');
 const { planningDir, planningRoot, withPlanningLock } = planningWorkspace;
@@ -57,8 +68,11 @@ export const LEGACY_AUTO_CHAIN_CONFIG_KEY = 'workflow._auto_chain_active';
 export type AutoChainOwner = 'chain' | 'autonomous';
 const OWNERS: readonly AutoChainOwner[] = ['chain', 'autonomous'];
 
-/** How long an autonomous hold stays active after its last refresh (one per phase start). */
-export const AUTONOMOUS_HOLD_TTL_MS = 24 * 60 * 60 * 1000;
+/** How long a record stays active after its last refresh. */
+export const RUN_STATE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Env vars naming the agent runtime process that owns a run, in preference order. */
+const HOLDER_PID_ENV = ['CLAUDE_PID'] as const;
 
 const RUN_DIR_OWNER = Object.freeze({
   label: 'auto-chain state',
@@ -76,7 +90,7 @@ export interface AutoChainStatus {
   owner: AutoChainOwner | null;
   /** When the chain was set (ISO), or null when inactive. */
   since: string | null;
-  /** When an autonomous hold lapses unless refreshed (ISO); null for a chain or when inactive. */
+  /** When the record lapses unless refreshed (ISO), or null when inactive. */
   expires_at: string | null;
 }
 
@@ -89,7 +103,7 @@ export interface AutoChainChange extends AutoChainStatus {
   legacy_cleaned: string[];
 }
 
-type Clock = { now?: () => Date };
+type Clock = { now?: () => Date; isAlive?: (pid: number) => boolean; env?: NodeJS.ProcessEnv };
 const nowOf = (opts: Clock): Date => (opts.now ?? (() => new Date()))();
 
 const toPosix = (p: string): string => p.split(path.sep).join('/');
@@ -99,32 +113,69 @@ export function autoChainScope(projectDir: string): string {
   return toPosix(path.relative(planningRoot(projectDir), planningDir(projectDir)));
 }
 
-/** Absolute path of the scope's state file. */
-export function autoChainStatePath(projectDir: string): string {
-  const scope = autoChainScope(projectDir);
-  return path.join(projectDir, GSD_RUN_DIRNAME, AUTO_CHAIN_DIRNAME, ...scope.split('/').filter(Boolean), STATE_FILENAME);
+/**
+ * The checkout whose run state `projectDir` reads: itself, or — from a linked worktree — the
+ * same relative directory in the main checkout. Never throws; anything git cannot answer keeps
+ * `projectDir`.
+ */
+export function runStateRoot(projectDir: string): string {
+  try {
+    const linkage = resolveWorktreeLinkage(projectDir);
+    if (linkage.reason !== 'linked_worktree') return projectDir;
+    const top = execGit(['rev-parse', '--show-toplevel'], { cwd: projectDir, timeout: 5000 });
+    const topText = String(top.stdout || '').trim();
+    if (top.timedOut || top.exitCode !== 0 || topText === '') return projectDir;
+    const rel = path.relative(fs.realpathSync(path.resolve(projectDir, topText)), fs.realpathSync(projectDir));
+    if (rel.startsWith('..') || path.isAbsolute(rel)) return projectDir;
+    return path.join(linkage.effectiveRoot, rel);
+  } catch {
+    return projectDir;
+  }
 }
 
-interface Held { owner: AutoChainOwner; since: string | null; touchedAt: string | null }
+/** Absolute path of the scope's state file (in the main checkout when read from a linked worktree). */
+export function autoChainStatePath(projectDir: string): string {
+  const scope = autoChainScope(projectDir);
+  return path.join(runStateRoot(projectDir), GSD_RUN_DIRNAME, AUTO_CHAIN_DIRNAME, ...scope.split('/').filter(Boolean), STATE_FILENAME);
+}
+
+interface Held { owner: AutoChainOwner; since: string | null; touchedAt: string; holderPid: number | null }
 
 function statusFor(projectDir: string, held: Held | null): AutoChainStatus {
-  const expires = held?.owner === 'autonomous' && held.touchedAt
-    ? new Date(Date.parse(held.touchedAt) + AUTONOMOUS_HOLD_TTL_MS).toISOString()
-    : null;
+  const expires = held ? new Date(Date.parse(held.touchedAt) + RUN_STATE_TTL_MS).toISOString() : null;
   return {
     active: held !== null,
     scope: autoChainScope(projectDir),
-    path: toPosix(path.relative(projectDir, autoChainStatePath(projectDir))),
+    path: toPosix(path.relative(runStateRoot(projectDir), autoChainStatePath(projectDir))),
     owner: held?.owner ?? null,
     since: held?.since ?? null,
     expires_at: expires,
   };
 }
 
+/** Whether process `pid` exists (EPERM: it exists under another user). */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/** The runtime process this call runs under, if the runtime names one. */
+function holderPidFromEnv(env: NodeJS.ProcessEnv): number | null {
+  for (const key of HOLDER_PID_ENV) {
+    const pid = Number(env[key]);
+    if (Number.isSafeInteger(pid) && pid > 0) return pid;
+  }
+  return null;
+}
+
 /**
- * The live record for this scope, or null. Anything unreadable is null, and so is an autonomous
- * hold with no readable refresh time or one older than AUTONOMOUS_HOLD_TTL_MS (`age >= ttl`
- * has lapsed). A record without an owner field is a chain.
+ * The live record for this scope, or null. Null for anything unreadable, a record without a
+ * readable `touched_at` or one RUN_STATE_TTL_MS or older (`age >= ttl` has lapsed), and a
+ * record whose `holder_pid` process is gone. A record without an owner field is a chain.
  */
 function readHeld(projectDir: string, opts: Clock): Held | null {
   const file = autoChainStatePath(projectDir);
@@ -138,11 +189,11 @@ function readHeld(projectDir: string, opts: Clock): Held | null {
     if (!OWNERS.includes(owner as AutoChainOwner)) return null;
     const since = typeof rec['since'] === 'string' ? rec['since'] : null;
     const touchedAt = typeof rec['touched_at'] === 'string' ? rec['touched_at'] : null;
-    if (owner === 'autonomous') {
-      const touched = touchedAt === null ? NaN : Date.parse(touchedAt);
-      if (!Number.isFinite(touched) || nowOf(opts).getTime() - touched >= AUTONOMOUS_HOLD_TTL_MS) return null;
-    }
-    return { owner: owner as AutoChainOwner, since, touchedAt };
+    const touched = touchedAt === null ? NaN : Date.parse(touchedAt);
+    if (touchedAt === null || !Number.isFinite(touched) || nowOf(opts).getTime() - touched >= RUN_STATE_TTL_MS) return null;
+    const holderPid = Number.isSafeInteger(rec['holder_pid']) && (rec['holder_pid'] as number) > 0 ? rec['holder_pid'] as number : null;
+    if (holderPid !== null && !(opts.isAlive ?? processAlive)(holderPid)) return null;
+    return { owner: owner as AutoChainOwner, since, touchedAt, holderPid };
   } catch {
     return null; // absent or unreadable: inactive
   }
@@ -198,7 +249,7 @@ function removeLegacyConfigKey(projectDir: string): string[] {
 }
 
 function ensureStateDir(projectDir: string): string {
-  const runDir = ensureGsdRunDir(projectDir, RUN_DIR_OWNER);
+  const runDir = ensureGsdRunDir(runStateRoot(projectDir), RUN_DIR_OWNER);
   const stateDir = path.dirname(autoChainStatePath(projectDir));
   fs.mkdirSync(stateDir, { recursive: true });
   // A link anywhere under .gsd/auto-chain could carry the write out of the run directory.
@@ -230,12 +281,16 @@ export function setAutoChain(
   let heldBy: AutoChainOwner | null = null;
   if (active) {
     const keepsAutonomous = before?.owner === 'autonomous' && owner === 'chain';
-    const refresh = owner === 'autonomous' || before === null;
-    if (!keepsAutonomous && refresh) {
+    if (!keepsAutonomous) {
+      // A set by the holder (or a new holder) refreshes the record and names its process.
       const now = nowOf(opts).toISOString();
-      after = { owner, since: before?.owner === owner && before.since ? before.since : now, touchedAt: now };
+      const holderPid = holderPidFromEnv(opts.env ?? process.env);
+      after = { owner, since: before?.owner === owner && before.since ? before.since : now, touchedAt: now, holderPid };
       ensureStateDir(projectDir);
-      writeJsonAtomic(file, { active: true, owner, since: after.since, touched_at: now, scope: autoChainScope(projectDir) });
+      writeJsonAtomic(file, {
+        active: true, owner, since: after.since, touched_at: now, holder_pid: holderPid,
+        session: (opts.env ?? process.env)['CLAUDE_CODE_SESSION_ID'] || null, scope: autoChainScope(projectDir),
+      });
     }
   } else if (before?.owner === 'autonomous' && owner === 'chain') {
     heldBy = 'autonomous';

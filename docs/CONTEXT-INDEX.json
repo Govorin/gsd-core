@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 366,
+  "count": 368,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
@@ -22,7 +22,7 @@
     "RELEASE-NOTES": 31,
     "RETRO": 14,
     "RULESET": 62,
-    "RUNSTATE": 4,
+    "RUNSTATE": 6,
     "SEAM": 46,
     "SESSION": 9,
     "SETTINGS-HOOKS": 6,
@@ -1365,7 +1365,17 @@
     {
       "id": "RUNSTATE.AUTO-CHAIN.owner",
       "klass": "RUNSTATE",
-      "value": "a record has an owner: chain (--auto/--chain hand-off; a manual plan/execute/discuss invocation clears it; no TTL) or autonomous (/gsd:autonomous holds the run from initialize to every exit, refreshing per phase); plain set never downgrades and plain clear never removes a live autonomous hold (clear reports held_by), only clear --owner autonomous does — because autonomous calls plan-phase/execute-phase without --auto and check auto-mode.active must stay true for the whole run (S2 guards read it); the hold lapses AUTONOMOUS_HOLD_TTL_MS=24h after its last refresh (age >= ttl is lapsed), so a dead run does not leave later sessions unattended"
+      "value": "a record has an owner: chain (--auto/--chain hand-off; a manual plan/execute/discuss invocation clears it; no TTL) or autonomous (/gsd:autonomous holds the run from initialize to every exit, refreshing per phase); plain set never downgrades and plain clear never removes a live autonomous hold (clear reports held_by), only clear --owner autonomous does — because autonomous calls plan-phase/execute-phase without --auto and check auto-mode.active must stay true for the whole run (S2 guards read it)"
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.stale",
+      "klass": "RUNSTATE",
+      "value": "when in doubt a record is NOT active (hooks turn ask into deny while active): any record lapses RUN_STATE_TTL_MS=24h after touched_at (age >= ttl lapsed; missing/unparseable touched_at lapsed; every set by the holder refreshes it, autonomous at each phase start) and at once when its holder_pid (CLAUDE_PID at set time) is no longer alive; no runtime pid -> TTL only; session id is recorded for diagnosis, not matched"
+    },
+    {
+      "id": "RUNSTATE.AUTO-CHAIN.worktree",
+      "klass": "RUNSTATE",
+      "value": "run state lives in the checkout that runs the workflow; runStateRoot maps a linked worktree (git-dir != git-common-dir) to the same relative dir in the main checkout, even when the worktree carries a committed .planning/, so an isolated executor's guard reads the orchestrator's run; nothing is written into the worktree"
     },
     {
       "id": "RUNSTATE.SEAM.gsd-run-dir",

@@ -358,7 +358,8 @@ function buildApiNoPhases(root) {
 function buildAuto(config, { chain = false } = {}) {
   return (root) => {
     write(root, '.planning/config.json', `${JSON.stringify(config)}\n`);
-    if (chain) write(root, '.gsd/auto-chain/active.json', `${JSON.stringify({ active: true, since: '2026-01-01T00:00:00.000Z', scope: '' })}\n`);
+    // touched_at is "now": a record lapses RUN_STATE_TTL_MS after its last refresh.
+    if (chain) write(root, '.gsd/auto-chain/active.json', `${JSON.stringify({ active: true, since: '2026-01-01T00:00:00.000Z', touched_at: new Date().toISOString(), scope: '' })}\n`);
   };
 }
 

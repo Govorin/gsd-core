@@ -70,7 +70,7 @@ describe('auto-chain set|clear|status', () => {
     const set = json(dir, ['query', 'auto-chain', 'set']);
     assert.equal(set.active, true);
     assert.equal(set.owner, 'chain');
-    assert.equal(set.expires_at, null, 'a chain record has no TTL');
+    assert.equal(typeof set.expires_at, 'string', 'every record lapses unless refreshed');
     assert.equal(set.changed, true);
     assert.deepEqual(set.legacy_cleaned, []);
     assert.equal(typeof set.since, 'string');
@@ -200,48 +200,106 @@ describe('an autonomous run holds the chain for its whole length', () => {
     assert.equal(autoMode(dir, { GSD_WORKSTREAM: 'alpha' }).active, false);
   });
 
-  describe('a hold nobody released lapses AUTONOMOUS_HOLD_TTL_MS after its last refresh', () => {
-    const lib = () => require('../gsd-core/bin/lib/auto-chain-state.cjs');
-    const T0 = Date.parse('2026-06-01T00:00:00.000Z');
+});
 
-    function heldAt(dir, touchedMs) {
-      const file = path.join(dir, STATE);
-      fs.mkdirSync(path.dirname(file), { recursive: true });
-      fs.writeFileSync(file, JSON.stringify({ active: true, owner: 'autonomous', since: new Date(T0).toISOString(), touched_at: new Date(touchedMs).toISOString() }));
-    }
+describe('a record a dead run left behind is not active (when in doubt, ask the human)', () => {
+  const lib = () => require('../gsd-core/bin/lib/auto-chain-state.cjs');
+  const T0 = Date.parse('2026-06-01T00:00:00.000Z');
+  const alive = () => true;
 
+  function record(dir, fields) {
+    const file = path.join(dir, STATE);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ active: true, since: new Date(T0).toISOString(), touched_at: new Date(T0).toISOString(), ...fields }));
+  }
+
+  for (const owner of ['chain', 'autonomous']) {
     for (const [label, ageDelta, active] of [['limit-1', -1, true], ['limit', 0, false], ['limit+1', 1, false]]) {
-      test(`age ${label} -> ${active ? 'active' : 'lapsed'}`, (t) => {
+      test(`${owner}: age ${label} of RUN_STATE_TTL_MS -> ${active ? 'active' : 'lapsed'}`, (t) => {
         const dir = createTempProject('gsd-x5-ttl-');
         t.after(() => cleanup(dir));
-        const { AUTONOMOUS_HOLD_TTL_MS, readAutoChainActive, readAutoChainState } = lib();
-        heldAt(dir, T0);
-        const now = () => new Date(T0 + AUTONOMOUS_HOLD_TTL_MS + ageDelta);
-        assert.equal(readAutoChainActive(dir, { now }), active);
-        assert.equal(readAutoChainState(dir, { now }).owner, active ? 'autonomous' : null);
+        const { RUN_STATE_TTL_MS, readAutoChainActive, readAutoChainState } = lib();
+        record(dir, { owner });
+        const now = () => new Date(T0 + RUN_STATE_TTL_MS + ageDelta);
+        assert.equal(readAutoChainActive(dir, { now, isAlive: alive }), active);
+        assert.equal(readAutoChainState(dir, { now, isAlive: alive }).owner, active ? owner : null);
       });
     }
+  }
 
-    test('a lapsed hold no longer blocks a plain clear, and expires_at names the deadline', (t) => {
-      const dir = createTempProject('gsd-x5-ttl-clear-');
-      t.after(() => cleanup(dir));
-      const { AUTONOMOUS_HOLD_TTL_MS, setAutoChain, readAutoChainState } = lib();
-      heldAt(dir, T0);
-      assert.equal(readAutoChainState(dir, { now: () => new Date(T0) }).expires_at, new Date(T0 + AUTONOMOUS_HOLD_TTL_MS).toISOString());
-      const later = () => new Date(T0 + AUTONOMOUS_HOLD_TTL_MS);
-      const cleared = setAutoChain(dir, false, { now: later });
-      assert.equal(cleared.held_by, null);
-      assert.equal(fs.existsSync(path.join(dir, STATE)), false);
-    });
+  test('a record whose holder process is gone lapses at once; a live holder keeps it', (t) => {
+    const dir = createTempProject('gsd-x5-holder-');
+    t.after(() => cleanup(dir));
+    const { readAutoChainActive } = lib();
+    const now = () => new Date(T0 + 1000);
+    record(dir, { owner: 'autonomous', holder_pid: 4242 });
+    assert.equal(readAutoChainActive(dir, { now, isAlive: (pid) => pid !== 4242 }), false, 'dead holder');
+    assert.equal(readAutoChainActive(dir, { now, isAlive: (pid) => pid === 4242 }), true, 'live holder');
+    record(dir, { owner: 'autonomous', holder_pid: process.pid });
+    assert.equal(readAutoChainActive(dir, { now }), true, 'the default liveness probe sees a live process');
+  });
 
-    test('a hold without a readable refresh time is not active', (t) => {
+  test('set records the runtime process from CLAUDE_PID, and none without it', (t) => {
+    const dir = createTempProject('gsd-x5-holder-set-');
+    t.after(() => cleanup(dir));
+    const readRaw = () => JSON.parse(fs.readFileSync(path.join(dir, STATE), 'utf8'));
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous'], { CLAUDE_PID: String(process.pid), CLAUDE_CODE_SESSION_ID: 'sess-1' });
+    assert.equal(readRaw().holder_pid, process.pid);
+    assert.equal(readRaw().session, 'sess-1');
+    json(dir, ['auto-chain', 'set', '--owner', 'autonomous'], { CLAUDE_PID: '' });
+    assert.equal(readRaw().holder_pid, null, 'no runtime pid: only the TTL applies');
+    assert.equal(autoMode(dir).active, true);
+  });
+
+  test('a lapsed hold no longer blocks a plain clear, and expires_at names the deadline', (t) => {
+    const dir = createTempProject('gsd-x5-ttl-clear-');
+    t.after(() => cleanup(dir));
+    const { RUN_STATE_TTL_MS, setAutoChain, readAutoChainState } = lib();
+    record(dir, { owner: 'autonomous' });
+    assert.equal(readAutoChainState(dir, { now: () => new Date(T0), isAlive: alive }).expires_at, new Date(T0 + RUN_STATE_TTL_MS).toISOString());
+    const cleared = setAutoChain(dir, false, { now: () => new Date(T0 + RUN_STATE_TTL_MS), isAlive: alive });
+    assert.equal(cleared.held_by, null);
+    assert.equal(fs.existsSync(path.join(dir, STATE)), false);
+  });
+
+  for (const [label, fields] of [['no touched_at', { touched_at: undefined }], ['an unparseable touched_at', { touched_at: 'yesterday' }]]) {
+    test(`a record with ${label} is not active`, (t) => {
       const dir = createTempProject('gsd-x5-ttl-missing-');
       t.after(() => cleanup(dir));
-      fs.mkdirSync(path.dirname(path.join(dir, STATE)), { recursive: true });
-      fs.writeFileSync(path.join(dir, STATE), JSON.stringify({ active: true, owner: 'autonomous' }));
-      assert.equal(lib().readAutoChainActive(dir), false);
+      record(dir, { owner: 'autonomous', ...fields });
+      assert.equal(lib().readAutoChainActive(dir, { isAlive: alive }), false);
     });
-  });
+  }
+});
+
+describe('a reader in a linked worktree sees the main checkout\'s run', () => {
+  function gitOk(args, cwd) {
+    const r = runGit(args, { cwd, timeoutMs: GIT_FIXTURE_TIMEOUT_MS });
+    assert.equal(r.exitCode, 0, r.stderr);
+    return r;
+  }
+
+  for (const committedPlanning of [false, true]) {
+    test(`state set in main -> active from the worktree (worktree ${committedPlanning ? 'with' : 'without'} its own .planning)`, (t) => {
+      const main = createTempGitProject('gsd-x5-wt-main-');
+      const wtParent = createTempDir('gsd-x5-wt-');
+      t.after(() => { cleanup(main); cleanup(wtParent); });
+      const wt = path.join(wtParent, 'wt');
+      gitOk(['worktree', 'add', '-q', '-b', 'agent-x5', wt], main);
+      // The fixture commits .planning/ (commit_docs); a project that ignores it has none in the worktree.
+      if (!committedPlanning) cleanup(path.join(wt, '.planning'));
+      assert.equal(fs.existsSync(path.join(wt, '.planning')), committedPlanning);
+
+      json(main, ['auto-chain', 'set', '--owner', 'autonomous']);
+      const { readAutoModeState } = require('../gsd-core/bin/lib/check-auto-mode.cjs');
+      assert.equal(readAutoModeState(wt).active, true, 'in-process reader (the guard hook path)');
+      assert.equal(autoMode(wt).active, true, 'CLI reader from the worktree');
+      assert.equal(fs.existsSync(path.join(wt, '.gsd')), false, 'nothing is written into the worktree');
+
+      json(main, ['auto-chain', 'clear', '--owner', 'autonomous']);
+      assert.equal(readAutoModeState(wt).active, false);
+    });
+  }
 });
 
 describe('the versioned tree stays clean', () => {
