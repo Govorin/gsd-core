@@ -19,6 +19,7 @@ const { gateControl } = require('./helpers/gate-positive-control.cjs');
 
 const gate = require('../gsd-core/bin/lib/gate-milestone-review.cjs');
 const { evaluateMilestoneReview, MILESTONE_REVIEW_NAMED_MAX } = gate;
+const { milestoneWindowStart } = require('../gsd-core/bin/lib/milestone-review.cjs');
 
 const MILESTONE = 'v1.1';
 
@@ -313,6 +314,157 @@ describe('milestone-review verdicts', () => {
     const v = evaluateMilestoneReview({ projectDir: dir, args: [MILESTONE] });
     assert.equal(v.payload.milestone, MILESTONE);
     assert.equal(v.block, true);
+  });
+});
+
+// ─── Where the milestone starts: one base for the gate and the stage ─────────
+
+describe('milestone-review base', () => {
+  let dir;
+  beforeEach(() => { dir = createTempGitProject('milestone-review-base-'); });
+  afterEach(() => { cleanup(dir); });
+
+  function archive(version) {
+    return commit(dir, `.planning/milestones/${version}-ROADMAP.md`, `# ${version}\n`, `chore: archive ${version}`);
+  }
+
+  test('get_your_look_up shape: create_tag off, one stale v1.3 tag, archives up to v1.12 → base is the v1.12 archive commit', () => {
+    put(dir, '.planning/config.json', JSON.stringify({ git: { create_tag: false } }));
+    codeCommit(dir);
+    git(dir, ['tag', 'v1.3']);
+    for (const v of ['v1.4', 'v1.11']) { codeCommit(dir); archive(v); }
+    codeCommit(dir, 'feat: last change of v1.12');
+    const closedAt = archive('v1.12');
+    const current = codeCommit(dir, 'feat: v1.13 work');
+    const v = evaluate(dir, 'v1.13');
+    assert.equal(v.payload.baseFrom, 'archive');
+    assert.equal(v.payload.base, closedAt);
+    assert.equal(v.payload.previous, 'v1.12');
+    assert.equal(v.payload.codeCommits, 1, 'only the code after the previous close, never v1.4–v1.12');
+    assert.deepEqual(v.payload.uncoveredCommits.map((c) => c.sha), [current]);
+    assert.equal(v.payload.reviewSince, closedAt);
+  });
+
+  test('the previous milestone tagged after its archive under a prefix scheme (polyglot-v4.4) → that tag is nearer', () => {
+    codeCommit(dir);
+    archive('v4.4');
+    commit(dir, '.planning/MILESTONES.md', '# v4.4\n', 'docs: close v4.4');
+    git(dir, ['tag', 'polyglot-v4.4']);
+    codeCommit(dir);
+    const v = evaluate(dir, 'v4.5');
+    assert.equal(v.payload.baseFrom, 'tag');
+    assert.equal(v.payload.baseTag, 'polyglot-v4.4');
+    assert.equal(v.payload.codeCommits, 1);
+  });
+
+  test('the milestone being closed is excluded from the archive candidates (a re-run after archiving)', () => {
+    const prev = archive('v1.0');
+    codeCommit(dir);
+    archive('v1.1');
+    assert.equal(evaluate(dir, 'v1.1').payload.base, prev);
+  });
+
+  test('nothing archived, repo_tagging per_repo: a v* tag here is not the milestone base', () => {
+    put(dir, '.planning/config.json', JSON.stringify({ git: { repo_tagging: 'per_repo' } }));
+    codeCommit(dir);
+    git(dir, ['tag', 'v0.9']);
+    codeCommit(dir);
+    assert.notEqual(evaluate(dir, 'v1.0').payload.baseFrom, 'tag');
+  });
+
+  test('a shallow clone could not look at the history → unreadable, never "the whole history"', (t) => {
+    codeCommit(dir);
+    codeCommit(dir);
+    const shallow = createTempDir('milestone-review-shallow-');
+    t.after(() => cleanup(shallow));
+    gitOrThrow(['clone', '-q', '--depth', '1', `file://${dir}`, path.join(shallow, 'c')], { cwd: shallow });
+    const v = evaluate(path.join(shallow, 'c'));
+    assert.equal(v.outcome, 'unreadable');
+    assert.match(v.payload.message, /shallow/);
+  });
+});
+
+describe('milestone-review in a monorepo with a nested project', () => {
+  let root;
+  beforeEach(() => { root = createTempGitProject('milestone-review-mono-'); });
+  afterEach(() => { cleanup(root); });
+
+  test('a nested .planning has its own history; other projects\' planning commits are not code', () => {
+    const app = path.join(root, 'apps', 'polyglot');
+    commit(root, 'apps/polyglot/src/old.js', 'old\n', 'feat: before gsd in polyglot');
+    git(root, ['tag', 'v9.0']);
+    const before = commit(root, 'apps/polyglot/src/older.js', 'older\n', 'feat: still before gsd');
+    commit(root, 'apps/polyglot/.planning/PROJECT.md', '# polyglot\n', 'docs: start planning polyglot');
+    const work = commit(root, 'apps/polyglot/src/new.js', 'new\n', 'feat: planned work');
+    commit(root, 'apps/polyglot/.planning/phases/01-a/01-01-SUMMARY.md', 'x\n', 'docs: summary');
+    commit(root, 'apps/other/.planning/STATE.md', 'x\n', 'docs: another project');
+    const v = evaluate(app, 'v1.0');
+    assert.equal(v.payload.baseFrom, 'planning-start');
+    assert.equal(v.payload.base, before);
+    assert.deepEqual(v.payload.uncoveredCommits.map((c) => c.sha), [work]);
+  });
+
+  test('at the repository root, commits that only touch a nested .planning are not code', () => {
+    git(root, ['tag', 'v1.0']);
+    commit(root, 'apps/polyglot/.planning/STATE.md', 'x\n', 'docs: nested planning only');
+    const v = evaluate(root, 'v1.1');
+    assert.equal(v.payload.status, 'no-change');
+  });
+});
+
+// ─── Fail closed on what a REVIEW.md claims ──────────────────────────────────
+
+describe('milestone-review trusts only a composed review', () => {
+  let dir;
+  beforeEach(() => { dir = createTempGitProject('milestone-review-trust-'); });
+  afterEach(() => { cleanup(dir); });
+
+  test('a tip that is not a full sha covers nothing', () => {
+    const tip = codeCommit(dir);
+    windowReview(dir, '2026-10-20', { base: null, tip: tip.slice(0, 12), status: 'clean' });
+    const v = evaluate(dir);
+    assert.equal(v.block, true);
+    assert.match(v.payload.ignoredReviews[0].reason, /full commit sha/);
+  });
+
+  for (const status of ['partial', 'pending', '']) {
+    test(`status ${JSON.stringify(status)} covers nothing`, () => {
+      const tip = codeCommit(dir);
+      windowReview(dir, '2026-10-20', { base: null, tip, status });
+      assert.equal(evaluate(dir).block, true);
+    });
+  }
+
+  test('a review with no lens section covers nothing', () => {
+    const tip = codeCommit(dir);
+    put(dir, '.planning/reviews/2026-10-20-window/REVIEW.md', `---\ntip: "${tip}"\nbase: null\nstatus: clean\n---\n\n# Window Review\n`);
+    const v = evaluate(dir);
+    assert.equal(v.block, true);
+    assert.match(v.payload.ignoredReviews[0].reason, /lens/);
+  });
+
+  test('a REVIEW-FIX.md commit counts only when it descends from the tip; every sha on the line counts', () => {
+    const early = codeCommit(dir, 'feat: before the window');
+    const base = codeCommit(dir, 'feat: window base');
+    const tip = codeCommit(dir, 'feat: reviewed');
+    const fixA = codeCommit(dir, 'fix: CR-01 part a');
+    const fixB = codeCommit(dir, 'fix: CR-01 part b');
+    windowReview(dir, '2026-10-20', { base, tip, status: 'clean', fixed: ['CR-01'], fixCommits: [`${fixA.slice(0, 7)}, ${fixB.slice(0, 7)}`, early] });
+    windowReview(dir, '2026-10-19', { base: null, tip: base, status: 'clean' });
+    const v = evaluate(dir);
+    assert.deepEqual(v.payload.uncoveredCommits.map((c) => c.sha), [], JSON.stringify(v.payload.uncoveredCommits));
+    // `early` is named on a Commit line but precedes the tip: it is covered only by the earlier window.
+    windowReview(dir, '2026-10-19', { base: early, tip: base, status: 'clean' });
+    assert.deepEqual(evaluate(dir).payload.uncoveredCommits.map((c) => c.sha), [early]);
+  });
+});
+
+describe('milestoneWindowStart', () => {
+  test('a git failure is no start, not an exception', (t) => {
+    const dir = createTempDir('milestone-window-start-');
+    t.after(() => cleanup(dir));
+    const failing = () => ({ exitCode: 128, stdout: '', stderr: 'fatal', signal: null, error: null, timedOut: false });
+    assert.equal(milestoneWindowStart(dir, 'v1.0', failing), null);
   });
 });
 

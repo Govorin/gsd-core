@@ -193,13 +193,19 @@ describe('review stage (milestone:pre)', () => {
     assert.ok(fs.existsSync(path.join(repo.dir, out.prepass)));
   });
 
-  test('[happy] a recorded window wins over the tag: since is last', () => {
+  test('[boundary] the recorded window and the previous tag: the one nearer to HEAD is the start', () => {
     const repo = makeRepo();
-    repo.git('tag', 'v1.0', repo.tip);
-    const marker = { tip: repo.base, since: repo.base, until: 'HEAD', reviewedAt: '2026-10-01T00:00:00.000Z', review: '.planning/reviews/2026-10-01-window/REVIEW.md' };
-    write(repo.dir, '.planning/reviews/LAST-WINDOW.json', `${JSON.stringify({ version: 1, ...marker }, null, 2)}\n`);
-    const out = json(run(repo, [...STAGE, '--milestone', 'v1.1']));
-    assert.deepEqual([out.since, out.files, out.decision], ['last', 3, 'auto']);
+    const marker = (tip) => write(repo.dir, '.planning/reviews/LAST-WINDOW.json', `${JSON.stringify({
+      version: 1, tip, since: repo.base, until: 'HEAD', reviewedAt: '2026-10-01T00:00:00.000Z', review: '.planning/reviews/2026-10-01-window/REVIEW.md',
+    }, null, 2)}\n`);
+    // The marker after the tag: the recorded window is nearer — since last, two commits left.
+    repo.git('tag', 'v1.0', repo.base);
+    marker(repo.git('rev-parse', 'HEAD~2'));
+    assert.deepEqual(((o) => [o.since, o.files, o.decision])(json(run(repo, [...STAGE, '--milestone', 'v1.1']))), ['last', 2, 'auto']);
+    // A stale marker from before the previous milestone's tag: the tag is nearer.
+    repo.git('tag', '-d', 'v1.0');
+    repo.git('tag', 'v1.0', 'HEAD~1');
+    assert.deepEqual(((o) => [o.since, o.files])(json(run(repo, [...STAGE, '--milestone', 'v1.1']))), ['v1.0', 1]);
   });
 
   test('[boundary] the tag of the milestone being closed is not its own start (a re-run after tagging)', () => {

@@ -96,6 +96,8 @@ function details(state: MilestoneReviewState): Record<string, unknown> {
     base: state.base,
     baseFrom: state.baseFrom,
     baseTag: state.baseTag,
+    previous: state.previous,
+    reviewSince: state.reviewSince,
     head: state.head,
     codeCommits: state.codeCommits.length,
     uncovered: state.uncovered.length,
@@ -114,12 +116,6 @@ function details(state: MilestoneReviewState): Record<string, unknown> {
   };
 }
 
-/** The `--since` a review of the uncovered rest starts from: the last window when one is recorded, else the milestone base. */
-function sinceForRest(state: MilestoneReviewState): string | null {
-  if (state.lastWindow) return 'last';
-  if (state.baseTag !== null) return state.baseTag;
-  return state.base;
-}
 
 function named<T>(items: readonly T[], render: (item: T) => string): string {
   const shown = items.slice(0, MILESTONE_REVIEW_NAMED_MAX).map(render).join('; ');
@@ -129,7 +125,9 @@ function named<T>(items: readonly T[], render: (item: T) => string): string {
 
 function blockMessage(projectDir: string, state: MilestoneReviewState): string {
   const parts: string[] = [];
-  const from = state.baseFrom === 'tag' ? `since ${state.baseTag}` : state.baseFrom === 'planning-start' ? 'since planning began' : 'over the whole history';
+  const from = state.baseFrom === 'tag' ? `since ${state.baseTag}`
+    : state.baseFrom === 'archive' ? `since ${state.previous ?? 'the previous milestone'} was archived`
+    : state.baseFrom === 'planning-start' ? 'since planning began' : 'over the whole history';
   if (state.uncovered.length > 0) {
     const what = state.reviews.length === 0
       ? `no window review covers milestone ${state.milestone} (${state.codeCommits.length} code commit(s) ${from})`
@@ -145,7 +143,7 @@ function blockMessage(projectDir: string, state: MilestoneReviewState): string {
       ? `${state.accept.path} is not usable (${state.accept.problem})`
       : `the acceptance in ${state.accept.path} (${state.accept.record?.acceptedAt ?? '?'}) no longer covers what is open — it was recorded before these appeared`);
   }
-  const since = sinceForRest(state);
+  const since = state.reviewSince;
   const ways: string[] = [];
   if (state.uncovered.length > 0) {
     ways.push(since === null

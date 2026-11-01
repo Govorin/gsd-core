@@ -58,7 +58,8 @@
  *
  *   review stage [--milestone vX.Y] [--date YYYY-MM-DD]
  *       The code-review capability's `milestone:pre` command step: resolve the milestone's window
- *       (`last`, else the previous `v*` tag, else the parent of the first `.planning/` commit), run the pre-pass over it (written like
+ *       (`milestoneWindowStart`: `last` when the recorded window is at least as near to HEAD as the
+ *       milestone base — the previous milestone's archive commit or tag — else that base), run the pre-pass over it (written like
  *       window-prepass), and answer per loop-hook-dispatch.md — `auto` with `/gsd-code-review
  *       --since <since>` as `next` when `code_review.window_at_milestone` is on, `suggest` when it
  *       is off, `skip` for an empty window. The deterministic pre-pass always runs.
@@ -98,7 +99,7 @@ import { parseWindowSince, isSafeRefArgument } from './gate-evaluation-scope.cjs
 import { CODE_REVIEW_LENSES, resolveCodeReviewInvocation } from './code-review-flags.cjs';
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
-  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
+  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer,
   openWindowFindings, recordFixedFinding, reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
   REVIEWS_DIR, WINDOW_FILES,
 } from './window-review.cjs';
@@ -109,7 +110,7 @@ import type { ResolveCodeReviewDepthInput } from './code-review-depth.cjs';
 import { normalizeFallowReportFile, resolveFallowBinary } from './fallow-runner.cjs';
 import { escapeRegex } from './pattern.cjs';
 import {
-  acceptReasonProblem, assessMilestoneReview, formatAcceptRecord, milestoneAcceptPath, milestoneBase, MILESTONE_VERSION_RE,
+  acceptReasonProblem, assessMilestoneReview, formatAcceptRecord, milestoneAcceptPath, milestoneWindowStart, MILESTONE_VERSION_RE,
 } from './milestone-review.cjs';
 
 const { output, getJsonErrorMode, ERROR_REASON } = io;
@@ -310,16 +311,6 @@ function handleInvocation(args: string[], raw: boolean): void {
   process.exitCode = invocation.exitCode;
 }
 
-function planningStartSince(cwd: string, milestone: string | null, execGit: GitRunner | undefined): string | null {
-  try {
-    const found = milestoneBase(cwd, milestone, execGit);
-    return found.from === 'planning-start' ? found.base : null;
-  } catch {
-    // git could not answer: the stage then names no start, as before — a suggestion, never a review of the whole history.
-    return null;
-  }
-}
-
 function handleStage(args: string[], cwd: string, raw: boolean, clock: { now(): number } | undefined, execGit: GitRunner | undefined): void {
   const milestone = flagValue(args, 'milestone');
   if (milestone !== null && !isSafeRefArgument(milestone)) throw new UsageError(`--milestone must be a version like v1.2, got ${milestone}`);
@@ -330,9 +321,9 @@ function handleStage(args: string[], cwd: string, raw: boolean, clock: { now(): 
   const atMilestone = config.atMilestone !== false;
   const slashOut = formatGsdSlashFor(cwd, 'code-review');
   const slash = typeof slashOut === 'string' ? slashOut : undefined;
-  // No window marker and no earlier milestone tag (a first milestone): the window starts where the
-  // planning began, the same base the milestone-review gate measures coverage from.
-  const since = milestoneWindowSince(cwd, milestone, execGit) ?? planningStartSince(cwd, milestone, execGit);
+  // One start, shared with the milestone-review gate (src/milestone-review.cts): the recorded window
+  // when it is at least as near to HEAD as the milestone base, else the base.
+  const since = milestoneWindowStart(cwd, milestone, execGit);
   if (since === null) {
     output({ since, window: null, ...milestoneReviewAnswer(null, null, atMilestone, slash) }, raw);
     return;

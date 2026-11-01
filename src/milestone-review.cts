@@ -6,13 +6,20 @@
  *
  * ── The milestone window ──
  *
- * `base` (exclusive) is where the milestone's change starts:
+ * `base` (exclusive) is where the milestone's change starts — ONE answer, `milestoneBase`, shared with
+ * the code-review stage's `--since` (`milestoneWindowStart`). The candidates, nearest to HEAD wins:
  *
- *   1. `tag`             the newest `v*` tag merged into HEAD that is not the milestone being
- *                        closed — the previous milestone's close (complete-milestone tags it);
- *   2. `planning-start`  no such tag (a first milestone): the parent of the first commit that added
- *                        anything under `.planning/` — the work GSD planned starts there;
- *   3. `root`            neither: the whole history (`base` null).
+ *   - `archive`  the previous milestone's archive commit: the newest commit that added a
+ *                `<planning>/milestones/<v>-ROADMAP.md` other than the milestone being closed. It
+ *                exists whatever the tagging scheme (git.create_tag off, per-repo tags).
+ *   - `tag`      the previous milestone's tag: a tag naming that archived version under any prefix
+ *                (`v1.2`, `polyglot-v1.2`, `a/b/v1.2`); with nothing archived, a `v*` tag only when
+ *                this repository is the one complete-milestone tags (create_tag on, not per_repo,
+ *                and the project is the repository's root, not a project nested in a monorepo).
+ *
+ * With neither (a first milestone): `planning-start`, the parent of the first commit under this
+ * project's own `.planning/` (a nested `.planning` in a monorepo has its own history), else `root`.
+ * A shallow clone is `unreadable`: there, a missing tag or archive means "not fetched".
  *
  * The milestone's CODE commits are `base..HEAD` without merges, restricted by the window review's
  * own exclusions (`SCOPE_EXCLUSION_PATHSPECS`: planning artifacts, lockfiles) — a commit that only
@@ -26,8 +33,9 @@
  * `review record-fixed` both write it), because those commits are that review's own remedy. A
  * milestone code commit is covered when ANY review covers it — windows chain (`--since last`) and
  * may overlap, so coverage is a set union, never "the newest review". A review that is
- * `incomplete` (a lens report was never written) or whose tip is not in the repository covers
- * nothing, and is listed as ignored with the reason.
+ * `incomplete`, carries a status outside `clean`/`issues_found`, has no full-sha `tip`/`base`, has
+ * no `## Lens:` section, or whose tip is not in the repository covers nothing (fail closed), and is
+ * listed as ignored with the reason. A fix commit counts only when it descends from the review's tip.
  *
  * ── Open Critical ──
  *
@@ -41,8 +49,8 @@
  * ── The owner's override ──
  *
  * `<planning>/reviews/MILESTONE-<version>-ACCEPT.json` records an explicit acceptance: the reason,
- * the instant, HEAD, and the exact uncovered commits and open Critical keys accepted. It is
- * self-invalidating: it holds only while every commit still uncovered and every Critical still open
+ * the instant, the exact uncovered commits and open Critical keys accepted, and (informational, not
+ * checked) the HEAD it was recorded at. It is self-invalidating: it holds only while every commit still uncovered and every Critical still open
  * is one it named — a commit or a finding that appears after it blocks again.
  *
  * Every git call goes through the `execGit` seam with a bounded timeout; a read that fails is
@@ -55,7 +63,8 @@
 import path from 'node:path';
 import { execGit as execGitSeam } from './shell-command-projection.cjs';
 import type { SpawnResultOutput } from './shell-command-projection.cjs';
-import { SCOPE_EXCLUSION_PATHSPECS } from './gate-evaluation-scope.cjs';
+import { SCOPE_EXCLUSION_PATHSPECS, parseLastWindowMarker } from './gate-evaluation-scope.cjs';
+import { readWorkflowConfigValue } from './gate-config.cjs';
 import { readDirEntriesEvidence, readTextEvidence } from './gate-evidence.cjs';
 import { openWindowFindings, REVIEWS_DIR, WINDOW_FILES } from './window-review.cjs';
 import type { GitRunner } from './window-review.cjs';
@@ -68,7 +77,7 @@ import planningWorkspaceMod = require('./planning-workspace.cjs');
 import brokenWindowsMod = require('./broken-windows.cjs');
 
 const { rawFrontmatterMapping } = frontmatterMod;
-const { planningDir } = planningWorkspaceMod;
+const { planningDir, planningRoot } = planningWorkspaceMod;
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -77,7 +86,7 @@ export interface MilestoneCommit {
   subject: string;
 }
 
-export type MilestoneBaseFrom = 'tag' | 'planning-start' | 'root';
+export type MilestoneBaseFrom = 'archive' | 'tag' | 'planning-start' | 'root';
 
 export interface CoveringReview {
   /** Project-relative, posix. */
@@ -130,6 +139,8 @@ export interface MilestoneReviewState {
   baseFrom: MilestoneBaseFrom;
   /** The tag `base` came from (`baseFrom: 'tag'`), else null. */
   baseTag: string | null;
+  /** The previous milestone's version, from its archive file; null when none is archived. */
+  previous: string | null;
   head: string;
   codeCommits: MilestoneCommit[];
   uncovered: MilestoneCommit[];
@@ -137,8 +148,8 @@ export interface MilestoneReviewState {
   ignored: IgnoredReview[];
   openCritical: OpenCriticalFinding[];
   openWarnings: number;
-  /** Is there a LAST-WINDOW marker, so `--since last` resolves? */
-  lastWindow: boolean;
+  /** The `--since` a review of what is left starts from (`milestoneWindowStart`); null when git cannot express one. */
+  reviewSince: string | null;
   accept: MilestoneAcceptState | null;
 }
 
@@ -161,7 +172,8 @@ export const MILESTONE_VERSION_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 export const ACCEPT_REASON_MAX = 500;
 
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
-const COMMIT_LINE = /^\*\*Commit:\*\*\s*`?([0-9a-f]{7,64})`?/;
+const COMMIT_LINE = /^\*\*Commit:\*\*(.*)$/;
+const SHA_TOKEN = /\b[0-9a-f]{7,64}\b/g;
 const FINGERPRINT_SUFFIX = /\[(wr:[0-9a-f]{10})\]$/;
 const WINDOW_DIR_SUFFIX = '-window';
 const LAST_WINDOW_FILE = 'LAST-WINDOW.json';
@@ -192,6 +204,13 @@ function makeGit(projectDir: string, runner: GitRunner) {
       const sha = r.stdout.trim();
       return FULL_SHA.test(sha) ? sha : null;
     },
+    /** Is `a` an ancestor of (or equal to) `b`? */
+    isAncestor(a: string, b: string): boolean {
+      const r = call(['merge-base', '--is-ancestor', a, b]);
+      if (r.exitCode === 0) return true;
+      if (r.exitCode === 1) return false;
+      throw new GitUnreadable('git-failed:merge-base');
+    },
     /** Is the project inside a git work tree? */
     isRepo(): boolean {
       const r = call(['rev-parse', '--is-inside-work-tree']);
@@ -219,24 +238,133 @@ function codeCommitsIn(git: Git, base: string | null, tip: string): MilestoneCom
   });
 }
 
-/** Where the milestone's change starts (module header). */
-export function milestoneBase(
-  projectDir: string,
-  milestone: string | null,
-  runner: GitRunner = execGitSeam,
-): { base: string | null; from: MilestoneBaseFrom; tag: string | null } {
-  const git = makeGit(projectDir, runner);
-  const tags = lines(git.text(['tag', '--merged', 'HEAD', '--list', 'v*', '--sort=-v:refname'])).filter((t) => t !== milestone);
-  for (const tag of tags) {
-    const sha = git.commit(tag);
-    if (sha !== null) return { base: sha, from: 'tag', tag };
+/** Where the milestone's change starts, and what pointed there (module header). */
+export interface MilestoneBase {
+  base: string | null;
+  from: MilestoneBaseFrom;
+  /** The tag `base` came from (`from: 'tag'`), else null. */
+  tag: string | null;
+  /** The previous milestone's version, read from its archive file name; null when none is archived. */
+  previous: string | null;
+}
+
+/** A path under the project as a git pathspec relative to `projectDir` (the cwd every call runs in). */
+function relSpec(projectDir: string, abs: string): string {
+  return toPosix(path.relative(projectDir, abs)) || '.';
+}
+
+/** Is a `git.*` switch explicitly off? Absent = on. */
+function configOff(projectDir: string, key: string): boolean {
+  const resolved = readWorkflowConfigValue(projectDir, key);
+  return resolved.found && (resolved.value === false || resolved.value === 'false');
+}
+
+/** Does `tag` name `version` under some prefix scheme (`v1.2`, `polyglot-v1.2`, `apps/polyglot/v1.2`)? */
+export function tagNamesVersion(tag: string, version: string): boolean {
+  return tag === version || tag.endsWith(`-${version}`) || tag.endsWith(`/${version}`);
+}
+
+/**
+ * Throw unless git can show the whole history: a shallow clone cuts it off, so "no earlier tag, no
+ * archive commit" there means "not fetched", never "the milestone is the whole history".
+ */
+function assertFullHistory(git: Git): void {
+  if (git.text(['rev-parse', '--is-shallow-repository']).trim() === 'true') throw new GitUnreadable('shallow-repository');
+}
+
+function nearestToHead(git: Git, candidates: ReadonlyArray<MilestoneBase & { base: string }>): (MilestoneBase & { base: string }) | null {
+  let best: (MilestoneBase & { base: string }) | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+  for (const c of candidates) {
+    const distance = Number(git.text(['rev-list', '--count', `${c.base}..HEAD`]).trim());
+    if (Number.isFinite(distance) && distance < bestDistance) {
+      best = c;
+      bestDistance = distance;
+    }
   }
-  const first = lines(git.text(['rev-list', '--reverse', 'HEAD', '--', '.planning']))[0];
+  return best;
+}
+
+function resolveBase(projectDir: string, milestone: string | null, git: Git): MilestoneBase {
+  assertFullHistory(git);
+  const planning = planningDir(projectDir);
+  const archive = relSpec(projectDir, path.join(planning, 'milestones'));
+  const candidates: Array<MilestoneBase & { base: string }> = [];
+
+  // The previous milestone's archive commit: the newest commit that added a `<v>-ROADMAP.md` to the
+  // archive, the milestone being closed excluded (a re-run after archiving).
+  const specs = ['--', `:(glob)${archive}/*-ROADMAP.md`];
+  if (milestone !== null) specs.push(`:(exclude,glob)${archive}/${milestone}-ROADMAP.md`);
+  const added = lines(git.text(['log', '-n', '1', '--diff-filter=A', '--format=@@%H', '--name-only', 'HEAD', ...specs]));
+  const archiveSha = added.find((l) => l.startsWith('@@'))?.slice(2) ?? null;
+  const archivedFile = added.find((l) => !l.startsWith('@@') && l.endsWith('-ROADMAP.md')) ?? null;
+  const previous = archivedFile === null ? null : path.posix.basename(archivedFile).slice(0, -'-ROADMAP.md'.length);
+  if (archiveSha !== null && FULL_SHA.test(archiveSha)) candidates.push({ base: archiveSha, from: 'archive', tag: null, previous });
+
+  // The previous milestone's tag. Known version: any tag naming it under the project's prefix scheme,
+  // whatever git.create_tag says now. No archive to name it: `v*` tags, only when this repository is
+  // the one complete-milestone tags (git.create_tag not off, repo_tagging not per_repo).
+  const tagged = lines(git.text(['tag', '--merged', 'HEAD', '--sort=-v:refname']));
+  const tagFor = (pred: (t: string) => boolean): void => {
+    for (const tag of tagged) {
+      if (milestone !== null && tagNamesVersion(tag, milestone)) continue;
+      if (!pred(tag)) continue;
+      const sha = git.commit(tag);
+      if (sha !== null) {
+        candidates.push({ base: sha, from: 'tag', tag, previous });
+        return;
+      }
+    }
+  };
+  // A project nested in a monorepo (`rev-parse --show-prefix` non-empty) does not own the repository's
+  // bare `v*` tags: without an archived version to name, it has no tag of its own.
+  const nested = git.text(['rev-parse', '--show-prefix']).trim() !== '';
+  if (previous !== null) tagFor((t) => tagNamesVersion(t, previous));
+  else if (!nested && !configOff(projectDir, 'git.create_tag') && readWorkflowConfigValue(projectDir, 'git.repo_tagging').value !== 'per_repo') {
+    tagFor((t) => /^v\d/.test(t));
+  }
+
+  const nearest = nearestToHead(git, candidates);
+  if (nearest !== null) return nearest;
+
+  // A first milestone: the work GSD planned starts at the first commit under this project's own
+  // planning directory (a nested `.planning` in a monorepo is its own history, not the repository's).
+  const first = lines(git.text(['rev-list', '--reverse', 'HEAD', '--', relSpec(projectDir, planningRoot(projectDir))]))[0];
   if (first !== undefined) {
     const parent = git.commit(`${first}^`);
-    if (parent !== null) return { base: parent, from: 'planning-start', tag: null };
+    if (parent !== null) return { base: parent, from: 'planning-start', tag: null, previous: null };
   }
-  return { base: null, from: 'root', tag: null };
+  return { base: null, from: 'root', tag: null, previous: null };
+}
+
+function windowStart(projectDir: string, git: Git, found: MilestoneBase): string | null {
+  const markerText = readOrThrow(path.join(planningDir(projectDir), REVIEWS_DIR, LAST_WINDOW_FILE));
+  const marker = markerText === null ? null : parseLastWindowMarker(markerText);
+  const markerTip = marker === null ? null : git.commit(marker.tip);
+  if (markerTip !== null && git.isAncestor(markerTip, 'HEAD') && (found.base === null || git.isAncestor(found.base, markerTip))) return 'last';
+  if (found.base === null) return null;
+  return found.tag ?? found.base;
+}
+
+/** Where the milestone's change starts (module header). Throws on a git failure or a shallow clone. */
+export function milestoneBase(projectDir: string, milestone: string | null, runner: GitRunner = execGitSeam): MilestoneBase {
+  return resolveBase(projectDir, milestone, makeGit(projectDir, runner));
+}
+
+/**
+ * The `--since` the code-review milestone stage reviews from: the recorded window (`last`) when its
+ * tip is at least as near to HEAD as the milestone base, else the base (its tag name when it has one,
+ * else its sha). Null when there is no start git can express (a base at the root, a git failure, a
+ * shallow clone) — the stage then names no window instead of reviewing the whole history.
+ */
+export function milestoneWindowStart(projectDir: string, milestone: string | null, runner: GitRunner = execGitSeam): string | null {
+  try {
+    const git = makeGit(projectDir, runner);
+    return windowStart(projectDir, git, resolveBase(projectDir, milestone, git));
+  } catch (err) {
+    if (err instanceof GitUnreadable || err instanceof ReadUnreadable) return null;
+    throw err;
+  }
 }
 
 // ─── Reviews on disk ─────────────────────────────────────────────────────────
@@ -277,14 +405,48 @@ function windowsOnDisk(projectDir: string): WindowOnDisk[] {
   return out;
 }
 
-/** The commit shas a REVIEW-FIX.md names on its `**Commit:**` lines, as written. */
+/** Every commit sha a REVIEW-FIX.md names on its `**Commit:**` lines, as written (a line may name several). */
 export function fixCommitRefs(fixReport: string): string[] {
   const refs: string[] = [];
   for (const line of splitLines(fixReport)) {
     const m = COMMIT_LINE.exec(line.trim());
-    if (m !== null) refs.push(m[1]);
+    if (m !== null) for (const sha of m[1].match(SHA_TOKEN) ?? []) refs.push(sha);
   }
   return refs;
+}
+
+/** The statuses a composed window review that ran every lens can carry. */
+export const COVERING_STATUSES: readonly string[] = Object.freeze(['clean', 'issues_found']);
+
+interface WindowReviewHeader {
+  tip: string;
+  base: string | null;
+  status: string;
+}
+
+function windowReviewHeader(text: string): WindowReviewHeader {
+  const fm = rawFrontmatterMapping(text);
+  // The composer writes `base: null` for a window from the root; the frontmatter loader reads it as the string.
+  const base = fm?.base === 'null' || fm?.base === null ? null : fm?.base;
+  return { tip: typeof fm?.tip === 'string' ? fm.tip : '', base: typeof base === 'string' ? base : null, status: typeof fm?.status === 'string' ? fm.status : '' };
+}
+
+/**
+ * Why a REVIEW.md cannot count as coverage, or null when it can: only a composed review — full-sha
+ * `tip` and `base` (or `base: null`), a status from COVERING_STATUSES, at least one `## Lens:`
+ * section — covers anything. Fail closed: a hand-written or truncated file reviews nothing.
+ */
+export function windowReviewProblem(text: string): { reason: string } | null {
+  const fm = rawFrontmatterMapping(text);
+  if (fm === null) return { reason: 'not a composed window review (no frontmatter)' };
+  const base = fm.base === 'null' || fm.base === null ? null : fm.base;
+  if (typeof fm.tip !== 'string' || !FULL_SHA.test(fm.tip)) return { reason: 'not a composed window review (tip is not a full commit sha)' };
+  if (base !== null && (typeof base !== 'string' || !FULL_SHA.test(base))) return { reason: 'not a composed window review (base is not a full commit sha or null)' };
+  const status = typeof fm.status === 'string' ? fm.status : '';
+  if (status === 'incomplete') return { reason: 'incomplete: a lens report was never written' };
+  if (!COVERING_STATUSES.includes(status)) return { reason: `status ${JSON.stringify(status)} is not one a finished review carries (${COVERING_STATUSES.join(', ')})` };
+  if (!splitLines(text).some((l) => /^## Lens: \S/.test(l))) return { reason: 'no lens section: no lens reviewed anything' };
+  return null;
 }
 
 /** Fingerprint → the status of its newest broken-window entry. */
@@ -385,7 +547,8 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
   const head = git.commit('HEAD');
   if (head === null) return { kind: 'no-history', reason: 'the repository has no commits' };
 
-  const { base, from, tag } = milestoneBase(projectDir, milestone, runner);
+  const found = resolveBase(projectDir, milestone, git);
+  const { base, from, tag } = found;
   const codeCommits = codeCommitsIn(git, base, head);
   const milestoneShas = new Set(codeCommits.map((c) => c.sha));
 
@@ -394,31 +557,26 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
   const covered = new Set<string>();
   const coveringTexts: WindowOnDisk[] = [];
   for (const w of windowsOnDisk(projectDir)) {
-    const fm = rawFrontmatterMapping(w.text);
-    const tipValue = fm?.tip;
-    // The composer writes `base: null` for a window from the root; the frontmatter loader reads it as the string.
-    const baseValue = fm?.base === 'null' ? null : fm?.base;
-    const status = typeof fm?.status === 'string' ? fm.status : '';
-    if (fm === null || typeof tipValue !== 'string' || (baseValue !== null && typeof baseValue !== 'string')) {
-      ignored.push({ review: w.review, reason: 'not a composed window review (no tip/base frontmatter)' });
+    const problem = windowReviewProblem(w.text);
+    if (problem !== null) {
+      ignored.push({ review: w.review, reason: problem.reason });
       continue;
     }
-    if (status === 'incomplete') {
-      ignored.push({ review: w.review, reason: 'incomplete: a lens report was never written' });
-      continue;
-    }
-    const tip = git.commit(tipValue);
-    const reviewBase = baseValue === null ? null : git.commit(baseValue);
-    if (tip === null || (baseValue !== null && reviewBase === null)) {
+    const header = windowReviewHeader(w.text);
+    const status = header.status;
+    const tip = git.commit(header.tip);
+    const reviewBase = header.base === null ? null : git.commit(header.base);
+    if (tip === null || (header.base !== null && reviewBase === null)) {
       ignored.push({ review: w.review, reason: 'its tip or base is not in this repository' });
       continue;
     }
     const mine = new Set<string>();
     for (const c of codeCommitsIn(git, reviewBase, tip)) if (milestoneShas.has(c.sha)) mine.add(c.sha);
+    // A fix commit is this review's remedy only when it came after what was reviewed.
     if (w.fixReport !== null) {
       for (const ref of fixCommitRefs(w.fixReport)) {
         const sha = git.commit(ref);
-        if (sha !== null && milestoneShas.has(sha)) mine.add(sha);
+        if (sha !== null && milestoneShas.has(sha) && git.isAncestor(tip, sha)) mine.add(sha);
       }
     }
     if (mine.size === 0) continue;
@@ -440,7 +598,6 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
     }
   }
 
-  const lastWindow = readOrThrow(path.join(planningDir(projectDir), REVIEWS_DIR, LAST_WINDOW_FILE)) !== null;
   return {
     kind: 'assessed',
     state: {
@@ -448,6 +605,7 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
       base,
       baseFrom: from,
       baseTag: tag,
+      previous: found.previous,
       head,
       codeCommits,
       uncovered: codeCommits.filter((c) => !covered.has(c.sha)),
@@ -455,7 +613,7 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
       ignored,
       openCritical,
       openWarnings,
-      lastWindow,
+      reviewSince: windowStart(projectDir, git, found),
       accept: readAccept(projectDir, milestone),
     },
   };
