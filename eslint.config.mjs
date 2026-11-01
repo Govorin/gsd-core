@@ -558,6 +558,7 @@ export default tseslint.config(
       'gsd-core/bin/lib/window-review.cjs',
       'gsd-core/bin/lib/review-command-router.cjs',
       'gsd-core/bin/lib/milestone-review.cjs',
+      'gsd-core/bin/lib/gate-milestone-review.cjs',
       'gsd-core/bin/lib/arch-metrics.cjs',
       'gsd-core/bin/lib/arch-survey.cjs',
       'gsd-core/bin/lib/arch-command-router.cjs',
