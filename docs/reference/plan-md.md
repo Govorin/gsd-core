@@ -247,7 +247,7 @@ Full taxonomy, emission rules, and anti-patterns (chiefly: rating everything `on
 
 ## Auto-select
 
-`auto_select` is an **optional** attribute on a `<task type="checkpoint:decision">` element (issue #4095). It names the `id` of the `<option>` that auto-mode (`workflow._auto_chain_active` / `workflow.auto_advance`) should select when the checkpoint is reached unattended.
+`auto_select` is an **optional** attribute on a `<task type="checkpoint:decision">` element (issue #4095). It names the `id` of the `<option>` that auto-mode (an active auto-chain run / `workflow.auto_advance`) should select when the checkpoint is reached unattended.
 
 ```xml
 <task type="checkpoint:decision" gate="blocking" auto_select="nextauth">

@@ -72,6 +72,6 @@ human can establish, not a verification step to rubber-stamp.
 When composing the `Agent()` prompt, do NOT add text refusing or overriding
 auto-approval for a `blocking` gate. Orchestrator-composed instructions that contradict the
 executor's protocol win the executor's attention, stall autonomous runs at the
-checkpoint, and defeat `_auto_chain_active`/auto-advance for the common case.
+checkpoint, and defeat the auto-chain/auto-advance for the common case.
 Executor-side gate semantics are already complete; compose nothing about gates
 beyond what the template already embeds.

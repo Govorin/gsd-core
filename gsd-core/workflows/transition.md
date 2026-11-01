@@ -597,7 +597,7 @@ to the next milestone — other workstreams are still working.
 **Clear auto-advance chain flag** — workstream boundary is the natural stopping point:
 
 ```bash
-gsd_run query config-set workflow._auto_chain_active false
+gsd_run query auto-chain clear
 ```
 
 <if mode="yolo">
@@ -651,7 +651,7 @@ Do NOT auto-invoke any further slash commands.
 **Clear auto-advance chain flag** — milestone boundary is the natural stopping point:
 
 ```bash
-gsd_run query config-set workflow._auto_chain_active false
+gsd_run query auto-chain clear
 ```
 
 <if mode="yolo">

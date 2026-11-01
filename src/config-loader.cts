@@ -961,7 +961,6 @@ function loadConfigResolvedInternal(cwd: string, options: Record<string, unknown
       tdd_mode: getNested('workflow', 'tdd_mode') ?? false,
       text_mode: get('text_mode', { section: 'workflow', field: 'text_mode' }) ?? defaults.text_mode,
       auto_advance: get('auto_advance', { section: 'workflow', field: 'auto_advance' }) ?? false,
-      _auto_chain_active: get('_auto_chain_active', { section: 'workflow', field: '_auto_chain_active' }) ?? false,
       mode: get('mode') ?? 'interactive',
       sub_repos: get('sub_repos', { section: 'planning', field: 'sub_repos' }) ?? defaults.sub_repos,
       pr_strict: get('pr_strict', { section: 'planning', field: 'pr_strict' }) ?? defaults.pr_strict,

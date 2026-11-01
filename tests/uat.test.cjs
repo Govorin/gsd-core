@@ -8997,3 +8997,120 @@ describe('#4983: a resolved ## Gaps entry hides its matching ### N. issue row', 
     assert.ok(items.some((i) => i.test === 2 && i.result === 'blocked'));
   });
 });
+
+// ─── X4/LG-09: audit-uat summary.verify_work_phases ───────────────────────────
+
+/**
+ * X4/LG-09 — `audit-uat`'s `summary.verify_work_phases`: the current-milestone phases a
+ * `/gsd:verify-work` session can close now, which `/gsd:progress --next` (Route V) routes to and
+ * smart-entry offers.
+ *
+ * Membership: a UAT row still `pending`, or a VERIFICATION `human_needed` item. Not members:
+ * blocked / skipped / deferred / issue rows (verify-work cannot settle them in one sitting, so
+ * routing there would loop), archived milestones, `deferred-items.md`. Order: phase order, each
+ * phase once. Typed surface only — the JSON report and its `--pick` projection.
+ */
+
+function writeVerifyWorkUat(root, phaseDir, items, base = path.join('.planning', 'phases')) {
+  const dir = path.join(root, base, phaseDir);
+  fs.mkdirSync(dir, { recursive: true });
+  const num = phaseDir.split('-')[0];
+  let body = `---\nstatus: testing\nphase: ${phaseDir}\n---\n\n## Tests\n\n`;
+  items.forEach(([name, result, extra], i) => {
+    body += `### ${i + 1}. ${name}\nexpected: works\nresult: ${result}\n${extra ? `${extra}\n` : ''}\n`;
+  });
+  fs.writeFileSync(path.join(dir, `${num}-UAT.md`), body);
+}
+
+function writeVerifyWorkHumanNeeded(root, phaseDir) {
+  const dir = path.join(root, '.planning', 'phases', phaseDir);
+  fs.mkdirSync(dir, { recursive: true });
+  const num = phaseDir.split('-')[0];
+  fs.writeFileSync(path.join(dir, `${num}-VERIFICATION.md`),
+    `---\nstatus: human_needed\nphase: ${phaseDir}\n---\n\n## Human Verification\n\n1. Check the login screen on a phone\n`);
+}
+
+function readVerifyWorkPhases(root) {
+  const result = runGsdTools('audit-uat --raw', root);
+  assert.ok(result.success, result.error);
+  return JSON.parse(result.output).summary.verify_work_phases;
+}
+
+describe('audit-uat summary.verify_work_phases', () => {
+  test('a pending UAT row and a human_needed report are members, in phase order, once each', (t) => {
+    const root = createTempProject('gsd-x4-members-');
+    t.after(() => cleanup(root));
+    writeVerifyWorkHumanNeeded(root, '03-reports');
+    writeVerifyWorkUat(root, '01-auth', [['Login', 'pending'], ['Logout', '[pending]']]);
+    writeVerifyWorkUat(root, '03-reports', [['Export', 'pending']]);
+    writeVerifyWorkUat(root, '02-billing', [['Charge', 'pass']]);
+
+    assert.deepEqual(readVerifyWorkPhases(root), ['01', '03']);
+  });
+
+  for (const [label, row] of [
+    ['blocked', ['Device flow', 'blocked', 'blocked_by: physical-device']],
+    ['skipped with a reason', ['Prod check', 'skipped', 'reason: server not running']],
+    ['skipped without a reason', ['Prod check', 'skipped']],
+    ['a deferred follow-up', ['Dark mode', 'skipped', 'reason: "Deferred follow-up: next version"']],
+    ['an issue', ['Export', 'issue', 'reported: "broken"\nseverity: major']],
+  ]) {
+    test(`${label} alone is debt but not a verify-work route`, (t) => {
+      const root = createTempProject('gsd-x4-excluded-');
+      t.after(() => cleanup(root));
+      writeVerifyWorkUat(root, '01-auth', [row]);
+
+      const report = JSON.parse(runGsdTools('audit-uat --raw', root).output);
+      assert.ok(report.summary.total_items >= 1, `${label} is still reported as outstanding`);
+      assert.deepEqual(report.summary.verify_work_phases, []);
+    });
+  }
+
+  test('an archived milestone with a pending row is not routed to', (t) => {
+    const root = createTempProject('gsd-x4-archived-');
+    t.after(() => cleanup(root));
+    writeVerifyWorkUat(root, '01-auth', [['Login', 'pending']], path.join('.planning', 'milestones', 'v1.0-phases'));
+
+    assert.deepEqual(readVerifyWorkPhases(root), []);
+  });
+
+  test('--pick yields the comma-joined list, and an empty string when there is nothing to verify', (t) => {
+    const root = createTempProject('gsd-x4-pick-');
+    t.after(() => cleanup(root));
+    writeVerifyWorkUat(root, '02-billing', [['Charge', 'pass']]);
+
+    const none = runGsdTools(['query', 'audit-uat', '--pick', 'summary.verify_work_phases'], root);
+    assert.equal(none.success, true, none.error);
+    assert.equal(none.output, '');
+
+    writeVerifyWorkUat(root, '01-auth', [['Login', 'pending']]);
+    writeVerifyWorkHumanNeeded(root, '04-admin');
+    const some = runGsdTools(['query', 'audit-uat', '--pick', 'summary.verify_work_phases'], root);
+    assert.equal(some.success, true, some.error);
+    assert.equal(some.output, '01,04');
+  });
+});
+
+describe('audit-uat summary.verify_work_phases leaves out a phase verify-work already ran', () => {
+  // Route V (next.md) must not send the user back, without end, to a phase whose UAT session is
+  // complete while its VERIFICATION report still says human_needed.
+  for (const [label, status, expected] of [['complete', 'complete', []], ['still testing', 'testing', ['05']]]) {
+    test(`human_needed report + UAT session ${label} -> ${JSON.stringify(expected)}`, (t) => {
+      const root = createTempProject('gsd-x4-uat-complete-');
+      t.after(() => cleanup(root));
+      writeVerifyWorkHumanNeeded(root, '05-admin');
+      fs.writeFileSync(path.join(root, '.planning', 'phases', '05-admin', '05-UAT.md'),
+        `---\nstatus: ${status}\nphase: 05-admin\n---\n\n## Tests\n\n### 1. Admin screen\nexpected: works\nresult: pass\n`);
+      assert.deepEqual(readVerifyWorkPhases(root), expected);
+    });
+  }
+
+  test('a pending UAT row still routes even when another UAT file of the phase is complete', (t) => {
+    const root = createTempProject('gsd-x4-uat-mixed-');
+    t.after(() => cleanup(root));
+    writeVerifyWorkUat(root, '06-ops', [['Deploy', 'pending']]);
+    fs.writeFileSync(path.join(root, '.planning', 'phases', '06-ops', '06-HUMAN-UAT.md'),
+      '---\nstatus: complete\nphase: 06-ops\n---\n\n## Tests\n\n### 1. Old check\nexpected: works\nresult: pass\n');
+    assert.deepEqual(readVerifyWorkPhases(root), ['06']);
+  });
+});

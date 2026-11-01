@@ -330,6 +330,8 @@ export default tseslint.config(
       'gsd-core/bin/lib/worktree-safety.cjs',
       'gsd-core/bin/lib/worktree-base-ref.cjs',
       'gsd-core/bin/lib/worktree-guard.cjs',
+      'gsd-core/bin/lib/gsd-run-dir.cjs',
+      'gsd-core/bin/lib/auto-chain-state.cjs',
       'gsd-core/bin/lib/worktree-agent-branch.cjs',
       'gsd-core/bin/lib/automated-command-containment.cjs',
       'gsd-core/bin/lib/posix-ere.cjs',

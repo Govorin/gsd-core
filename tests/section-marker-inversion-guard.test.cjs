@@ -68,7 +68,7 @@ describe('discuss-phase-assumptions.md: the flag-absent fallback survives exclus
   const FALLBACK_TEXT = 'End here — `confirm_creation` already ran; do not route back to it.';
   const RESOLVER_MARKERS = [
     'Parse `--auto` flag from $ARGUMENTS',
-    'gsd_run query config-set workflow._auto_chain_active',
+    'gsd_run query auto-chain set',
     'AUTO_MODE=$(gsd_run query check auto-mode --pick active',
   ];
 
@@ -95,7 +95,7 @@ describe('discuss-phase-assumptions.md: the flag-absent fallback survives exclus
     assert.ok(gapText.includes(FALLBACK_TEXT), 'the fallback must be part of an always-composed gap section, not lost between gaps');
   });
 
-  test('every resolver line (--auto parse, config-set, AUTO_MODE read) lies OUTSIDE the gated marker (row F3)', () => {
+  test('every resolver line (--auto parse, auto-chain set, AUTO_MODE read) lies OUTSIDE the gated marker (row F3)', () => {
     const gatedBody = bodyOf(sections, GATED_ID);
     for (const marker of RESOLVER_MARKERS) {
       assert.ok(!gatedBody.includes(marker), `resolver text "${marker}" must not live inside the gated "${GATED_ID}" section`);

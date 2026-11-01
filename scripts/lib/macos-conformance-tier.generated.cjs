@@ -22,6 +22,7 @@ module.exports = {
   "tests/args-terminator-nonce.test.cjs",
   "tests/ask-user-questions-fallback.test.cjs",
   "tests/audit-command-cutover.test.cjs",
+  "tests/auto-chain-state.test.cjs",
   "tests/broken-windows.test.cjs",
   "tests/capability-cli.test.cjs",
   "tests/capability-command-dispatch.test.cjs",

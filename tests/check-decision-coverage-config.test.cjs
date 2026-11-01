@@ -11,8 +11,8 @@
  * reader (the one `config-get workflow.*` uses). The nested key wins; the top-level
  * `context_coverage_gate` is never read; an absent or unreadable config leaves the gate enabled;
  * the skip payload is unchanged. `check auto-mode` follows the same rule for
- * `workflow.auto_advance` / `workflow._auto_chain_active`: it answers exactly what
- * `config-get` answers.
+ * `workflow.auto_advance`: it answers exactly what `config-get` answers. Its `auto_chain_active`
+ * is run state since X5 (`auto-chain status`); no config form of it is read.
  *
  * Kinds (probed by EXECUTING origin/next a2c43db270 in scratch fixtures):
  *   C1  RED   top-level-only `context_coverage_gate` is read today (gate is skipped).
@@ -211,7 +211,7 @@ describe('C3 the nested key wins over the top-level key, in both orders (CHAR)',
   });
 });
 
-describe('C4 check auto-mode answers exactly what config-get answers', () => {
+describe('C4 check auto-mode answers exactly what config-get (auto_advance) and auto-chain status (the chain) answer', () => {
   const NONE = { active: false, source: 'none', auto_chain_active: false, auto_advance: false };
 
   function autoMode(dir) {
@@ -257,15 +257,24 @@ describe('C4 check auto-mode answers exactly what config-get answers', () => {
     });
   });
 
-  test('C4: nested workflow._auto_chain_active is read', () => {
+  test('C4/X5: a nested legacy workflow._auto_chain_active is not read; the chain is run state', () => {
     withProject('{"workflow": {"_auto_chain_active": true}}', (dir) => {
-      assert.equal(configGetBoolean(dir, 'workflow._auto_chain_active'), true);
+      assert.deepStrictEqual(autoMode(dir), NONE);
+      assert.equal(runGsdTools(['auto-chain', 'status', '--raw'], dir).output, 'false', 'auto-mode agrees with auto-chain status');
+    });
+  });
+
+  test('C4/X5: an auto-chain run is read; auto-mode agrees with auto-chain status', () => {
+    withProject('{}', (dir) => {
+      assert.equal(runGsdTools(['auto-chain', 'set'], dir).success, true);
+      assert.equal(runGsdTools(['auto-chain', 'status', '--raw'], dir).output, 'true');
       assert.deepStrictEqual(autoMode(dir), { active: true, source: 'auto_chain', auto_chain_active: true, auto_advance: false });
     });
   });
 
-  test('C4: both nested flags -> source both', () => {
-    withProject('{"workflow": {"auto_advance": true, "_auto_chain_active": true}}', (dir) => {
+  test('C4: nested auto_advance plus an auto-chain run -> source both', () => {
+    withProject('{"workflow": {"auto_advance": true}}', (dir) => {
+      assert.equal(runGsdTools(['auto-chain', 'set'], dir).success, true);
       assert.deepStrictEqual(autoMode(dir), { active: true, source: 'both', auto_chain_active: true, auto_advance: true });
     });
   });

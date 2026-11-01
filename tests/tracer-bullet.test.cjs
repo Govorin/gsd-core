@@ -861,7 +861,7 @@ describe('#3299 regression: tracer feedback gate honors workflow.human_verify_mo
     const tmpDir = createTempProject();
     t.after(() => cleanup(tmpDir));
     const configPath = path.join(tmpDir, '.planning', 'config.json');
-    const base = { mode: 'yolo', workflow: { _auto_chain_active: false, tdd_mode: true } };
+    const base = { mode: 'yolo', workflow: { tdd_mode: true } };
     fs.writeFileSync(configPath, JSON.stringify(base, null, 2));
 
     const bare = runGsdTools('query config-get workflow.human_verify_mode --raw', tmpDir);

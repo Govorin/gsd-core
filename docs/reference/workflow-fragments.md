@@ -219,10 +219,10 @@ never `--converge`/`--cross-ai` separately.
 `state:auto-advance-active` (#2994) is the same shape once more:
 `discuss-phase-assumptions.md`'s own `auto_advance` step already resolves
 `--auto` OR a consolidated `check auto-mode --pick active` fact (itself
-`workflow._auto_chain_active` OR `workflow.auto_advance`) via a runtime
+the auto-chain run state OR `workflow.auto_advance`) via a runtime
 `gsd_run` call before deciding whether to dispatch. `cmdInitDiscussPhaseAssumptions`
 mirrors that identical disjunction — `options['auto'] === true ||
-readConfigJsonBoolean(cwd, ['workflow', '_auto_chain_active']) ||
+readAutoChainActive(cwd) ||
 readConfigJsonBoolean(cwd, ['workflow', 'auto_advance'])` — into
 `InvocationFacts.autoAdvanceActive`, so `WHEN_PREDICATES['state:auto-advance-active']`
 reads only that one field, never the flag and the two config keys separately.

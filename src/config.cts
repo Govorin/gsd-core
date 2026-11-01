@@ -19,6 +19,7 @@ const { ExitError } = cliExitMod;
 import configLoader = require('./config-loader.cjs');
 const { CONFIG_DEFAULTS, resolvePlannerStallDetectionEnabled } = configLoader;
 import { platformWriteSync, platformEnsureDir } from './shell-command-projection.cjs';
+import { LEGACY_AUTO_CHAIN_CONFIG_KEY } from './auto-chain-state.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 import planningWorkspace = require('./planning-workspace.cjs');
 const { planningDir, planningRoot, resolveEnvWorkstream, withPlanningLock } = planningWorkspace;
@@ -1068,6 +1069,13 @@ function cmdConfigSet(cwd: string, keyPath: string | undefined, value: string | 
   // TypeScript doesn't always infer never-return narrowing through error(), so we assert.
   const kp = keyPath!;
   const val = value!;
+
+  // X5: the auto-chain flag is run state now (`.gsd/auto-chain`, outside version control). A
+  // workflow text from an earlier release that still writes it here must fail loudly, not
+  // re-dirty the versioned config with a value nothing reads.
+  if (kp === LEGACY_AUTO_CHAIN_CONFIG_KEY) {
+    error(`${kp} is run state, not configuration: use \`gsd-tools auto-chain set\` or \`auto-chain clear\` (kept in .gsd/, outside version control)`, ERROR_REASON.CONFIG_INVALID_KEY);
+  }
 
   assertKnownConfigKey(cwd, kp);
 

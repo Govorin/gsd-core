@@ -99,10 +99,7 @@ IFS= read -rd '' GSD_ARGS <<'GSD_ARGS_END' || true
 $ARGUMENTS
 GSD_ARGS_END
 GSD_ARGS=${GSD_ARGS%$'\n'}
-# Lane flags derived from the declared roster (#2800/#2272); --all and --text are convergence
-# controls, not reviewer lanes, so they stay literal.
-# This block must stay AFTER the launcher preamble (above) because it calls `gsd_run` —
-# do not move it back above the preamble in a future edit.
+# Lane flags: declared roster (#2800); --all/--text literal. Needs the preamble above.
 CONVERGENCE_ARGS=""
 for REVIEW_FLAG in $(gsd_run review-lane flags) --all --text; do
   if echo "$GSD_ARGS" | grep -qE "(^|[[:space:]])${REVIEW_FLAG}([[:space:]]|$)"; then
@@ -116,11 +113,9 @@ if echo "$GSD_ARGS" | grep -qE '\-\-max-cycles\s+[0-9]+'; then
   CONVERGENCE_ARGS="${CONVERGENCE_ARGS} --max-cycles ${MAX_CYCLES_ARG}"
 fi
 
-# #4600: the dispatched convergence workflow re-checks the feature gate in its own §1.5 —
-# an explicit --converge/--cross-ai must override it, so mark this dispatch explicitly.
-# Conditional on PLAN_STRATEGY: a local-strategy run must never carry the override.
+# #4600: explicit --converge/--cross-ai overrides the gate; local runs never do.
 if [ "${PLAN_STRATEGY}" = "converge" ]; then
-  CONVERGENCE_ARGS="${CONVERGENCE_ARGS} --override-gate"
+  CONVERGENCE_ARGS="${CONVERGENCE_ARGS} --override-gate --in-autonomous"
 fi
 ```
 
@@ -247,6 +242,8 @@ Extract `phase_name`, `goal`, `success_criteria` from each. Store for use in exe
 
 ## 3. Execute Phase
 
+Hold auto mode (nested calls carry `--in-autonomous`): `gsd_run query auto-chain set --owner autonomous`
+
 For the current phase, display the progress banner:
 
 ```
@@ -320,7 +317,7 @@ The discuss step in `--auto` mode MUST NOT loop. If CONTEXT.md already exists af
 **If `INTERACTIVE` is set:** Run the standard discuss-phase skill inline (asks interactive questions, waits for user answers). This preserves user input on all design decisions while keeping plan+execute out of the main context:
 
 ```
-Skill(skill="gsd-discuss-phase", args="${PHASE_NUM}")
+Skill(skill="gsd-discuss-phase", args="${PHASE_NUM} --in-autonomous")
 ```
 
 **If `INTERACTIVE` is NOT set:** Execute the smart_discuss step for this phase (batch table proposals, auto-optimized).
@@ -366,7 +363,7 @@ FLATTEN=$(gsd_run query dispatch-should-flatten --raw 2>/dev/null || echo "true"
   Agent(
     description="Plan phase ${PHASE_NUM}: ${PHASE_NAME}",
     run_in_background=true,
-    prompt="Run plan-phase for phase ${PHASE_NUM}: Skill(skill=\"gsd-plan-phase\", args=\"${PHASE_NUM}\")"
+    prompt="Run plan-phase for phase ${PHASE_NUM}: Skill(skill=\"gsd-plan-phase\", args=\"${PHASE_NUM} --in-autonomous\")"
   )
   ```
 
@@ -381,7 +378,7 @@ FLATTEN=$(gsd_run query dispatch-should-flatten --raw 2>/dev/null || echo "true"
   - Otherwise (local planning):
 
   ```
-  Skill(skill="gsd-plan-phase", args="${PHASE_NUM}")
+  Skill(skill="gsd-plan-phase", args="${PHASE_NUM} --in-autonomous")
   ```
 
 **If `INTERACTIVE` is NOT set (default):** Run plan inline.
@@ -393,7 +390,7 @@ If `section_manifest` is `null` or `"converge-loop"` is in its `included` list: 
 If `PLAN_STRATEGY=local`, run the regular planner:
 
 ```
-Skill(skill="gsd-plan-phase", args="${PHASE_NUM}")
+Skill(skill="gsd-plan-phase", args="${PHASE_NUM} --in-autonomous")
 ```
 
 Verify plan produced output — re-run `init phase-op` and check `has_plans`. If false → go to handle_blocker: "Plan phase ${PHASE_NUM} did not produce any plans."
@@ -412,7 +409,7 @@ FLATTEN=$(gsd_run query dispatch-should-flatten --raw 2>/dev/null || echo "true"
 Agent(
   description="Execute phase ${PHASE_NUM}: ${PHASE_NAME}",
   run_in_background=true,
-  prompt="Run execute-phase for phase ${PHASE_NUM}: Skill(skill=\"gsd-execute-phase\", args=\"${PHASE_NUM} --no-transition\")"
+  prompt="Run execute-phase for phase ${PHASE_NUM}: Skill(skill=\"gsd-execute-phase\", args=\"${PHASE_NUM} --no-transition --in-autonomous\")"
 )
 ```
 
@@ -421,13 +418,13 @@ Agent(
 - **Otherwise (`FLATTEN` is `true` — run inline):** Run execute **inline** (do NOT background) so worktree isolation and verification run:
 
 ```
-Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition")
+Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition --in-autonomous")
 ```
 
 **If `INTERACTIVE` is NOT set (default):** Run execute inline as before.
 
 ```
-Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition")
+Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition --in-autonomous")
 ```
 
 **3c.5. Code Review and Fix**
@@ -523,7 +520,7 @@ Display the review result summary and score from UI-REVIEW.md if produced. Conti
 
 > Full instructions are in `gsd-core/references/autonomous-smart-discuss.md`. Read that file now and follow it exactly.
 
-Smart discuss is an autonomous-optimized variant of `gsd-discuss-phase`. It proposes grey area answers in batch tables — the user accepts or overrides per area — and writes an identical CONTEXT.md to what discuss-phase produces.
+Smart discuss: batch grey-area tables the user accepts or overrides; same CONTEXT.md as discuss-phase.
 
 **Inputs:** `PHASE_NUM` from execute_phase.
 
@@ -594,6 +591,8 @@ If all phases complete, proceed to lifecycle step.
 <step name="lifecycle">
 
 ## 5. Lifecycle
+
+**Release the hold only where the run ends** — the `--only` exit, a partial completion's exit, after 5d (never before audit/complete): `gsd_run query auto-chain clear --owner autonomous`
 
 **If `ONLY_PHASE` is set:** Skip lifecycle. A single phase does not trigger audit/complete/cleanup. Display:
 
@@ -746,11 +745,11 @@ Then present 3 options via AskUserQuestion (in text mode — `--text` or init `t
 
 **Whichever option is chosen, clear the signal first** — `gsd_run state signal-resume`. A leftover `WAITING.json` makes the next session report a blocker that was already answered.
 
-**On "Fix and retry":** Loop back to the failed step within execute_phase. Track the retry count per phase + step (`RETRY_COUNT`, kept in memory for the run). If the same step fails again after retry, re-present these options. **Retry ceiling (#3210):** once the same phase step has failed 3 "Fix and retry" attempts, do NOT re-present the options — escalate to a terminal `needs_human` halt: display `Phase {N} ⛔ {Name} — needs_human`, list the unmet items (the blocker description from each attempt), append/update a `## Needs Human` section in STATE.md (`| ${PHASE_NUM} | needs_human | resolve blocker, then /gsd:autonomous --from ${PHASE_NUM} |`), and stop autonomous mode with the standard stopped-summary banner. A blocker that survives 3 fix attempts is an operator gate, not an executable gap.
+**On "Fix and retry":** Loop back to the failed step within execute_phase. Track the retry count per phase + step (`RETRY_COUNT`, kept in memory for the run). If the same step fails again after retry, re-present these options. **Retry ceiling (#3210):** once the same phase step has failed 3 "Fix and retry" attempts, do NOT re-present the options — escalate to a terminal `needs_human` halt: display `Phase {N} ⛔ {Name} — needs_human`, list the unmet items (the blocker description from each attempt), append/update a `## Needs Human` section in STATE.md (`| ${PHASE_NUM} | needs_human | resolve blocker, then /gsd:autonomous --from ${PHASE_NUM} |`), release the hold as on "Stop", and stop autonomous mode with the standard stopped-summary banner. A blocker that survives 3 fix attempts is an operator gate, not an executable gap.
 
 **On "Skip this phase":** Append the phase to `## Deferred Items` in STATE.md, with the blocker description as its reason — `complete-milestone` reads that section, and a skip logged only to the terminal is indistinguishable from a completed phase on the next run. Then proceed to iterate.
 
-**On "Stop autonomous mode":** Display progress summary:
+**On "Stop autonomous mode":** Release the hold (`gsd_run query auto-chain clear --owner autonomous`), then display progress summary:
 
 ```
 ### GSD ► AUTONOMOUS ▸ STOPPED

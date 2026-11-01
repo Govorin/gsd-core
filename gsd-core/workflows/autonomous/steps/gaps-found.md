@@ -11,14 +11,14 @@ Ask how to proceed: `Run gap closure` / `Continue without fixing` / `Stop autono
 On **"Run gap closure"**: one gap-closure attempt:
 
 ```
-Skill(skill="gsd-plan-phase", args="${PHASE_NUM} --gaps")
+Skill(skill="gsd-plan-phase", args="${PHASE_NUM} --gaps --in-autonomous")
 ```
 
 Re-run `init phase-op ${PHASE_NUM}`; if `has_plans` is false, handle_blocker: "Gap closure planning for phase ${PHASE_NUM} did not produce plans."
 
 Re-execute:
 ```
-Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition")
+Skill(skill="gsd-execute-phase", args="${PHASE_NUM} --no-transition --in-autonomous")
 ```
 
 Re-read verification status:

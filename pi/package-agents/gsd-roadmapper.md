@@ -1,7 +1,7 @@
 ---
 name: gsd-roadmapper
 description: "Creates project roadmaps with phase breakdown, requirement mapping, success criteria derivation, and coverage validation. Spawned by /gsd:new-project orchestrator."
-tools: read, write, bash, find, grep
+tools: read, write, edit, bash, find, grep
 # tools with no Pi equivalent, dropped: Skill, mcp__atlas__*, mcp__plugin_serena_serena__*, mcp__codebase-memory-mcp__*
 ---
 

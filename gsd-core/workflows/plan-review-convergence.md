@@ -38,6 +38,9 @@ if [ -z "$MAX_CYCLES" ]; then MAX_CYCLES=3; fi
 
 GSD_WS=""
 echo "$GSD_ARGS" | grep -qE '\-\-ws\s+\S+' && GSD_WS=$(echo "$GSD_ARGS" | grep -oE '\-\-ws\s+\S+')
+# X5: dispatched by /gsd:autonomous — forward its marker so nested plan-phase leaves the run's hold alone.
+IN_AUTONOMOUS=""
+echo "$GSD_ARGS" | grep -q -- '--in-autonomous' && IN_AUTONOMOUS="--in-autonomous"
 ```
 
 ## 1.5. Config Gate (feature disabled by default)
@@ -177,7 +180,7 @@ Display startup banner:
 Display: `◆ No plans found — running initial planning inline... (plan-phase runs here in the orchestrator — no output until planning is complete, ~1–5 min; expected, not a freeze)`
 
 ```text
-Skill(skill="gsd-plan-phase", args="{PHASE} {GSD_WS}")
+Skill(skill="gsd-plan-phase", args="{PHASE} {GSD_WS} {IN_AUTONOMOUS}")
 ```
 
 Run plan-phase **inline** (do NOT wrap it in Agent()). The convergence orchestrator runs at depth 0 with Agent available, so inline plan-phase can spawn gsd-planner and gsd-plan-checker at depth 1 — the one level of nesting that works on Claude Code. Wrapping plan-phase in Agent() would push it to depth 1 where the Agent tool is absent, preventing it from spawning any sub-agents. Wait until plan-phase completes and PLAN.md files are committed before continuing.
@@ -594,7 +597,7 @@ Update `prev_unresolved_count = UNRESOLVED_COUNT`.
 Display: `◆ Replanning inline with review feedback... (plan-phase runs here in the orchestrator — no output until replanning is complete, ~1–5 min; expected, not a freeze)`
 
 ```text
-Skill(skill="gsd-plan-phase", args="{PHASE} --reviews --skip-research {GSD_WS}")
+Skill(skill="gsd-plan-phase", args="{PHASE} --reviews --skip-research {GSD_WS} {IN_AUTONOMOUS}")
 ```
 
 Run plan-phase **inline** (do NOT wrap it in Agent()). Same rationale as step 4: the convergence orchestrator runs at depth 0 with Agent available, so inline plan-phase can spawn gsd-planner and gsd-plan-checker at depth 1. Wrapping in Agent() pushes plan-phase to depth 1 where the Agent tool is absent — the replan loop can never produce a revised plan when HIGHs are found. This is the root cause of bug #936. Actionable MEDIUM/LOW findings must be incorporated into executable PLAN.md content or explicitly deferred/rejected in the relevant PLAN.md before convergence can complete. The same holds for any open `## Plan-Revision Conflicts` entry (#3771): the replan must resolve it by adopting one of its recorded alternatives, overriding the named constraint, or amending the constraint — and mark the entry resolved. Re-running the planner against an unchanged conflict cannot resolve it and only burns a cycle. Wait until plan-phase completes (outputs '## PLANNING COMPLETE') and updated PLAN.md files are committed before continuing.

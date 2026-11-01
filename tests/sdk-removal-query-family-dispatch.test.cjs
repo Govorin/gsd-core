@@ -47,13 +47,13 @@ describe('SDK-removal CJS query family dispatch', () => {
     assert.equal(result.output, 'true');
   });
 
-  test('query check auto-mode reads workflow flags from config', () => {
+  test('query check auto-mode reads the auto-chain run state', () => {
     fs.writeFileSync(path.join(tmpDir, '.planning', 'config.json'), JSON.stringify({
       workflow: {
         auto_advance: false,
-        _auto_chain_active: true,
       },
     }, null, 2));
+    assert.strictEqual(runGsdTools(['query', 'auto-chain', 'set'], tmpDir).success, true);
 
     const result = runGsdTools(['query', 'check', 'auto-mode', '--pick', 'source'], tmpDir);
     assert.strictEqual(result.success, true, result.error);

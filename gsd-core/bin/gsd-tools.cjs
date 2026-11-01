@@ -1007,6 +1007,12 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
     routeCheckCommand({ args, cwd, raw });
   }
 
+  // X5: the auto-chain flag is run state under .gsd/, not a key in the versioned
+  // .planning/config.json; `check auto-mode` reads it back.
+  function routeAutoChain({ args, cwd, raw }) {
+    require('./lib/auto-chain-state.cjs').cmdAutoChain(cwd, args.slice(1), raw);
+  }
+
   function routeFindPhase({ args, cwd, raw, error }) {
     // Phase 6 (#3575): dispatch via SDK executeForCjs when available.
           // SDK handler: findPhase in sdk/src/query/phase.ts.
@@ -2894,9 +2900,7 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
    */
   function writeDispatchIsolationSentinel(cwd, { isolation, harnessFlag = null, phase = null, plan = null }) {
     const nodePath = require('path');
-    const nodeFs = require('fs');
-    const sentinelDir = nodePath.join(cwd, '.gsd');
-    const sentinelPath = nodePath.join(sentinelDir, 'dispatch-isolation-sentinel.json');
+    const { ensureGsdRunDir, writeJsonAtomic } = require('./lib/gsd-run-dir.cjs');
     const payload = {
       isolation,
       harness_flag: harnessFlag || null,
@@ -2905,71 +2909,17 @@ function dispatchOverlayCapabilityCommand({ command, args, cwd, raw, error, load
       written_at: Date.now(),
     };
     try {
-      nodeFs.mkdirSync(sentinelDir, { recursive: true });
-      // Never write through a project-supplied .gsd symlink. Resolve the
-      // directory as well so an ancestor redirect cannot escape this project.
-      if (nodeFs.lstatSync(sentinelDir).isSymbolicLink() ||
-          nodePath.relative(nodeFs.realpathSync(cwd), nodeFs.realpathSync(sentinelDir)) !== '.gsd') {
-        throw new Error('sentinel directory is a symlink or resolves outside the project');
-      }
-      // User projects do not inherit gsd-core's root .gitignore. Ignore this
-      // tool-owned directory locally before writing the first sentinel. An
-      // ordinary ignore-file IO failure must not prevent recording isolation.
-      const ignorePath = nodePath.join(sentinelDir, '.gitignore');
-      try {
-        nodeFs.writeFileSync(ignorePath, '*\n', { flag: 'wx' });
-      } catch (ignoreError) {
-        if (ignoreError.code === 'EEXIST') {
-          // Keep a pre-existing ignore file. A bare '*' already ignores the
-          // whole directory, including this file and the sentinel temp file.
-          // Read through an fd opened without following links where supported;
-          // replace by rename rather than append through the path, so a link
-          // swapped in after the check cannot redirect a write elsewhere.
-          let fd;
-          let ignoreTmpPath;
-          try {
-            if (nodeFs.lstatSync(ignorePath).isSymbolicLink()) {
-              throw new Error('sentinel ignore file is a symlink');
-            }
-            fd = nodeFs.openSync(ignorePath, nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NOFOLLOW || 0));
-            if (!nodeFs.fstatSync(fd).isFile()) throw new Error('sentinel ignore file is not a regular file');
-            const current = nodeFs.readFileSync(fd, 'utf8');
-            nodeFs.closeSync(fd);
-            fd = undefined;
-            if (!current.includes('# gsd-core dispatch sentinel') && !/^\*\r?$/m.test(current)) {
-              const additionalRules = `${current.endsWith('\n') ? '' : '\n'}# gsd-core dispatch sentinel\n` +
-                '/dispatch-isolation-sentinel.json\n' +
-                '/dispatch-isolation-sentinel.json.tmp-*\n' +
-                '/.gitignore\n';
-              ignoreTmpPath = `${ignorePath}.tmp-${process.pid}-${require('crypto').randomBytes(6).toString('hex')}`;
-              nodeFs.writeFileSync(ignoreTmpPath, current + additionalRules, { flag: 'wx' });
-              if (nodeFs.lstatSync(ignorePath).isSymbolicLink()) {
-                throw new Error('sentinel ignore file is a symlink');
-              }
-              nodeFs.renameSync(ignoreTmpPath, ignorePath);
-              ignoreTmpPath = null;
-            }
-          } catch (existingIgnoreError) {
-            if (existingIgnoreError.code === 'ELOOP' || existingIgnoreError.message === 'sentinel ignore file is a symlink') {
-              throw new Error('sentinel ignore file is a symlink');
-            }
-            // Ignore seeding is best-effort; the sentinel is still useful if
-            // this path cannot be read or updated.
-          } finally {
-            if (fd !== undefined) nodeFs.closeSync(fd);
-            if (ignoreTmpPath) {
-              try { nodeFs.unlinkSync(ignoreTmpPath); } catch (_) { /* best-effort cleanup */ }
-            }
-          }
-        }
-      }
-      // Atomic write: unique temp file + rename, so a concurrent reader (a
-      // guard hook firing mid-write) never observes a partially-written
-      // sentinel. Unique per-process+time so concurrent orchestrator-worktree
-      // invocations sharing the same sentinelDir never collide on the temp name.
-      const tmpPath = `${sentinelPath}.tmp-${process.pid}-${Date.now()}`;
-      nodeFs.writeFileSync(tmpPath, JSON.stringify(payload));
-      nodeFs.renameSync(tmpPath, sentinelPath);
+      // The run directory owner refuses a symlinked or escaping .gsd and seeds
+      // its local ignore file (user projects do not inherit gsd-core's root
+      // .gitignore); the atomic write means a guard hook firing mid-write never
+      // reads a partial sentinel, and concurrent orchestrator-worktree
+      // invocations never collide on the temp name.
+      const sentinelDir = ensureGsdRunDir(cwd, {
+        label: 'sentinel',
+        marker: 'dispatch sentinel',
+        rules: ['/dispatch-isolation-sentinel.json', '/dispatch-isolation-sentinel.json.tmp-*'],
+      });
+      writeJsonAtomic(nodePath.join(sentinelDir, 'dispatch-isolation-sentinel.json'), payload);
       return { recorded: true, path: '.gsd/dispatch-isolation-sentinel.json' };
     } catch (err) {
       return { recorded: false, path: '.gsd/dispatch-isolation-sentinel.json', error: err && err.message };
@@ -4933,6 +4883,7 @@ const HOST_COMMAND_ROUTERS = {
     'agent': routeAgent,
     'smart-entry': routeSmartEntry,
     'check': routeCheck,
+    'auto-chain': routeAutoChain,
     'find-phase': routeFindPhase,
     // #4906 Phase 5 (#4661): commit-scope selection for /gsd:undo --phase/--plan.
     'select-revert-commits': routeSelectRevertCommits,
@@ -5284,7 +5235,7 @@ function runWithTimeout(argv) {
 // independently hand-maintained sites and nothing previously caught them
 // drifting apart when a query command was added to only one or two.
 const TOP_LEVEL_USAGE = 'Usage: gsd-tools <command> [args] [--raw] [--pick <field>] [--cwd <path>] [--project-dir <path>] [--ws <name>] [--json-errors] [--exit-contract=<v>]\n' +
-  'Commands: agent, agent-skills, api-coverage, arch, assumption-delta, audit-open, audit-uat, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
+  'Commands: agent, agent-skills, api-coverage, arch, assumption-delta, audit-open, audit-uat, auto-chain, check, check-commit, claude-orchestration, commit, commit-docs-guard, commit-to-subrepo, pr-subrepo, ' +
   'config-advise, config-ensure-section, config-get, config-new-project, config-path, config-set, migrate-config, normalize-test-command, resolve-package-manager, ' +
   'context-predicates, current-timestamp, detect-custom-files, diagrams, discuss, docs-init, drift-guard, effort, extract-messages, feature-view, find-phase, ' +
   'from-gsd2, frontmatter, gap-analysis, generate-claude-md, generate-claude-profile, ' +

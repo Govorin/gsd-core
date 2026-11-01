@@ -22,6 +22,7 @@ module.exports = {
   "tests/audit-fix-command.test.cjs",
   "tests/audit-workstream-layouts.test.cjs",
   "tests/augment-upgrades.test.cjs",
+  "tests/auto-chain-state.test.cjs",
   "tests/automated-command-containment.test.cjs",
   "tests/blocking-guard-budget-parity.test.cjs",
   "tests/broken-windows.test.cjs",

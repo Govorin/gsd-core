@@ -2521,11 +2521,12 @@ describe('bug #2601: config-set-model-profile accepts inherit', () => {
 'use strict';
 
 /**
- * Regression test for #3197 — gsd-tools config-set rejects workflow._auto_chain_active.
+ * Regression test for #3197, superseded by X5.
  *
- * Root cause: RUNTIME_STATE_KEYS was added to sdk/src/query/config-schema.ts in #3162
- * but not to gsd-core/bin/lib/config-schema.cjs, so gsd-tools.cjs users still hit
- * "Unknown config key" when setting workflow._auto_chain_active.
+ * #3197 made `config-set workflow._auto_chain_active` succeed so workflows could flip the chain
+ * flag. X5 moved that flag out of the versioned config into run state (`gsd-tools auto-chain
+ * set|clear`, kept in `.gsd/`), so the key is now refused — loudly, with a typed reason — and a
+ * stale workflow text cannot re-dirty `.planning/config.json` with a value nothing reads.
  */
 
 const { describe, test } = require('node:test');
@@ -2534,49 +2535,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { createTempProject, cleanup, runGsdTools } = require('./helpers.cjs');
 
-describe('#3197 — gsd-tools.cjs config-set workflow._auto_chain_active', () => {
-  test('config-set workflow._auto_chain_active true succeeds via gsd-tools.cjs (CJS path)', (t) => {
-    const tmpDir = createTempProject();
-    t.after(() => cleanup(tmpDir));
+describe('#3197/X5 — config-set workflow._auto_chain_active is refused (the flag is run state)', () => {
+  for (const value of ['true', 'false', 'null']) {
+    test(`config-set workflow._auto_chain_active ${value} fails with config_invalid_key and writes nothing`, (t) => {
+      const tmpDir = createTempProject();
+      t.after(() => cleanup(tmpDir));
+      const configPath = path.join(tmpDir, '.planning', 'config.json');
+      fs.writeFileSync(configPath, '{"workflow":{"auto_advance":false}}');
 
-    const result = runGsdTools(['config-set', 'workflow._auto_chain_active', 'true'], tmpDir);
-    assert.ok(
-      result.success,
-      `config-set workflow._auto_chain_active true should succeed, got:\nstdout: ${result.output}\nstderr: ${result.error}`
-    );
-  });
-
-  test('config-set workflow._auto_chain_active true writes value to config.json', (t) => {
-    const tmpDir = createTempProject();
-    t.after(() => cleanup(tmpDir));
-
-    runGsdTools(['config-set', 'workflow._auto_chain_active', 'true'], tmpDir);
-
-    const configPath = path.join(tmpDir, '.planning', 'config.json');
-    assert.ok(fs.existsSync(configPath), '.planning/config.json must exist after config-set');
-
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    assert.ok(
-      config.workflow !== undefined && config.workflow._auto_chain_active === true,
-      `Expected workflow._auto_chain_active: true in config.json, got: ${JSON.stringify(config)}`
-    );
-  });
-
-  test('config-set workflow._auto_chain_active false writes false to config.json', (t) => {
-    const tmpDir = createTempProject();
-    t.after(() => cleanup(tmpDir));
-
-    runGsdTools(['config-set', 'workflow._auto_chain_active', 'false'], tmpDir);
-
-    const configPath = path.join(tmpDir, '.planning', 'config.json');
-    assert.ok(fs.existsSync(configPath), '.planning/config.json must exist after config-set');
-
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    assert.ok(
-      config.workflow !== undefined && config.workflow._auto_chain_active === false,
-      `Expected workflow._auto_chain_active: false in config.json, got: ${JSON.stringify(config)}`
-    );
-  });
+      const result = runGsdTools(['--json-errors', 'config-set', 'workflow._auto_chain_active', value], tmpDir);
+      assert.equal(result.success, false, `config-set must refuse the key, got: ${result.output}`);
+      assert.equal(JSON.parse(result.error).reason, 'config_invalid_key');
+      assert.equal(fs.readFileSync(configPath, 'utf8'), '{"workflow":{"auto_advance":false}}');
+    });
+  }
 });
   });
 }
