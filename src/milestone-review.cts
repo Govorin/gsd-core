@@ -36,7 +36,7 @@
  * `incomplete`, carries a status outside `clean`/`issues_found`, has no full-sha `tip`/`base`, has
  * no `## Lens:` section, or whose tip is not in the repository covers nothing (fail closed), and is
  * listed as ignored with the reason. A fix commit counts only when REVIEW-FIX.md records it under a
- * fixed finding's entry, it descends from the review's tip, and its subject names that finding.
+ * fixed-issues entry, it descends from the review's tip, and its subject names a finding that entry names.
  *
  * ── Open Critical ──
  *
@@ -175,6 +175,7 @@ export const ACCEPT_REASON_MAX = 500;
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const COMMIT_LINE = /^\*\*Commit:\*\*(.*)$/;
 const SHA_TOKEN = /\b[0-9a-f]{7,64}\b/g;
+const FINDING_ID = /(?<![A-Za-z0-9-])(?:CR|WR|IN|BL)-\d+(?![0-9])/g;
 const FINGERPRINT_SUFFIX = /\[(wr:[0-9a-f]{10})\]$/;
 const WINDOW_DIR_SUFFIX = '-window';
 const LAST_WINDOW_FILE = 'LAST-WINDOW.json';
@@ -406,37 +407,37 @@ function windowsOnDisk(projectDir: string): WindowOnDisk[] {
   return out;
 }
 
-/** One commit a REVIEW-FIX.md records as the fix of one finding. */
+/** One commit a REVIEW-FIX.md records as a fix. */
 export interface FixCommitClaim {
-  /** The finding id whose `### <ID>:` entry under `## Fixed Issues` names the commit. */
-  id: string;
+  /** Every finding id the `### …` entry under `## Fixed Issues` names (one entry may fix several). */
+  ids: string[];
   /** The sha as written (abbreviated or full). */
   ref: string;
 }
 
 /**
  * The commits a REVIEW-FIX.md records as fixes: every sha on a `**Commit:**` line (a line may name
- * several) inside a `### <ID>:` entry of `## Fixed Issues`, with that entry's id. A sha anywhere else —
- * a skipped finding, prose — is no claim.
+ * several) inside a `### …` entry of `## Fixed Issues`, with every finding id that heading names —
+ * `### CR-01: …`, `### WR-04 (correctness-2 WR-01): …`, `### WR-01 (correctness-1), WR-12 и WR-13 …`.
+ * A sha anywhere else — a skipped finding, prose — is no claim.
  */
 export function fixCommitClaims(fixReport: string): FixCommitClaim[] {
   const claims: FixCommitClaim[] = [];
   let inFixed = false;
-  let id: string | null = null;
+  let ids: string[] = [];
   for (const raw of splitLines(fixReport)) {
     const line = raw.trim();
     if (/^## /.test(line)) {
       inFixed = /^## Fixed Issues\b/.test(line);
-      id = null;
+      ids = [];
       continue;
     }
-    const heading = /^### ((?:CR|WR|IN|BL)-\d+):/.exec(line);
-    if (heading !== null) {
-      id = inFixed ? heading[1] : null;
+    if (/^### /.test(line)) {
+      ids = inFixed ? [...new Set(line.match(FINDING_ID) ?? [])] : [];
       continue;
     }
     const m = COMMIT_LINE.exec(line);
-    if (m !== null && id !== null) for (const ref of m[1].match(SHA_TOKEN) ?? []) claims.push({ id, ref });
+    if (m !== null && ids.length > 0) for (const ref of m[1].match(SHA_TOKEN) ?? []) claims.push({ ids: [...ids], ref });
   }
   return claims;
 }
@@ -615,7 +616,8 @@ function assess(projectDir: string, milestone: string, runner: GitRunner): Miles
       for (const claim of fixCommitClaims(w.fixReport)) {
         const sha = git.commit(claim.ref);
         if (sha === null || !milestoneShas.has(sha) || !git.isAncestor(tip, sha)) continue;
-        if (subjectNamesFinding(subjectOf.get(sha) ?? '', claim.id)) mine.add(sha);
+        const subject = subjectOf.get(sha) ?? '';
+        if (claim.ids.some((id) => subjectNamesFinding(subject, id))) mine.add(sha);
       }
     }
     if (mine.size === 0) continue;

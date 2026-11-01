@@ -488,9 +488,34 @@ describe('milestone-review: a REVIEW-FIX.md claim is a fix only when it is one',
     assert.equal(evaluate(dir).payload.uncovered, 0);
   });
 
+  test('get_your_look_up heading shapes: a lens-qualified id and several ids in one entry', () => {
+    const text = [
+      '## Fixed Issues', '',
+      '### WR-04 (correctness-2 WR-01): unbounded retry', '**Commit:** cbb4bb2', '',
+      '### WR-01 (correctness-1), WR-12 и WR-13 (correctness-4): stale cache', '**Commit:** 7013e59', '',
+    ].join('\n');
+    assert.deepEqual(fixCommitClaims(text), [
+      { ids: ['WR-04', 'WR-01'], ref: 'cbb4bb2' },
+      { ids: ['WR-01', 'WR-12', 'WR-13'], ref: '7013e59' },
+    ]);
+  });
+
+  test('a commit fixing several findings of one entry is covered (`WR-01 WR-12 WR-13 …`)', () => {
+    const tip = codeCommit(dir, 'feat: reviewed');
+    const fix = codeCommit(dir, 'fix(85): WR-01 WR-12 WR-13 stale cache');
+    const lensQualified = codeCommit(dir, 'fix(85): WR-04 bound the retry');
+    windowReview(dir, '2026-10-20', { base: null, tip, status: 'clean' });
+    put(dir, '.planning/reviews/2026-10-20-window/REVIEW-FIX.md', [
+      '---', 'status: partial', '---', '', '# Review Fix Report', '', '## Fixed Issues', '',
+      '### WR-04 (correctness-2 WR-01): unbounded retry', '', `**Commit:** ${lensQualified.slice(0, 8)}`, '',
+      '### WR-01 (correctness-1), WR-12 и WR-13 (correctness-4): stale cache', '', `**Commit:** ${fix.slice(0, 8)}`, '',
+    ].join('\n'));
+    assert.equal(evaluate(dir).payload.uncovered, 0);
+  });
+
   test('fixCommitClaims reads only Commit lines inside a Fixed Issues entry', () => {
     const text = ['## Fixed Issues', '', '### CR-01: a', '**Commit:** `abc1234`, def5678', '', '## Skipped Issues', '', '### WR-02: b', '**Commit:** 9999999', ''].join('\n');
-    assert.deepEqual(fixCommitClaims(text), [{ id: 'CR-01', ref: 'abc1234' }, { id: 'CR-01', ref: 'def5678' }]);
+    assert.deepEqual(fixCommitClaims(text), [{ ids: ['CR-01'], ref: 'abc1234' }, { ids: ['CR-01'], ref: 'def5678' }]);
     assert.equal(subjectNamesFinding('fix: CR-1 x', 'CR-10'), false);
     assert.equal(subjectNamesFinding('fix: CR-10 x', 'CR-1'), false);
   });
