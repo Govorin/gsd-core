@@ -28,7 +28,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { extractTaggedBlocks, stripInlineCode, stripTaggedBlocks } from './markdown-sectionizer.cjs';
+import { extractTaggedBlocks, scanInlineCodeSpans, stripTaggedBlocks } from './markdown-sectionizer.cjs';
 import { tryWithinRootLexical } from './security.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- phase-id.cjs is an export= CommonJS module
 import phaseIdMod = require('./phase-id.cjs');
@@ -229,12 +229,51 @@ function stripFencesAnyIndent(text: string): string | null {
 
 /**
  * Inline code spans in prose (`` Use `<task>` blocks ``) would count as task
- * openers. They are removed with their delimiter-length rule (stripInlineCode),
- * except on lines that carry an `<automated>` tag, whose command text — backticks
- * included — must reach the scan unchanged.
+ * openers. Removing the spans also removed them from `<name>`, so a task named
+ * `` Add `parse` helper `` came back as "Add  helper" and never matched the
+ * `--task-name` the executor copies from the plan. Instead the angle brackets
+ * INSIDE a span are swapped for private-use stand-ins: no tag can open or close
+ * there, the span's text survives, and `restoreInlineCodeTags` puts the
+ * brackets back in the name and commands read out. A span that overlaps an
+ * `<automated>` command is left as it is, so the command reaches the scan
+ * unchanged.
  */
-function stripProseInlineCode(text: string): string {
-  return text.split('\n').map((line) => (line.includes('<automated') ? line : stripInlineCode(line))).join('\n');
+const SPAN_LT = '';
+const SPAN_GT = '';
+
+/** [start, end) ranges of a line that belong to an `<automated>` command; an
+ *  opener with no closer on the line claims the rest of it. */
+function automatedRanges(line: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let from = 0;
+  for (;;) {
+    const open = line.indexOf('<automated', from);
+    if (open === -1) return ranges;
+    const close = line.indexOf('</automated>', open);
+    const end = close === -1 ? line.length : close + '</automated>'.length;
+    ranges.push([open, end]);
+    from = end;
+  }
+}
+
+function defangProseInlineCode(text: string): string {
+  return text.split('\n').map((line) => {
+    const spans = scanInlineCodeSpans(line);
+    if (spans.length === 0) return line;
+    const commands = automatedRanges(line);
+    let out = '';
+    let prev = 0;
+    for (const s of spans) {
+      if (commands.some(([a, b]) => s.start < b && s.end > a)) continue;
+      out += line.slice(prev, s.start) + line.slice(s.start, s.end).replace(/</g, SPAN_LT).replace(/>/g, SPAN_GT);
+      prev = s.end;
+    }
+    return out + line.slice(prev);
+  }).join('\n');
+}
+
+function restoreInlineCodeTags(s: string): string {
+  return s.replace(//g, '<').replace(//g, '>');
 }
 
 function stripHtmlComments(text: string): string | null {
@@ -257,7 +296,7 @@ function extractAutomatedCommandsByTask(planText: unknown):
   if (unfenced === null) return { ok: false, reason: 'fence_unclosed' };
   const uncommented = stripHtmlComments(unfenced);
   if (uncommented === null) return { ok: false, reason: 'comment_unclosed' };
-  const text = stripProseInlineCode(uncommented);
+  const text = defangProseInlineCode(uncommented);
   const bodies = extractTaggedBlocks(text, 'task', true);
   const openers = (text.match(TASK_OPENER_RE) ?? []).length;
   if (openers !== bodies.length) return { ok: false, reason: 'task_unclosed' };
@@ -272,7 +311,10 @@ function extractAutomatedCommandsByTask(planText: unknown):
     const found: AutomatedCommand[] = [];
     if (!extractAutomatedFromText(body, '', found, guard)) return { ok: false, reason: 'walk_bound', task: i + 1 };
     const nameMatch = TASK_NAME_RE.exec(body);
-    tasks.push({ name: nameMatch ? nameMatch[1].trim() : '', commands: found.map((c) => c.command) });
+    tasks.push({
+      name: nameMatch ? restoreInlineCodeTags(nameMatch[1]).trim() : '',
+      commands: found.map((c) => restoreInlineCodeTags(c.command)),
+    });
   }
   return { ok: true, tasks };
 }
