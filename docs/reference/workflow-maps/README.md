@@ -34,7 +34,7 @@
 
 ## Workflows (89)
 
-Всего фраз перехода: 390, из них не называют реальный шаг: 176. Дефектов: 0.
+Всего фраз перехода: 390, из них не называют реальный шаг: 184. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -58,7 +58,7 @@
 | [diagnose-issues](diagnose-issues.md) | 6 шагов `<step>` | 1 | 1 |  | 3 / 3 | 0 |
 | [discuss-phase-assumptions](discuss-phase-assumptions.md) | 17 шагов `<step>`, 1 секция `gsd:section` | 2 | 2 |  | 4 / 13 | 0 |
 | [discuss-phase-power](discuss-phase-power.md) | 7 шагов `<step>` | 0 | 0 |  | 5 / 5 | 0 |
-| [discuss-phase](discuss-phase.md) | 17 шагов `<step>` | 0 | 0 | `discuss:pre`, `discuss:post` | 3 / 10 | 0 |
+| [discuss-phase](discuss-phase.md) | 17 шагов `<step>` | 0 | 0 | `discuss:pre`, `discuss:post` | 3 / 11 | 0 |
 | [do](do.md) | 6 шагов `<step>` | 0 | 0 |  | 2 / 3 | 0 |
 | [docs-update](docs-update.md) | 16 шагов `<step>`, 1 секция `gsd:section` | 11 | 1 |  | 6 / 22 | 0 |
 | [edit-phase](edit-phase.md) | 10 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
@@ -90,7 +90,7 @@
 | [note](note.md) | 5 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [onboard](onboard.md) | 4 раздела H2 | 0 | 0 |  | 6 / 6 | 0 |
 | [pause-work](pause-work.md) | 6 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
-| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 9 / 45 | 0 |
+| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 17 / 44 | 0 |
 | [plan-review-convergence](plan-review-convergence.md) | 6 разделов H2 | 0 | 0 |  | 3 / 4 | 0 |
 | [plant-seed](plant-seed.md) | 8 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [pr-branch](pr-branch.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 3 | 0 |
