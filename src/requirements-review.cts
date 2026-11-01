@@ -188,20 +188,22 @@ export function requirementTextDigest(text: string): string {
 }
 
 /**
- * A finding's identity across runs, and what an acceptance binds to: the lens, the requirements it
- * names and THE TEXT of each as the run read it (`run.requirementDigests`) — never its renumbered ID
- * and never its title, which a fresh lens agent words differently every run. A finding naming no
- * known REQ-ID (`cross-cutting`) binds to the whole REQUIREMENTS.md digest. So an accepted risk stays
- * accepted when the review runs again over the same requirement, and is released the moment that
- * requirement's text changes. Two findings of one lens about one requirement share the identity: an
- * acceptance is of "this requirement, as written, along this lens".
+ * A finding's identity, and what an acceptance binds to: the lens, the requirements it names with
+ * THE TEXT of each as the run read it (`run.requirementDigests`; a finding naming no known REQ-ID —
+ * `cross-cutting` — binds to the whole REQUIREMENTS.md digest), and its normalised title. Never the
+ * renumbered ID. The title keeps two different risks about one requirement apart: accepting
+ * "Backfill has no rollback" must not accept "Migrations on branch feature-x will not apply". An
+ * acceptance survives a partial re-run of OTHER lenses (their reports are kept, so the title is
+ * the same text) and is released when the requirement's text changes; a lens that runs again words
+ * its findings anew, so its acceptances are asked again — the cost of never accepting blind.
  */
-export function findingFingerprint(lens: string, requirement: string | null, run: Pick<RunRecord, 'requirementDigests' | 'requirementsSha256'>): string {
-  const refs = requirementRefs(requirement);
+export function findingFingerprint(lens: string, finding: Pick<LensFinding, 'requirement' | 'title'>, run: Pick<RunRecord, 'requirementDigests' | 'requirementsSha256'>): string {
+  const refs = requirementRefs(finding.requirement);
   const bound = refs.length === 0
     ? `*=${run.requirementsSha256}`
     : refs.map((id) => `${id}=${(run.requirementDigests ?? {})[id] ?? 'unknown'}`).join('\0');
-  const digest = crypto.createHash('sha256').update(`${lens}\0${bound}`).digest('hex').slice(0, 10);
+  const title = finding.title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const digest = crypto.createHash('sha256').update(`${lens}\0${bound}\0${title}`).digest('hex').slice(0, 10);
   return `rq:${digest}`;
 }
 
@@ -327,7 +329,7 @@ export function composeReview(input: ComposeInput): ComposedReview {
       counts.total++;
       const verification = verdict === undefined ? 'unverified' : 'upheld';
       if (verification === 'unverified') counts.unverified++;
-      const fingerprint = findingFingerprint(report.lens, f.requirement, run);
+      const fingerprint = findingFingerprint(report.lens, f, run);
       const isAccepted = f.severity === 'critical' && accepted.has(fingerprint);
       if (isAccepted) counts.accepted++;
       if (f.severity === 'critical' && !isAccepted) counts.blocking++;
@@ -672,8 +674,7 @@ export interface AcceptInput {
   now: () => Date;
 }
 
-/** `alsoCovers`: other findings of the same lens about the same requirement text — one acceptance covers them. */
-export type AcceptResult = { ok: true; accepted: Array<{ id: string; fingerprint: string; alsoCovers: string[] }>; compose: ComposeResult };
+export type AcceptResult = { ok: true; accepted: Array<{ id: string; fingerprint: string }>; compose: ComposeResult };
 
 /**
  * Record critical findings of the composed review as known risks, then compose again. Only a
@@ -709,7 +710,7 @@ export function acceptFindings(input: AcceptInput): AcceptResult | ReviewFailure
   if (isFailure(compose)) return compose;
   return {
     ok: true,
-    accepted: picked.map((f) => ({ id: f.id, fingerprint: f.fingerprint, alsoCovers: findings.filter((x) => x.fingerprint === f.fingerprint && x.id !== f.id).map((x) => x.id) })),
+    accepted: picked.map((f) => ({ id: f.id, fingerprint: f.fingerprint })),
     compose,
   };
 }

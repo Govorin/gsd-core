@@ -119,7 +119,7 @@ and commit the review and `ACCEPTED.json` again when `COMMIT_DOCS` is `true`. Ne
 <step name="present">
 Print: the milestone, the requirements path and `requirementCount`, the lenses, `counts` (critical, warning, info, refuted, unverified, accepted, blocking), `missingReports`, and `Full review: {review}`. Then one line:
 
-- blocking left → "The roadmap is held: revise REQUIREMENTS.md and review again, review the disputed lenses again as written (`/gsd:requirements-review --lens <their lenses>`), or accept a finding as a known risk (`gsd_run requirements-review accept <CR-ID> --reason \"…\"`; it stays accepted until that requirement's text changes)."
+- blocking left → "The roadmap is held: revise REQUIREMENTS.md and review again, review the disputed lenses again as written (`/gsd:requirements-review --lens <their lenses>`), or accept a finding as a known risk (`gsd_run requirements-review accept <CR-ID> --reason \"…\"`; it covers that finding only, until the requirement's text changes or its lens runs again)."
 - otherwise → "No unaccepted critical finding — the roadmap may proceed."
 
 Return to the caller: a host at roadmap:pre continues to its gate.

@@ -63,6 +63,9 @@ function compose(reports, { refutation = null, accepted = [], runOverrides = {} 
   return rr.composeReview({ run: run(runOverrides), reports, refutation, accepted, reviewedAt: '2026-11-01T00:00:00.000Z' });
 }
 
+/** The fields of a finding the fingerprint reads. */
+const F = (requirement, title) => ({ requirement, title });
+
 function acceptedRisk(fingerprint, milestone = 'v1.2') {
   return { fingerprint, id: 'CR-01', lens: 'compat', title: 't', reason: 'known', milestone, acceptedAt: '2026-11-01T00:00:00.000Z' };
 }
@@ -100,19 +103,21 @@ describe('lens and refuter grammars', () => {
     assert.deepEqual(verdicts.map((v) => [v.lens, v.id, v.verdict]), [['compat', 'CR-01', 'refuted'], ['data', 'WR-01', 'upheld']]);
   });
 
-  test('the fingerprint binds lens, requirement IDs and their text — never the title', () => {
-    const a = rr.findingFingerprint('compat', '`API-02`', run());
-    assert.equal(a, rr.findingFingerprint('compat', 'API-02 (login)', run()), 'how the reference is written does not matter');
-    assert.notEqual(a, rr.findingFingerprint('data', 'API-02', run()));
-    assert.notEqual(a, rr.findingFingerprint('compat', 'MIG-01', run()));
+  test('the fingerprint binds lens, requirement IDs with their text, and the title — never the ID', () => {
+    const a = rr.findingFingerprint('compat', F('`API-02`', 'Gate breaks: released apps!'), run());
+    assert.equal(a, rr.findingFingerprint('compat', F('API-02 (login)', 'gate breaks released apps'), run()), 'reference spelling and punctuation do not matter');
+    assert.notEqual(a, rr.findingFingerprint('data', F('API-02', 'gate breaks released apps'), run()));
+    assert.notEqual(a, rr.findingFingerprint('compat', F('MIG-01', 'gate breaks released apps'), run()));
+    assert.notEqual(a, rr.findingFingerprint('compat', F('API-02', 'Old tokens are never revoked'), run()), 'another risk about the same requirement is another identity');
     const edited = run({ requirementDigests: { ...run().requirementDigests, 'API-02': rr.requirementTextDigest('Login requires a device token after v4') } });
-    assert.notEqual(a, rr.findingFingerprint('compat', 'API-02', edited), 'a changed requirement text is a new identity');
-    assert.equal(rr.findingFingerprint('compat', 'API-02', run({ requirementDigests: { ...run().requirementDigests, 'MIG-01': 'other' } })), a, 'another requirement\'s edit does not touch it');
+    assert.notEqual(a, rr.findingFingerprint('compat', F('API-02', 'gate breaks released apps'), edited), 'a changed requirement text is a new identity');
+    assert.equal(rr.findingFingerprint('compat', F('API-02', 'gate breaks released apps'), run({ requirementDigests: { ...run().requirementDigests, 'MIG-01': 'other' } })), a, 'another requirement\'s edit does not touch it');
   });
 
-  test('a cross-cutting finding binds to the whole requirements digest', () => {
-    const a = rr.findingFingerprint('security', 'cross-cutting', run());
-    assert.notEqual(a, rr.findingFingerprint('security', 'cross-cutting', run({ requirementsSha256: 'other' })));
+  test('a cross-cutting finding binds to the whole requirements digest and its title', () => {
+    const a = rr.findingFingerprint('security', F('cross-cutting', 'No rate limit'), run());
+    assert.notEqual(a, rr.findingFingerprint('security', F('cross-cutting', 'No rate limit'), run({ requirementsSha256: 'other' })));
+    assert.notEqual(a, rr.findingFingerprint('security', F('cross-cutting', 'Tokens logged in plain text'), run()));
   });
 
   test('the requirements digest does not move with line endings', () => {
@@ -139,7 +144,7 @@ describe('composeReview', () => {
 
   test('an accepted critical finding is counted, carried, and does not block — for its own milestone only', () => {
     const reports = [{ lens: 'compat', text: lensReport('compat', [['CR', 'Gate breaks released apps', 'API-02']]) }];
-    const fp = rr.findingFingerprint('compat', 'API-02', run());
+    const fp = rr.findingFingerprint('compat', F('API-02', 'Gate breaks released apps'), run());
     const accepted = compose(reports, { accepted: [acceptedRisk(fp)] });
     assert.deepEqual([accepted.counts.accepted, accepted.counts.blocking], [1, 0]);
     assert.match(accepted.text, /_Accepted as a known risk: known_/);
@@ -147,12 +152,28 @@ describe('composeReview', () => {
     assert.equal(otherMilestone.counts.blocking, 1);
   });
 
-  test('an acceptance survives a re-run that words the finding differently, and is released when the requirement text changes', () => {
-    const fp = rr.findingFingerprint('compat', 'API-02', run());
-    const reworded = [{ lens: 'compat', text: lensReport('compat', [['CR', 'Released iOS 3.x clients cannot log in', 'API-02']]) }];
-    assert.equal(compose(reworded, { accepted: [acceptedRisk(fp)] }).counts.blocking, 0);
+  // Review finding: an acceptance bound only to (lens, requirement) silently accepted a DIFFERENT
+  // critical finding of that lens about that requirement — the GYL-4 class this review exists for.
+  test('accepting one risk never accepts another risk of the same lens about the same requirement', () => {
+    const fp = rr.findingFingerprint('data', F('MIG-01', 'Backfill has no rollback'), run());
+    const later = [{ lens: 'data', text: lensReport('data', [['CR', 'Backfill has no rollback', 'MIG-01'], ['CR', 'Migrations on branch feature-x will not apply on main', 'MIG-01']]) }];
+    const r = compose(later, { accepted: [acceptedRisk(fp)] });
+    assert.deepEqual([r.counts.accepted, r.counts.blocking], [1, 1]);
+    assert.equal(r.findings.find((f) => !f.accepted).title, 'Migrations on branch feature-x will not apply on main');
+  });
+
+  test('accepting one cross-cutting risk never accepts a new cross-cutting risk of that lens', () => {
+    const fp = rr.findingFingerprint('data', F('cross-cutting', 'Backfill has no rollback'), run());
+    const later = [{ lens: 'data', text: lensReport('data', [['CR', 'Backfill has no rollback', 'cross-cutting'], ['CR', 'Migrations on branch feature-x will not apply on main', 'cross-cutting']]) }];
+    assert.equal(compose(later, { accepted: [acceptedRisk(fp)] }).counts.blocking, 1);
+  });
+
+  test('an acceptance is released when the requirement text changes', () => {
+    const fp = rr.findingFingerprint('compat', F('API-02', 'Gate breaks released apps'), run());
+    const reports = [{ lens: 'compat', text: lensReport('compat', [['CR', 'Gate breaks released apps', 'API-02']]) }];
+    assert.equal(compose(reports, { accepted: [acceptedRisk(fp)] }).counts.blocking, 0);
     const edited = { requirementDigests: { ...run().requirementDigests, 'API-02': rr.requirementTextDigest('Login requires a device token for every client') } };
-    assert.equal(compose(reworded, { accepted: [acceptedRisk(fp)], runOverrides: edited }).counts.blocking, 1);
+    assert.equal(compose(reports, { accepted: [acceptedRisk(fp)], runOverrides: edited }).counts.blocking, 1);
   });
 
   test('a lens that wrote nothing is named, and with no findings the review is incomplete, not clean', () => {
@@ -166,7 +187,7 @@ describe('judgeReview — the gate boundary', () => {
   const reportWith = (criticals) => [{ lens: 'compat', text: lensReport('compat', criticals.map((t) => ['CR', t, t === 'B' ? 'MIG-01' : 'API-02'])) }];
   // Each critical about its own requirement, so each has its own identity.
   const reqOf = (t) => (t === 'B' ? 'MIG-01' : 'API-02');
-  const fp = (title) => rr.findingFingerprint('compat', reqOf(title), run());
+  const fp = (title) => rr.findingFingerprint('compat', F(reqOf(title), title), run());
 
   test('0 unaccepted critical findings pass, 1 blocks', () => {
     assert.equal(rr.judgeReview(compose(reportWith([])).text, REQUIREMENTS, []).kind, 'pass');
@@ -328,6 +349,28 @@ describe('requirements-review CLI and the mn-requirements-review gate', () => {
     assert.deepEqual([composed.counts.warning, composed.missingReports, composed.blocking], [1, [], []], 'the kept data report is still composed');
   });
 
+  test('an acceptance holds through a partial re-run of another lens; a new risk of its lens on the same requirement blocks', () => {
+    ok(dir, ['requirements-review', 'prepare', '--milestone', 'v1.2']);
+    writeReports(dir, {
+      data: lensReport('data', [['CR', 'Backfill has no rollback', 'MIG-01']]),
+      compat: lensReport('compat', [['CR', 'Gate breaks released apps', 'API-02']]),
+    });
+    ok(dir, ['requirements-review', 'compose']);
+    ok(dir, ['requirements-review', 'accept', 'CR-01', '--reason', 'backfill is idempotent and re-runnable']);
+    assert.deepEqual(gate(dir).payload.blocking.map((b) => b.lens), ['compat']);
+    // Review again: only the blocking lens re-runs; the data report and its acceptance stay.
+    ok(dir, ['requirements-review', 'prepare', '--lens', 'compat']);
+    writeReports(dir, { compat: lensReport('compat', []) });
+    ok(dir, ['requirements-review', 'compose']);
+    assert.equal(gate(dir).payload.status, 'pass');
+    // The data lens later reports a second, different risk about MIG-01: it is not covered.
+    ok(dir, ['requirements-review', 'prepare', '--lens', 'data']);
+    writeReports(dir, { data: lensReport('data', [['CR', 'Backfill has no rollback', 'MIG-01'], ['CR', 'Migrations on branch feature-x will not apply on main', 'MIG-01']]) });
+    ok(dir, ['requirements-review', 'compose']);
+    const held = gate(dir).payload;
+    assert.deepEqual([held.status, held.blocking.map((b) => b.title)], ['finding', ['Migrations on branch feature-x will not apply on main']]);
+  });
+
   test('--lens after the requirements changed is a fresh run: nothing of the old run is kept', () => {
     ok(dir, ['requirements-review', 'prepare']);
     writeReports(dir, { data: lensReport('data', []), compat: lensReport('compat', []) });
@@ -411,12 +454,15 @@ describe('hosts run roadmap:pre between the requirements commit and the roadmapp
       assert.match(region, /In auto mode stop the workflow there/);
       assert.match(region, /"Revise requirements"/);
       assert.match(region, /"Review again"[^"]*--lens <the gate's rerun/);
-      assert.match(region, /--from-roadmap` resumes|`\/gsd:new-project` resumes/, 'Stop names the resume path');
+      assert.match(region, /--from-roadmap`, plus `--reset-phase-numbers`|`\/gsd:new-project` resumes/, 'Stop names the resume path');
     });
   }
 
   test('new-milestone resumes at step 9.5 with --from-roadmap; new-project resumes a missing roadmap at the hooks', () => {
-    assert.match(read('new-milestone.md'), /`--from-roadmap` flag → resume[^\n]*continue at step 9\.5/);
+    const nm = read('new-milestone.md');
+    assert.match(nm, /`--from-roadmap` flag → resume[^\n]*continue at step 9\.5[^\n]*`--reset-phase-numbers` still applies/);
+    assert.match(nm, /resume command: `\/gsd:new-milestone --from-roadmap`, plus `--reset-phase-numbers` and `--ws <GSD_WS_NAME>` when this run had them/);
+    assert.match(nm, /"Stop" — end here[^\n]*print the same resume command/);
     assert.match(read('new-project.md'), /a missing `ROADMAP\.md` resumes at the requirements hooks/);
   });
 
