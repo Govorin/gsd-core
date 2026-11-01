@@ -25,7 +25,7 @@ flowchart LR
     n_core_roadmap("roadmap#58; orchestrator → ROADMAP.md, REQUIREMENTS.md"):::core
     n_point_roadmap_post(["roadmap#58;post"]):::point
     n_hook_roadmap_pre_step_mn_requirements_review_0["mn-requirements-review#58; skill#58;requirements-review"]:::step
-    n_hook_roadmap_pre_gate_mn_requirements_review_1{"mn-requirements-review#58; check mn.requirements-review"}:::crit
+    n_hook_roadmap_pre_gate_mn_requirements_review_1{"mn-requirements-review#58; check mn-requirements-review"}:::crit
     n_hook_roadmap_post_step_retro_0["retro#58; command#58;retro stage"]:::step
   end
   subgraph n_step_discuss["discuss"]
@@ -491,7 +491,7 @@ flowchart TB
 | Point | Capability | Kind | What | `when` | `onError` | Blocking |
 |---|---|---|---|---|---|---|
 | `roadmap:pre` | mn-requirements-review | step | `skill:requirements-review` | `workflow.requirements_review` | `skip` |  |
-| `roadmap:pre` | mn-requirements-review | gate | `mn.requirements-review` | `workflow.requirements_review` | `halt` | yes |
+| `roadmap:pre` | mn-requirements-review | gate | `mn-requirements-review` | `workflow.requirements_review` | `halt` | yes |
 | `roadmap:post` | retro | step | `command:retro stage` | `retro.at_milestone_start` | `skip` |  |
 | `discuss:pre` | mempalace | contribution | `orchestrator · fragments/recall-discuss.md` | `mempalace.enabled` | `skip` |  |
 | `discuss:post` | mempalace | step | `skill:mempalace-capture` | `mempalace.enabled` | `skip` |  |

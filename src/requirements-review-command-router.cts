@@ -4,6 +4,8 @@
  * half of /gsd:requirements-review (capability mn-requirements-review, ADR-5212).
  *
  *   requirements-review prepare [--milestone <v>] [--lens data,compat,security,testability]
+ *     (no --milestone → STATE.md's milestone; --lens over a run of the same requirements re-runs
+ *     only those lenses and keeps the other reports)
  *   requirements-review compose
  *   requirements-review accept <CR-ID>... --reason "<why>"
  *
@@ -110,7 +112,8 @@ function routePrepare(opts: RouteOptions): void {
     cwd,
     milestone: flagValue(rest, 'milestone'),
     lenses: lenses.lenses,
-    requirementIds: (text) => parseRequirements(text).map((r) => r.id),
+    lensesExplicit: lensArg !== null,
+    requirements: (text) => parseRequirements(text).map((r) => ({ id: r.id, text: r.text })),
     now: opts._now ?? (() => new Date()),
   });
   if (!result.ok) {

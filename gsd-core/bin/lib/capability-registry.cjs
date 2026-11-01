@@ -3134,7 +3134,7 @@ const capabilities = {
     "tier": "full",
     "requires": [],
     "engines": {
-      "gsd": ">=1.15.0"
+      "gsd": ">=1.19.0"
     },
     "runtimeCompat": {
       "supported": [
@@ -3188,7 +3188,7 @@ const capabilities = {
       {
         "point": "roadmap:pre",
         "check": {
-          "query": "mn.requirements-review"
+          "query": "mn-requirements-review"
         },
         "when": "workflow.requirements_review",
         "blocking": true,
@@ -5590,7 +5590,7 @@ const byLoopPoint = {
         "capId": "mn-requirements-review",
         "point": "roadmap:pre",
         "check": {
-          "query": "mn.requirements-review"
+          "query": "mn-requirements-review"
         },
         "when": "workflow.requirements_review",
         "blocking": true,

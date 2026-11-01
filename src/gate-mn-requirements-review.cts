@@ -47,6 +47,16 @@ function mnUnresolvedBlock(message: string, details: Record<string, unknown> = {
 /** How a review is run, and how a finding is accepted — named in every verdict that needs one. */
 export const REVIEW_COMMAND = '/gsd-requirements-review';
 export const ACCEPT_COMMAND = 'gsd_run requirements-review accept';
+/** How a roadmap the gate held is resumed without asking for the requirements again. */
+export const RESUME_HINT = 'A held roadmap resumes with /gsd-new-milestone --from-roadmap (a first milestone: /gsd-new-project, which resumes an interrupted bootstrap).';
+
+/**
+ * The re-review command for `lenses` — only those lenses run again, the other reports are kept;
+ * no lenses → the whole review (the requirements changed, or there is none).
+ */
+export function rerunCommand(lenses: readonly string[]): string {
+  return lenses.length === 0 ? REVIEW_COMMAND : `${REVIEW_COMMAND} --lens ${[...new Set(lenses)].join(',')}`;
+}
 
 const VERB = 'mn-requirements-review';
 
@@ -66,8 +76,8 @@ export function evaluateMnRequirementsReview(input: MnGateInput): GateResult {
     if (review.kind === 'unreadable') return mnUnreadable(`${VERB}: could not read ${REVIEW_FILE} (${review.reason})`, details);
     if (review.kind === 'none') {
       return mnUnresolvedBlock(
-        `${VERB}: the requirements have not been reviewed — no ${REVIEW_FILE}. Run ${REVIEW_COMMAND}, or turn the review off with workflow.requirements_review false.`,
-        details,
+        `${VERB}: the requirements have not been reviewed — no ${REVIEW_FILE}. Run ${REVIEW_COMMAND}, or turn the review off with workflow.requirements_review false. ${RESUME_HINT}`,
+        { ...details, rerun: [] },
       );
     }
 
@@ -85,25 +95,27 @@ export function evaluateMnRequirementsReview(input: MnGateInput): GateResult {
     const judged = judgeReview(review.value, requirements.value, accepted);
     switch (judged.kind) {
       case 'malformed':
-        return mnUnresolvedBlock(`${VERB}: ${REVIEW_FILE} is not a composed review (${judged.problem}). Run ${REVIEW_COMMAND} again.`, details);
+        return mnUnresolvedBlock(`${VERB}: ${REVIEW_FILE} is not a composed review (${judged.problem}). Run ${REVIEW_COMMAND} again. ${RESUME_HINT}`, { ...details, rerun: [] });
       case 'stale':
         return mnUnresolvedBlock(
-          `${VERB}: ${REVIEW_FILE} reviewed other requirements — ${REQUIREMENTS_FILE} changed since. Run ${REVIEW_COMMAND} again.`,
-          { ...details, reviewedSha256: judged.reviewedSha256, currentSha256: judged.currentSha256 },
+          `${VERB}: ${REVIEW_FILE} reviewed other requirements — ${REQUIREMENTS_FILE} changed since. Run ${REVIEW_COMMAND} again. ${RESUME_HINT}`,
+          { ...details, rerun: [], reviewedSha256: judged.reviewedSha256, currentSha256: judged.currentSha256 },
         );
       case 'blocking': {
         const list = judged.blocking.map((f) => `${f.id} (${f.lens}) ${f.title}`).join('; ');
         const missing = judged.missing.length > 0 ? ` Lenses that wrote no report: ${judged.missing.join(', ')}.` : '';
+        const rerun = [...judged.blocking.map((f) => f.lens), ...judged.missing];
         return mnFinding(
           `${VERB}: ${judged.blocking.length} critical finding(s) about the requirements survived refutation and are not accepted: ${list}.${missing} ` +
-            `Revise ${REQUIREMENTS_FILE} and review again, or accept one as a known risk: \`${ACCEPT_COMMAND} ${judged.blocking[0].id} --reason "<why>"\`. Full review: ${paths.review}`,
-          { ...details, blocking: judged.blocking, missing: judged.missing },
+            `Revise ${REQUIREMENTS_FILE} and review again, review those lenses again as written (\`${rerunCommand(rerun)}\`), ` +
+            `or accept one as a known risk: \`${ACCEPT_COMMAND} ${judged.blocking[0].id} --reason "<why>"\`. ${RESUME_HINT} Full review: ${paths.review}`,
+          { ...details, blocking: judged.blocking, missing: judged.missing, rerun: [...new Set(rerun)] },
         );
       }
       case 'incomplete':
         return mnUnresolvedBlock(
-          `${VERB}: lenses ${judged.missing.join(', ')} wrote no report, so the requirements were not read along them. Run ${REVIEW_COMMAND} again (or narrow workflow.requirements_review_lenses).`,
-          { ...details, missing: judged.missing },
+          `${VERB}: lenses ${judged.missing.join(', ')} wrote no report, so the requirements were not read along them. Run \`${rerunCommand(judged.missing)}\` (the other lenses' reports are kept), or narrow workflow.requirements_review_lenses. ${RESUME_HINT}`,
+          { ...details, missing: judged.missing, rerun: judged.missing },
         );
       case 'pass':
         return mnPass(

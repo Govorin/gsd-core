@@ -175,10 +175,33 @@ export function parseRefutation(text: string): Verdict[] {
   return verdicts;
 }
 
-/** A finding's identity across runs: lens, requirement and normalised title — never its ID. */
-export function findingFingerprint(lens: string, finding: Pick<LensFinding, 'requirement' | 'title'>): string {
-  const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-  const digest = crypto.createHash('sha256').update(`${lens}\0${norm(finding.requirement ?? '')}\0${norm(finding.title)}`).digest('hex').slice(0, 10);
+const REQ_ID_RE = /[A-Z][A-Z0-9]*-[A-Za-z0-9_-]+/g;
+
+/** The REQ-IDs a finding's `**Requirement:**` value names, sorted and unique (none for `cross-cutting`). */
+export function requirementRefs(requirement: string | null): string[] {
+  return [...new Set((requirement ?? '').match(REQ_ID_RE) ?? [])].sort();
+}
+
+/** One requirement's text, as the fingerprint binds to it: whitespace-collapsed, then digested. */
+export function requirementTextDigest(text: string): string {
+  return crypto.createHash('sha256').update(text.replace(/\s+/g, ' ').trim()).digest('hex').slice(0, 16);
+}
+
+/**
+ * A finding's identity across runs, and what an acceptance binds to: the lens, the requirements it
+ * names and THE TEXT of each as the run read it (`run.requirementDigests`) — never its renumbered ID
+ * and never its title, which a fresh lens agent words differently every run. A finding naming no
+ * known REQ-ID (`cross-cutting`) binds to the whole REQUIREMENTS.md digest. So an accepted risk stays
+ * accepted when the review runs again over the same requirement, and is released the moment that
+ * requirement's text changes. Two findings of one lens about one requirement share the identity: an
+ * acceptance is of "this requirement, as written, along this lens".
+ */
+export function findingFingerprint(lens: string, requirement: string | null, run: Pick<RunRecord, 'requirementDigests' | 'requirementsSha256'>): string {
+  const refs = requirementRefs(requirement);
+  const bound = refs.length === 0
+    ? `*=${run.requirementsSha256}`
+    : refs.map((id) => `${id}=${(run.requirementDigests ?? {})[id] ?? 'unknown'}`).join('\0');
+  const digest = crypto.createHash('sha256').update(`${lens}\0${bound}`).digest('hex').slice(0, 10);
   return `rq:${digest}`;
 }
 
@@ -228,6 +251,8 @@ export interface RunRecord {
   requirements: string;
   requirementsSha256: string;
   requirementIds: string[];
+  /** REQ-ID → digest of its text (`requirementTextDigest`); what a finding's identity binds to. */
+  requirementDigests: Record<string, string>;
   lenses: RequirementsLens[];
   preparedAt: string;
 }
@@ -263,10 +288,6 @@ export interface ComposedReview {
   missingReports: RequirementsLens[];
 }
 
-function quote(value: string | null): string {
-  return value === null ? 'null' : JSON.stringify(value);
-}
-
 /**
  * The milestone's REQUIREMENTS-REVIEW.md. Lens reports keep their own sections in lens order and
  * their findings their own order; IDs are renumbered across the document and every finding names
@@ -286,6 +307,7 @@ export function composeReview(input: ComposeInput): ComposedReview {
   const missingReports: RequirementsLens[] = [];
   const findings: ComposedFinding[] = [];
 
+  const run = input.run;
   for (const report of input.reports) {
     if (report.text === null) {
       missingReports.push(report.lens);
@@ -305,7 +327,7 @@ export function composeReview(input: ComposeInput): ComposedReview {
       counts.total++;
       const verification = verdict === undefined ? 'unverified' : 'upheld';
       if (verification === 'unverified') counts.unverified++;
-      const fingerprint = findingFingerprint(report.lens, f);
+      const fingerprint = findingFingerprint(report.lens, f.requirement, run);
       const isAccepted = f.severity === 'critical' && accepted.has(fingerprint);
       if (isAccepted) counts.accepted++;
       if (f.severity === 'critical' && !isAccepted) counts.blocking++;
@@ -320,10 +342,11 @@ export function composeReview(input: ComposeInput): ComposedReview {
   }
 
   const status: ReviewStatus = counts.total > 0 ? 'issues_found' : missingReports.length > 0 ? 'incomplete' : 'clean';
-  const run = input.run;
   const frontmatter = [
     '---',
-    `milestone: ${quote(run.milestone)}`,
+    // No milestone, no key: this repo's frontmatter reader returns a YAML `null` scalar as the
+    // string "null", which would bind acceptances to a milestone named "null".
+    ...(run.milestone === null ? [] : [`milestone: ${JSON.stringify(run.milestone)}`]),
     `requirements: ${JSON.stringify(run.requirements)}`,
     `requirements_sha256: ${JSON.stringify(run.requirementsSha256)}`,
     `reviewed: ${JSON.stringify(input.reviewedAt)}`,
@@ -397,7 +420,7 @@ export function judgeReview(review: string, requirements: string, accepted: read
   if (reviewedSha === null) return { kind: 'malformed', problem: 'no requirements_sha256 in its frontmatter' };
   if (reviewedSha !== currentSha) return { kind: 'stale', reviewedSha256: reviewedSha, currentSha256: currentSha };
   const milestoneField = rawFrontmatterField(review, 'milestone');
-  const milestone = typeof milestoneField?.value === 'string' ? milestoneField.value : null;
+  const milestone = typeof milestoneField?.value === 'string' && milestoneField.value !== '' ? milestoneField.value : null;
   const missingField = rawFrontmatterField(review, 'missing_reports');
   if (missingField === null || !Array.isArray(missingField.value)) return { kind: 'malformed', problem: 'no missing_reports list in its frontmatter' };
   const missing = missingField.value.map(String);
@@ -458,15 +481,24 @@ export interface PrepareInput {
   planning: string;
   /** Project root, for the relative paths the result names. */
   cwd: string;
+  /** `--milestone`; null → the milestone STATE.md names (new-milestone switched it in step 5), else none. */
   milestone: string | null;
   lenses: readonly RequirementsLens[];
-  /** REQ-IDs of the requirements text (the caller owns the parser). */
-  requirementIds: (text: string) => string[];
+  /**
+   * True when the caller named the lenses (`--lens`): with a run of the SAME requirements on disk,
+   * only these lenses run again and the other lenses' reports are kept (a re-review after a lens
+   * failed or a blocking finding was disputed). Otherwise every report of an earlier run is removed.
+   */
+  lensesExplicit: boolean;
+  /** The requirements of a REQUIREMENTS.md text, `{id, text}` per REQ-ID (the caller owns the parser). */
+  requirements: (text: string) => Array<{ id: string; text: string }>;
   now: () => Date;
 }
 
 export interface PrepareResult {
   ok: true;
+  /** `partial`: the requirements are unchanged and only `reports` run again; `full`: a fresh run. */
+  mode: 'full' | 'partial';
   dir: string;
   run: string;
   review: string;
@@ -475,7 +507,10 @@ export interface PrepareResult {
   requirementCount: number;
   milestone: string | null;
   refutation: string;
+  /** The lenses to run now — one agent each. */
   reports: Array<{ label: RequirementsLens; lens: RequirementsLens; focus: string; path: string }>;
+  /** Lenses of the run whose reports are kept from the earlier run (partial mode only). */
+  kept: RequirementsLens[];
   context: { project: string | null; codebase: string[]; researchSummary: string | null; milestones: string | null };
   removed: string[];
 }
@@ -484,26 +519,43 @@ function rel(cwd: string, p: string): string {
   return path.relative(cwd, p).split(path.sep).join('/');
 }
 
+/** The milestone STATE.md's frontmatter names, or null (no STATE.md yet, as in new-project). */
+function stateMilestone(planning: string): string | null {
+  const text = readTextOrNull(path.join(planning, 'STATE.md'));
+  if (text === null) return null;
+  const value = rawFrontmatterField(text, 'milestone')?.value;
+  return typeof value === 'string' && value !== '' && value !== 'null' ? value : null;
+}
+
 export function prepareReview(input: PrepareInput): PrepareResult | ReviewFailure {
   const paths = reviewPaths(input.planning);
   const requirements = readTextOrNull(paths.requirements);
   if (requirements === null) return { ok: false, reason: 'no-requirements', message: `no ${REQUIREMENTS_FILE} at ${rel(input.cwd, paths.requirements)} — define the milestone's requirements first` };
+  const sha = requirementsDigest(requirements);
+  const previous = readTextOrNull(paths.run) === null ? null : readRun(paths);
+  const prior = input.lensesExplicit && previous !== null && !isFailure(previous) && previous.requirementsSha256 === sha ? previous : null;
+  const milestone = input.milestone ?? prior?.milestone ?? stateMilestone(input.planning);
+  const runLenses = prior === null ? [...input.lenses] : REQUIREMENTS_REVIEW_LENSES.filter((l) => prior.lenses.includes(l) || input.lenses.includes(l));
+
   fs.mkdirSync(paths.dir, { recursive: true });
   const removed: string[] = [];
+  const stale = (name: string): boolean => name === REFUTATION_FILE
+    || (prior === null ? REPORT_RE.test(name) : input.lenses.some((l) => name === `REVIEW-${l}.md`));
   for (const name of listOrEmpty(paths.dir)) {
-    if (REPORT_RE.test(name) || name === REFUTATION_FILE) {
+    if (stale(name)) {
       fs.rmSync(path.join(paths.dir, name), { force: true });
       removed.push(name);
     }
   }
-  const ids = input.requirementIds(requirements);
+  const items = input.requirements(requirements);
   const run: RunRecord = {
     version: 1,
-    milestone: input.milestone,
+    milestone,
     requirements: rel(input.cwd, paths.requirements),
-    requirementsSha256: requirementsDigest(requirements),
-    requirementIds: ids,
-    lenses: [...input.lenses],
+    requirementsSha256: sha,
+    requirementIds: items.map((r) => r.id),
+    requirementDigests: Object.fromEntries(items.map((r) => [r.id, requirementTextDigest(r.text)])),
+    lenses: runLenses,
     preparedAt: input.now().toISOString(),
   };
   writeAtomic(paths.run, `${JSON.stringify(run, null, 2)}\n`);
@@ -511,15 +563,17 @@ export function prepareReview(input: PrepareInput): PrepareResult | ReviewFailur
   const codebaseDir = path.join(input.planning, 'codebase');
   return {
     ok: true,
+    mode: prior === null ? 'full' : 'partial',
     dir: rel(input.cwd, paths.dir),
     run: rel(input.cwd, paths.run),
     review: rel(input.cwd, paths.review),
     requirements: run.requirements,
-    requirementsSha256: run.requirementsSha256,
-    requirementCount: ids.length,
-    milestone: input.milestone,
+    requirementsSha256: sha,
+    requirementCount: items.length,
+    milestone,
     refutation: rel(input.cwd, paths.refutation),
     reports: input.lenses.map((lens) => ({ label: lens, lens, focus: LENS_FOCUS[lens], path: rel(input.cwd, lensReportPath(paths.dir, lens)) })),
+    kept: runLenses.filter((l) => !input.lenses.includes(l)),
     context: {
       project: existing(path.join(input.planning, 'PROJECT.md')),
       codebase: listOrEmpty(codebaseDir).filter((n) => n.endsWith('.md')).map((n) => rel(input.cwd, path.join(codebaseDir, n))),
@@ -549,6 +603,9 @@ function readRun(paths: ReviewPaths): RunRecord | ReviewFailure {
     requirements: data.requirements,
     requirementsSha256: data.requirementsSha256,
     requirementIds: Array.isArray(data.requirementIds) ? data.requirementIds.map(String) : [],
+    requirementDigests: data.requirementDigests !== null && typeof data.requirementDigests === 'object' && !Array.isArray(data.requirementDigests)
+      ? Object.fromEntries(Object.entries(data.requirementDigests).filter((e): e is [string, string] => typeof e[1] === 'string'))
+      : {},
     lenses: lenses.lenses,
     preparedAt: String(data.preparedAt ?? ''),
   };
@@ -615,7 +672,8 @@ export interface AcceptInput {
   now: () => Date;
 }
 
-export type AcceptResult = { ok: true; accepted: Array<{ id: string; fingerprint: string }>; compose: ComposeResult };
+/** `alsoCovers`: other findings of the same lens about the same requirement text — one acceptance covers them. */
+export type AcceptResult = { ok: true; accepted: Array<{ id: string; fingerprint: string; alsoCovers: string[] }>; compose: ComposeResult };
 
 /**
  * Record critical findings of the composed review as known risks, then compose again. Only a
@@ -649,5 +707,9 @@ export function acceptFindings(input: AcceptInput): AcceptResult | ReviewFailure
   writeAtomic(paths.accepted, `${JSON.stringify({ accepted: next }, null, 2)}\n`);
   const compose = composeReviewFiles(input.planning, input.cwd, input.now);
   if (isFailure(compose)) return compose;
-  return { ok: true, accepted: picked.map((f) => ({ id: f.id, fingerprint: f.fingerprint })), compose };
+  return {
+    ok: true,
+    accepted: picked.map((f) => ({ id: f.id, fingerprint: f.fingerprint, alsoCovers: findings.filter((x) => x.fingerprint === f.fingerprint && x.id !== f.id).map((x) => x.id) })),
+    compose,
+  };
 }

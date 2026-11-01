@@ -69,7 +69,7 @@ points.
 | `mn-code-navigation` | feature | full | `>=1.15.0` | — | — | first-party |
 | `mn-expertise` | feature | full | `>=1.6.0` | — | — | first-party |
 | `mn-nx-tasks` | feature | full | `>=1.15.0` | — | — | first-party |
-| `mn-requirements-review` | feature | full | `>=1.15.0` | `roadmap:pre` | step, gate | first-party |
+| `mn-requirements-review` | feature | full | `>=1.19.0` | `roadmap:pre` | step, gate | first-party |
 | `mn-verify-gate` | feature | full | `>=1.15.0` | `plan:pre`, `plan:post`, `execute:pre`, `execute:wave:post`, `verify:pre`, `ship:pre` | step, contribution, gate | first-party |
 | `nyquist` | feature | full | `>=1.6.0` | `verify:post` | step | first-party |
 | `pattern-mapper` | feature | full | `>=1.6.0` | `plan:pre` | step | first-party |
