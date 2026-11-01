@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-79 registered hook(s) at 14 of 15 points.
+79 registered hook(s) at 14 of 16 points.
 
 ## Overview
 
@@ -21,6 +21,7 @@ contribution into the named agent role. A red dashed node is a defect (see the l
 ```mermaid
 flowchart LR
   subgraph n_step_roadmap["roadmap"]
+    n_point_roadmap_pre(["roadmap#58;pre"]):::point
     n_core_roadmap("roadmap#58; orchestrator → ROADMAP.md, REQUIREMENTS.md"):::core
     n_point_roadmap_post(["roadmap#58;post"]):::point
     n_hook_roadmap_post_step_retro_0["retro#58; command#58;retro stage"]:::step
@@ -135,6 +136,7 @@ flowchart LR
     n_hook_milestone_pre_step_code_review_0["code-review#58; command#58;review stage"]:::step
     n_hook_milestone_post_step_architecture_0["architecture#58; command#58;arch stage"]:::step
   end
+  n_point_roadmap_pre --> n_core_roadmap
   n_core_roadmap --> n_point_roadmap_post
   n_point_roadmap_post --> n_hook_roadmap_post_step_retro_0
   n_point_discuss_pre --> n_core_discuss
@@ -550,6 +552,8 @@ flowchart TB
 
 | Point | Workflow | Kinds dispatched |
 |---|---|---|
+| `roadmap:pre` | `gsd-core/workflows/new-milestone.md` | step, gate, contribution |
+| `roadmap:pre` | `gsd-core/workflows/new-project.md` | step, gate, contribution |
 | `roadmap:post` | `gsd-core/workflows/new-milestone.md` | step |
 | `roadmap:post` | `gsd-core/workflows/new-project.md` | step |
 | `discuss:pre` | `gsd-core/workflows/discuss-phase.md` | step, gate, contribution |

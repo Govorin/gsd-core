@@ -5494,6 +5494,11 @@ const byAgent = {
 };
 
 const byLoopPoint = {
+  "roadmap:pre": {
+    "steps": [],
+    "contributions": [],
+    "gates": []
+  },
   "roadmap:post": {
     "steps": [
       {

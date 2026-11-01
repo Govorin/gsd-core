@@ -1102,13 +1102,13 @@ describe('normalizeLineEndings', () => {
 // ─── 5. Registry shape from multiple capabilities ────────────────────────────
 
 describe('registry structure', () => {
-  test('byLoopPoint contains all 15 valid points', () => {
+  test('byLoopPoint contains all 16 valid points', () => {
     const capDir = makeTempCapDir({ ui: UI_CAP });
     const { capMap } = loadAndValidate(new Set(), capDir);
     const registry = buildRegistry(capMap);
 
     const expectedPoints = [
-      'roadmap:post',
+      'roadmap:pre', 'roadmap:post',
       'discuss:pre', 'discuss:post',
       'plan:pre', 'plan:post',
       'execute:pre', 'execute:wave:pre', 'execute:wave:post', 'execute:post',
@@ -1198,8 +1198,8 @@ describe('#3778 — plan:pre contribution set feeding the quick.md planner dispa
     assert.deepEqual(contract, LOOP_HOST_CONTRACT, 'auxiliary metadata must not be serialized');
 
     const points = contract.flatMap((entry) => entry.points);
-    assert.strictEqual(points.length, 15, 'serialized contract must stay at 15 points');
-    assert.strictEqual(new Set(points).size, 15, 'serialized lifecycle points must remain unique');
+    assert.strictEqual(points.length, 16, 'serialized contract must stay at 16 points');
+    assert.strictEqual(new Set(points).size, 16, 'serialized lifecycle points must remain unique');
   });
 });
 
@@ -5668,10 +5668,11 @@ describe('#1196 — discuss loop wiring + wired-point guard', () => {
     });
 
     test('HOST_LOOP_FILES matches STEP_WORKFLOWS rows and auxiliary hosts', () => {
-      const expectedFromStepWorkflows = STEP_WORKFLOWS.flatMap(({ file, auxiliaryHosts = [] }) => [
+      // Each file once: new-project.md hosts two auxiliary points (roadmap:pre and roadmap:post).
+      const expectedFromStepWorkflows = [...new Set(STEP_WORKFLOWS.flatMap(({ file, auxiliaryHosts = [] }) => [
         'gsd-core/workflows/' + file,
         ...auxiliaryHosts.map((host) => 'gsd-core/workflows/' + host.file),
-      ]);
+      ]))];
       assert.deepEqual(
         HOST_LOOP_FILES,
         expectedFromStepWorkflows,

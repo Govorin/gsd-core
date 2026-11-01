@@ -2,7 +2,7 @@
 
 # new-project
 
-Источник: `gsd-core/workflows/new-project.md`. Единицы: 13 разделов H2, 3 секции `gsd:section`. Спавнов: 15 (агенты: `gsd-research-synthesizer`, `gsd-roadmapper`, `gsd-project-researcher`). Точки цикла: `roadmap:post`.
+Источник: `gsd-core/workflows/new-project.md`. Единицы: 13 разделов H2, 3 секции `gsd:section`. Спавнов: 15 (агенты: `gsd-research-synthesizer`, `gsd-roadmapper`, `gsd-project-researcher`). Точки цикла: `roadmap:pre`, `roadmap:post`.
 
 > **Переходы в прозе** (фразы «перейди к …»): всего 10; не называют реальный шаг и не рисуются — **5**; названы по имени шага и нарисованы пунктиром `goto` — 5.
 
@@ -94,18 +94,21 @@ flowchart LR
     a_gsd_project_researcher[["gsd-project-researcher"]]:::agent
   end
   subgraph g_points["Точки цикла и капабилити"]
+    p_roadmap_pre{{"roadmap#58;pre"}}:::point
     p_roadmap_post{{"roadmap#58;post"}}:::point
     c_roadmap_post_retro_command_retro_stage["retro#58; command retro stage"]:::capability
   end
   wf_root(["new-project.md (вне шагов)"]):::root
   u_heading_2b__Prior_Spike_Sketch_Detection["2b. Prior Spike/Sketch Detection"]
   u_heading_6__Research_Decision["6. Research Decision"]
+  u_heading_7__Define_Requirements["7. Define Requirements"]
   u_heading_8__Create_Roadmap["8. Create Roadmap"]
   u_heading_6__Research_Decision --> a_gsd_research_synthesizer
   u_heading_8__Create_Roadmap --> a_gsd_roadmapper
   wf_root -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_2b__Prior_Spike_Sketch_Detection -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
   u_heading_6__Research_Decision -->|"через new-project/detail/elaboration.md"| a_gsd_project_researcher
+  u_heading_7__Define_Requirements --> p_roadmap_pre
   p_roadmap_post -.-> c_roadmap_post_retro_command_retro_stage
   u_heading_8__Create_Roadmap --> p_roadmap_post
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
@@ -137,7 +140,7 @@ flowchart LR
 | 10 | `5.1. Sub-Repo Detection` | H2 |  |  |  |  |
 | 11 | `5.5. Resolve Model Profile` | H2 |  |  |  |  |
 | 12 | `6. Research Decision` | H2 |  | `gsd-research-synthesizer`, `gsd-project-researcher` |  | `new-project/detail/elaboration.md` |
-| 13 | `7. Define Requirements` | H2 |  |  |  |  |
+| 13 | `7. Define Requirements` | H2 |  |  | `roadmap:pre` |  |
 | 14 | `7.5. Project Structure Mode` | H2 |  |  |  |  |
 | 15 | `8. Create Roadmap` | H2 |  | `gsd-roadmapper` | `roadmap:post` |  |
 | 16 | `9. Done` | H2 |  |  |  |  |

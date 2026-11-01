@@ -939,6 +939,14 @@ If "adjust": Return to scoping.
 gsd_run query commit "docs: define v1 requirements" --files .planning/REQUIREMENTS.md
 ```
 
+**Requirements hooks** — REQUIREMENTS.md is committed and no roadmap exists (the requirements review runs here):
+
+```bash
+ROADMAP_PRE_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:pre --raw)
+```
+
+Read `activeHooks` in-context and apply every entry, in order, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none): a `ref.skill` runs as `Skill(skill="gsd-<ref.skill>", args="--milestone <version>")` (the milestone these requirements open), plus `--auto` in auto mode; a gate runs `gsd_run check <query> --raw`. A blocking gate answering `block: true` holds the roadmap: print its `message`. In auto mode stop the workflow there. Otherwise ask (AskUserQuestion): "Revise requirements" — back to scoping with the message as input, commit, then run these hooks again; "Stop" — end here.
+
 ## 7.5. Project Structure Mode
 
 **If auto mode:** Set `PROJECT_MODE=mvp` and skip this prompt.

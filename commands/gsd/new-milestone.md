@@ -8,6 +8,7 @@ allowed-tools:
   - Bash
   - Grep
   - Agent
+  - Skill
   - AskUserQuestion
 requires: [new-project, phase, plan-phase]
 ---

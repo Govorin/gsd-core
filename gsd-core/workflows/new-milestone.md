@@ -1,6 +1,6 @@
 <!-- gsd:loop-host
 step: roadmap
-points: roadmap:post
+points: roadmap:pre, roadmap:post
 agent-roles: orchestrator
 produces: ROADMAP.md, REQUIREMENTS.md
 consumes: PROJECT.md
@@ -567,6 +567,19 @@ _gsd_field() { node -e "const o=JSON.parse(process.argv[1]); const v=o[process.a
 REQUIREMENTS_PATH=$(_gsd_field "$INIT_REQ" requirements_path)
 gsd_run query commit "docs: define milestone v[X.Y] requirements" --files "$REQUIREMENTS_PATH"
 ```
+
+## 9.5. Requirements Hooks
+
+REQUIREMENTS.md is committed and no roadmap exists: requirements are judged here, while changing them is cheap (the requirements review runs here).
+
+```bash
+GSD_WS_ARG=$(cat .planning/.gsd-ws-arg 2>/dev/null || true)
+ROADMAP_PRE_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:pre --raw ${GSD_WS_ARG:+--ws=${GSD_WS_ARG##* }})
+AUTO_CHAIN=$(gsd_run query check auto-mode --pick auto_chain_active 2>/dev/null)
+echo "GSD_WS_NAME=${GSD_WS_ARG##* } AUTO_CHAIN=${AUTO_CHAIN:-false}"
+```
+
+Read `activeHooks` in-context and apply every entry, in order, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none). A `ref.skill` runs as `Skill(skill="gsd-<ref.skill>", args="--milestone v[X.Y]")` plus `--auto` in auto mode (`--auto` passed, or `AUTO_CHAIN` is `true`) and `--ws <GSD_WS_NAME>` when non-empty; a gate runs `gsd_run check <query> --raw` with the same `--ws`. A blocking gate answering `block: true` holds the roadmap: print its `message`. In auto mode stop the workflow there. Otherwise ask (AskUserQuestion; TEXT_MODE: numbered list): "Revise requirements" — back to step 9 with the message as input, commit, then run this step again; "Stop" — end here, REQUIREMENTS.md and its review stay committed.
 
 ## 10. Create Roadmap
 
