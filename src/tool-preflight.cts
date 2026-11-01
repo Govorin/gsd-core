@@ -11,6 +11,7 @@
  *   - `verify plan-structure` carries the result as `tool_preflight` (a warning at planning time);
  *   - `verify tool-preflight <plan>` is the typed verb `/gsd-quick` reads before its executor spawn;
  *   - `check mn-tool-preflight <phase>` is the execute:pre gate that halts `/gsd-execute-phase`;
+ *   - `config-advise` turns the same result into an `agent_tools` recommendation.
  *
  * What the agent holds is read from the INSTALLED agent file, the way the installer writes it and
  * the runtime reads it — not from canonical `agents/*.md`, which carries no install-time grants

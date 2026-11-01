@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
-  "count": 367,
+  "count": 370,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 1,
     "CI": 2,
-    "CONFIG": 5,
+    "CONFIG": 8,
     "CONTENT-ROOT": 6,
     "EXEC": 8,
     "GSD-RESEARCH": 6,
@@ -50,6 +50,21 @@
       "id": "CI.GATE.issue-link-required",
       "klass": "CI",
       "value": "hard-fail if PR body lacks closes/fixes/resolves #<issue>"
+    },
+    {
+      "id": "CONFIG.ADVISE.rules",
+      "klass": "CONFIG",
+      "value": "plan_chunked (max plans per active phase, disk or ROADMAP **Plans:** N plans, >= 6 → workflow.plan_chunked + planning.chunked_parallel) | code_review_point (one phase-end *-REVIEW.md critical+warning >= 5, skipped ignored → execute:wave:post) | verify_work (active phases with VERIFICATION human_needed or an open UAT >= 2 → verify-work <oldest> then audit-uat, no knob) | verify_gates (active VERIFICATION reports citing check commands >= 2 while verify_gates empty → verify_gates from the cited commands + verify_gates_record) | agent_tools (Tool Preflight missing on any unsummarized plan → agent_tools.<agent> + reinstall)"
+    },
+    {
+      "id": "CONFIG.ADVISE.scope",
+      "klass": "CONFIG",
+      "value": "active milestone only (.planning/phases via listActiveAndArchivedPhaseDirs, milestone undefined); config read raw from planningDir/config.json then .planning/config.json (loadConfig drops plan_chunked and planning.*)"
+    },
+    {
+      "id": "CONFIG.ADVISE.thresholds",
+      "klass": "CONFIG",
+      "value": "ADVISE_THRESHOLDS {PLANS_PER_PHASE 6, REVIEW_FIX_FINDINGS 5, HUMAN_VERIFICATION_PHASES 2, GATE_CITING_REPORTS 2}, each fires at >=; justified in the constant's comment and docs/CONFIGURATION.md \"Config advisor\"; tests at N-1, N, N+1"
     },
     {
       "id": "CONFIG.LOCATION.SEAM.in-process-scrub",
@@ -1549,7 +1564,7 @@
     {
       "id": "SEAM.tool-preflight.owns",
       "klass": "SEAM",
-      "value": "whether the installed executor grants the tools a plan names — one owner for verify plan-structure, verify tool-preflight and check mn-tool-preflight (LG-01)"
+      "value": "whether the installed executor grants the tools a plan names — one owner for verify plan-structure, verify tool-preflight, check mn-tool-preflight and config-advise (LG-01)"
     },
     {
       "id": "SEAM.verification-isphasecomplete.enforced-by",

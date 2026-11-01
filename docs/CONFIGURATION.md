@@ -248,6 +248,34 @@ gsd-tools verify tool-preflight .planning/phases/03-ui/03-02-PLAN.md   # status:
 - `workflow.tool_preflight` (default `true`, from the `mn-verify-gate` capability) turns the
   execute:pre gate off.
 
+## Config advisor
+
+```bash
+gsd-tools config-advise          # human-readable
+gsd-tools config-advise --json   # {recommendations, rules, count, summary}
+```
+
+`config-advise` reads the active milestone's `.planning/` artifacts and recommends knobs that
+already exist but are off, each with a one-line reason and the exact command. It writes nothing,
+and a knob that is already on is never recommended. `/gsd-progress` prints its summary line under
+"Config Advice" (from `init progress`'s `config_advice`), and `/gsd-health` reports it as info
+`I011`.
+
+| Signal | Fires at | Recommends |
+|--------|----------|------------|
+| Plans in one phase, on disk or declared in ROADMAP.md (`**Plans:** N plans`) | 6 or more | `workflow.plan_chunked` + `planning.chunked_parallel` |
+| Critical + warning findings in one phase-end `*-REVIEW.md` (`status: skipped` ignored) | 5 or more | `workflow.code_review_point: execute:wave:post` |
+| Phases waiting on human verification (VERIFICATION `human_needed`, or an open UAT) | 2 or more | run `/gsd-verify-work <oldest>`, then `/gsd-audit-uat` |
+| VERIFICATION reports citing hand-run checks (`npm test`, `tsc`, `cargo clippy`, …) while `workflow.verify_gates` is empty | 2 or more | `workflow.verify_gates` with the cited commands, + `workflow.verify_gates_record` |
+| A plan still to run names a tool its executor does not grant ([tool preflight](#tool-preflight)) | 1 | `agent_tools.<agent>` + reinstall |
+
+The thresholds come from the October 2026 usage review of three projects: planner runs on phases
+of 6–13 plans took a median 42 minutes and up to 517, and 20–25-plan phases compacted the planner;
+a phase-end review asking for five fixes sends the fixer across several plans' files that a
+per-wave review would have seen one wave at a time; one phase awaiting human verification is the
+normal state after execution, a second means the debt outlived the next phase; and the same
+checks re-run by hand in two reports are what `verify_gates` records once.
+
 ## Core Settings
 
 | Setting | Type | Options | Default | Description |

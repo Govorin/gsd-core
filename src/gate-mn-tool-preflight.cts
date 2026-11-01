@@ -10,8 +10,8 @@
  *
  *   - any incomplete plan with status `missing` → finding (blocks);
  *   - `unknown` (the agent's grants could not be read) → pass with the reason in the message: the
- *     gate cannot prove a grant is absent, and `verify plan-structure` already reports the
- *     unknown;
+ *     gate cannot prove a grant is absent, and `verify plan-structure` / `config-advise` already
+ *     report the unknown;
  *   - plans with a SUMMARY are done and are not checked.
  */
 

@@ -800,6 +800,12 @@ export const NON_FAMILY_COMMAND_ALIASES: NonFamilyCommandAlias[] = [
     "mutation": true
   },
   {
+    // S7: read-only advisor over .planning/ signals (src/config-advise.cts).
+    "canonical": "config-advise",
+    "aliases": [],
+    "mutation": false
+  },
+  {
     "canonical": "config-ensure-section",
     "aliases": [],
     "mutation": true

@@ -67,6 +67,7 @@ import planningScopeMod = require('./planning-scope.cjs');
 const { SCOPE } = planningScopeMod;
 type Scope = planningScopeMod.Scope;
 import { resolveRuntime } from './runtime-slash.cjs';
+import { configAdviceField } from './config-advise.cjs';
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- agent-install-check.cjs is an export= CommonJS module
 import agentInstallCheckMod = require('./agent-install-check.cjs');
 const { checkAgentsInstalled } = agentInstallCheckMod;
@@ -173,6 +174,11 @@ interface PlanningSnapshot {
   // one path under it is still tracked by git — see `buildPlanningTrackedField`'s
   // own doc comment for the full rationale.
   planningTracked: { value: { tracked: boolean; ignored: boolean }; scope: Scope; reason: string };
+  // ─── S7 (fork) addition ──────────────────────────────────────────────────────
+  // Backs I011: `config-advise`'s `{count, summary}`. Like `agentInstall`, not
+  // `.planning/`-only — the advisor also reads the installed agent files — and
+  // exposed here so I011's `check(snapshot)` stays the single-object signature.
+  configAdvice: { value: { count: number; summary: string | null } | null; scope: Scope };
   // ─── Phase 11 (#3309) "Rule table organization" additions ─────────────────
   // The design doc's own "Rule table organization" table and prose disagree
   // on the count: the table lists EIGHT rows (through `planningRootFiles`,
@@ -522,6 +528,16 @@ function buildConfigField(cwd: string): { value: Record<string, unknown> | null;
     warnUnusableInput({ reason: UNUSABLE_REASON.CONFIG_UNREADABLE, source: configPath });
     return { value: null, scope: SCOPE.UNREADABLE, exists: true };
   }
+}
+
+/**
+ * Resolve `configAdvice` (I011) — `config-advise`'s summary. `configAdviceField`
+ * never throws and answers `null` when advising itself failed; that is
+ * `UNREADABLE` here, a real answer (even zero recommendations) is `COMPLETE`.
+ */
+function buildConfigAdviceField(cwd: string): { value: { count: number; summary: string | null } | null; scope: Scope } {
+  const value = configAdviceField(cwd);
+  return { value, scope: value === null ? SCOPE.UNREADABLE : SCOPE.COMPLETE };
 }
 
 /**
@@ -1367,6 +1383,7 @@ function buildPlanningSnapshot(cwd: string): PlanningSnapshot {
     agentInstall: buildAgentInstallField(cwd),
     worktreeHealth: buildWorktreeHealthField(cwd),
     planningTracked: buildPlanningTrackedField(cwd),
+    configAdvice: buildConfigAdviceField(cwd),
     projectSections: buildProjectSectionsField(cwd),
     statePhaseTokens: stateFields.statePhaseTokens,
     stateStatus: stateFields.stateStatus,

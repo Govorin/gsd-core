@@ -1080,6 +1080,35 @@ upstream text.
 
 ---
 
+### Usage review 2026-10: tool preflight (S4, LG-01) and config advisor (S7)
+
+The review (`.plans/gsd-usage-review-2026-10/` in the main checkout) found legion's orchestrators
+running plans that drove Pencil under `general-purpose` instead of `gsd-executor` (43.6 % of its
+subagent tokens): the executor's installed `tools:` had no `mcp__pencil__*`, and the only thing
+against the swap was a sentence in `execute-phase.md` / `quick.md`. It also found half of what the
+projects "missed" already in GSD, off and never discovered.
+
+- **S4 — `src/tool-preflight.cts`.** Requirements come from `<tasks>`, `<context>` and
+  `files_modified` (never the objective's prose); grants from the installed agent file the runtime
+  loads (Claude: project `.claude/agents/` over `~/.claude/agents/`, not `getAgentsDir`'s
+  install-relative path, which in a checkout is canonical `agents/` without the ADR-5210 grants).
+  Surfaces: `verify plan-structure` `tool_preflight` + warning, plan-checker warning line (not a blocker: the planner's revision loop would drop the
+  task instead of granting the tool),
+  `verify tool-preflight` (quick reads it before Step 6), and the execute:pre gate
+  `check mn-tool-preflight` in mn-verify-gate (`workflow.tool_preflight`, default on). The gate is
+  how execute-phase halts with **no new prose** in `execute-phase.md` (16 B under its 93 600 B
+  ceiling): the generic execute:pre gate dispatch already halts on a blocking verdict.
+  `unknown` (no file, TOML, non-Claude without `tools:`) is reported, never a pass, and does not
+  block — the gate cannot prove a grant absent.
+- **S7 — `src/config-advise.cts`.** Five rules, thresholds in `ADVISE_THRESHOLDS` with the
+  review's numbers behind each. Config is read raw: `loadConfig` drops `workflow.plan_chunked` and
+  the `planning.*` section. Health's I011 is pushed by `cmdValidateHealth` like W024 (the advisor
+  reads plans and installed agents, beyond the snapshot); `RULE_I011` is the doc-only table entry.
+
+Not done here: `/gsd-quick-batch` executors get no preflight; the gate checks every unsummarized
+plan of the phase even under `--wave N`; `orchestrator-worktree` dispatch ignores `agent_hint`, so
+the preflight may check a specialist the backend will not run.
+
 ## Remaining
 
 Ordered by cost of the failure they prevent, not by effort.
