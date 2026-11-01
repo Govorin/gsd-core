@@ -869,7 +869,9 @@ export function composeWindowReview(input: ComposeInput): ComposedReview {
 export function reviewMatchesWindow(review: string, window: Pick<WindowMeta, 'base' | 'tip'>): boolean {
   const tip = rawFrontmatterField(review, 'tip');
   const base = rawFrontmatterField(review, 'base');
-  return tip !== null && base !== null && tip.value === window.tip && base.value === window.base;
+  // The composer writes `base: null` for a window from the root; the frontmatter loader reads it back as the string.
+  const baseValue = base === null ? undefined : base.value === 'null' ? null : base.value;
+  return tip !== null && base !== null && tip.value === window.tip && baseValue === window.base;
 }
 
 // ─── Deferred findings → broken windows ──────────────────────────────────────
