@@ -4,7 +4,7 @@
 
 Источник: `gsd-core/workflows/plan-phase.md`. Единицы: 41 раздел H2, 6 секций `gsd:section`. Спавнов: 10 (агенты: `gsd-planner`, `gsd-plan-checker`). Точки цикла: `plan:pre`, `plan:post`.
 
-> **Переходы в прозе** (фразы «перейди к …»): всего 45; не называют реальный шаг и не рисуются — **9**; названы по имени шага и нарисованы пунктиром `goto` — 36.
+> **Переходы в прозе** (фразы «перейди к …»): всего 44; не называют реальный шаг и не рисуются — **17**; названы по имени шага и нарисованы пунктиром `goto` — 27.
 
 Карта построена из разметки workflow: узел — реальный `<step>`, `gsd:section` или раздел H2; рёбра — порядок
 документа, условие шага/секции на входящем ребре, переходы по имени шага. Описание обозначений —
@@ -141,9 +141,6 @@ flowchart TB
   u_heading_13d__Commit_Plans_if_commit_docs_is_true --> u_heading_13e__Post_Planning_Gap_Analysis__plan_post_capability_gate_dispatch_
   u_heading_13e__Post_Planning_Gap_Analysis__plan_post_capability_gate_dispatch_ --> u_heading_14__Present_Final_Status
   u_heading_14__Present_Final_Status --> u_heading_15__Auto_Advance_Check
-  u_heading_4__Load_CONTEXT_md -.->|"goto"| u_heading_5__Handle_Research
-  u_heading_5__Handle_Research -.->|"goto"| u_heading_6__Check_Existing_Plans
-  u_heading_5_5__Create_Validation_Strategy -.->|"goto"| u_heading_6__Check_Existing_Plans
   u_heading_5_55__Security_Threat_Model_Gate -.->|"goto"| u_heading_5_6__Plan_Pre_Capability_Dispatch_and_UI_Design_Contract_Gate
   u_heading_5_6__Plan_Pre_Capability_Dispatch_and_UI_Design_Contract_Gate -.->|"goto"| u_heading_6__Check_Existing_Plans
   u_heading_5_65__Codebase_Map_Freshness_Pre_Check__drift_plan_pre_gate_ -.->|"goto"| u_heading_6__Check_Existing_Plans
@@ -159,7 +156,6 @@ flowchart TB
   u_heading_11a__Filesystem_Fallback__Checker_ -.->|"goto"| u_heading_10__Spawn_gsd_plan_checker_Agent
   u_heading_11b__Refute_Findings__conditional_ -.->|"goto"| u_heading_12__Revision_Loop__Max_3_Iterations_
   u_heading_12__Revision_Loop__Max_3_Iterations_ -.->|"goto"| u_heading_13__Requirements_Coverage_Gate
-  u_heading_13__Requirements_Coverage_Gate -.->|"goto"| u_heading_14__Present_Final_Status
   u_heading_13a__Decision_Coverage_Gate -.->|"goto"| u_heading_13b__Record_Planning_Completion_in_STATE_md
   classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
   classDef unparsed fill:#f5f5f5,stroke:#999999,stroke-dasharray:4 3,color:#555

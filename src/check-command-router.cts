@@ -38,6 +38,7 @@ import { evaluateGapAnalysisPlanPost } from './gate-gap-analysis-plan-post.cjs';
 import { evaluateCheckPredicate, buildPredicateDeps } from './gate-predicate.cjs';
 import { evaluateApiCoverageVerifyPre, readPhaseScope } from './gate-api-coverage-verify-pre.cjs';
 import { evaluateArchitectureDiagrams } from './gate-architecture-diagrams.cjs';
+import { evaluateMilestoneReview } from './gate-milestone-review.cjs';
 import { decisionMentioned, extractPlanDesignatedSections } from './decision-coverage-support.cjs';
 import { readAutoModeState } from './check-auto-mode.cjs';
 import { evaluateSchemaDriftGate } from './gate-schema-drift.cjs';
@@ -126,6 +127,10 @@ function cmdArchitectureDiagrams(projectDir: string, args: string[], raw: boolea
   emitGateResult(evaluateArchitectureDiagrams({ projectDir, args: args.slice(2) }), raw);
 }
 
+function cmdMilestoneReview(projectDir: string, args: string[], raw: boolean): void {
+  emitGateResult(evaluateMilestoneReview({ projectDir, args: args.slice(2) }), raw);
+}
+
 /** `GSD_SKIP_SCHEMA_CHECK` is the schema-drift bypass: it arrives as `env`, read here, never by the gate. */
 function cmdSchemaDriftGate(projectDir: string, args: string[], raw: boolean, env: NodeJS.ProcessEnv): void {
   emitGateResult(evaluateSchemaDriftGate({ projectDir, args: args.slice(2), env }), raw);
@@ -204,6 +209,12 @@ function routeCheckCommand({ args, cwd, raw, env = process.env }: RouteCheckComm
       // Dot-to-hyphen normalization means query "architecture.diagrams" routes here.
       cmdArchitectureDiagrams(cwd, args, raw);
       return;
+    case 'milestone-review':
+      // code-review capability blocking gate at milestone:pre: the milestone's code is covered by
+      // window reviews and no Critical finding is open, or the owner accepted it with a reason
+      // (src/gate-milestone-review.cts, src/milestone-review.cts).
+      cmdMilestoneReview(cwd, args, raw);
+      return;
     case 'tdd-review-checkpoint':
       cmdTddReviewCheckpoint(cwd, args, raw);
       return;
@@ -250,7 +261,7 @@ function routeCheckCommand({ args, cwd, raw, env = process.env }: RouteCheckComm
       cmdProhibitionEnforcement(cwd, args, raw);
       return;
     default:
-      error('Unknown check subcommand. Available: api-coverage-verify-pre, architecture-diagrams, auto-mode, decision-coverage-plan, decision-coverage-verify, evaluation-scope, gap-analysis-plan-post, predicate, prohibition-enforcement, tdd-red-evidence, tdd-review-checkpoint, ui-plan-gate, ui-safety-gate, verify-command-paths, verify-failure-directions, verify-schema-drift, verify-codebase-drift, verify-context-drift', ERROR_REASON.SDK_UNKNOWN_COMMAND);
+      error('Unknown check subcommand. Available: api-coverage-verify-pre, architecture-diagrams, auto-mode, decision-coverage-plan, decision-coverage-verify, evaluation-scope, gap-analysis-plan-post, milestone-review, predicate, prohibition-enforcement, tdd-red-evidence, tdd-review-checkpoint, ui-plan-gate, ui-safety-gate, verify-command-paths, verify-failure-directions, verify-schema-drift, verify-codebase-drift, verify-context-drift', ERROR_REASON.SDK_UNKNOWN_COMMAND);
   }
 }
 

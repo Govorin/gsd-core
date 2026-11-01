@@ -231,6 +231,18 @@ describe('resolveEvaluationScope — phase unit', () => {
     assert.deepEqual(scope.files, ['src/a.js']);
     assert.ok(SCOPE_EXCLUSION_PATHSPECS.includes(':!package-lock.json'));
   });
+
+  test('[independence] a nested .planning (a monorepo project) is a planning artifact too, not code', () => {
+    const repo = makeRepo();
+    write(repo.dir, 'apps/polyglot/.planning/phases/01-x/01-01-SUMMARY.txt', 'nested planning\n');
+    write(repo.dir, 'apps/polyglot/.planning/STATE.json', '{}\n');
+    write(repo.dir, 'src/b.js', 'b\n');
+    repo.git('add', '-A');
+    repo.git('commit', '-m', 'feat(03-01): b and nested planning');
+    summarize(repo, [repo.git('rev-parse', 'HEAD')]);
+    const scope = resolveEvaluationScope(repo.dir, { kind: 'phase', phase: '3' });
+    assert.deepEqual(scope.files, ['src/b.js']);
+  });
 });
 
 describe('extractTaskCommitRefs', () => {

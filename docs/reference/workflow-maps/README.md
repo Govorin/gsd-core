@@ -34,7 +34,7 @@
 
 ## Workflows (89)
 
-Всего фраз перехода: 391, из них не называют реальный шаг: 176. Дефектов: 0.
+Всего фраз перехода: 390, из них не называют реальный шаг: 184. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -90,7 +90,7 @@
 | [note](note.md) | 5 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [onboard](onboard.md) | 4 раздела H2 | 0 | 0 |  | 6 / 6 | 0 |
 | [pause-work](pause-work.md) | 6 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
-| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 9 / 45 | 0 |
+| [plan-phase](plan-phase.md) | 41 раздел H2, 6 секций `gsd:section` | 10 | 2 | `plan:pre`, `plan:post` | 17 / 44 | 0 |
 | [plan-review-convergence](plan-review-convergence.md) | 6 разделов H2 | 0 | 0 |  | 3 / 4 | 0 |
 | [plant-seed](plant-seed.md) | 8 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [pr-branch](pr-branch.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 3 | 0 |

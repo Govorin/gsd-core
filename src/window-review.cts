@@ -869,7 +869,9 @@ export function composeWindowReview(input: ComposeInput): ComposedReview {
 export function reviewMatchesWindow(review: string, window: Pick<WindowMeta, 'base' | 'tip'>): boolean {
   const tip = rawFrontmatterField(review, 'tip');
   const base = rawFrontmatterField(review, 'base');
-  return tip !== null && base !== null && tip.value === window.tip && base.value === window.base;
+  // The composer writes `base: null` for a window from the root; the frontmatter loader reads it back as the string.
+  const baseValue = base === null ? undefined : base.value === 'null' ? null : base.value;
+  return tip !== null && base !== null && tip.value === window.tip && baseValue === window.base;
 }
 
 // ─── Deferred findings → broken windows ──────────────────────────────────────
@@ -1076,20 +1078,6 @@ export function windowMarkerFor(
 }
 
 // ─── Milestone stage (code-review capability, `milestone:pre`) ───────────────
-
-/**
- * Where a milestone's window starts: the last window review (`last`) when one was recorded,
- * otherwise the latest `v*` tag merged into HEAD that is not the milestone being closed (a re-run
- * after tagging must not review an empty window). `null` when neither exists — the stage then has
- * no window to measure and says so instead of reviewing the whole history.
- */
-export function milestoneWindowSince(projectDir: string, milestone: string | null, runner: GitRunner = execGitSeam): string | null {
-  if (fs.existsSync(lastWindowMarkerPath(projectDir))) return 'last';
-  const r = runner(['tag', '--merged', 'HEAD', '--list', 'v*', '--sort=-v:refname'], { cwd: projectDir, timeout: DEFAULTS.timeoutMs });
-  if (r.exitCode !== 0) return null;
-  const tags = splitLines(r.stdout).map((t) => t.trim()).filter((t) => t !== '' && t !== milestone);
-  return tags[0] ?? null;
-}
 
 /** The stage answer of `review stage` (loop-hook-dispatch.md). */
 export interface MilestoneReviewAnswer {

@@ -281,7 +281,7 @@ Otherwise use AskUserQuestion:
   If `DISCUSS_MODE` is `"discuss"` (or unset):
   - "Run discuss-phase first" — Capture design decisions before planning
 
-If "Continue without context": Proceed to step 5.
+If "Continue without context": Proceed to §4.5.
 If "Run discuss-phase first":
   **IMPORTANT:** Do NOT invoke discuss-phase as a nested Skill/Task call — AskUserQuestion
   does not work correctly in nested subcontexts (#1009). Instead, display the command
@@ -357,9 +357,9 @@ If `section_manifest` is `null` or `"research-only-modifiers"` is in its `includ
 
 ### 5.1. Standard Research Decision
 
-**Skip if** `RESEARCH_ONLY=true` (the research-only mode in 5.0 already determined the path: spawn or exit). Without this guard, an LLM following the workflow could fall through into "use existing, skip to step 6" → planner spawn, violating the research-only contract. **CR #3045 finding: this gate makes the early-exit unreachable from any non-research-only branch.**
+**Skip if** `RESEARCH_ONLY=true` (the research-only mode in 5.0 already determined the path: spawn or exit). Without this guard, an LLM following the workflow could fall through into "use existing, skip to §5.5" → planner spawn, violating the research-only contract. **CR #3045 finding: this gate makes the early-exit unreachable from any non-research-only branch.**
 
-**If `has_research` is true (from init) AND no `--research` flag:** Use existing, skip to step 6.
+**If `has_research` is true (from init) AND no `--research` flag:** Use existing, skip to §5.5.
 
 **If RESEARCH.md missing OR `--research` flag:**
 
@@ -391,7 +391,7 @@ AskUserQuestion([
 ])
 ```
 
-If user selects "Skip research": skip to step 6.
+If user selects "Skip research": skip to §5.5.
 
 **If `--auto` and `research_enabled` is false:** Skip research silently (preserves automated behavior).
 
@@ -437,7 +437,7 @@ Agent(
 
 ### Handle Researcher Return
 
-- **`## RESEARCH COMPLETE`:** Display confirmation, continue to step 6
+- **`## RESEARCH COMPLETE`:** Display confirmation, continue to §5.5
 - **`## RESEARCH BLOCKED`:** Display blocker, offer: 1) Provide context, 2) Skip research, 3) Abort
 
 <!-- gsd:section id="research-only-early-exit" when="flag:--research-phase" -->
@@ -448,14 +448,14 @@ If `section_manifest` is `null` or `"research-only-early-exit"` is in its `inclu
 
 Skip if `nyquist_validation_enabled` is false OR `research_enabled` is false.
 
-If `research_enabled` is false and `nyquist_validation_enabled` is true: warn "Nyquist validation enabled but research disabled — VALIDATION.md cannot be created without RESEARCH.md. Plans will lack validation requirements (Dimension 8)." Continue to step 6.
+If `research_enabled` is false and `nyquist_validation_enabled` is true: warn "Nyquist validation enabled but research disabled — VALIDATION.md cannot be created without RESEARCH.md. Plans will lack validation requirements (Dimension 8)." Continue to §5.55.
 
 **But Nyquist is not applicable for this run** when all of the following are true:
 - `research_enabled` is false
 - `has_research` is false
 - no `--research` flag was provided
 
-In that case: **skip validation-strategy creation entirely**. Do **not** expect `RESEARCH.md` or `VALIDATION.md` for this run, and continue to Step 6.
+In that case: **skip validation-strategy creation entirely**. Do **not** expect `RESEARCH.md` or `VALIDATION.md` for this run, and continue to §5.55.
 
 ```bash
 grep -l "## Validation Architecture" "${PHASE_DIR}"/*-RESEARCH.md 2>/dev/null || true
@@ -469,7 +469,7 @@ grep -l "## Validation Architecture" "${PHASE_DIR}"/*-RESEARCH.md 2>/dev/null ||
 ```bash
 test -f "${PHASE_DIR}/${PADDED_PHASE}-VALIDATION.md" && echo "VALIDATION_CREATED=true" || echo "VALIDATION_CREATED=false"
 ```
-5. If `VALIDATION_CREATED=false`: STOP — do not proceed to Step 6
+5. If `VALIDATION_CREATED=false`: STOP — do not proceed
 6. If `commit_docs`: `commit "docs(phase-${PHASE}): add validation strategy"`
 
 **If not found:** Warn and continue — plans may fail Dimension 8.
@@ -1333,7 +1333,7 @@ If all requirements covered and no dropped features:
 ```
 ✓ Requirements coverage: {N}/{N} REQ-IDs covered by plans
 ```
-→ Proceed to step 14.
+→ Proceed to §13a.
 
 If gaps found:
 ```

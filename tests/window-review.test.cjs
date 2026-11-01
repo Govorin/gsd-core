@@ -31,7 +31,6 @@ const {
   findingFingerprint,
   lensReports,
   milestoneReviewAnswer,
-  milestoneWindowSince,
   openWindowFindings,
   recordFixedFinding,
   reviewMatchesWindow,
@@ -425,6 +424,13 @@ describe('reviewMatchesWindow — `--fix` recovery', () => {
     assert.equal(reviewMatchesWindow(text, { base: null, tip: 'f'.repeat(40) }), false);
     assert.equal(reviewMatchesWindow('# no frontmatter\n', { base: 'a'.repeat(40), tip: 'f'.repeat(40) }), false);
   });
+
+  test('[boundary] a window from the root (base null) matches itself, and only a root window', () => {
+    const window = { since: '30d', sinceKind: 'duration', until: 'HEAD', tip: 'f'.repeat(40), base: null, boundary: null, phases: {}, unattributed: [] };
+    const text = composeWindowReview({ window, files: [], reports: [], refutation: null, reviewedAt: 't' }).text;
+    assert.equal(reviewMatchesWindow(text, { base: null, tip: 'f'.repeat(40) }), true);
+    assert.equal(reviewMatchesWindow(text, { base: 'a'.repeat(40), tip: 'f'.repeat(40) }), false);
+  });
 });
 
 describe('layout and the LAST-WINDOW marker', () => {
@@ -460,11 +466,5 @@ describe('milestone stage answer', () => {
   test('on is auto with the review as next; off is suggest; the slash form is the runtime\'s', () => {
     assert.deepEqual(milestoneReviewAnswer(prepass(), 'last', true).next, { skill: 'code-review', args: '--since last' });
     assert.match(milestoneReviewAnswer(prepass(), 'last', false, '$gsd-code-review').message, /\$gsd-code-review --since last$/);
-  });
-  test('a git failure while listing tags is no start, not an exception', (t) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gsd-wr-stage-'));
-    t.after(() => cleanup(dir));
-    const failing = () => ({ exitCode: 128, stdout: '', stderr: 'fatal', signal: null, error: null, timedOut: false });
-    assert.equal(milestoneWindowSince(dir, 'v1.0', failing), null);
   });
 });

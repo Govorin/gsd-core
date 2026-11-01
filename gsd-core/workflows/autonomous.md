@@ -696,7 +696,7 @@ ARCHIVE_DIR=$(_gsd_field "$INIT_MANAGER" archive_dir)
 ls "${ARCHIVE_DIR}/v${milestone_version}-ROADMAP.md" 2>/dev/null || true
 ```
 
-If the archive file does not exist, go to handle_blocker: "Complete milestone did not produce expected archive files."
+If the archive file does not exist, go to handle_blocker: "Complete milestone did not produce expected archive files." If it stopped on a capability gate, hand handle_blocker that gate's message instead.
 
 **5c. Cleanup**
 

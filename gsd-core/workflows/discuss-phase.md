@@ -209,7 +209,7 @@ ls ${phase_dir}/*-CONTEXT.md 2>/dev/null || true
 
 **If exists:**
 
-**If `--auto`:** Auto-select "Update it" — load existing context and continue to `analyze_phase`. Log: `[auto] Context exists — updating with auto-selected decisions.`
+**If `--auto`:** Auto-select "Update it" — load existing context and continue to `load_prior_context` (the prior decisions and the `discuss:pre` hooks still apply to an update). Log: `[auto] Context exists — updating with auto-selected decisions.`
 
 **Otherwise:** AskUserQuestion (header: "Context"; question: "Phase [X] already has context. What do you want to do?"; options: "Update it" / "View it" / "Skip"). Branch accordingly.
 
@@ -222,9 +222,9 @@ ls ${phase_dir}/*-DISCUSS-CHECKPOINT.json 2>/dev/null || true
 
 If a checkpoint file exists:
 
-**If `--auto`:** Auto-select "Resume" — load checkpoint and continue from last completed area.
+**If `--auto`:** Auto-select "Resume" and take the Resume path below.
 
-**Otherwise:** AskUserQuestion (header: "Resume"; question: "Found interrupted discussion checkpoint ({N} areas completed out of {M}). Resume from where you left off?"; options: "Resume" / "Start fresh"). On "Resume", parse the checkpoint JSON, load `decisions` into the internal accumulator, set `areas_completed` to skip those areas, continue to `present_gray_areas` with only the remaining areas. On "Start fresh", delete the checkpoint and continue.
+**Otherwise:** AskUserQuestion (header: "Resume"; question: "Found interrupted discussion checkpoint ({N} areas completed out of {M}). Resume from where you left off?"; options: "Resume" / "Start fresh"). On "Resume", parse the checkpoint JSON, load `decisions` into the internal accumulator, set `areas_completed` to skip those areas, and continue to `load_prior_context`: the steps through `dispatch_discuss_pre_hooks` run as usual (a resumed session holds none of their context), and that step hands a resumed checkpoint to `present_gray_areas` with only the remaining areas. On "Start fresh", delete the checkpoint and continue.
 
 Check `has_plans` and `plan_count` from init. **If `has_plans` is true:**
 
@@ -300,7 +300,7 @@ Read `@~/.claude/gsd-core/references/scout-codebase.md` — it contains the phas
 ```bash
 DISCUSS_PRE_HOOKS_JSON=$(gsd_run loop render-hooks discuss:pre --raw)
 ```
-Apply each entry in `activeHooks` per @~/.claude/gsd-core/references/loop-hook-dispatch.md. Empty list → continue to `analyze_phase`.
+Apply each entry in `activeHooks` per @~/.claude/gsd-core/references/loop-hook-dispatch.md, then continue to `analyze_phase` (a resumed checkpoint: to `present_gray_areas`).
 </step>
 
 <step name="analyze_phase">

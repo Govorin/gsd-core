@@ -134,7 +134,9 @@ element** for the same reason — never re-quote it into a shell string, where a
 would close the literal. This is the identical requirement `step` → `ref.command` carries
 above; it was stated there and omitted here, which is the gap #3559 closed.
 
-Evaluate `check` (one of `query`, `predicate`, or `agentVerdict`). Then honor `blocking`:
+Evaluate `check` (one of `query`, `predicate`, or `agentVerdict`). At `milestone:pre` there is no
+phase: a named-query gate runs as `gsd_run check <query> --milestone "<version>" --raw`, after the
+point's steps, since it judges what they produced. Then honor `blocking`:
 
 - `blocking: true` → if the check returns `block: true`, surface `check.message` to the user
   and stop the current step. Do not continue.

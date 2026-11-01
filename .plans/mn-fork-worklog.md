@@ -1195,6 +1195,62 @@ Not done here: `/gsd-quick-batch` executors get no preflight; the gate checks ev
 plan of the phase even under `--wave N`; `orchestrator-worktree` dispatch ignores `agent_hint`, so
 the preflight may check a specialist the backend will not run.
 
+### Usage review 2026-10: milestone review gate (N2, GYL-5) (2026-11-01)
+
+get_your_look_up closed v1.11 and v1.12 before their window reviews (1 CR + 40 WR after the
+first, 53 findings after the second, none refuted). The refuter's reading — "the stage is advisory,
+`gates: []`, nothing checks the review happened" — held, and it was worse: the project runs `mode:
+yolo`, and complete-milestone's yolo branch said "Proceed to gather_stats" from
+`verify_readiness`, jumping over `milestone_pre_hooks`, so the window stage never ran at all.
+
+- **Step jumps (`fix(workflows)`).** `tests/workflow-step-jumps.test.cjs` fails any shipped
+  workflow whose "Proceed/Continue/Skip/Go to <step>" passes over a step calling `loop
+  render-hooks`. It found the yolo jump and discuss-phase's `--auto` update / checkpoint resume
+  jumping past `load_prior_context` and `discuss:pre`; both fixed.
+- **Gate, not a reorder.** `audit-milestone` consumes VERIFICATION/SUMMARY/REQUIREMENTS, never a
+  review, and its gaps become new phases — a review before it would miss their code. The review
+  stays at the close; `code-review` now declares a blocking `milestone:pre` gate, `check
+  milestone-review` (`code_review.milestone_gate`, default on, `onError: halt`), evaluated after
+  the point's steps. complete-milestone gained the gate dispatch (the scanner now records `gate`
+  as wired at `milestone:pre`); ADR-857's milestone amendment and ADR-5208 §10 say so.
+- **Coverage** (`src/milestone-review.cts`, one computation for gate and override): base = previous
+  `v*` tag ≠ the milestone, else the parent of the first `.planning/` commit, else root; code commits
+  `base..HEAD`, no merges, `SCOPE_EXCLUSION_PATHSPECS`; covered = union over non-`incomplete` window
+  reviews of `base..tip` plus REVIEW-FIX.md `**Commit:**` shas. Open Critical = covering reviews'
+  Criticals net of REVIEW-FIX.md and ledger `fixed`/`waived` (by `wr:` fingerprint). The stage's
+  `since` takes the same planning-start fallback, so a first milestone is reviewed instead of
+  "suggest a baseline".
+- **Override** `gsd_run review milestone-accept --milestone v --reason "…"` →
+  `<planning>/reviews/MILESTONE-<v>-ACCEPT.json` (reason, HEAD, exact uncovered shas and open
+  Critical keys); the gate passes as `accepted` only while everything open is something it named.
+  Interactive close asks Fix first / Accept and close; yolo and autonomous stop (autonomous routes
+  the gate message to `handle_blocker`); the close writes `Known review overrides` into MILESTONES.md.
+
+Found on the way and fixed: the composer writes `base: null` for a root window and the
+frontmatter loader reads it back as the string `"null"`, so `reviewMatchesWindow` never matched a
+root window (`--fix` recovery re-reviewed it); the coverage reader normalises it too.
+
+**Review round (same day): the gate falsely blocked all four real projects.** Fixed, each with a
+test: (B1) base = the nearer to HEAD of the previous milestone's archive commit and its tag under any
+prefix (gyl: `git.create_tag: false` and one July `v1.3` tag gave 1 333 uncovered commits of
+v1.4–v1.11); one `milestoneBase`/`milestoneWindowStart` for gate and stage, `milestoneWindowSince`
+removed. (B2) shallow clone → unreadable; a nested project never takes the repo's bare `v*` tags,
+its planning-start is its own `.planning`. (S1) `SCOPE_EXCLUSION_PATHSPECS` excludes
+`:(exclude,glob)**/.planning/**` for every consumer (evaluation scope, git-history, blast-radius,
+milestone review) — mn had 515 "code" commits that were only `apps/*/.planning`. (S2) only a
+composed review counts: full-sha tip/base, status `clean|issues_found`, a `## Lens:` section. (S3) a
+REVIEW-FIX commit counts only as a fix: under a `## Fixed Issues` `### <ID>` entry, a descendant of
+the tip, its subject naming that `<ID>` (fixer and audit-fix conventions); every sha on the line is read. (S4) the
+step-jump scan reads numbered-heading workflows (`skip to step 6`, `§5.6`) and multi-word jumps; it
+found plan-phase research reuse/skip/complete jumping past §5.55/§5.6 (security gate, `plan:pre`),
+"Continue without context" past §4.6 and a clean coverage check past §13a–§13e (`plan:post`) —
+fixed with `§` targets, plan-phase 17 B smaller. (S5) discuss-phase `--auto` Resume now takes the
+Resume path through `load_prior_context`…`discuss:pre`.
+
+Not done: the gate counts a fix commit only when REVIEW-FIX.md names it, so a fix made by hand
+needs `review record-fixed --commit <sha>` (or a `--since last` review) to stop being uncovered;
+the interactive "Accept and close" path is prose, like every gate dispatch.
+
 ## Remaining
 
 Ordered by cost of the failure they prevent, not by effort.

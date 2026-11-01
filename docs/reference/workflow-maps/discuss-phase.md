@@ -51,8 +51,6 @@ flowchart TB
   u_step_update_state --> u_step_auto_advance
   u_step_initialize -.->|"goto"| u_step_check_blocking_antipatterns
   u_step_check_blocking_antipatterns -.->|"goto"| u_step_check_spec
-  u_step_check_existing -.->|"goto"| u_step_analyze_phase
-  u_step_check_existing -.->|"goto"| u_step_present_gray_areas
   u_step_check_existing -.->|"goto"| u_step_load_prior_context
   u_step_dispatch_discuss_pre_hooks -.->|"goto"| u_step_analyze_phase
   u_step_present_gray_areas -.->|"goto"| u_step_discuss_areas

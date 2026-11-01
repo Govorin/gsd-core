@@ -58,10 +58,18 @@
  *
  *   review stage [--milestone vX.Y] [--date YYYY-MM-DD]
  *       The code-review capability's `milestone:pre` command step: resolve the milestone's window
- *       (`last`, else the previous `v*` tag), run the pre-pass over it (written like
+ *       (`milestoneWindowStart`: `last` when the recorded window is at least as near to HEAD as the
+ *       milestone base — the previous milestone's archive commit or tag — else that base), run the pre-pass over it (written like
  *       window-prepass), and answer per loop-hook-dispatch.md — `auto` with `/gsd-code-review
  *       --since <since>` as `next` when `code_review.window_at_milestone` is on, `suggest` when it
  *       is off, `skip` for an empty window. The deterministic pre-pass always runs.
+ *
+ *   review milestone-accept --milestone vX.Y --reason "<why>"
+ *       The owner's recorded override of the `milestone:pre` gate `check milestone-review`: the
+ *       unreviewed commits and open Critical findings of the milestone as they stand now, with the
+ *       reason, written to `<planning>/reviews/MILESTONE-<vX.Y>-ACCEPT.json`
+ *       (src/milestone-review.cts). Self-invalidating: a commit or a finding that appears after it
+ *       blocks again. Nothing open → nothing written (`written: false`).
  *
  * Failure mapping (ADR-3889, through io.error's reason → outcome): bad argv or a path outside
  * `<planning>/reviews` → `usage`; a window git cannot resolve (`no-last-window-marker`, an unknown
@@ -91,7 +99,7 @@ import { parseWindowSince, isSafeRefArgument } from './gate-evaluation-scope.cjs
 import { CODE_REVIEW_LENSES, resolveCodeReviewInvocation } from './code-review-flags.cjs';
 import type { CodeReviewLens } from './code-review-flags.cjs';
 import {
-  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer, milestoneWindowSince,
+  computeWindowPrepass, composeWindowReview, deferredWindowEntries, fixedWindowEntryIds, milestoneReviewAnswer,
   openWindowFindings, recordFixedFinding, reviewMatchesWindow, windowMarkerFor, writeTextAtomic,
   REVIEWS_DIR, WINDOW_FILES,
 } from './window-review.cjs';
@@ -101,6 +109,9 @@ import { resolveCodeReviewDepth } from './code-review-depth.cjs';
 import type { ResolveCodeReviewDepthInput } from './code-review-depth.cjs';
 import { normalizeFallowReportFile, resolveFallowBinary } from './fallow-runner.cjs';
 import { escapeRegex } from './pattern.cjs';
+import {
+  acceptReasonProblem, assessMilestoneReview, formatAcceptRecord, milestoneAcceptPath, milestoneWindowStart, MILESTONE_VERSION_RE,
+} from './milestone-review.cjs';
 
 const { output, getJsonErrorMode, ERROR_REASON } = io;
 const { routeHubCommandFamily } = cjsCommandRouterAdapter;
@@ -109,7 +120,7 @@ const { loadConfig } = configLoaderMod;
 const { planningDir } = planningWorkspaceMod;
 
 export const REVIEW_SUBCOMMANDS: readonly string[] = Object.freeze([
-  'depth', 'fallow-binary', 'fallow-normalize', 'findings', 'invocation', 'plan-coverage', 'record-fixed', 'stage',
+  'depth', 'fallow-binary', 'fallow-normalize', 'findings', 'invocation', 'milestone-accept', 'plan-coverage', 'record-fixed', 'stage',
   'window-compose', 'window-deferred', 'window-mark', 'window-paths', 'window-prepass',
 ]);
 
@@ -120,6 +131,7 @@ const USAGE = Object.freeze({
   'window-mark': 'Usage: gsd-tools review window-mark --dir <window dir>',
   'window-paths': 'Usage: gsd-tools review window-paths --review <window REVIEW.md>',
   stage: 'Usage: gsd-tools review stage [--milestone vX.Y] [--date YYYY-MM-DD]',
+  'milestone-accept': 'Usage: gsd-tools review milestone-accept --milestone vX.Y --reason "<why the milestone closes without a full review>"',
   invocation: 'Usage: gsd-tools review invocation -- <code-review arguments>',
   findings: 'Usage: gsd-tools review findings [--review <window REVIEW.md>]',
   'record-fixed': 'Usage: gsd-tools review record-fixed --review <window REVIEW.md> --finding <ID> [--commit <sha>]',
@@ -309,7 +321,9 @@ function handleStage(args: string[], cwd: string, raw: boolean, clock: { now(): 
   const atMilestone = config.atMilestone !== false;
   const slashOut = formatGsdSlashFor(cwd, 'code-review');
   const slash = typeof slashOut === 'string' ? slashOut : undefined;
-  const since = milestoneWindowSince(cwd, milestone, execGit);
+  // One start, shared with the milestone-review gate (src/milestone-review.cts): the recorded window
+  // when it is at least as near to HEAD as the milestone base, else the base.
+  const since = milestoneWindowStart(cwd, milestone, execGit);
   if (since === null) {
     output({ since, window: null, ...milestoneReviewAnswer(null, null, atMilestone, slash) }, raw);
     return;
@@ -472,6 +486,48 @@ function handleRecordFixed(args: string[], cwd: string, raw: boolean): void {
   output({ fixReport: rel(cwd, fixFile), finding: id, changed: recorded.changed }, raw, `${rel(cwd, fixFile)}\n`);
 }
 
+/**
+ * The owner's recorded override of the milestone-review gate: what is open now (unreviewed commits,
+ * open Critical findings) is written with the reason to `<planning>/reviews/MILESTONE-<v>-ACCEPT.json`.
+ * It is self-invalidating (src/milestone-review.cts): anything that appears after it blocks again.
+ */
+function handleMilestoneAccept(args: string[], cwd: string, raw: boolean, clock: { now(): number } | undefined, execGit: GitRunner | undefined): void {
+  const milestone = flagValue(args, 'milestone');
+  const reason = flagValue(args, 'reason');
+  if (milestone === null || reason === null) throw new UsageError(USAGE['milestone-accept']);
+  if (!MILESTONE_VERSION_RE.test(milestone)) throw new UsageError(`--milestone must be a version like v1.2, got ${milestone}`);
+  const problem = acceptReasonProblem(reason);
+  if (problem !== null) throw new UsageError(`--reason: ${problem}`);
+  const assessment = assessMilestoneReview(cwd, milestone, execGit);
+  if (assessment.kind === 'unreadable') throw new Unresolvable(`the milestone review state could not be read: ${assessment.reason}`);
+  if (assessment.kind === 'no-history') throw new Unresolvable(`${assessment.reason} — there is nothing to accept`);
+  const { state } = assessment;
+  const file = milestoneAcceptPath(cwd, milestone);
+  if (state.uncovered.length === 0 && state.openCritical.length === 0) {
+    output({ written: false, path: rel(cwd, file), milestone, uncovered: 0, openCritical: 0, message: `milestone ${milestone} is fully reviewed with no open Critical finding — nothing to accept` }, raw, '');
+    return;
+  }
+  const record = {
+    milestone,
+    reason: reason.trim(),
+    acceptedAt: new Date((clock ?? Date).now()).toISOString(),
+    head: state.head,
+    uncovered: state.uncovered.map((c) => c.sha),
+    openCritical: state.openCritical.map((f) => f.key),
+  };
+  writeTextAtomic(file, formatAcceptRecord(record));
+  output({
+    written: true,
+    path: rel(cwd, file),
+    milestone,
+    reason: record.reason,
+    acceptedAt: record.acceptedAt,
+    head: record.head,
+    uncovered: record.uncovered.length,
+    openCritical: record.openCritical.length,
+  }, raw, `${rel(cwd, file)}\n`);
+}
+
 function handleDepth(readStdin: () => string, raw: boolean): void {
   let input: unknown;
   try {
@@ -545,6 +601,7 @@ function routeReviewCommand({ args, cwd, raw, error, _clock, _execGit, _readStdi
       'fallow-normalize': guarded(() => handleFallowNormalize(args, cwd, raw)),
       findings: guarded(() => handleFindings(args, cwd, raw)),
       invocation: guarded(() => handleInvocation(args, raw)),
+      'milestone-accept': guarded(() => handleMilestoneAccept(args, cwd, raw, _clock, _execGit)),
       'plan-coverage': guarded(() => handlePlanCoverage(args, cwd, raw)),
       'record-fixed': guarded(() => handleRecordFixed(args, cwd, raw)),
       stage: guarded(() => handleStage(args, cwd, raw, _clock, _execGit)),
