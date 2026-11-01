@@ -15,12 +15,17 @@
 //     scan resolves: `.planning`, `./.planning/`, an absolute path, a path in
 //     another tree (`/x/wt/.planning`, `"$WT/.planning"`), a glob or brace that
 //     selects it (`.plan*`, `.*`, `{a,.planning}`) — code planning-dir;
-//   • a recursive removal of a directory that contains the project's
-//     `.planning/` — the project root or one of its ancestors, the project
-//     found from the session cwd or from a `cd` in the command
-//     — code planning-ancestor;
+//   • a recursive removal (rm -r, git clean, find -delete) of a directory that
+//     contains a `.planning/` — the root or an ancestor of the project found
+//     from the session cwd or from a `cd` in the command, or any existing
+//     directory with a direct `.planning` child (another checkout:
+//     `rm -rf ../main` from a worktree, `git -C /x/main clean -fdx`) — code
+//     planning-ancestor. `git clean` whose directory cannot be resolved at all
+//     (`git -C "$X" clean`) is denied too unless `-e .planning` spares it;
 //   • a recursive removal of a directory inside `.planning/`
-//     (`rm -rf .planning/phases`), except the two GSD regenerates:
+//     (`rm -rf .planning/phases`) — or of a path there that does not exist under
+//     one of the possible cwds (fail closed: it may exist under another) —
+//     except the two GSD regenerates:
 //     `.planning/codebase` (map-codebase "Refresh" deletes it) and
 //     `.planning/tmp` — code planning-subtree;
 //   • removing a core state file (config.json, STATE.md, ROADMAP.md,
@@ -40,10 +45,10 @@
 // a checkpoint, a scratch file), moving files and directories within
 // `.planning/` (`mv .planning/debug/x.md .planning/debug/resolved/`, the phase
 // archive in /gsd:cleanup), moving a file into `.planning/`, removing
-// `.planning/codebase` or `.planning/tmp`, and removing REQUIREMENTS.md
-// (complete-milestone). A directory outside the session's project that only
-// holds some other `.planning` (a workspace, a test fixture under /tmp) is not
-// judged by what it contains — /gsd:remove-workspace deletes exactly that.
+// `.planning/codebase` or `.planning/tmp`, removing REQUIREMENTS.md
+// (complete-milestone), and `rm -rf "$WORKSPACE_PATH"` (/gsd:remove-workspace:
+// a path known only at run time is never probed for a `.planning` child, so a
+// workspace removal passes; the same path written literally is denied).
 // Names that only look similar are not `.planning`: `.planning-old`,
 // `docs/.planning.md`.
 //
@@ -52,10 +57,13 @@
 // for this purpose — one shell reader, not two), so quoting, `$( )` /
 // backticks (scanned as nested commands), wrappers (`sudo`, `env`, `command`,
 // `timeout`, `/bin/rm`), `bash -c '…'`, `eval` and heredocs fed to a shell are
-// all seen. Relative targets are resolved against the EFFECTIVE cwd: the
-// payload's cwd, moved by `cd X` / `pushd X` in earlier segments (`cd X && rm`,
-// `cd X; rm`), restored at the end of a `( … )` subshell, and changed for one
-// git command by `git -C X`. A glob in the last path segment is expanded
+// all seen. Relative targets are resolved against every POSSIBLE cwd: the
+// payload's cwd, moved by `cd X` / `pushd X` in earlier segments. A cd can fail,
+// so only the segments joined to it by `&&` are sure to run in X; past a `;`,
+// a newline, `||` or `|` the old cwd is possible again, and the target is
+// judged under each (`cd /missing; git clean -fdx` is judged in the project).
+// A `( … )` subshell restores the set at its end; `git -C X` changes it for
+// one git command, and a `:/` pathspec means the repository root. A glob in the last path segment is expanded
 // against the directory, as bash would without dotglob (`*` never selects
 // `.planning`; `.*` and `.plan*` do).
 //
@@ -65,12 +73,12 @@
 //     text only: `rm -rf "$DIR"` with DIR=.planning, `rm -rf "$(cat f)"`, and a
 //     relative target after `cd "$X"` (the cwd becomes unknown) pass unless the
 //     text itself names `.planning` (`"$WT/.planning"` is still denied);
-//   • a failed `cd` cannot be seen: `cd /missing && rm -rf .planning` is denied
-//     only because `.planning` is named, not because the cd failed; a relative
-//     target that is not `.planning` is resolved as if the cd succeeded;
-//   • an ancestor is recognised only for the project the session runs in (and
-//     for a directory with a direct `.planning` child), not for a tree that
-//     holds a project several levels down (`rm -rf ~/work`);
+//   • whether a `cd` succeeds is not known, so both outcomes are judged where
+//     both can run (see above); `cd X || exit` is read as possibly continuing;
+//   • an ancestor is recognised for the projects named above and for a
+//     directory with a direct `.planning` child, not for a tree that holds a
+//     project several levels down (`rm -rf ~/work`), and a run-time path
+//     (`rm -rf "$DIR"`) is never probed;
 //   • nesting is followed three levels deep (`bash -c` inside `bash -c` …,
 //     the shared scanner's MAX_NESTING_DEPTH); a fourth level is not read,
 //     and a command over 1 MiB is allowed unscanned (the secret read guard
@@ -101,15 +109,23 @@ const os = require('os');
 const path = require('path');
 const { HOOK_ON_CRASH, allow, deny, crash } = require('./lib/hook-exit.js');
 const { lastSegment } = require('./lib/filename-classification.js');
-const {
-  tokenize,
-  resolveCommand,
-  expandBraces,
-  globAltToRegex,
-  MAX_NESTING_DEPTH,
-} = require('./gsd-secret-read-guard.js');
 
 const ON_CRASH = HOOK_ON_CRASH.ALLOW;
+
+// The shared shell scanner. A sibling that fails to load (missing, or broken
+// by a bad install) must not wedge every Bash call: the guard then falls open
+// under its declared crash policy, like any other internal error.
+let scanner = null;
+try {
+  scanner = require('./gsd-secret-read-guard.js');
+} catch {
+  scanner = null;
+}
+const tokenize = (...a) => scanner.tokenize(...a);
+const resolveCommand = (...a) => scanner.resolveCommand(...a);
+const expandBraces = (...a) => scanner.expandBraces(...a);
+const globAltToRegex = (...a) => scanner.globAltToRegex(...a);
+const MAX_NESTING_DEPTH = scanner ? scanner.MAX_NESTING_DEPTH : 0;
 
 // Commands longer than this are allowed unscanned (fail open, like a crash).
 const MAX_COMMAND_LENGTH = 1024 * 1024;
@@ -237,7 +253,7 @@ function isRegenerated(position) {
  * `{ lexical, display }` when only its text is (a run-time value, or a relative
  * path under an unknown cwd).
  */
-function classifyTarget(target, ctx) {
+function classifyTarget(target, ctx, { probeChild = false } = {}) {
   if (target.lexical !== undefined) {
     const segs = path.posix.normalize(target.lexical).split('/').filter((s) => s !== '' && s !== '.');
     const pos = planningPosition(segs, (s) => s.join('/'));
@@ -260,7 +276,20 @@ function classifyTarget(target, ctx) {
       return { kind: 'ancestor', root };
     }
   }
+  // Another checkout (`rm -rf ../main` from a worktree): only for a removal,
+  // and only for a path known before run time.
+  if (probeChild && isDirectory(abs) && fs.existsSync(path.join(abs, PLANNING_DIR_NAME))) {
+    return { kind: 'ancestor', root: abs };
+  }
   return { kind: 'outside', abs };
+}
+
+function isRegularFile(p) {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function homeDir() {
@@ -323,14 +352,16 @@ function hit(code, target, command) {
 /** rm / unlink / shred / git rm -f: removal of each operand. */
 function checkRemoval(targets, recursive, ctx, command) {
   for (const target of targets) {
-    const c = classifyTarget(target, ctx);
+    const c = classifyTarget(target, ctx, { probeChild: recursive });
     if (c.kind === 'planning-dir') return hit('planning-dir', target, command);
     if (c.kind === 'ancestor' && recursive) return hit('planning-ancestor', target, command);
     if (c.kind !== 'inside' || isRegenerated(c)) continue;
     const base = c.rest[c.rest.length - 1].toLowerCase();
     if (recursive) {
-      // `rm -rf` on a single file is common reflex; judge by what is on disk.
-      if (target.abs === undefined || isDirectory(target.abs)) return hit('planning-subtree', target, command);
+      // `rm -rf` on a single file is common reflex, so an existing regular file
+      // is judged as a file. Anything else fails closed: a directory, a run-time
+      // path, and a path absent under this cwd that may exist under another.
+      if (target.abs === undefined || !isRegularFile(target.abs)) return hit('planning-subtree', target, command);
     }
     if (STATE_FILES.has(base)) return hit('planning-state-file', target, command);
   }
@@ -497,7 +528,7 @@ function checkFindExpression(starts, expression, deleting, ctx, command) {
     }
   }
   for (const start of starts) {
-    const c = classifyTarget(start, ctx);
+    const c = classifyTarget(start, ctx, { probeChild: true });
     if (isRegenerated(c)) continue;
     if (c.kind === 'planning-dir' || c.kind === 'inside') return hit('planning-subtree', start, command);
     // A test that selects `.planning` by name deletes it under any start
@@ -588,10 +619,28 @@ function checkGit(operands, ctx) {
       pathspecs.push(args[a]);
     }
     if (dryRun) return null;
-    const excludesPlanning = excludes.some((x) => /^\/?\.planning\/?$/i.test(x));
-    const specs = pathspecs.length ? pathspecs : [{ text: '.', quoted: 'none' }];
+    // `:!x` / `:^x` / `:(exclude)x` pathspecs exclude like `-e`.
+    const included = [];
+    for (const spec of pathspecs) {
+      const m = /^:(?:!|\^|\(exclude\))(.*)$/.exec(spec.text);
+      if (m) excludes.push(m[1]);
+      else included.push(spec);
+    }
+    const excludesPlanning = excludes.some((x) => /^(?:\.\/|\/)?\.planning\/?$/i.test(x));
+    const specs = (included.length ? included : [{ text: '.', quoted: 'none' }]).map((spec) => {
+      // `:/` and `:(top)` are the repository root, whatever the cwd.
+      const top = /^:(?:\/|\(top\))(.*)$/.exec(spec.text);
+      if (!top) return spec;
+      const root = gitCwd === null ? null : findGitRoot(gitCwd);
+      return root === null ? { text: spec.text, expands: true, quoted: 'single' } : { ...spec, text: path.join(root, top[1] || '.') };
+    });
     for (const target of targetsOf(specs, gitCwd)) {
-      const c = classifyTarget(target, gctx);
+      const c = classifyTarget(target, gctx, { probeChild: true });
+      // A directory the scan cannot place: the whole of it fails closed
+      // (`git -C "$X" clean -fdx`), a narrower pathspec does not.
+      if (c.kind === 'unknown' && !excludesPlanning && /^(?:\.|\.\.|\.\/|\.\.\/|:.*)$/.test(target.lexical)) {
+        return hit('planning-ancestor', target, 'git clean');
+      }
       if (isRegenerated(c)) continue;
       if (c.kind === 'planning-dir' || c.kind === 'inside') return hit(c.kind === 'inside' ? 'planning-subtree' : 'planning-dir', target, 'git clean');
       if (c.kind === 'ancestor' && !excludesPlanning) return hit('planning-ancestor', target, 'git clean');
@@ -633,6 +682,17 @@ function checkXargs(operands, upstreamWords, ctx) {
   return checkRemoval(targetsOf(rest, ctx.cwd), recursive, ctx, `xargs ${sub.base}`);
 }
 
+function findGitRoot(start) {
+  let dir = path.resolve(start);
+  for (let depth = 0; depth < 64; depth += 1) {
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    const parent = path.dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
+  }
+  return null;
+}
+
 function nextCwd(operands, cwd) {
   const { rest } = splitOptions(operands);
   if (rest.length === 0) return homeDir();
@@ -646,11 +706,47 @@ function nextCwd(operands, cwd) {
 // Scan
 // ---------------------------------------------------------------------------
 
+function uniq(values) {
+  return [...new Set(values)];
+}
+
+/** One segment's command under one cwd. */
+function checkSegment(cmd, local, seg, depth) {
+  const { base, operands } = cmd;
+  if (FILE_REMOVERS.has(base)) return checkRm(base, operands, local);
+  if (base === 'rmdir') return checkRmdir(operands, local);
+  if (base === 'mv') return checkMv(operands, local);
+  if (base === 'find') return checkFind(operands, local);
+  if (base === 'git') return checkGit(operands, local);
+  if (base === 'xargs') return checkXargs(operands, seg.pipedFrom, local);
+  const nestedCtx = { cwds: [local.cwd], roots: local.roots };
+  if (base === 'eval') {
+    return depth < MAX_NESTING_DEPTH ? scanCommand(operands.map((w) => w.text).join(' '), nestedCtx, depth + 1) : null;
+  }
+  if (SHELL_INTERPRETERS.has(base) && depth < MAX_NESTING_DEPTH) {
+    const cIdx = operands.findIndex((w) => DASH_C_RE.test(w.text));
+    const scripts = cIdx !== -1
+      ? (operands[cIdx + 1] ? [operands[cIdx + 1].text] : [])
+      : [...seg.heredocs.map((h) => h.text), ...seg.hereStrings];
+    for (const script of scripts) {
+      const found = scanCommand(script, nestedCtx, depth + 1);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+/**
+ * Scan a command under a set of possible cwds (`ctx.cwds`; null = unknown).
+ * A `cd` narrows the set for the segments chained to it by `&&` only: past any
+ * other separator the cwds from before it — where a failed cd leaves the
+ * shell — are possible again.
+ */
 function scanCommand(command, ctx, depth) {
   const { tokens, nested } = tokenize(command);
   for (const sub of nested) {
     if (depth < MAX_NESTING_DEPTH) {
-      const found = scanCommand(sub, { cwd: ctx.cwd, roots: ctx.roots }, depth + 1);
+      const found = scanCommand(sub, { cwds: ctx.cwds, roots: ctx.roots }, depth + 1);
       if (found) return found;
     }
   }
@@ -671,7 +767,9 @@ function scanCommand(command, ctx, depth) {
     }
   }
 
-  let cwd = ctx.cwd;
+  let cwds = ctx.cwds;
+  // The cwds a failed `cd` in the current `&&` chain would leave behind.
+  let ifCdFailed = [];
   const subshells = [];
   let previousWords = null;
   for (let s = 0; s <= maxSeg; s++) {
@@ -691,50 +789,36 @@ function scanCommand(command, ctx, depth) {
       }
       words.push(t);
     }
-    const local = { cwd, roots: ctx.roots };
     const cmd = words.length ? resolveCommand(words) : null;
-    let found = null;
-    if (cmd) {
-      const { base, operands } = cmd;
-      if (base === 'cd' || base === 'pushd') {
-        cwd = nextCwd(operands, cwd);
-        if (cwd !== null) {
-          const root = findPlanningRoot(cwd);
-          if (root) ctx.roots.add(root);
-        }
-      } else if (base === 'popd') {
-        cwd = null;
-      } else if (FILE_REMOVERS.has(base)) {
-        found = checkRm(base, operands, local);
-      } else if (base === 'rmdir') {
-        found = checkRmdir(operands, local);
-      } else if (base === 'mv') {
-        found = checkMv(operands, local);
-      } else if (base === 'find') {
-        found = checkFind(operands, local);
-      } else if (base === 'git') {
-        found = checkGit(operands, local);
-      } else if (base === 'xargs') {
-        const piped = s > 0 && (sepAfter.get(s - 1) === '|' || sepAfter.get(s - 1) === '|&');
-        found = checkXargs(operands, piped ? previousWords : null, local);
-      } else if (base === 'eval') {
-        if (depth < MAX_NESTING_DEPTH) found = scanCommand(operands.map((w) => w.text).join(' '), local, depth + 1);
-      } else if (SHELL_INTERPRETERS.has(base) && depth < MAX_NESTING_DEPTH) {
-        const cIdx = operands.findIndex((w) => DASH_C_RE.test(w.text));
-        const scripts = cIdx !== -1
-          ? (operands[cIdx + 1] ? [operands[cIdx + 1].text] : [])
-          : [...(heredocsBySeg.get(s) || []).map((h) => h.text), ...hereStrings];
-        for (const script of scripts) {
-          found = scanCommand(script, local, depth + 1);
-          if (found) break;
-        }
+    if (cmd && (cmd.base === 'cd' || cmd.base === 'pushd')) {
+      ifCdFailed = uniq([...ifCdFailed, ...cwds]);
+      cwds = uniq(cwds.map((c) => nextCwd(cmd.operands, c)));
+      for (const c of cwds) {
+        const root = c === null ? null : findPlanningRoot(c);
+        if (root) ctx.roots.add(root);
+      }
+    } else if (cmd && cmd.base === 'popd') {
+      ifCdFailed = uniq([...ifCdFailed, ...cwds]);
+      cwds = [null];
+    } else if (cmd) {
+      const piped = s > 0 && (sepAfter.get(s - 1) === '|' || sepAfter.get(s - 1) === '|&');
+      const seg = { pipedFrom: piped ? previousWords : null, heredocs: heredocsBySeg.get(s) || [], hereStrings };
+      for (const cwd of cwds) {
+        const found = checkSegment(cmd, { cwd, roots: ctx.roots }, seg, depth);
+        if (found) return found;
       }
     }
-    if (found) return found;
     previousWords = words;
     const sep = sepAfter.get(s);
-    if (sep === '(') subshells.push(cwd);
-    else if (sep === ')' && subshells.length) cwd = subshells.pop();
+    if (sep === '(') {
+      subshells.push({ cwds, ifCdFailed });
+      ifCdFailed = [];
+    } else if (sep === ')' && subshells.length) {
+      ({ cwds, ifCdFailed } = subshells.pop());
+    } else if (sep !== undefined && sep !== '&&') {
+      cwds = uniq([...cwds, ...ifCdFailed]);
+      ifCdFailed = [];
+    }
   }
   return null;
 }
@@ -775,13 +859,14 @@ function evaluateCommand(data, options = {}) {
   const command = toolInput && typeof toolInput === 'object' && typeof toolInput.command === 'string'
     ? toolInput.command : '';
   if (command === '' || command.length > MAX_COMMAND_LENGTH) return { action: 'allow' };
+  if (scanner === null) return { action: 'allow' };
 
   const cwdRaw = options.cwd || (typeof data.cwd === 'string' && data.cwd) || process.cwd();
   const cwd = path.resolve(cwdRaw);
   const root = findPlanningRoot(cwd);
   if (root && !guardEnabled(root)) return { action: 'allow' };
 
-  const ctx = { cwd, roots: new Set(root ? [root] : []) };
+  const ctx = { cwds: [cwd], roots: new Set(root ? [root] : []) };
   const found = scanCommand(command, ctx, 0);
   if (!found) return { action: 'allow' };
   return { action: 'deny', ...found, reason: reasonFor(found) };
@@ -797,6 +882,9 @@ function main() {
   });
   process.stdin.on('end', () => {
     clearTimeout(stdinTimeout);
+    // The shared scanner did not load: nothing can be judged, so the declared
+    // crash policy (allow) answers.
+    if (scanner === null) crash(ON_CRASH, undefined);
     let decision;
     try {
       decision = evaluateCommand(JSON.parse(input));

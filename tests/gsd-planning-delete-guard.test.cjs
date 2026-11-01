@@ -31,6 +31,7 @@ const guard = require(HOOK_PATH);
 /**
  * <root>/proj        a GSD project (.planning with config, state, a phase,
  *                    scratch files), plus .planning-old, src/, docs/
+ *                    and a .git directory (the repository root for `:/`)
  * <root>/wt          another checkout holding its own .planning (a worktree)
  * <root>/other       a plain directory
  */
@@ -50,6 +51,7 @@ function makeTree(root, config = {}) {
   fs.mkdirSync(path.join(proj, '.planning-old'));
   fs.mkdirSync(path.join(proj, 'src'));
   fs.mkdirSync(path.join(proj, 'docs'));
+  fs.mkdirSync(path.join(proj, '.git'));
   fs.mkdirSync(path.join(root, 'wt', '.planning'), { recursive: true });
   fs.mkdirSync(path.join(root, 'other'));
   return proj;
@@ -161,6 +163,29 @@ describe('gsd-planning-delete-guard: denied forms', () => {
     test(`denies: ${command.replace(/\n/g, '\\n')}`, () => assertDenied(command, proj, code));
   }
 
+  test('denies removing another checkout that holds a .planning, by a known path', () => {
+    assertDenied('rm -rf ../wt', proj, 'planning-ancestor');
+    assertDenied(`git -C ${path.join(root, 'wt')} clean -fdx`, proj, 'planning-ancestor');
+    // from a worktree, the main checkout is "another checkout"
+    assertDenied('rm -rf ../proj', path.join(root, 'wt'), 'planning-ancestor');
+    assertDenied(`git -C ${proj} clean -fdx`, path.join(root, 'wt'), 'planning-ancestor');
+    assertDenied('find ../wt -type f -delete', proj, 'planning-ancestor');
+  });
+
+  test('git clean of a directory the scan cannot place fails closed', () => {
+    assertDenied('git -C "$X" clean -fdx', proj, 'planning-ancestor');
+    assertDenied('cd "$X" && git clean -fdx', proj, 'planning-ancestor');
+  });
+
+  test('git clean :/ from a subdirectory cleans the repository root', () => {
+    assertDenied('git clean -fdx :/', path.join(proj, 'src'), 'planning-ancestor');
+    assertDenied("git clean -fdx ':(top)'", path.join(proj, 'src'), 'planning-ancestor');
+  });
+
+  test('a recursive removal of an absent path under .planning fails closed', () => {
+    assertDenied('rm -rf .planning/no-such-dir', proj, 'planning-subtree');
+  });
+
   test('denies an absolute path to .planning, in this tree and in another', () => {
     assertDenied(`rm -rf ${path.join(proj, '.planning')}`, proj, 'planning-dir');
     assertDenied(`rm -rf "${path.join(root, 'wt', '.planning')}"`, proj, 'planning-dir');
@@ -206,6 +231,22 @@ describe('gsd-planning-delete-guard: the effective cwd', () => {
     assertAllowed('(cd .planning && ls); rm -rf phases', proj);
   });
 
+  test('a cd may fail: past ; / newline / || the old cwd is judged too', () => {
+    assertDenied('cd $WT && git status; git clean -fdx', proj, 'planning-ancestor');
+    assertDenied('cd /missing; git clean -fdx', proj, 'planning-ancestor');
+    assertDenied('cd /missing\ngit clean -fdx', proj, 'planning-ancestor');
+    assertDenied('cd /missing || true; git clean -fdx', proj, 'planning-ancestor');
+    assertDenied('cd /missing; rm -rf .planning/phases', proj, 'planning-subtree');
+    assertDenied('cd $WT; rm -rf .planning/phases', proj, 'planning-subtree');
+    // any cd of an && chain may be the one that failed
+    assertDenied('cd /tmp && cd /var; git clean -fdx', proj, 'planning-ancestor');
+  });
+
+  test('a cd chained by && alone is sure to have run', () => {
+    assertAllowed('cd /tmp && git clean -fdx', proj);
+    assertAllowed('cd /tmp && cd /var && rm -rf ./build-gsd-x', proj);
+  });
+
   test('cd to a run-time value makes the cwd unknown: only a named .planning is judged', () => {
     assertDenied('cd "$WT" && rm -rf .planning', proj, 'planning-dir');
     assertAllowed('cd "$WT" && rm -rf phases', proj);
@@ -239,9 +280,10 @@ describe('gsd-planning-delete-guard: allowed forms', () => {
     'rm -rf ../other',
     'rm -rf "$TMPDIR/gsd-x"',
     'rm -rf /tmp/foo',
-    // a directory outside the session's project is not judged by holding some
-    // other .planning: /gsd-remove-workspace deletes exactly that
-    'rm -rf ../wt',
+    // a path known only at run time is never probed for a .planning child:
+    // /gsd:remove-workspace deletes a workspace this way
+    'rm -rf "$WORKSPACE_PATH"',
+    // moving another checkout loses nothing
     'mv ../wt ../wt-archived',
     // what GSD's own workflows do under .planning (execute-plan, new-milestone,
     // discuss-phase, debugger, check-todos, cleanup, reset-phase-safety,
@@ -273,6 +315,11 @@ describe('gsd-planning-delete-guard: allowed forms', () => {
     'git clean --dry-run -fd',
     'git clean -fdx -e .planning',
     'git clean -fd src',
+    'git clean -fd -- . \':!.planning\'',
+    'git -C "$X" clean -fdx -e .planning',
+    'git -C "$X" clean -fd src',
+    'cd src && git clean -fdx',
+    'cd /tmp/gsd-x && rm -rf build',
     'find . -name "*.tmp" -delete',
     'find . -path ./.planning -prune -o -name "*.log" -delete',
     'find .planning -name "*.md"',
@@ -297,6 +344,20 @@ describe('gsd-planning-delete-guard: allowed forms', () => {
     ]) {
       assert.equal(guard.evaluateCommand({ ...payload, cwd: proj }).action, 'allow', JSON.stringify(payload));
     }
+  });
+
+  test('a scanner that cannot be loaded fails open (declared crash policy)', (t) => {
+    // The hook shipped without its sibling gsd-secret-read-guard.js.
+    const dir = createTempDir('gsd-pdg-noscan-');
+    t.after(() => cleanup(dir));
+    fs.copyFileSync(HOOK_PATH, path.join(dir, 'gsd-planning-delete-guard.js'));
+    fs.cpSync(path.join(path.dirname(HOOK_PATH), 'lib'), path.join(dir, 'lib'), { recursive: true });
+    const r = runHook(path.join(dir, 'gsd-planning-delete-guard.js'), [], {
+      input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf .planning' }, cwd: proj }),
+      timeoutMs: QUICK_SPAWN_TIMEOUT_MS,
+    });
+    assert.equal(r.outcome, OUTCOME.EXITED);
+    assert.equal(r.exitCode, 0);
   });
 
   test('an unparseable payload fails open', () => {
