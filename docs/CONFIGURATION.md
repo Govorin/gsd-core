@@ -277,7 +277,7 @@ is left alone rather than recommended forever. `/gsd-progress` prints its summar
 
 | Signal | Fires at | Recommends |
 |--------|----------|------------|
-| Plans in one phase, on disk or declared in the active milestone of ROADMAP.md (`**Plans:** N plans`) | 6 or more | `workflow.plan_chunked` + `planning.chunked_parallel` |
+| Plans in one phase, on disk or declared in ROADMAP.md (`**Plans:** N plans`) for a phase not checked done that has a phase directory or sits under the milestone STATE.md names | 6 or more | `workflow.plan_chunked` + `planning.chunked_parallel` |
 | Critical + warning findings in one phase-end `*-REVIEW.md` (`status: skipped` ignored) | 5 or more | `workflow.code_review_point: execute:wave:post` |
 | Phases waiting on human verification (VERIFICATION `human_needed`, or an open UAT) | 2 or more | run `/gsd-verify-work <oldest>`, then `/gsd-audit-uat` |
 | VERIFICATION reports citing hand-run checks (`npm test`, `tsc`, `cargo clippy`, …) while `workflow.verify_gates` is empty | 2 or more | `workflow.verify_gates` with the cited commands, + `workflow.verify_gates_record` |

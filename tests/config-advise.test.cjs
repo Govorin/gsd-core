@@ -101,11 +101,57 @@ describe('config-advise rules', () => {
       assert.equal(ruleOf(advise.adviseConfig(projectDir), 'plan_chunked').fired, true);
     });
 
-    test('a count declared in ROADMAP.md counts before the plans exist', () => {
-      fs.writeFileSync(path.join(projectDir, '.planning', 'ROADMAP.md'), `# Roadmap\n\n### Phase 4: Big\n**Plans:** ${T.PLANS_PER_PHASE} plans\n\n### Phase 5: Small\n**Plans**: 2 plans\n`);
+    const writeRoadmap = (lines, milestone = 'v2.0') => {
+      fs.writeFileSync(path.join(projectDir, '.planning', 'ROADMAP.md'), lines.join('\n'));
+      fs.writeFileSync(path.join(projectDir, '.planning', 'STATE.md'), `---\nmilestone: ${milestone}\n---\n\n# State\n`);
+    };
+
+    test('a count declared in the active milestone of ROADMAP.md counts before the plans exist', () => {
+      writeRoadmap(['# Roadmap', '', '## Milestone v2.0', '', '### Phase 4: Big', `**Plans:** ${T.PLANS_PER_PHASE} plans`, '', '### Phase 5: Small', '**Plans**: 2 plans', '']);
       const rule = ruleOf(advise.adviseConfig(projectDir), 'plan_chunked');
       assert.equal(rule.fired, true);
       assert.deepEqual(rule.evidence.largest, { phase: '4', plans: T.PLANS_PER_PHASE, source: 'roadmap' });
+    });
+
+    test('a preamble listing an earlier milestone\'s phases is not read (mn: phases 01–03 of v1.0 above v2.0)', () => {
+      writeRoadmap([
+        '# Roadmap', '',
+        '- [x] **Phase 1: Old**', '- [x] **Phase 2: Old**', '- [ ] **Phase 3: Old**', '',
+        '### Phase 3: Old', `**Plans:** ${T.PLANS_PER_PHASE + 4} plans`, '',
+        '## Milestone v2.0', '', '### Phase 4: New', '**Plans:** 2 plans', '',
+      ]);
+      const rule = ruleOf(advise.adviseConfig(projectDir), 'plan_chunked');
+      assert.equal(rule.fired, false, JSON.stringify(rule.evidence));
+    });
+
+    test('an unversioned ROADMAP whose earlier phases are checked done does not fire on them (mn: phase 03 of v1.0)', () => {
+      // No milestone headings: the whole document is "current", so the old read cited phase 3.
+      writeRoadmap([
+        '# Roadmap', '', '## Phases', '',
+        '- [x] **Phase 1: Old**', '- [x] **Phase 3: Old**', '- [ ] **Phase 4: New**', '',
+        '## Phase Details', '',
+        '### Phase 3: Old', `**Plans:** ${T.PLANS_PER_PHASE + 4} plans`, '',
+        '### Phase 4: New', '**Plans:** 2 plans', '',
+      ]);
+      const rule = ruleOf(advise.adviseConfig(projectDir), 'plan_chunked');
+      assert.equal(rule.fired, false, JSON.stringify(rule.evidence));
+    });
+
+    test('a preamble phase with a directory in .planning/phases still counts, unless it is checked done', () => {
+      const lines = ['# Roadmap', '', '### Phase 3: Old', `**Plans:** ${T.PLANS_PER_PHASE} plans`, '', '## Milestone v2.0', ''];
+      phase(projectDir, '03-old', { '.keep': '' });
+      writeRoadmap(lines);
+      assert.equal(ruleOf(advise.adviseConfig(projectDir), 'plan_chunked').fired, true, 'a phase directory makes it a phase still to plan');
+      writeRoadmap(['- [x] **Phase 3: Old**', ...lines]);
+      assert.equal(ruleOf(advise.adviseConfig(projectDir), 'plan_chunked').fired, false, 'a checked phase is done');
+    });
+
+    test('roadmapPlanCounts records the milestone section and the done mark', () => {
+      const counts = advise.roadmapPlanCounts(['- [x] **Phase 03: A**', '### Phase 3: A', '**Plans:** 4 plans', '<details><summary>v1.0 shipped</summary>', '### Phase 4: B', '**Plans:** 1 plan'].join('\n'));
+      assert.deepEqual(counts, [
+        { phase: '3', plans: 4, milestone: null, done: true },
+        { phase: '4', plans: 1, milestone: 'v1.0', done: false },
+      ]);
     });
 
     test('the primary key decides: plan_chunked on with chunked_parallel deliberately off is not re-advised', () => {

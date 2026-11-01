@@ -9,8 +9,8 @@
  * here writes configuration.
  *
  * Rules (thresholds are `ADVISE_THRESHOLDS`; each fires at `>=` its value):
- *   plan_chunked       a phase with PLANS_PER_PHASE+ plans (on disk, or declared in the active
- *                      milestone of ROADMAP)
+ *   plan_chunked       a phase with PLANS_PER_PHASE+ plans (on disk, or declared in ROADMAP for a
+ *                      phase still to plan: not checked done, with a phase dir or in STATE's milestone)
  *                      → `workflow.plan_chunked` + `planning.chunked_parallel`
  *   code_review_point  a phase-end `*-REVIEW.md` with REVIEW_FIX_FINDINGS+ critical+warning findings
  *                      → `workflow.code_review_point: execute:wave:post`
@@ -54,7 +54,7 @@ import type { AgentFileScope, ToolPreflight } from './tool-preflight.cjs';
 
 const { extractFrontmatter, stripFrontmatter } = frontmatterMod;
 const { scanPhasePlans } = planScanMod;
-const { extractCurrentMilestone } = roadmapParserMod;
+const { getMilestoneInfo } = roadmapParserMod;
 const { planningDir } = planningWorkspace;
 const { listActiveAndArchivedPhaseDirs } = phaseLocatorMod;
 const { output } = ioMod;
@@ -201,18 +201,66 @@ function configSetCommand(settings: Record<string, unknown>): string {
 
 // ─── Rules ───────────────────────────────────────────────────────────────────
 
-/** Plans declared per phase in ROADMAP.md (`**Plans**: 7 plans` / `**Plans:** 7 plans`), by phase heading. */
-export function roadmapPlanCounts(roadmap: string): Array<{ phase: string; plans: number }> {
-  const out: Array<{ phase: string; plans: number }> = [];
+/** A phase token for comparison: `03` → `3`, `03.1` → `3.1`; anything else as written, lower-cased. */
+function phaseKey(token: string): string {
+  const t = token.trim().replace(/[*:]+$/, '');
+  return /^\d+(\.\d+)*$/.test(t) ? t.split('.').map((p) => String(parseInt(p, 10))).join('.') : t.toLowerCase();
+}
+
+const VERSION_TOKEN_RE = /\bv\d+(?:\.\d+)+\b/i;
+
+export interface RoadmapPlanCount {
+  phase: string;
+  plans: number;
+  /** The milestone version of the section the phase heading sits in; `null` in the preamble. */
+  milestone: string | null;
+  /** A `- [x] … Phase N` entry marks the phase done. */
+  done: boolean;
+}
+
+/**
+ * Plans declared per phase in ROADMAP.md (`**Plans**: 7 plans` / `**Plans:** 7 plans`), by phase
+ * heading, with the milestone section each heading sits in (the last milestone heading or
+ * `<summary>` carrying a `vX.Y` token above it) and whether a checked entry marks it done.
+ */
+export function roadmapPlanCounts(roadmap: string): RoadmapPlanCount[] {
+  const out: RoadmapPlanCount[] = [];
+  const done = new Set<string>();
   let phase: string | null = null;
+  let milestone: string | null = null;
   for (const line of splitLines(roadmap)) {
+    const checked = /^\s*[-*]\s*\[[xX]\].*?\bPhase\s+([^\s:*]+)/.exec(line);
+    if (checked) done.add(phaseKey(checked[1]));
     const heading = /^#{2,4}\s+(?:Phase\s+([^\s:]+)|(\[[^\]]+\]\s*\d[^\s:]*))/i.exec(line);
-    if (heading) phase = heading[1] ?? heading[2];
-    else if (/^#{1,4}\s/.test(line)) phase = null;
+    if (heading) {
+      phase = heading[1] ?? heading[2];
+    } else if (/^#{1,4}\s/.test(line) || /<summary>/i.test(line)) {
+      phase = null;
+      const version = VERSION_TOKEN_RE.exec(line);
+      if (version) milestone = version[0].toLowerCase();
+    }
     const plans = /^\s*(?:[-*]\s+)?\*\*Plans(?::\*\*|\*\*:)\s*(\d+)\s+plans?\b/i.exec(line);
-    if (plans && phase !== null) out.push({ phase, plans: parseInt(plans[1], 10) });
+    if (plans && phase !== null) out.push({ phase, plans: parseInt(plans[1], 10), milestone, done: false });
   }
-  return out;
+  return out.map((r) => ({ ...r, done: done.has(phaseKey(r.phase)) }));
+}
+
+/**
+ * The ROADMAP counts that describe phases still to plan: not marked done, AND either the phase has
+ * a directory in `.planning/phases/` or it sits in the milestone STATE names as active. A preamble
+ * that lists an earlier milestone's phases (mn's 01–03 of v1.0) is neither.
+ */
+function activeRoadmapCounts(cwd: string, roadmap: string, phases: PhaseDir[]): RoadmapPlanCount[] {
+  const dirKeys = new Set(phases.map((p) => phaseKey(p.dir.split('-')[0])));
+  let active: string | null = null;
+  try {
+    const info = getMilestoneInfo(cwd).value;
+    active = info && typeof info.version === 'string' ? info.version.toLowerCase() : null;
+  } catch {
+    active = null;
+  }
+  return roadmapPlanCounts(roadmap).filter((r) => !r.done
+    && (dirKeys.has(phaseKey(r.phase)) || (active !== null && r.milestone === active)));
 }
 
 function rulePlanChunked(cwd: string, config: Record<string, unknown>, phases: PhaseDir[]): { outcome: RuleOutcome; rec: Recommendation | null } {
@@ -223,15 +271,9 @@ function rulePlanChunked(cwd: string, config: Record<string, unknown>, phases: P
   }
   const roadmap = readText(path.join(planningDir(cwd), 'ROADMAP.md'));
   if (roadmap !== null) {
-    // The active milestone only — a shipped or future milestone's phases say nothing about how the
+    // Phases still to plan only — a shipped or future milestone's phases say nothing about how the
     // phases being planned now are planned.
-    let current = roadmap;
-    try {
-      current = extractCurrentMilestone(roadmap, cwd);
-    } catch {
-      current = roadmap;
-    }
-    for (const r of roadmapPlanCounts(current)) counts.push({ phase: r.phase, plans: r.plans, source: 'roadmap' });
+    for (const r of activeRoadmapCounts(cwd, roadmap, phases)) counts.push({ phase: r.phase, plans: r.plans, source: 'roadmap' });
   }
   const largest = counts.reduce<{ phase: string; plans: number; source: string } | null>((best, c) => (best === null || c.plans > best.plans ? c : best), null);
   const fired = largest !== null && largest.plans >= ADVISE_THRESHOLDS.PLANS_PER_PHASE;
