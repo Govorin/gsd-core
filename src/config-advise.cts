@@ -9,7 +9,8 @@
  * here writes configuration.
  *
  * Rules (thresholds are `ADVISE_THRESHOLDS`; each fires at `>=` its value):
- *   plan_chunked       a phase with PLANS_PER_PHASE+ plans (on disk or declared in ROADMAP)
+ *   plan_chunked       a phase with PLANS_PER_PHASE+ plans (on disk, or declared in the active
+ *                      milestone of ROADMAP)
  *                      → `workflow.plan_chunked` + `planning.chunked_parallel`
  *   code_review_point  a phase-end `*-REVIEW.md` with REVIEW_FIX_FINDINGS+ critical+warning findings
  *                      → `workflow.code_review_point: execute:wave:post`
@@ -21,7 +22,8 @@
  *                      preflight, `src/tool-preflight.cts`) → `agent_tools` + reinstall
  *
  * Only the active milestone's phases (`.planning/phases/`) are read: an archived milestone's
- * artifacts describe a configuration that may already have changed.
+ * artifacts describe a configuration that may already have changed. A rule's knob counts as on by
+ * its main key alone, so a companion key switched off on purpose is never re-recommended.
  */
 
 import fs from 'node:fs';
@@ -36,6 +38,8 @@ import phaseLocatorMod = require('./phase-locator.cjs');
 import auditMod = require('./audit.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- io.cjs is an export= CommonJS module
 import ioMod = require('./io.cjs');
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- roadmap-parser.cjs is an export= CommonJS module
+import roadmapParserMod = require('./roadmap-parser.cjs');
 // eslint-disable-next-line @typescript-eslint/no-require-imports -- plan-scan.cjs is an export= CommonJS module
 import planScanMod = require('./plan-scan.cjs');
 import { runtimeCommand } from './runtime-slash.cjs';
@@ -50,6 +54,7 @@ import type { AgentFileScope, ToolPreflight } from './tool-preflight.cjs';
 
 const { extractFrontmatter, stripFrontmatter } = frontmatterMod;
 const { scanPhasePlans } = planScanMod;
+const { extractCurrentMilestone } = roadmapParserMod;
 const { planningDir } = planningWorkspace;
 const { listActiveAndArchivedPhaseDirs } = phaseLocatorMod;
 const { output } = ioMod;
@@ -218,22 +223,32 @@ function rulePlanChunked(cwd: string, config: Record<string, unknown>, phases: P
   }
   const roadmap = readText(path.join(planningDir(cwd), 'ROADMAP.md'));
   if (roadmap !== null) {
-    for (const r of roadmapPlanCounts(roadmap)) counts.push({ phase: r.phase, plans: r.plans, source: 'roadmap' });
+    // The active milestone only — a shipped or future milestone's phases say nothing about how the
+    // phases being planned now are planned.
+    let current = roadmap;
+    try {
+      current = extractCurrentMilestone(roadmap, cwd);
+    } catch {
+      current = roadmap;
+    }
+    for (const r of roadmapPlanCounts(current)) counts.push({ phase: r.phase, plans: r.plans, source: 'roadmap' });
   }
   const largest = counts.reduce<{ phase: string; plans: number; source: string } | null>((best, c) => (best === null || c.plans > best.plans ? c : best), null);
   const fired = largest !== null && largest.plans >= ADVISE_THRESHOLDS.PLANS_PER_PHASE;
   const chunked = configValue(config, 'workflow.plan_chunked') === true;
-  const parallel = configValue(config, 'planning.chunked_parallel') === true;
   const outcome: RuleOutcome = {
     rule: ADVICE_RULE.PLAN_CHUNKED,
     fired,
-    already_enabled: chunked && parallel,
+    // Decided by the primary key: a project that turned chunked planning on and chunked_parallel
+    // off on purpose must not get the same advice forever.
+    already_enabled: chunked,
     evidence: { largest, threshold: ADVISE_THRESHOLDS.PLANS_PER_PHASE },
   };
   if (!fired || outcome.already_enabled || largest === null) return { outcome, rec: null };
   const settings: Record<string, unknown> = {};
-  if (!chunked) settings['workflow.plan_chunked'] = true;
-  if (!parallel) settings['planning.chunked_parallel'] = true;
+  settings['workflow.plan_chunked'] = true;
+  // An explicit chunked_parallel (even false) is the project's choice; only an absent one is offered.
+  if (configValue(config, 'planning.chunked_parallel') === undefined) settings['planning.chunked_parallel'] = true;
   return {
     outcome,
     rec: {
@@ -324,13 +339,19 @@ function ruleVerifyWork(cwd: string): { outcome: RuleOutcome; rec: Recommendatio
 const GATE_RUNNER_RE = /^(?:\$\s*)?((?:npm|pnpm|yarn|bun|bunx|npx|nx|cargo|go|pytest|make|gradle|\.\/gradlew|mvn|dotnet|tsc|eslint|vitest|jest|deno|swift|flutter|dart|mix|ruff|mypy)\s[^\n`|]*|tsc|pytest|eslint)$/;
 const GATE_KIND_RE = /\b(tests?|lint|typecheck|type-check|tsc|build|check|vet|clippy|mypy|ruff|eslint|pytest|vitest|jest)\b/;
 
-function gateName(command: string): string {
-  const m = GATE_KIND_RE.exec(command);
-  const word = m ? m[1] : 'check';
+function gateKind(word: string): string {
   if (/^(tests?|pytest|vitest|jest)$/.test(word)) return 'tests';
   if (/^(typecheck|type-check|tsc|mypy)$/.test(word)) return 'typecheck';
   if (/^(lint|eslint|ruff|clippy|vet)$/.test(word)) return 'lint';
   return word;
+}
+
+/** A gate's name: its one kind (`tests`, `lint`, …), or `checks` for a command running several
+ * (`nx run-many -t typecheck lint test build`). */
+export function gateName(command: string): string {
+  const kinds = new Set([...command.matchAll(new RegExp(GATE_KIND_RE.source, 'g'))].map((m) => gateKind(m[1])));
+  if (kinds.size === 0) return 'check';
+  return kinds.size === 1 ? [...kinds][0] : 'checks';
 }
 
 /** Check commands a VERIFICATION report cites (inline code spans and fenced lines), normalised. */
@@ -365,29 +386,28 @@ function ruleVerifyGates(config: Record<string, unknown>, phases: PhaseDir[]): {
   const fired = reports.length >= ADVISE_THRESHOLDS.GATE_CITING_REPORTS;
   const gates = configValue(config, 'workflow.verify_gates');
   const configured = gates !== null && typeof gates === 'object' && !Array.isArray(gates) && Object.keys(gates).length > 0;
-  const record = configValue(config, 'workflow.verify_gates_record') === true;
   const outcome: RuleOutcome = {
     rule: ADVICE_RULE.VERIFY_GATES,
     fired,
-    already_enabled: configured && record,
+    // Decided by the primary key (see plan_chunked): verify_gates_record is offered only alongside it.
+    already_enabled: configured,
     evidence: { reports, threshold: ADVISE_THRESHOLDS.GATE_CITING_REPORTS, verify_gates_configured: configured },
   };
   if (!fired || outcome.already_enabled) return { outcome, rec: null };
   const settings: Record<string, unknown> = {};
-  if (!configured) {
-    const tally = new Map<string, number>();
-    for (const r of reports) for (const c of r.commands) tally.set(c, (tally.get(c) ?? 0) + 1);
-    const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-    const repeated = ranked.filter(([, n]) => n >= ADVISE_THRESHOLDS.GATE_CITING_REPORTS);
-    const map: Record<string, string> = {};
-    for (const [command] of (repeated.length > 0 ? repeated : ranked).slice(0, 4)) {
-      let name = gateName(command);
-      for (let i = 2; Object.prototype.hasOwnProperty.call(map, name); i++) name = `${gateName(command)}_${i}`;
-      map[name] = command;
-    }
-    settings['workflow.verify_gates'] = map;
+  const tally = new Map<string, number>();
+  for (const r of reports) for (const c of r.commands) tally.set(c, (tally.get(c) ?? 0) + 1);
+  const ranked = [...tally.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const repeated = ranked.filter(([, n]) => n >= ADVISE_THRESHOLDS.GATE_CITING_REPORTS);
+  const map: Record<string, string> = {};
+  for (const [command] of (repeated.length > 0 ? repeated : ranked).slice(0, 4)) {
+    let name = gateName(command);
+    for (let i = 2; Object.prototype.hasOwnProperty.call(map, name); i++) name = `${gateName(command)}_${i}`;
+    map[name] = command;
   }
-  if (!record) settings['workflow.verify_gates_record'] = true;
+  settings['workflow.verify_gates'] = map;
+  // An explicit verify_gates_record (even false) is the project's choice; only an absent one is offered.
+  if (configValue(config, 'workflow.verify_gates_record') === undefined) settings['workflow.verify_gates_record'] = true;
   return {
     outcome,
     rec: {

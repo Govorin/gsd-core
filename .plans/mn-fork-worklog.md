@@ -1101,9 +1101,9 @@ projects "missed" already in GSD, off and never discovered.
   `unknown` (no file, TOML, non-Claude without `tools:`) is reported, never a pass, and does not
   block — the gate cannot prove a grant absent.
 - **S7 — `src/config-advise.cts`.** Five rules, thresholds in `ADVISE_THRESHOLDS` with the
-  review's numbers behind each. Config is read raw: `loadConfig` drops `workflow.plan_chunked` and
-  the `planning.*` section. Health's I011 is pushed by `cmdValidateHealth` like W024 (the advisor
-  reads plans and installed agents, beyond the snapshot); `RULE_I011` is the doc-only table entry.
+  review's numbers behind each. Config is read raw: `loadConfig` does not project `workflow.plan_chunked`
+  (`planning.chunked_parallel` it keeps). Health's I011 is a snapshot rule: the field
+  `configAdvice` (like `agentInstall`) and `checkI011` in `health-diagnostic-rules/config-validation.cts`.
 
 Not done here: `/gsd-quick-batch` executors get no preflight; the gate checks every unsummarized
 plan of the phase even under `--wave N`; `orchestrator-worktree` dispatch ignores `agent_hint`, so

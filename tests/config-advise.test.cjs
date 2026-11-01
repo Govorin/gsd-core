@@ -108,10 +108,31 @@ describe('config-advise rules', () => {
       assert.deepEqual(rule.evidence.largest, { phase: '4', plans: T.PLANS_PER_PHASE, source: 'roadmap' });
     });
 
-    test('only the knob still off is recommended', () => {
+    test('the primary key decides: plan_chunked on with chunked_parallel deliberately off is not re-advised', () => {
       plansOnDisk(T.PLANS_PER_PHASE);
-      writeConfig(projectDir, { workflow: { plan_chunked: true } });
-      assert.deepEqual(recOf(advise.adviseConfig(projectDir), 'plan_chunked').settings, { 'planning.chunked_parallel': true });
+      writeConfig(projectDir, { workflow: { plan_chunked: true }, planning: { chunked_parallel: false } });
+      const a = advise.adviseConfig(projectDir);
+      assert.equal(ruleOf(a, 'plan_chunked').already_enabled, true);
+      assert.equal(recOf(a, 'plan_chunked'), undefined);
+    });
+
+    test('an explicit chunked_parallel: false is kept out of the recommendation', () => {
+      plansOnDisk(T.PLANS_PER_PHASE);
+      writeConfig(projectDir, { planning: { chunked_parallel: false } });
+      assert.deepEqual(recOf(advise.adviseConfig(projectDir), 'plan_chunked').settings, { 'workflow.plan_chunked': true });
+    });
+
+    test('a ROADMAP count outside the active milestone is not read (mn: phase 08 of a shipped v2.0)', () => {
+      fs.writeFileSync(path.join(projectDir, '.planning', 'ROADMAP.md'), [
+        '# Roadmap', '',
+        '<details>', '<summary>v2.0 (shipped)</summary>', '',
+        '## Milestone v2.0', '', '### Phase 8: Old', `**Plans:** ${T.PLANS_PER_PHASE + 4} plans`, '',
+        '</details>', '',
+        '## Milestone v3.0 (current)', '', '### Phase 9: New', '**Plans:** 2 plans', '',
+      ].join('\n'));
+      fs.writeFileSync(path.join(projectDir, '.planning', 'STATE.md'), '---\nmilestone: v3.0\n---\n\n# State\n');
+      const rule = ruleOf(advise.adviseConfig(projectDir), 'plan_chunked');
+      assert.equal(rule.fired, false, JSON.stringify(rule.evidence));
     });
 
     test('both knobs on: fired but not recommended', () => {
@@ -231,10 +252,25 @@ describe('config-advise rules', () => {
       assert.equal(ruleOf(advise.adviseConfig(projectDir), 'verify_gates').fired, true);
     });
 
-    test('gates configured but not recorded: only verify_gates_record is recommended', () => {
+    test('the primary key decides: verify_gates configured, record off → not re-advised', () => {
       citing(T.GATE_CITING_REPORTS);
       writeConfig(projectDir, { workflow: { verify_gates: { tests: 'npm test' } } });
-      assert.deepEqual(recOf(advise.adviseConfig(projectDir), 'verify_gates').settings, { 'workflow.verify_gates_record': true });
+      const a = advise.adviseConfig(projectDir);
+      assert.equal(ruleOf(a, 'verify_gates').already_enabled, true);
+      assert.equal(recOf(a, 'verify_gates'), undefined);
+    });
+
+    test('an explicit verify_gates_record: false is kept out of the recommendation', () => {
+      citing(T.GATE_CITING_REPORTS);
+      writeConfig(projectDir, { workflow: { verify_gates_record: false } });
+      assert.deepEqual(Object.keys(recOf(advise.adviseConfig(projectDir), 'verify_gates').settings), ['workflow.verify_gates']);
+    });
+
+    test('gateName: one kind names it; a command running several kinds is "checks"', () => {
+      assert.equal(advise.gateName('npm test'), 'tests');
+      assert.equal(advise.gateName('npx tsc --noEmit'), 'typecheck');
+      assert.equal(advise.gateName('nx run-many -t typecheck lint test build'), 'checks');
+      assert.equal(advise.gateName('pnpm eslint .'), 'lint');
     });
 
     test('gates configured and recorded: not recommended', () => {

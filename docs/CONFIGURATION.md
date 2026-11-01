@@ -268,13 +268,16 @@ gsd-tools config-advise --json   # {recommendations, rules, count, summary}
 
 `config-advise` reads the active milestone's `.planning/` artifacts and recommends knobs that
 already exist but are off, each with a one-line reason and the exact command. It writes nothing,
-and a knob that is already on is never recommended. `/gsd-progress` prints its summary line under
+and a knob that is already on is never recommended — judged by each rule's main key
+(`workflow.plan_chunked`, `workflow.code_review_point`, `workflow.verify_gates`), so a companion key
+you switched off on purpose (`planning.chunked_parallel: false`, `workflow.verify_gates_record: false`)
+is left alone rather than recommended forever. `/gsd-progress` prints its summary line under
 "Config Advice" (from `init progress`'s `config_advice`), and `/gsd-health` reports it as info
 `I011`.
 
 | Signal | Fires at | Recommends |
 |--------|----------|------------|
-| Plans in one phase, on disk or declared in ROADMAP.md (`**Plans:** N plans`) | 6 or more | `workflow.plan_chunked` + `planning.chunked_parallel` |
+| Plans in one phase, on disk or declared in the active milestone of ROADMAP.md (`**Plans:** N plans`) | 6 or more | `workflow.plan_chunked` + `planning.chunked_parallel` |
 | Critical + warning findings in one phase-end `*-REVIEW.md` (`status: skipped` ignored) | 5 or more | `workflow.code_review_point: execute:wave:post` |
 | Phases waiting on human verification (VERIFICATION `human_needed`, or an open UAT) | 2 or more | run `/gsd-verify-work <oldest>`, then `/gsd-audit-uat` |
 | VERIFICATION reports citing hand-run checks (`npm test`, `tsc`, `cargo clippy`, …) while `workflow.verify_gates` is empty | 2 or more | `workflow.verify_gates` with the cited commands, + `workflow.verify_gates_record` |
