@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "count": 390,
+  "count": 393,
   "classes": {
     "ARCH": 1,
     "CAPABILITY": 3,
@@ -20,7 +20,7 @@
     "PROC": 14,
     "PROHIB": 10,
     "RELEASE-NOTES": 31,
-    "REQREVIEW": 6,
+    "REQREVIEW": 9,
     "RETRO": 14,
     "RULESET": 64,
     "RUNSTATE": 6,
@@ -1002,12 +1002,12 @@
     {
       "id": "REQREVIEW.ACCEPT",
       "klass": "REQREVIEW",
-      "value": "requirements-review accept <CR-ID>... --reason <non-empty>: critical findings of the composed review only (WR/IN → usage error), journaled per milestone in ACCEPTED.json, then the review is composed again; the skill offers it interactively and never in auto mode"
+      "value": "requirements-review accept <CR-ID>... --reason <non-empty>: critical findings of the composed review only (WR/IN → usage error), journaled per milestone in ACCEPTED.json by fingerprint, so it survives a re-run that rewords the finding and is released when the requirement's text changes; findings of the same lens and requirement share it (alsoCovers); the skill offers it interactively and never in auto mode"
     },
     {
       "id": "REQREVIEW.BLOCKING",
       "klass": "REQREVIEW",
-      "value": "critical finding AND not refuted (upheld, or unverified when no refutation ran) AND fingerprint not accepted for the review's milestone; fingerprint = rq: + sha256(lens, requirement, normalised title)[0..10], never the renumbered ID"
+      "value": "critical finding AND not refuted (upheld, or unverified when no refutation ran) AND fingerprint not accepted for the review's milestone; fingerprint = rq: + sha256(lens, each named REQ-ID = run.requirementDigests[id] (digest of that requirement's whitespace-collapsed text), or the whole REQUIREMENTS.md digest for cross-cutting)[0..10] — never the title or the renumbered ID; milestone = --milestone, else STATE.md frontmatter milestone, else none (the key is omitted, never written null)"
     },
     {
       "id": "REQREVIEW.FILES",
@@ -1025,9 +1025,24 @@
       "value": "data|compat|security|testability, canonical order; workflow.requirements_review_lenses (default all four) or prepare --lens; an unknown or empty list is a usage error, never narrowed"
     },
     {
+      "id": "REQREVIEW.NOTHING-TO-CHECK",
+      "klass": "REQREVIEW",
+      "value": "a lens with nothing to check reports status clean: compat with nothing released, data with no persisted schema, security for a requirement touching no identity/input/secret/personal data; testability never CR for a high-level requirement (CR only for contradiction or no environment could show it)"
+    },
+    {
       "id": "REQREVIEW.POINT",
       "klass": "REQREVIEW",
-      "value": "roadmap:pre (ADR-857 amendment 2026-11-01), loop-host step roadmap, hosts new-milestone §9.5 and new-project (auxiliary, kinds step+gate); a blocking gate block → interactive: Revise requirements (back to scoping, commit, re-run the point) | Stop; auto mode (--auto or auto_chain_active) → stop, never ask"
+      "value": "roadmap:pre (ADR-857 amendment 2026-11-01), loop-host step roadmap, hosts new-milestone §9.5 and new-project (auxiliary, kinds step+gate); a blocking gate block → interactive: Revise requirements (back to scoping, commit, re-run the point) | Review again (the point's ref.skill with --lens <gate payload rerun> when non-empty, then its gates) | Stop; auto mode (--auto or auto_chain_active) → stop, never ask"
+    },
+    {
+      "id": "REQREVIEW.RERUN",
+      "klass": "REQREVIEW",
+      "value": "prepare --lens L over a run.json with the same requirements digest → mode partial: only REVIEW-L.md and REFUTATION.md removed, run.lenses = union, other reports kept; otherwise mode full (every report removed); gate payload rerun = blocking lenses ∪ missing lenses, [] (= all) when stale or absent"
+    },
+    {
+      "id": "REQREVIEW.RESUME",
+      "klass": "REQREVIEW",
+      "value": "new-milestone --from-roadmap (step 1 → milestone from state.get milestone → step 7 → step 9.5; steps 2–6, 8, 9 skipped); new-project resumes a bootstrap with REQUIREMENTS.md and no ROADMAP.md at its requirements hooks; every gate message names both"
     },
     {
       "id": "RETRO.APPLIED",

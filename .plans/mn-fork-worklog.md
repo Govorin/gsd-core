@@ -1219,8 +1219,17 @@ and each time the review caught critical defects before planning. ADR-5212, ADR-
 - The refuter is owned by `mn-verify-gate` (agent ownership is exclusive in the registry), as for
   code-review's and architecture's use of it; without it findings stay `unverified` and still block.
 
-**Not done:** the roadmapper does not read REQUIREMENTS-REVIEW.md; `/gsd-new-milestone` has no
-resume from step 10 after "Stop" (the user re-runs it); no `requirements:post` alias.
+- **Review fixes (2026-11-01):** `milestone: null` read back as the string "null" (frontmatter
+  reader), so an acceptance without `--milestone` never matched — the key is now omitted and the
+  milestone defaults to STATE.md's. Acceptance binds to lens + REQ-ID + requirement text digest, not
+  the title. Hosts gained "Review again" (`--lens` from the gate's `rerun`; `prepare` keeps the
+  other reports when the requirements are unchanged) and resume (`/gsd-new-milestone --from-roadmap`,
+  `/gsd-new-project` resumes at the hooks). Lens rules for greenfield (nothing released / no schema →
+  clean; high-level never CR) and explicit data/compat evidence (`git log --all` over migrations,
+  journal vs branches, API consumers).
+
+**Not done:** the roadmapper does not read REQUIREMENTS-REVIEW.md; no `requirements:post` alias;
+`/gsd-next` does not yet route a milestone held at roadmap:pre to `--from-roadmap`.
 
 ## Remaining
 
