@@ -22,7 +22,7 @@
 // business.
 //
 // What blocks (`workflow.test_tamper_guard`, default "off"; "ask" | "deny" —
-// "ask" is answered "deny" while auto mode is active, see
+// "ask" is answered "deny" while an auto-chain runs, see
 // hooks/lib/unattended-ask.js):
 //   • the write removes assertions — the pending content holds strictly fewer
 //     than the file on disk,
@@ -223,7 +223,7 @@ function projectContent(toolName, toolInput, onDisk) {
  *
  * Returns `{ action: 'allow' }` or
  * `{ action: 'ask' | 'deny', reason, unattended, before, after, skipsBefore, skipsAfter }`;
- * `unattended` marks an "ask" answered "deny" because auto mode is active.
+ * `unattended` marks an "ask" answered "deny" because an auto-chain is running.
  * `options.isAutoRun(planningRoot)` overrides the auto-mode reader (tests).
  */
 function evaluateTestWrite(data, options = {}) {

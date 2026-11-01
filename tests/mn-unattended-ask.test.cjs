@@ -7,17 +7,18 @@
  * object to with "ask" or "deny" (workflow.prohibition_guard /
  * workflow.test_tamper_guard). In an autonomous chain an "ask" has nobody to
  * answer it — a recorded project's background agents waited 3285 minutes on 61
- * such prompts — so while auto mode is active (`gsd_run check auto-mode`,
- * src/check-auto-mode.cts) the guards answer "deny" with a reason instead.
+ * such prompts — so while an auto-chain runs (`auto_chain_active` in
+ * `gsd_run check auto-mode`, src/check-auto-mode.cts) the guards answer "deny"
+ * with a reason instead. `workflow.auto_advance` alone does not: it is a
+ * standing preference, and the person who set it may be at the terminal.
  *
  * Matrix per guard: ask+auto → deny (marked unattended), ask+manual → ask,
  * deny+auto and deny+manual → deny (not marked), off+auto → allow. The auto
  * signal is injected for the matrix (`isAutoRun`), and read for real through
  * readAutoModeState on the process-seam cases, where the exit code is the
- * enforcement: once from the persistent `workflow.auto_advance` setting, and
- * once from an auto-chain set by `gsd-tools auto-chain set` — the chain is run
- * state outside config.json, so it is set through its own verb, never by
- * writing the file the tests do not own.
+ * enforcement: an auto-chain set by `gsd-tools auto-chain set` (run state
+ * outside config.json, set through its own verb, never by writing a file the
+ * tests do not own) denies; `workflow.auto_advance` alone still asks.
  */
 
 process.env.GSD_TEST_MODE = '1';
@@ -136,7 +137,7 @@ for (const guard of GUARDS) {
       assert.deepEqual(asked.map((p) => fs.realpathSync(p)), [fs.realpathSync(dir)]);
     });
 
-    test('through the hook: ask + workflow.auto_advance exits 2 with an unattended deny', () => {
+    test('through the hook: ask + workflow.auto_advance alone still asks (exit 0)', () => {
       writeConfig(dir, { [guard.key]: 'ask', auto_advance: true });
       const r = runHook(path.join(HOOKS_DIR, guard.file), [], {
         input: JSON.stringify(guard.payload(dir)),
@@ -144,11 +145,8 @@ for (const guard of GUARDS) {
         timeoutMs: QUICK_SPAWN_TIMEOUT_MS,
       });
       assert.equal(r.outcome, OUTCOME.EXITED);
-      assert.equal(r.exitCode, 2, `exit 2 is what blocks the call; stdout=${r.stdout}`);
-      const out = JSON.parse(r.stdout);
-      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
-      assert.equal(out.unattended, true);
-      assert.equal(r.stderr, out.reason);
+      assert.equal(r.exitCode, 0, `a standing preference is not an unattended run; stdout=${r.stdout}`);
+      assert.equal(JSON.parse(r.stdout).hookSpecificOutput.permissionDecision, 'ask');
     });
 
     test('through the hook: ask + an active auto-chain exits 2 with an unattended deny', (t) => {
@@ -167,7 +165,10 @@ for (const guard of GUARDS) {
       });
       assert.equal(r.outcome, OUTCOME.EXITED);
       assert.equal(r.exitCode, 2, `exit 2 is what blocks the call; stdout=${r.stdout}`);
-      assert.equal(JSON.parse(r.stdout).unattended, true);
+      const out = JSON.parse(r.stdout);
+      assert.equal(out.hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(out.unattended, true);
+      assert.equal(r.stderr, out.reason);
     });
 
     test('through the hook: ask without auto mode exits 0 with an ask', () => {
@@ -195,9 +196,30 @@ describe('unattended ask — the shared decision', () => {
     assert.equal(auto.unattended, true);
   });
 
+  test('only the auto-chain flag counts; auto_advance alone does not', () => {
+    const reader = (state) => () => () => ({ active: state.auto_chain_active || state.auto_advance, ...state });
+    assert.equal(autoRunActive('/p', reader({ auto_chain_active: true, auto_advance: false })), true);
+    assert.equal(autoRunActive('/p', reader({ auto_chain_active: true, auto_advance: true })), true);
+    assert.equal(autoRunActive('/p', reader({ auto_chain_active: false, auto_advance: true })), false);
+    assert.equal(autoRunActive('/p', reader({ auto_chain_active: false, auto_advance: false })), false);
+  });
+
   test('a project the auto-mode reader cannot read counts as manual (the ask stands)', (t) => {
     const dir = createTempDir('gsd-unattended-');
     t.after(() => cleanup(dir));
     assert.equal(autoRunActive(path.join(dir, 'no-such-project')), false);
+    assert.equal(autoRunActive('/p', () => { throw new Error('unreadable'); }), false);
+  });
+
+  test('without gsd-core/bin/lib/check-auto-mode.cjs beside the hooks, the ask stands', (t) => {
+    // A hooks/ tree installed without the gsd-core runtime next to it.
+    const dir = createTempDir('gsd-unattended-nolib-');
+    t.after(() => cleanup(dir));
+    fs.mkdirSync(path.join(dir, 'hooks', 'lib'), { recursive: true });
+    const copy = path.join(dir, 'hooks', 'lib', 'unattended-ask.js');
+    fs.copyFileSync(path.join(HOOKS_DIR, 'lib', 'unattended-ask.js'), copy);
+    const isolated = require(copy);
+    assert.equal(isolated.autoRunActive(dir), false);
+    assert.equal(isolated.askOrDeny('ask', dir, 'r').action, 'ask');
   });
 });

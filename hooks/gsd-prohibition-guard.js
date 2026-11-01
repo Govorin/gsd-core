@@ -26,7 +26,8 @@
 //            (`permissionDecision: "ask"`); the model cannot self-approve.
 //   "deny" — the same write is blocked outright. For unattended runs, where
 //            "ask" has no one to ask and times out into a default.
-//   While auto mode is active (`gsd_run check auto-mode`), "ask" is answered
+//   While an auto-chain runs (`auto_chain_active` in `gsd_run check auto-mode`;
+//   `workflow.auto_advance` alone does not count), "ask" is answered
 //   "deny" with a reason that says so: nobody is there to approve, and a
 //   waiting write stalled recorded autonomous runs for hours
 //   (hooks/lib/unattended-ask.js, shared with the test tamper guard).
@@ -442,7 +443,7 @@ function matchesDeclaration(target, entry) {
  *
  * Returns `{ action: 'allow' }` or
  * `{ action: 'ask' | 'deny', reason, unattended, targetPath, phaseDir, declaredCount }`;
- * `unattended` marks an "ask" answered "deny" because auto mode is active.
+ * `unattended` marks an "ask" answered "deny" because an auto-chain is running.
  * `isAutoRun(planningRoot)` overrides the auto-mode reader (tests).
  */
 function evaluateWrite(data, { cwd: cwdOverride, isAutoRun } = {}) {
