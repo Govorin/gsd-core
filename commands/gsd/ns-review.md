@@ -5,7 +5,7 @@ argument-hint: ""
 allowed-tools:
   - Read
   - Skill
-requires: [code-review, audit-uat, secure-phase, eval-review, ui-review, validate-phase, debug, forensics, audit-fix, review, ui-phase, arch-survey, retro]
+requires: [code-review, audit-uat, secure-phase, eval-review, ui-review, validate-phase, debug, forensics, audit-fix, review, ui-phase, arch-survey, retro, requirements-review]
 ---
 
 <arguments>$ARGUMENTS</arguments>
@@ -30,6 +30,7 @@ Route to the appropriate quality / review skill based on the user's intent.
 | Cross-AI peer review of plans | gsd-review |
 | Survey the architecture for deepening candidates | gsd-arch-survey |
 | Session retro: environment changes from friction signals | gsd-retro |
+| Review a milestone's requirements before the roadmap | gsd-requirements-review |
 | Generate a UI design contract | gsd-ui-phase |
 
 Invoke the matched skill directly using the Skill tool.

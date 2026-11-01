@@ -153,6 +153,7 @@
     "gsd-finding-refuter":        { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
     "gsd-architect-reviewer":     { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
     "gsd-arch-surveyor":          { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "research",     "routingTier": "standard" },
+    "gsd-requirements-reviewer":  { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
     "gsd-retro-analyst":          { "golden": "opus",   "balanced": "sonnet", "budget": "sonnet", "phaseType": "verification", "routingTier": "standard" },
     "gsd-pattern-mapper":         { "golden": "sonnet", "balanced": "sonnet", "budget": "haiku",  "phaseType": "planning",     "routingTier": "light" },
     "gsd-ui-researcher":          { "golden": "opus",   "balanced": "sonnet", "budget": "haiku",  "phaseType": "research",     "routingTier": "standard" },

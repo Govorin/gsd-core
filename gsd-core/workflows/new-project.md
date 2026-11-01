@@ -98,7 +98,7 @@ INSTRUCTION_FILE=$(gsd_run query project-instruction-file --runtime "$RUNTIME")
 
 All subsequent references to the project instruction file use `$INSTRUCTION_FILE`.
 
-**If `project_exists` is true and `init_incomplete` is true (#4040 — interrupted bootstrap):** Resume initialization instead of erroring. `.planning/` exists but initialization stopped before all core artifacts landed. Keep the existing `PROJECT.md` and any already-created artifacts (`REQUIREMENTS.md` if present, `config.json`); skip the steps that would recreate them and continue the flow from the first missing artifact in init order — `REQUIREMENTS.md` → `ROADMAP.md` + `STATE.md` — until all exist. Do not error and do not bounce the user back to `/gsd:progress` (that routing loop is the #4040 bug).
+**If `project_exists` is true and `init_incomplete` is true (#4040 — interrupted bootstrap):** Resume initialization instead of erroring. `.planning/` exists but initialization stopped before all core artifacts landed. Keep the existing `PROJECT.md` and any already-created artifacts (`REQUIREMENTS.md` if present, `config.json`); skip the steps that would recreate them and continue the flow from the first missing artifact in init order — `REQUIREMENTS.md` → `ROADMAP.md` + `STATE.md` — until all exist; a missing `ROADMAP.md` resumes at the requirements hooks (end of step 7), not at step 8. Do not error and do not bounce the user back to `/gsd:progress` (that routing loop is the #4040 bug).
 
 **If `project_exists` is true and `init_incomplete` is false:** Error — project already initialized. Use `/gsd:progress`.
 
@@ -938,6 +938,14 @@ If "adjust": Return to scoping.
 ```bash
 gsd_run query commit "docs: define v1 requirements" --files .planning/REQUIREMENTS.md
 ```
+
+**Requirements hooks** — REQUIREMENTS.md is committed and no roadmap exists (the requirements review runs here):
+
+```bash
+ROADMAP_PRE_HOOKS_JSON=$(gsd_run loop render-hooks roadmap:pre --raw)
+```
+
+Read `activeHooks` in-context and apply every entry, in order, per @gsd-core/references/loop-hook-dispatch.md (skip silently when none): a `ref.skill` runs as `Skill(skill="gsd-${ref.skill}", args="--milestone <version>")` (the milestone these requirements open), plus `--auto` in auto mode; a gate runs `gsd_run check <query> --raw`. A blocking gate answering `block: true` holds the roadmap: print its `message`. In auto mode stop the workflow there (`/gsd:new-project` resumes here). Otherwise ask (AskUserQuestion): "Revise requirements" — back to scoping with the message as input, commit, then run these hooks again; "Review again" — run the `ref.skill` entries again with `--lens <the gate's rerun, comma-joined>` when its `rerun` is non-empty, then the gates; "Stop" — end here; `/gsd:new-project` resumes at these hooks.
 
 ## 7.5. Project Structure Mode
 

@@ -1870,6 +1870,8 @@ describe('bug #1243: plugin-namespaced agent skills', () => {
       // the standards this project gives its reviewer and not its implementer.
       'gsd-spec-reviewer',
       'gsd-standards-reviewer',
+      // ── requirements review lens (ADR-5212): self-loads the reviewer's agent_skills.
+      'gsd-requirements-reviewer',
     ]);
 
     // allow-test-rule: source-text-is-the-product (#1243)

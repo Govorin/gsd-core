@@ -51,7 +51,7 @@ const { resolveCapabilityRuntimeState } = capabilityStateModule;
 import capabilityActivationModule = require('./capability-activation.cjs');
 const { _getNestedConfigValue, _readRawConfigKey, _resolveActivationValue, _resolvePointGate, resolveConfigKey } = capabilityActivationModule;
 
-// ─── Canonical points (derived from LOOP_HOST_CONTRACT — authoritative 12) ───
+// ─── Canonical points (derived from LOOP_HOST_CONTRACT — the authoritative set) ───
 
 // FIX 2: Derive the authoritative canonical set from LOOP_HOST_CONTRACT so it
 // cannot drift from the host contract. CANONICAL_POINTS_FALLBACK is kept as an
@@ -74,6 +74,7 @@ const CANONICAL_POINTS: ReadonlyArray<string> = (() => {
     }
   } catch { /* fall through to hardcoded fallback */ }
   return [
+    'roadmap:pre',
     'roadmap:post',
     'discuss:pre',
     'discuss:post',

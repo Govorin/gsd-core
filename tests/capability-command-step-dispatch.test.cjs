@@ -50,6 +50,7 @@ const TOOLS = path.join(ROOT, 'gsd-core', 'bin', 'gsd-tools.cjs');
 // The workflow that owns each loop point. A new point has to be added here, which
 // is the point: an unmapped point fails below rather than passing unexamined.
 const POINT_WORKFLOW = {
+  'roadmap:pre': 'new-milestone.md',
   'roadmap:post': 'new-milestone.md',
   'discuss:pre': 'discuss-phase.md',
   'discuss:post': 'discuss-phase.md',

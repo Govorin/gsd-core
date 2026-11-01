@@ -1,0 +1,71 @@
+{
+  "id": "mn-requirements-review",
+  "role": "feature",
+  "version": "1.19.0",
+  "title": "Requirements review before the roadmap",
+  "description": "Reviews a milestone's requirements once REQUIREMENTS.md is committed and before the roadmapper turns them into phases (roadmap:pre in /gsd-new-milestone and /gsd-new-project, ADR-5212). One fresh gsd-requirements-reviewer per lens — data and migrations, client compatibility, security, testability — reads the requirements against the codebase; gsd-finding-refuter (mode requirements; the agent ships with mn-verify-gate, and without it every finding stays unverified) tries to refute every finding; `gsd-tools requirements-review compose` writes REQUIREMENTS-REVIEW.md. A blocking gate (`check mn-requirements-review`) holds the roadmap while a critical finding survives refutation and nobody accepted it as a known risk (`gsd-tools requirements-review accept`): the host then offers to revise the requirements, or stops in auto mode. On by default: it runs once per milestone, not per phase — four lens agents and one refuter, about 5–15M tokens in the review that motivated it — and in that month's three milestones the same review, assembled by hand each time, caught critical defects before planning (migrations from parallel branches that would silently not apply, a gate that would break already-released clients). Set workflow.requirements_review false to skip it.",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.19.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [
+    "requirements-review"
+  ],
+  "agents": [
+    "gsd-requirements-reviewer"
+  ],
+  "activationKey": "workflow.requirements_review",
+  "commands": [
+    {
+      "family": "requirements-review",
+      "module": "requirements-review-command-router.cjs",
+      "router": "routeRequirementsReviewCommand"
+    }
+  ],
+  "hooks": [],
+  "config": {
+    "workflow.requirements_review": {
+      "type": "boolean",
+      "default": true,
+      "description": "Review a milestone's requirements before its roadmap (roadmap:pre): one lens agent each for data and migrations, client compatibility, security and testability, then a refuter, then a gate that holds the roadmap on a critical finding that survived and was not accepted. Runs once per milestone (/gsd-new-milestone, /gsd-new-project); set false to skip both the review and the gate."
+    },
+    "workflow.requirements_review_lenses": {
+      "type": "string",
+      "default": "data,compat,security,testability",
+      "description": "Lenses the requirements review runs, comma-separated, from data, compat, security, testability — one agent each, the cost knob of the review. A project with no shipped clients can drop compat; an unknown lens is an error, never silently skipped."
+    }
+  },
+  "steps": [
+    {
+      "point": "roadmap:pre",
+      "ref": {
+        "skill": "requirements-review"
+      },
+      "produces": [
+        "REQUIREMENTS-REVIEW.md"
+      ],
+      "consumes": [],
+      "when": "workflow.requirements_review",
+      "onError": "skip"
+    }
+  ],
+  "contributions": [],
+  "gates": [
+    {
+      "point": "roadmap:pre",
+      "check": {
+        "query": "mn-requirements-review"
+      },
+      "when": "workflow.requirements_review",
+      "blocking": true,
+      "onError": "halt"
+    }
+  ]
+}

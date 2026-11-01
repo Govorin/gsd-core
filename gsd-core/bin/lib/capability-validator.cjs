@@ -26,6 +26,7 @@ const SCHEMA_VERSION = '1';
 // Canonical point order — explicit constant (do NOT rely on Set insertion order).
 // Used for point-ordering semantics in consumes-satisfiability validation and topo-sort.
 const POINT_ORDER = [
+  'roadmap:pre',
   'roadmap:post',
   'discuss:pre',
   'discuss:post',
@@ -45,11 +46,11 @@ const POINT_ORDER = [
 
 // C1: Artifact availability — host-produced artifacts become available at their step's :post
 // point. Build a map: artifact → earliest POINT_ORDER index at which it is available.
-// (roadmap produces ROADMAP.md → roadmap:post = index 0;
-//  discuss produces CONTEXT.md → discuss:post = index 2;
-//  plan produces PLAN.md → plan:post = index 4;
-//  execute produces SUMMARY.md → execute:post = index 8;
-//  verify produces UAT.md → verify:post = index 10)
+// (roadmap produces ROADMAP.md → roadmap:post = index 1;
+//  discuss produces CONTEXT.md → discuss:post = index 3;
+//  plan produces PLAN.md → plan:post = index 5;
+//  execute produces SUMMARY.md → execute:post = index 9;
+//  verify produces UAT.md → verify:post = index 11)
 //
 // NOTE: this map covers ONLY host artifacts. Hook-produced artifacts are handled per-run
 // during consumes-satisfiability validation (C2 global pass).

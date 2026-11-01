@@ -32,9 +32,9 @@
 `</step>` (серый пунктир), вызов `Agent(` в прозе вместо блока кода, расхождение маркеров
 `gsd:section` с `section-manifest.json`.
 
-## Workflows (89)
+## Workflows (90)
 
-Всего фраз перехода: 390, из них не называют реальный шаг: 184. Дефектов: 0.
+Всего фраз перехода: 396, из них не называют реальный шаг: 188. Дефектов: 0.
 
 | Workflow | Единицы | Спавны | Агенты | Точки цикла | Переходы без имени | Дефекты |
 |---|---|---|---|---|---|---|
@@ -82,8 +82,8 @@
 | [map-codebase](map-codebase.md) | 13 шагов `<step>` | 4 | 1 |  | 1 / 12 | 0 |
 | [milestone-summary](milestone-summary.md) | 9 разделов H2 | 0 | 0 |  | 0 / 2 | 0 |
 | [mvp-phase](mvp-phase.md) | 9 разделов H2 | 0 | 0 |  | 2 / 4 | 0 |
-| [new-milestone](new-milestone.md) | 16 разделов H2, 2 секции `gsd:section` | 3 | 3 | `roadmap:post` | 2 / 4 | 0 |
-| [new-project](new-project.md) | 13 разделов H2, 3 секции `gsd:section` | 15 | 3 | `roadmap:post` | 5 / 10 | 0 |
+| [new-milestone](new-milestone.md) | 17 разделов H2, 2 секции `gsd:section` | 3 | 3 | `roadmap:pre`, `roadmap:post` | 2 / 4 | 0 |
+| [new-project](new-project.md) | 13 разделов H2, 3 секции `gsd:section` | 15 | 3 | `roadmap:pre`, `roadmap:post` | 7 / 12 | 0 |
 | [new-workspace](new-workspace.md) | 9 разделов H2 | 0 | 0 |  | 1 / 1 | 0 |
 | [next](next.md) | 7 шагов `<step>` | 0 | 0 |  | 5 / 10 | 0 |
 | [node-repair](node-repair.md) | 5 шагов `<step>` | 0 | 0 |  | 1 / 1 | 0 |
@@ -101,6 +101,7 @@
 | [reapply-patches](reapply-patches.md) | 7 разделов H2 | 0 | 0 |  | 4 / 4 | 0 |
 | [remove-phase](remove-phase.md) | 7 шагов `<step>` | 0 | 0 |  | 0 / 0 | 0 |
 | [remove-workspace](remove-workspace.md) | 6 разделов H2 | 0 | 0 |  | 0 / 0 | 0 |
+| [requirements-review](requirements-review.md) | 7 шагов `<step>` | 2 | 2 |  | 2 / 4 | 0 |
 | [resume-project](resume-project.md) | 8 шагов `<step>` | 0 | 0 |  | 6 / 8 | 0 |
 | [retro](retro.md) | 9 шагов `<step>` | 2 | 2 |  | 0 / 3 | 0 |
 | [review](review.md) | 6 шагов `<step>`, 2 секции `gsd:section` | 0 | 0 |  | 0 / 1 | 0 |

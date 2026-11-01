@@ -279,6 +279,7 @@ These govern the system as it stands. Cite these.
 | [ADR-5209](5209-retro-capability.md) | The retro capability — local transcript reading, Claude-first, never self-applied | Accepted | — |
 | [ADR-5210](5210-install-time-agent-tool-grants.md) | Fork additions to agent tools are declared by a capability and applied at install | Accepted | — |
 | [ADR-5211](5211-worktree-guard-verbs.md) | Worktree guards are CLI verbs, launched by a literal invocation the orchestrator substitutes at dispatch | Accepted | — |
+| [ADR-5212](5212-requirements-review-at-roadmap-pre.md) | Requirements are reviewed at roadmap:pre, and a surviving critical finding holds the roadmap | Accepted | — |
 | [ADR-5559](5559-pi-agent-role-dispatch.md) | Agent-role dispatch on Pi — a GSD-owned `gsd_dispatch` tool that runs each role in an isolated `pi` child process | Accepted | — |
 
 ### Proposed

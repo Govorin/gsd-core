@@ -113,8 +113,9 @@ function validReviewerEntry() {
 // ─── Vocabulary constants ───────────────────────────────────────────────────
 
 describe('registry-schema: closed vocabulary constants', () => {
-  test('LOOP_POINTS is the 15 canonical loop points (ADR-857 and its milestone amendments), in order', () => {
+  test('LOOP_POINTS is the 16 canonical loop points (ADR-857 and its milestone amendments), in order', () => {
     assert.deepEqual(LOOP_POINTS, [
+      'roadmap:pre',
       'roadmap:post',
       'discuss:pre',
       'discuss:post',

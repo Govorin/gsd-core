@@ -8,6 +8,7 @@ allowed-tools:
   - Grep
   - Write
   - Agent
+  - Skill
   - AskUserQuestion
 ---
 

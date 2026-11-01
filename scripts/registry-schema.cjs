@@ -60,6 +60,7 @@
 
 // ─── ADR-857 "Loop Extension Points" (the 12, plus the milestone boundary and opening) ──
 const LOOP_POINTS = Object.freeze([
+  'roadmap:pre',
   'roadmap:post',
   'discuss:pre',
   'discuss:post',

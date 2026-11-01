@@ -1145,6 +1145,7 @@ describe('#3897 rung 3: sandbox_mode derivation and the hold list', () => {
     'gsd-plan-checker': 'read-only',
     'gsd-planner': 'workspace-write',
     'gsd-project-researcher': 'workspace-write',
+    'gsd-requirements-reviewer': 'workspace-write',
     'gsd-research-synthesizer': 'workspace-write',
     'gsd-retro-analyst': 'workspace-write',
     'gsd-roadmapper': 'workspace-write',
@@ -1233,8 +1234,9 @@ describe('#3897 rung 3: sandbox_mode derivation and the hold list', () => {
     // 17 measured at the #4770 lift, plus gsd-system-architect,
     // gsd-architect-reviewer, the window review lenses gsd-standards-reviewer
     // and gsd-spec-reviewer (ADR-5208), gsd-arch-surveyor and gsd-retro-analyst
-    // (ADR-5209), which arrived later declaring Write and were never held.
-    assert.equal(measuredWideningRoles.length, 23, 'sanity: 23 widening roles against the current agents/ tree');
+    // (ADR-5209), and the requirements review lens gsd-requirements-reviewer
+    // (ADR-5212), which arrived later declaring Write and were never held.
+    assert.equal(measuredWideningRoles.length, 24, 'sanity: 24 widening roles against the current agents/ tree');
     for (const role of measuredWideningRoles) {
       assert.equal(
         EXPECTED_SANDBOX_BY_ROLE[role],

@@ -277,6 +277,42 @@ gateControl({
   greenScenario: toolPreflightScenario('Read, Write, mcp__pencil__*'),
 });
 
+/**
+ * Requirements and a REQUIREMENTS-REVIEW.md composed by the module itself (never by hand) from one
+ * compat lens report holding `criticals` critical findings and no refutation.
+ */
+const requirementsReview = require('../gsd-core/bin/lib/requirements-review.cjs');
+const requirementsReviewGate = require('../gsd-core/bin/lib/gate-mn-requirements-review.cjs');
+const REQUIREMENTS_TEXT = '# Requirements\n\n- [ ] **API-02**: Login requires a device token\n';
+function writeRequirementsReview(dir, criticals) {
+  const report = ['---\nlens: compat\n---', '', ...criticals.map((title, i) => `### CR-0${i + 1}: ${title}\n\n**Requirement:** \`API-02\``), ''].join('\n');
+  const composed = requirementsReview.composeReview({
+    run: {
+      version: 1, milestone: 'v1.0', requirements: '.planning/REQUIREMENTS.md',
+      requirementsSha256: requirementsReview.requirementsDigest(REQUIREMENTS_TEXT), requirementIds: ['API-02'],
+      lenses: ['compat'], preparedAt: '2026-11-01T00:00:00.000Z',
+    },
+    reports: [{ lens: 'compat', text: report }],
+    refutation: null,
+    accepted: [],
+    reviewedAt: '2026-11-01T00:00:00.000Z',
+  });
+  put(dir, '.planning/REQUIREMENTS.md', REQUIREMENTS_TEXT);
+  put(dir, '.planning/REQUIREMENTS-REVIEW.md', composed.text);
+}
+
+gateControl({
+  gate: 'mn-requirements-review',
+  module: require('../gsd-core/bin/lib/gate-mn-requirements-review.cjs'),
+  fn: 'evaluateMnRequirementsReview',
+  red: 'block',
+  expectRed: { status: 'finding' },
+  // A critical finding nobody refuted or accepted holds the roadmap.
+  redScenario: { setup: (dir) => writeRequirementsReview(dir, ['Device token gate breaks released apps']), args: [] },
+  // The same requirements reviewed without a critical finding.
+  greenScenario: { setup: (dir) => writeRequirementsReview(dir, []), args: [] },
+});
+
 gateControl({
   gate: 'mn-clean-state',
   module: require('../gsd-core/bin/lib/gate-mn-clean-state.cjs'),
@@ -417,6 +453,8 @@ const FIXABLE_STATES = [
   { verb: 'mn-verify-gates', state: 'a check not measured', setup: (dir) => recordGates(dir, false, 'stale'), remedy: null, expect: { unmeasured: ['tests'] } },
   { verb: 'mn-mutation-spot-check', state: 'no VERIFICATION.md', setup: (dir) => put(dir, `${PHASE}/.keep`, ''), remedy: mutationGate.RUN_STEP },
   { verb: 'mn-mutation-spot-check', state: 'no mutation: record', setup: (dir) => put(dir, `${PHASE}/01-VERIFICATION.md`, '---\nphase: 01\n---\n'), remedy: mutationGate.RUN_STEP },
+  { verb: 'mn-requirements-review', state: 'no review yet', setup: (dir) => put(dir, '.planning/REQUIREMENTS.md', REQUIREMENTS_TEXT), remedy: requirementsReviewGate.REVIEW_COMMAND },
+  { verb: 'mn-requirements-review', state: 'a review of other requirements', setup: (dir) => { writeRequirementsReview(dir, []); put(dir, '.planning/REQUIREMENTS.md', `${REQUIREMENTS_TEXT}- [ ] **X-03**: more\n`); }, remedy: requirementsReviewGate.REVIEW_COMMAND },
   { verb: 'mn-mutation-spot-check', state: 'a record of other code', setup: (dir) => { recordMutation(dir, MUTATION_STATUS.PASSED); put(dir, 'src/a.ts', 'export const a = 2;\n'); }, remedy: mutationGate.RUN_STEP, expect: { stale: true } },
 ];
 

@@ -254,8 +254,8 @@ for (const scope of ['global', 'local']) {
     assert.ok(fs.existsSync(agentsDir), `${agentsDir} must exist`);
 
     const expectedNames = listAgentFiles();
-    assert.equal(expectedNames.length, 42,
-      'sanity: shipped GSD agent roster is 42 files — update this boundary if the roster changes');
+    assert.equal(expectedNames.length, 43,
+      'sanity: shipped GSD agent roster is 43 files — update this boundary if the roster changes');
 
     const installedFiles = fs.readdirSync(agentsDir)
       .filter((f) => f.startsWith('gsd-') && f.endsWith('.md'));

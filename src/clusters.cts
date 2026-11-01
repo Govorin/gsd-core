@@ -59,6 +59,8 @@ export const CLUSTERS: ClusterMap = Object.freeze({
 
   milestone: Object.freeze([
     'new-milestone',
+    // ADR-5212: the roadmap:pre step of new-milestone (and new-project), so it travels with them.
+    'requirements-review',
     'complete-milestone',
     'milestone-summary',
     'health',

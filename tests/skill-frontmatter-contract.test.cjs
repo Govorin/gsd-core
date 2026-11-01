@@ -455,6 +455,9 @@ const KNOWN_SKILLS = new Set([
   // Session retro (pocock-practices design D3, ADR-5209): environment changes
   // tied to friction signals; its own capability, never a mode of forensics.
   'retro.md',
+  // Requirements review (ADR-5212): the step mn-requirements-review dispatches at roadmap:pre, and
+  // the way to review requirements again after editing them; no existing skill reviews requirements.
+  'requirements-review.md',
   'audit-fix.md',
   'audit-milestone.md',
   'audit-uat.md',

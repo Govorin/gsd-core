@@ -11,7 +11,7 @@ any of them changes without regeneration.
 This map answers "what happens at a point, and in what order". Where a capability attaches is the
 `capability-matrix.md` question; this document does not repeat it.
 
-80 registered hook(s) at 14 of 15 points.
+82 registered hook(s) at 15 of 16 points.
 
 ## Overview
 
@@ -21,8 +21,11 @@ contribution into the named agent role. A red dashed node is a defect (see the l
 ```mermaid
 flowchart LR
   subgraph n_step_roadmap["roadmap"]
+    n_point_roadmap_pre(["roadmap#58;pre"]):::point
     n_core_roadmap("roadmap#58; orchestrator → ROADMAP.md, REQUIREMENTS.md"):::core
     n_point_roadmap_post(["roadmap#58;post"]):::point
+    n_hook_roadmap_pre_step_mn_requirements_review_0["mn-requirements-review#58; skill#58;requirements-review"]:::step
+    n_hook_roadmap_pre_gate_mn_requirements_review_1{"mn-requirements-review#58; check mn-requirements-review"}:::crit
     n_hook_roadmap_post_step_retro_0["retro#58; command#58;retro stage"]:::step
   end
   subgraph n_step_discuss["discuss"]
@@ -136,7 +139,10 @@ flowchart LR
     n_hook_milestone_pre_gate_code_review_1{"code-review#58; check milestone-review"}:::crit
     n_hook_milestone_post_step_architecture_0["architecture#58; command#58;arch stage"]:::step
   end
+  n_point_roadmap_pre --> n_core_roadmap
   n_core_roadmap --> n_point_roadmap_post
+  n_point_roadmap_pre --> n_hook_roadmap_pre_step_mn_requirements_review_0
+  n_point_roadmap_pre ==> n_hook_roadmap_pre_gate_mn_requirements_review_1
   n_point_roadmap_post --> n_hook_roadmap_post_step_retro_0
   n_point_discuss_pre --> n_core_discuss
   n_core_discuss --> n_point_discuss_post
@@ -252,6 +258,24 @@ flowchart LR
 
 Producer → artifact → consumer at each point where a hook produces or consumes something. An
 artifact made earlier — by a step's core work or a hook at an earlier point — names its source.
+
+### `roadmap:pre`
+
+```mermaid
+flowchart TB
+  f_hook_step_mn_requirements_review_0["mn-requirements-review#58; skill#58;requirements-review"]:::step
+  f_artifact_REQUIREMENTS_REVIEW_md[("REQUIREMENTS-REVIEW.md")]:::artifact
+  f_hook_step_mn_requirements_review_0 --> f_artifact_REQUIREMENTS_REVIEW_md
+  classDef point fill:#e8f0fe,stroke:#1a73e8
+  classDef core fill:#fff,stroke:#555,stroke-width:2px
+  classDef step fill:#fff,stroke:#2e7d32
+  classDef gate fill:#fff,stroke:#ef6c00
+  classDef crit fill:#fdecea,stroke:#b71c1c,stroke-width:2px
+  classDef contribution fill:#f5f5f5,stroke:#999999,stroke-dasharray:3 3
+  classDef artifact fill:#fffde7,stroke:#9e9d24
+  classDef missing fill:#fdecea,stroke:#d33,stroke-dasharray:4 3
+  classDef conflict fill:#fff,stroke:#d33,stroke-width:3px
+```
 
 ### `discuss:post`
 
@@ -468,6 +492,8 @@ flowchart TB
 
 | Point | Capability | Kind | What | `when` | `onError` | Blocking |
 |---|---|---|---|---|---|---|
+| `roadmap:pre` | mn-requirements-review | step | `skill:requirements-review` | `workflow.requirements_review` | `skip` |  |
+| `roadmap:pre` | mn-requirements-review | gate | `mn-requirements-review` | `workflow.requirements_review` | `halt` | yes |
 | `roadmap:post` | retro | step | `command:retro stage` | `retro.at_milestone_start` | `skip` |  |
 | `discuss:pre` | mempalace | contribution | `orchestrator · fragments/recall-discuss.md` | `mempalace.enabled` | `skip` |  |
 | `discuss:post` | mempalace | step | `skill:mempalace-capture` | `mempalace.enabled` | `skip` |  |
@@ -553,6 +579,8 @@ flowchart TB
 
 | Point | Workflow | Kinds dispatched |
 |---|---|---|
+| `roadmap:pre` | `gsd-core/workflows/new-milestone.md` | step, gate, contribution |
+| `roadmap:pre` | `gsd-core/workflows/new-project.md` | step, gate, contribution |
 | `roadmap:post` | `gsd-core/workflows/new-milestone.md` | step |
 | `roadmap:post` | `gsd-core/workflows/new-project.md` | step |
 | `discuss:pre` | `gsd-core/workflows/discuss-phase.md` | step, gate, contribution |

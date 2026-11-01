@@ -1,13 +1,14 @@
 ---
 name: gsd:new-milestone
 description: Start a new milestone cycle — update PROJECT.md and route to requirements
-argument-hint: "[milestone name, e.g., 'v1.1 Notifications'] [--ws <name>] [--reset-phase-numbers]"
+argument-hint: "[milestone name, e.g., 'v1.1 Notifications'] [--ws <name>] [--reset-phase-numbers] [--from-roadmap]"
 allowed-tools:
   - Read
   - Write
   - Bash
   - Grep
   - Agent
+  - Skill
   - AskUserQuestion
 requires: [new-project, phase, plan-phase]
 ---

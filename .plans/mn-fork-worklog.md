@@ -1251,6 +1251,43 @@ Not done: the gate counts a fix commit only when REVIEW-FIX.md names it, so a fi
 needs `review record-fixed --commit <sha>` (or a `--since last` review) to stop being uncovered;
 the interactive "Accept and close" path is prose, like every gate dispatch.
 
+### Usage review 2026-10: requirements review at roadmap:pre (N1, GYL-4)
+
+Branch `feat/requirements-review-point`. All three of get_your_look_up's October milestones had their
+requirements reviewed by hand (four general-purpose agents per lens) between REQUIREMENTS and ROADMAP,
+and each time the review caught critical defects before planning. ADR-5212, ADR-857 amendment 2026-11-01.
+
+- **Loop point `roadmap:pre`, not `requirements:post`.** ADR-857 had already left the name
+  (`<step>:<pre|post>`, step `roadmap`); its position is `plan:pre`'s — after the preparatory work
+  (requirements), before the step's core agent (roadmapper). 15 → 16 points across the generator,
+  contract, schema, validator, resolver fallback, matrix and tests. new-project hosts both roadmap
+  points (`HOST_LOOP_FILES` now lists each file once); its roadmap:pre site must dispatch gates (a
+  test rejects a step-only site). Both hosts gained `Skill` in `allowed-tools`.
+- **Capability `mn-requirements-review`** (`workflow.requirements_review`, default on — once per
+  milestone; `workflow.requirements_review_lenses`). Step `ref.skill: requirements-review` → workflow
+  `requirements-review.md`: `requirements-review prepare` → one `gsd-requirements-reviewer` per lens →
+  `gsd-finding-refuter` mode `requirements` → `compose` → REQUIREMENTS-REVIEW.md; interactive accept
+  of a blocking finding with a reason, nothing asked in auto mode. Gate `check mn-requirements-review`
+  (one line in `gate-mn-dispatch`), blocking, `onError: halt`.
+- **New agent rather than the window lenses.** spec/standards reviewers take base/tip/pre-pass and
+  cite hunks; a requirements review has no diff and judges the spec against the code. The new agent
+  keeps their lens-parameter shape; the refuter gains a mode.
+- The refuter is owned by `mn-verify-gate` (agent ownership is exclusive in the registry), as for
+  code-review's and architecture's use of it; without it findings stay `unverified` and still block.
+
+- **Review fixes (2026-11-01):** `milestone: null` read back as the string "null" (frontmatter
+  reader), so an acceptance without `--milestone` never matched — the key is now omitted and the
+  milestone defaults to STATE.md's. Acceptance binds to lens + REQ-ID + requirement text digest +
+  normalised title (without the title one acceptance covered every risk of that lens about the
+  requirement — a GYL-4-class miss). Hosts gained "Review again" (`--lens` from the gate's `rerun`; `prepare` keeps the
+  other reports when the requirements are unchanged) and resume (`/gsd-new-milestone --from-roadmap`,
+  `/gsd-new-project` resumes at the hooks). Lens rules for greenfield (nothing released / no schema →
+  clean; high-level never CR) and explicit data/compat evidence (`git log --branches --remotes` over migrations,
+  journal vs branches, API consumers).
+
+**Not done:** the roadmapper does not read REQUIREMENTS-REVIEW.md; no `requirements:post` alias;
+`/gsd-next` does not yet route a milestone held at roadmap:pre to `--from-roadmap`.
+
 ## Remaining
 
 Ordered by cost of the failure they prevent, not by effort.
